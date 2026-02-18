@@ -1,5 +1,5 @@
 [project]
-name = "pos_next"
+name = "ecs_posnext"
 authors = [
     { name = "BrainWise", email = "support@brainwise.me"}
 ]
