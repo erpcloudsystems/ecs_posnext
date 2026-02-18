@@ -1,9 +1,9 @@
 [project]
-name = "pos_next"
+name = "ecs_posnext"
 authors = [
     { name = "BrainWise", email = "support@brainwise.me"}
 ]
-description = "“POS built on ERPNext that brings together real-time billing, stock management, multi-user access, offline mode, and direct ERP integration. Run your store or restaurant with confidence and control, while staying 100% open source."
+description = "POS built on ERPNext that brings together real-time billing, stock management, multi-user access, offline mode, and direct ERP integration. Run your store or restaurant with confidence and control, while staying 100% open source."
 requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
@@ -15,6 +15,9 @@ dependencies = [
 [build-system]
 requires = ["flit_core >=3.4,<4"]
 build-backend = "flit_core.buildapi"
+
+[tool.flit.module]
+name = "pos_next"
 
 # These dependencies are only installed when developer mode is enabled
 [tool.bench.dev-dependencies]
