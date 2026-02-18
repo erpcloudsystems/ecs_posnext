@@ -1,6 +1,6 @@
 from pos_next.utils import get_build_version
 
-app_name = "pos_next"
+app_name = "ecs_posnext"
 app_title = "POS Next"
 app_publisher = "BrainWise"
 app_description = "POS built on ERPNext that brings together real-time billing, stock management, multi-user access, offline mode, and direct ERP integration. Run your store or restaurant with confidence and control, while staying 100% open source."
