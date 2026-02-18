@@ -65,8 +65,8 @@ Loyalty Program Enabled → All wallet features automatically activated
 ### File Structure
 
 ```
-pos_next/
-├── pos_next/
+ecs_posnext/
+├── ecs_posnext/
 │   ├── api/
 │   │   ├── wallet.py              # Main wallet API
 │   │   └── customers.py           # Customer hooks (loyalty assignment)
@@ -256,7 +256,7 @@ pos_next/
 Returns available wallet balance for customer.
 
 ```python
-from pos_next.api.wallet import get_customer_wallet_balance
+from ecs_posnext.api.wallet import get_customer_wallet_balance
 
 balance = get_customer_wallet_balance(
     customer="CUST-001",
@@ -270,7 +270,7 @@ balance = get_customer_wallet_balance(
 Returns comprehensive wallet info for POS frontend.
 
 ```python
-from pos_next.api.wallet import get_wallet_info
+from ecs_posnext.api.wallet import get_wallet_info
 
 info = get_wallet_info(
     customer="CUST-001",
@@ -292,7 +292,7 @@ info = get_wallet_info(
 Gets existing wallet or creates new one.
 
 ```python
-from pos_next.api.wallet import get_or_create_wallet
+from ecs_posnext.api.wallet import get_or_create_wallet
 
 wallet = get_or_create_wallet(
     customer="CUST-001",
@@ -305,7 +305,7 @@ wallet = get_or_create_wallet(
 Creates manual wallet credit (admin use).
 
 ```python
-from pos_next.api.wallet import create_manual_wallet_credit
+from ecs_posnext.api.wallet import create_manual_wallet_credit
 
 transaction_name = create_manual_wallet_credit(
     customer="CUST-001",
@@ -322,7 +322,7 @@ transaction_name = create_manual_wallet_credit(
 Creates wallet credit transaction.
 
 ```python
-from pos_next.pos_next.doctype.wallet_transaction.wallet_transaction import create_wallet_credit
+from ecs_posnext.ecs_posnext.doctype.wallet_transaction.wallet_transaction import create_wallet_credit
 
 transaction = create_wallet_credit(
     wallet="CUST-001-WALLET",
@@ -342,14 +342,14 @@ transaction = create_wallet_credit(
 ```python
 doc_events = {
     "Customer": {
-        "after_insert": "pos_next.api.customers.auto_assign_loyalty_program"
+        "after_insert": "ecs_posnext.api.customers.auto_assign_loyalty_program"
     },
     "Sales Invoice": {
         "validate": [
-            "pos_next.api.wallet.validate_wallet_payment"
+            "ecs_posnext.api.wallet.validate_wallet_payment"
         ],
         "on_submit": [
-            "pos_next.api.wallet.process_loyalty_to_wallet"
+            "ecs_posnext.api.wallet.process_loyalty_to_wallet"
         ]
     }
 }

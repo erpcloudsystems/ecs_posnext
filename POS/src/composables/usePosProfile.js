@@ -6,13 +6,13 @@ export function usePosProfile() {
 
 	// Get all POS Profiles accessible by user
 	const getPosProfiles = createResource({
-		url: "pos_next.api.pos_profile.get_pos_profiles",
+		url: "ecs_posnext.api.pos_profile.get_pos_profiles",
 		auto: false,
 	})
 
 	// Get detailed POS Profile data
 	const getPosProfileData = createResource({
-		url: "pos_next.api.pos_profile.get_pos_profile_data",
+		url: "ecs_posnext.api.pos_profile.get_pos_profile_data",
 		makeParams({ pos_profile }) {
 			return { pos_profile }
 		},

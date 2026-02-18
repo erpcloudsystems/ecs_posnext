@@ -638,7 +638,7 @@ watch(() => props.modelValue, async (newVal) => {
 			// Item mode - check if item has variants first
 			// We need to fetch item details to check has_variants
 			try {
-				const itemResponse = await call('pos_next.api.items.get_items', {
+				const itemResponse = await call('ecs_posnext.api.items.get_items', {
 					pos_profile: props.posProfile,
 					search_term: props.itemCode,
 					start: 0,
@@ -732,7 +732,7 @@ async function performSearch() {
 	}
 
 	try {
-		const response = await call('pos_next.api.items.get_items', {
+		const response = await call('ecs_posnext.api.items.get_items', {
 			pos_profile: props.posProfile,
 			search_term: searchQuery.value,
 			start: 0,
@@ -876,7 +876,7 @@ async function loadVariants() {
 	error.value = null
 
 	try {
-		const response = await call('pos_next.api.items.get_item_variants', {
+		const response = await call('ecs_posnext.api.items.get_item_variants', {
 			template_item: templateItem,
 			pos_profile: props.posProfile
 		})
@@ -940,14 +940,14 @@ async function loadAvailability() {
 		// If variants are selected, use item_codes parameter
 		if (selectedVariants.value.length > 0) {
 			const itemCodes = selectedVariants.value.map(v => v.item_code)
-			const response = await call('pos_next.api.items.get_item_warehouse_availability', {
+			const response = await call('ecs_posnext.api.items.get_item_warehouse_availability', {
 				item_codes: JSON.stringify(itemCodes),
 				company: props.company
 			})
 			warehouses.value = response || []
 		} else {
 			// Single item (backward compatible)
-			const response = await call('pos_next.api.items.get_item_warehouse_availability', {
+			const response = await call('ecs_posnext.api.items.get_item_warehouse_availability', {
 				item_code: targetItemCode,
 				company: props.company
 			})

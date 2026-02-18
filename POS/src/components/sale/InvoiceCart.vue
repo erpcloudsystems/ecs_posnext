@@ -1421,10 +1421,10 @@ if (props.posProfile) {
  * - Reloads when customer changes (via watcher)
  * - Used for the "Coupon" button badge count
  *
- * @endpoint pos_next.api.offers.get_active_coupons
+ * @endpoint ecs_posnext.api.offers.get_active_coupons
  */
 const giftCardsResource = createResource({
-	url: "pos_next.api.offers.get_active_coupons",
+	url: "ecs_posnext.api.offers.get_active_coupons",
 	makeParams() {
 		return {
 			customer: props.customer?.name || props.customer,

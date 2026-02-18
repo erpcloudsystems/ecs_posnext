@@ -1148,7 +1148,7 @@ const additionalDiscountType = ref(
 )
 
 const paymentMethodsResource = createResource({
-	url: "pos_next.api.pos_profile.get_payment_methods",
+	url: "ecs_posnext.api.pos_profile.get_payment_methods",
 	makeParams() {
 		return {
 			pos_profile: props.posProfile,
@@ -1168,7 +1168,7 @@ const paymentMethodsResource = createResource({
 })
 
 const customerCreditResource = createResource({
-	url: "pos_next.api.credit_sales.get_available_credit",
+	url: "ecs_posnext.api.credit_sales.get_available_credit",
 	makeParams() {
 		const customerName = props.customer?.name || props.customer
 		log.debug("[PaymentDialog] Fetching credit for customer:", customerName)
@@ -1196,7 +1196,7 @@ const customerCreditResource = createResource({
 })
 
 const customerBalanceResource = createResource({
-	url: "pos_next.api.credit_sales.get_customer_balance",
+	url: "ecs_posnext.api.credit_sales.get_customer_balance",
 	makeParams() {
 		const customerName = props.customer?.name || props.customer
 		log.debug("[PaymentDialog] Fetching balance for customer:", customerName)
@@ -1229,7 +1229,7 @@ const customerBalanceResource = createResource({
 
 // Wallet resource
 const walletInfoResource = createResource({
-	url: "pos_next.api.wallet.get_wallet_info",
+	url: "ecs_posnext.api.wallet.get_wallet_info",
 	makeParams() {
 		const customerName = props.customer?.name || props.customer
 		log.debug(
@@ -1275,7 +1275,7 @@ async function identifyWalletPaymentMethods() {
 		// Single batch API call instead of N individual calls
 		const methodNames = paymentMethods.value.map((m) => m.mode_of_payment)
 		const result = await call(
-			"pos_next.api.pos_profile.get_wallet_payment_flags",
+			"ecs_posnext.api.pos_profile.get_wallet_payment_flags",
 			{
 				methods: methodNames,
 			},
@@ -1344,7 +1344,7 @@ const salesPersonDropdownOpen = ref(false)
 const salesPersonDropdownRef = ref(null)
 
 const salesPersonsResource = createResource({
-	url: "pos_next.api.pos_profile.get_sales_persons",
+	url: "ecs_posnext.api.pos_profile.get_sales_persons",
 	makeParams() {
 		return {
 			pos_profile: props.posProfile,

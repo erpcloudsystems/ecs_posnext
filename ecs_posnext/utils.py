@@ -6,7 +6,7 @@ import json
 import time
 from pathlib import Path
 
-from pos_next import __version__ as app_version
+from ecs_posnext import __version__ as app_version
 
 _BASE_DIR = Path(__file__).resolve().parent
 _VERSION_FILE = _BASE_DIR / "public" / "pos" / "version.json"

@@ -5,8 +5,8 @@
 from __future__ import unicode_literals
 import frappe
 from frappe import _
-from pos_next.api.utilities import check_user_company
-from pos_next.api.utilities import _parse_list_parameter
+from ecs_posnext.api.utilities import check_user_company
+from ecs_posnext.api.utilities import _parse_list_parameter
 
 
 @frappe.whitelist()
@@ -51,7 +51,7 @@ def get_pos_profile_data(pos_profile):
 
 	# Get hierarchical item groups (with child_groups info) in same call
 	# This eliminates a separate API call to get_item_groups
-	from pos_next.api.items import get_item_groups
+	from ecs_posnext.api.items import get_item_groups
 	item_groups_with_hierarchy = get_item_groups(pos_profile)
 
 	return {
@@ -70,7 +70,7 @@ def get_pos_profile_data(pos_profile):
 @frappe.whitelist()
 def get_pos_settings(pos_profile):
 	"""Get POS Settings for a given POS Profile"""
-	from pos_next.api.constants import POS_SETTINGS_FIELDS, DEFAULT_POS_SETTINGS
+	from ecs_posnext.api.constants import POS_SETTINGS_FIELDS, DEFAULT_POS_SETTINGS
 
 	if not pos_profile:
 		return DEFAULT_POS_SETTINGS.copy()

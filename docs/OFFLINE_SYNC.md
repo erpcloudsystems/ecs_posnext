@@ -216,10 +216,10 @@ POS/src/utils/offline/
 POS/src/workers/
 └── offline.worker.js # Background processing
 
-pos_next/api/
+ecs_posnext/api/
 └── invoices.py       # Server-side API
 
-pos_next/pos_next/doctype/offline_invoice_sync/
+ecs_posnext/ecs_posnext/doctype/offline_invoice_sync/
 ├── offline_invoice_sync.json  # DocType definition
 └── offline_invoice_sync.py    # DocType class
 ```
@@ -278,7 +278,7 @@ const result = await checkOfflineIdSynced("pos_offline_abc123...")
 Checks if an offline invoice was already synced.
 
 ```python
-# Endpoint: /api/method/pos_next.api.invoices.check_offline_invoice_synced
+# Endpoint: /api/method/ecs_posnext.api.invoices.check_offline_invoice_synced
 # Method: POST
 # Params: offline_id (string)
 # Returns: { synced: bool, sales_invoice: string|null }
@@ -288,7 +288,7 @@ Checks if an offline invoice was already synced.
 Submits an invoice with offline deduplication support.
 
 ```python
-# Endpoint: /api/method/pos_next.api.invoices.submit_invoice
+# Endpoint: /api/method/ecs_posnext.api.invoices.submit_invoice
 # Method: POST
 # Params:
 #   - invoice: Invoice data (with optional offline_id)
@@ -301,7 +301,7 @@ Submits an invoice with offline deduplication support.
 #### Static Methods
 
 ```python
-from pos_next.pos_next.doctype.offline_invoice_sync.offline_invoice_sync import (
+from ecs_posnext.ecs_posnext.doctype.offline_invoice_sync.offline_invoice_sync import (
     OfflineInvoiceSync,
 )
 

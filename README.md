@@ -35,8 +35,8 @@ POS Next is a **complete rewrite** of the ERPNext POS system, built from the gro
 
 ## 📞 Support & Community
 
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/BrainWise-DEV/pos_next/issues)
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/BrainWise-DEV/pos_next/discussions)
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/BrainWise-DEV/ecs_posnext/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/BrainWise-DEV/ecs_posnext/discussions)
 - 📖 **Forum**: [Frappe Community](https://discuss.frappe.io/)
 - 📱 **Telegram Group**: [Join our community](https://t.me/+J2WHnNKCn8ZhOWQ0) - Get help, share ideas, and connect with other users
 - 📧 **Email**: support@brainwise.me
@@ -165,16 +165,16 @@ POS Next is a **complete rewrite** of the ERPNext POS system, built from the gro
 cd ~/frappe-bench
 
 # Get the app from GitHub
-bench get-app https://github.com/BrainWise-DEV/pos_next.git --branch develop
+bench get-app https://github.com/BrainWise-DEV/ecs_posnext.git --branch develop
 
 # Install on your site
-bench --site [your-site-name] install-app pos_next
+bench --site [your-site-name] install-app ecs_posnext
 
 # Run migrations
 bench --site [your-site-name] migrate
 
 # Build assets
-bench build --app pos_next
+bench build --app ecs_posnext
 
 # Restart (production only)
 bench restart
@@ -185,10 +185,10 @@ bench restart
 ```bash
 # Get app in dev mode
 cd ~/frappe-bench
-bench get-app /path/to/pos_next
+bench get-app /path/to/ecs_posnext
 
 # Install frontend dependencies
-cd apps/pos_next/POS
+cd apps/ecs_posnext/POS
 npm install
 
 # Run dev server with hot reload
@@ -203,13 +203,13 @@ bench start
 Already have POS Next? Update to the latest version:
 
 ```bash
-cd ~/frappe-bench/apps/pos_next
+cd ~/frappe-bench/apps/ecs_posnext
 git pull origin develop
 cd ../..
 
 # Apply updates
 bench --site [your-site-name] migrate
-bench build --app pos_next
+bench build --app ecs_posnext
 bench --site [your-site-name] clear-cache
 
 # Restart (production only - skip if using bench start)
@@ -350,9 +350,9 @@ bench --site [your-site-name] clear-cache
 ## 🏗️ Build for Production
 
 ```bash
-cd apps/pos_next/POS
+cd apps/ecs_posnext/POS
 npm run build
-bench build --app pos_next
+bench build --app ecs_posnext
 bench restart
 ```
 
@@ -362,7 +362,7 @@ bench restart
 
 ```python
 frappe.call({
-    method: 'pos_next.api.offers.get_offers',
+    method: 'ecs_posnext.api.offers.get_offers',
     args: {
         pos_profile: 'Main POS',
         customer: 'CUST-00001'
@@ -375,7 +375,7 @@ frappe.call({
 
 ```python
 frappe.call({
-    method: 'pos_next.api.offers.validate_coupon',
+    method: 'ecs_posnext.api.offers.validate_coupon',
     args: {
         coupon_code: 'SUMMER2024',
         customer: 'CUST-00001',
@@ -390,7 +390,7 @@ frappe.call({
 
 ```python
 frappe.call({
-    method: 'pos_next.api.invoices.create_invoice',
+    method: 'ecs_posnext.api.invoices.create_invoice',
     args: {
         invoice_data: {
             customer: 'CUST-00001',
@@ -412,7 +412,7 @@ We welcome contributions! Here's how:
 
 1. **Fork** the repository
 2. **Create** a feature branch: `git checkout -b feature/amazing-feature`
-3. **Install** pre-commit hooks: `cd apps/pos_next && pre-commit install`
+3. **Install** pre-commit hooks: `cd apps/ecs_posnext && pre-commit install`
 4. **Make** your changes
 5. **Test** thoroughly
 6. **Commit** with clear messages
@@ -494,6 +494,6 @@ Coming soon:
 
 ⭐ Star us on GitHub — it motivates us a lot!
 
-[Report Bug](https://github.com/BrainWise-DEV/pos_next/issues) • [Request Feature](https://github.com/BrainWise-DEV/pos_next/issues) • [Documentation](https://github.com/BrainWise-DEV/pos_next/wiki)
+[Report Bug](https://github.com/BrainWise-DEV/ecs_posnext/issues) • [Request Feature](https://github.com/BrainWise-DEV/ecs_posnext/issues) • [Documentation](https://github.com/BrainWise-DEV/ecs_posnext/wiki)
 
 </div>

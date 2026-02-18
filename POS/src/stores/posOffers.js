@@ -314,7 +314,7 @@ export const usePOSOffersStore = defineStore("posOffers", () => {
 				}
 
 				// Online: fetch from API
-				const response = await call("pos_next.api.offers.get_offers", {
+				const response = await call("ecs_posnext.api.offers.get_offers", {
 					pos_profile: posProfile,
 				})
 

@@ -858,7 +858,7 @@ def update_invoice(data):
         if coupon_code:
             # Validate POS Coupon exists and is valid
             if frappe.db.table_exists("POS Coupon"):
-                from pos_next.pos_next.doctype.pos_coupon.pos_coupon import check_coupon_code
+                from ecs_posnext.ecs_posnext.doctype.pos_coupon.pos_coupon import check_coupon_code
 
                 coupon_result = check_coupon_code(
                     coupon_code,
@@ -1077,7 +1077,7 @@ def check_offline_invoice_synced(offline_id):
     Returns:
         dict with 'synced' (bool) and 'sales_invoice' (str or None)
     """
-    from pos_next.pos_next.doctype.offline_invoice_sync.offline_invoice_sync import (
+    from ecs_posnext.ecs_posnext.doctype.offline_invoice_sync.offline_invoice_sync import (
         OfflineInvoiceSync,
     )
 
@@ -1252,7 +1252,7 @@ def submit_invoice(invoice=None, data=None):
             # Increment usage counter for POS Coupon
             if frappe.db.table_exists("POS Coupon"):
                 try:
-                    from pos_next.pos_next.doctype.pos_coupon.pos_coupon import increment_coupon_usage
+                    from ecs_posnext.ecs_posnext.doctype.pos_coupon.pos_coupon import increment_coupon_usage
                     increment_coupon_usage(coupon_code)
                 except Exception as e:
                     frappe.log_error(
@@ -1320,7 +1320,7 @@ def submit_invoice(invoice=None, data=None):
         # Handle wallet transaction reversal for returns
         if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
             try:
-                from pos_next.pos_next.doctype.wallet_transaction.wallet_transaction import reverse_wallet_transactions_for_return
+                from ecs_posnext.ecs_posnext.doctype.wallet_transaction.wallet_transaction import reverse_wallet_transactions_for_return
                 reverse_wallet_transactions_for_return(
                     original_invoice=invoice_doc.return_against,
                     return_invoice=invoice_doc.name
@@ -1344,7 +1344,7 @@ def submit_invoice(invoice=None, data=None):
 
         if redeemed_customer_credit and customer_credit_dict:
             try:
-                from pos_next.api.credit_sales import redeem_customer_credit
+                from ecs_posnext.api.credit_sales import redeem_customer_credit
                 redeem_customer_credit(invoice_doc.name, customer_credit_dict)
             except Exception as credit_error:
                 frappe.log_error(

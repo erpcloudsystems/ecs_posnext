@@ -224,7 +224,7 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 			if (!isOffline()) {
 				const lastSync = forceReload ? null : localStorage.getItem(CUSTOMERS_SYNC_KEY)
 
-				const response = await call("pos_next.api.customers.get_customers", {
+				const response = await call("ecs_posnext.api.customers.get_customers", {
 					pos_profile: posProfile,
 					search_term: "",
 					start: 0,

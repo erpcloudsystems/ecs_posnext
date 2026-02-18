@@ -123,7 +123,7 @@ export const useStockStore = defineStore('stock', () => {
 			if (!codesToRefresh.length) return
 
 			const response = await Promise.race([
-				call('pos_next.api.items.get_stock_quantities', {
+				call('ecs_posnext.api.items.get_stock_quantities', {
 					item_codes: JSON.stringify(codesToRefresh),
 					warehouse: targetWarehouse || warehouse.value
 				}),

@@ -7,7 +7,7 @@ for weighted and priced barcodes. When not installed, it gracefully
 returns None.
 
 Usage:
-    from pos_next.services import resolve_barcode, is_barcode_resolver_available
+    from ecs_posnext.services import resolve_barcode, is_barcode_resolver_available
 
     # Check if feature is available
     if is_barcode_resolver_available():

@@ -191,7 +191,7 @@ const errorMessage = ref("")
 
 // Resource to load gift cards
 const giftCardsResource = createResource({
-	url: "pos_next.api.offers.get_active_coupons",
+	url: "ecs_posnext.api.offers.get_active_coupons",
 	makeParams() {
 		return {
 			customer: props.customer,
@@ -206,7 +206,7 @@ const giftCardsResource = createResource({
 
 // Resource to validate coupon
 const couponResource = createResource({
-	url: "pos_next.api.offers.validate_coupon",
+	url: "ecs_posnext.api.offers.validate_coupon",
 	makeParams() {
 		return {
 			coupon_code: couponCode.value,

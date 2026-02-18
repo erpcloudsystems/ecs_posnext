@@ -29,7 +29,7 @@ from frappe import _
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Coalesce
 
-from pos_next.api.constants import POS_SETTINGS_FIELDS, DEFAULT_POS_SETTINGS
+from ecs_posnext.api.constants import POS_SETTINGS_FIELDS, DEFAULT_POS_SETTINGS
 
 
 @frappe.whitelist()

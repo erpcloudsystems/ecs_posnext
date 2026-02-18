@@ -223,13 +223,13 @@ const restartProfileName = ref(null)
 
 // Get POS Profiles
 const profilesResource = createResource({
-	url: "pos_next.api.pos_profile.get_pos_profiles",
+	url: "ecs_posnext.api.pos_profile.get_pos_profiles",
 	auto: false,
 })
 
 // Get dialog data (payment methods)
 const dialogDataResource = createResource({
-	url: "pos_next.api.shifts.get_opening_dialog_data",
+	url: "ecs_posnext.api.shifts.get_opening_dialog_data",
 	auto: false,
 })
 

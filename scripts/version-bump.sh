@@ -34,7 +34,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # File paths
-INIT_FILE="$PROJECT_ROOT/pos_next/__init__.py"
+INIT_FILE="$PROJECT_ROOT/ecs_posnext/__init__.py"
 PACKAGE_JSON="$PROJECT_ROOT/POS/package.json"
 
 # Check if files exist

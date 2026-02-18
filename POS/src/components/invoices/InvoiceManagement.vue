@@ -852,7 +852,7 @@ async function loadUnpaidInvoices() {
 	// Fetch fresh data from server in background
 	try {
 		const result = await call(
-			"pos_next.api.partial_payments.get_unpaid_invoices",
+			"ecs_posnext.api.partial_payments.get_unpaid_invoices",
 			{
 				pos_profile: props.posProfile,
 				limit: 100,
@@ -900,7 +900,7 @@ async function loadUnpaidSummary() {
 	// Fetch fresh summary from server in background
 	try {
 		const result = await call(
-			"pos_next.api.partial_payments.get_unpaid_summary",
+			"ecs_posnext.api.partial_payments.get_unpaid_summary",
 			{
 				pos_profile: props.posProfile,
 			},
@@ -928,7 +928,7 @@ async function selectInvoiceForPayment(invoice) {
 	loadingInvoiceDetails.value = true
 	try {
 		// Fetch full invoice details including items for the payment dialog
-		const details = await call("pos_next.api.partial_payments.get_partial_payment_details", {
+		const details = await call("ecs_posnext.api.partial_payments.get_partial_payment_details", {
 			invoice_name: invoice.name,
 		})
 		selectedInvoice.value = details
@@ -947,7 +947,7 @@ async function handlePaymentCompleted(paymentData) {
 	if (!selectedInvoice.value) return
 
 	try {
-		await call("pos_next.api.partial_payments.add_payment_to_partial_invoice", {
+		await call("ecs_posnext.api.partial_payments.add_payment_to_partial_invoice", {
 			invoice_name: selectedInvoice.value.name,
 			payments: paymentData.payments,
 		})

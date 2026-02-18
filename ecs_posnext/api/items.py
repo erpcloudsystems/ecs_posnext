@@ -325,7 +325,7 @@ def search_by_barcode(barcode, pos_profile):
 		# Try to resolve weighted/priced barcodes if barcode_resolver is available
 		resolved_barcode_data = None
 		effective_barcode = barcode
-		from pos_next.services.barcode import resolve_barcode
+		from ecs_posnext.services.barcode import resolve_barcode
 		resolved_barcode_data = resolve_barcode(barcode, pos_profile)
 		if resolved_barcode_data and resolved_barcode_data.get("item_barcode"):
 			effective_barcode = resolved_barcode_data["item_barcode"]
@@ -407,7 +407,7 @@ def search_by_barcode(barcode, pos_profile):
 
 		# Apply resolved barcode data (weighted/priced) to the item details
 		if resolved_barcode_data:
-			from pos_next.services.barcode import compute_resolved_item_data
+			from ecs_posnext.services.barcode import compute_resolved_item_data
 			resolved_item_data = compute_resolved_item_data(
 				resolved_barcode_data,
 				item=item_details,
@@ -1074,7 +1074,7 @@ def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20,
 		resolved_barcode_data = None
 		effective_search_term = search_term
 		if search_term and len(search_term.strip().split()) == 1:
-			from pos_next.services.barcode import resolve_barcode
+			from ecs_posnext.services.barcode import resolve_barcode
 			resolved_barcode_data = resolve_barcode(search_term.strip(), pos_profile)
 			if resolved_barcode_data and resolved_barcode_data.get("item_barcode"):
 				# Use the extracted item barcode for searching
@@ -1395,7 +1395,7 @@ def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20,
 
 		# Apply resolved barcode data (weighted/priced) to the first matching item
 		if resolved_barcode_data and items:
-			from pos_next.services.barcode import compute_resolved_item_data
+			from ecs_posnext.services.barcode import compute_resolved_item_data
 			resolved_item_data = compute_resolved_item_data(
 				resolved_barcode_data,
 				item=items[0],

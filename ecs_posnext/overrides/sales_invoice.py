@@ -19,7 +19,7 @@ def _get_post_change_gl_entries_setting():
 	- ERPNext v15: Field is in 'Accounts Settings'
 	- ERPNext v16: Field moved to ERPNext's 'POS Settings' (singleton)
 
-	Since pos_next has its own 'POS Settings' doctype (non-singleton) that overrides
+	Since ecs_posnext has its own 'POS Settings' doctype (non-singleton) that overrides
 	ERPNext's, we read directly from the Singles table for v16 compatibility.
 
 	Returns:

@@ -24,7 +24,7 @@ const log = logger.create('OfflineState')
 
 const CONFIG = {
 	// Ping settings
-	PING_URL: '/api/method/pos_next.api.ping',
+	PING_URL: '/api/method/ecs_posnext.api.ping',
 	PING_TIMEOUT_MS: 5000,
 	PING_RETRY_COUNT: 2,
 
@@ -52,7 +52,7 @@ const CONFIG = {
 	DEBOUNCE_DELAY_MS: 150,
 
 	// Cross-tab sync
-	BROADCAST_CHANNEL_NAME: 'pos_next_offline_state',
+	BROADCAST_CHANNEL_NAME: 'ecs_posnext_offline_state',
 }
 
 // ============================================================================

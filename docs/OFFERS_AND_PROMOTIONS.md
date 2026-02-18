@@ -107,7 +107,7 @@ Cart Change → Debounce (150ms) → processOffersInternal()
 
 ### `apply_offers(invoice_data, selected_offers)`
 
-Located in `pos_next/api/invoices.py`
+Located in `ecs_posnext/api/invoices.py`
 
 ```python
 @frappe.whitelist()
@@ -229,7 +229,7 @@ This happens when:
 ### Backend Testing
 
 ```python
-from pos_next.api.invoices import apply_offers
+from ecs_posnext.api.invoices import apply_offers
 
 result = apply_offers({
     "doctype": "Sales Invoice",
@@ -252,5 +252,5 @@ print(result)
   - `POS/src/components/sale/OffersDialog.vue` - Offers UI
 
 - Backend:
-  - `pos_next/api/invoices.py` - `apply_offers()` API
+  - `ecs_posnext/api/invoices.py` - `apply_offers()` API
   - ERPNext: `erpnext/accounts/doctype/pricing_rule/` - Pricing engine

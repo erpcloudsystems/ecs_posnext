@@ -43,7 +43,7 @@ To change this, open `src/router.js` and change the base URL passed to `createWe
 
 ## Source maps in production builds
 
-Production builds omit JavaScript source maps by default to keep bundle sizes small. If you need source maps for debugging a specific deployment, set the environment variable `POS_NEXT_ENABLE_SOURCEMAP=true` before running the build command. Any value other than the string `"true"` will keep source maps disabled.
+Production builds omit JavaScript source maps by default to keep bundle sizes small. If you need source maps for debugging a specific deployment, set the environment variable `ecs_posnext_ENABLE_SOURCEMAP=true` before running the build command. Any value other than the string `"true"` will keep source maps disabled.
 
 ## Resources
 

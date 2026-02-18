@@ -58,7 +58,7 @@ let validationTimer = null
 // Load branding configuration from backend
 const loadBrandingConfig = async () => {
 	try {
-		const response = await call('pos_next.api.branding.get_branding_config')
+		const response = await call('ecs_posnext.api.branding.get_branding_config')
 
 		if (response) {
 			config.value = response
@@ -94,7 +94,7 @@ const validateWithServer = async () => {
 	if (!serverValidationEnabled.value) return
 
 	try {
-		await call('pos_next.api.branding.validate_branding', {
+		await call('ecs_posnext.api.branding.validate_branding', {
 			client_signature: config.value._sig,
 			brand_name: linkText.value,
 			brand_url: footerLink.value
@@ -114,7 +114,7 @@ const startServerValidation = () => {
 // Log client-side events to server
 const logClientEvent = async (eventType, details = {}) => {
 	try {
-		await call('pos_next.api.branding.log_client_event', {
+		await call('ecs_posnext.api.branding.log_client_event', {
 			event_type: eventType,
 			details: JSON.stringify({
 				...details,

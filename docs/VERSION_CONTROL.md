@@ -9,7 +9,7 @@ POS Next uses a comprehensive version control system that tracks both applicatio
 ## Version Types
 
 ### 1. Application Version
-- Defined in: `pos_next/__init__.py`
+- Defined in: `ecs_posnext/__init__.py`
 - Format: Semantic Versioning (MAJOR.MINOR.PATCH)
 - Example: `1.0.0`
 - Used for: Release tracking, compatibility checks
@@ -18,7 +18,7 @@ POS Next uses a comprehensive version control system that tracks both applicatio
 - Generated during: Frontend build process
 - Format: Timestamp (milliseconds since epoch)
 - Example: `1730043123456`
-- Stored in: `pos_next/public/pos/version.json`
+- Stored in: `ecs_posnext/public/pos/version.json`
 - Used for: Cache busting, ensuring users get latest assets
 
 ## How It Works
@@ -27,13 +27,13 @@ POS Next uses a comprehensive version control system that tracks both applicatio
 
 1. **Vite Build Plugin** (`POS/vite.config.js`):
    ```javascript
-   const buildVersion = process.env.POS_NEXT_BUILD_VERSION || Date.now().toString()
+   const buildVersion = process.env.ecs_posnext_BUILD_VERSION || Date.now().toString()
    ```
    - Generates unique build version
    - Writes to `version.json` after build completes
    - Includes version, timestamp, and build date
 
-2. **Version File** (`pos_next/public/pos/version.json`):
+2. **Version File** (`ecs_posnext/public/pos/version.json`):
    ```json
    {
      "version": "1730043123456",
@@ -42,15 +42,15 @@ POS Next uses a comprehensive version control system that tracks both applicatio
    }
    ```
 
-3. **Backend Integration** (`pos_next/utils.py`):
+3. **Backend Integration** (`ecs_posnext/utils.py`):
    - `get_build_version()` - Returns current build version
    - `get_app_version()` - Returns application version
    - Fallback strategies for missing version files
 
-4. **Hooks Integration** (`pos_next/hooks.py`):
+4. **Hooks Integration** (`ecs_posnext/hooks.py`):
    ```python
    _asset_version = get_build_version()
-   # app_include_js = f"/assets/pos_next/js/app.js?v={_asset_version}"
+   # app_include_js = f"/assets/ecs_posnext/js/app.js?v={_asset_version}"
    ```
 
 ## Version Bumping
@@ -60,7 +60,7 @@ POS Next uses a comprehensive version control system that tracks both applicatio
 Use the provided script to bump versions:
 
 ```bash
-cd /home/ubuntu/frappe-bench/apps/pos_next
+cd /home/ubuntu/frappe-bench/apps/ecs_posnext
 
 # Bump patch version (1.0.0 → 1.0.1)
 ./scripts/version-bump.sh patch
@@ -73,7 +73,7 @@ cd /home/ubuntu/frappe-bench/apps/pos_next
 ```
 
 The script will:
-1. Update `pos_next/__init__.py`
+1. Update `ecs_posnext/__init__.py`
 2. Update `POS/package.json`
 3. Display next steps for committing and tagging
 
@@ -83,7 +83,7 @@ You can specify a custom build version:
 
 ```bash
 cd POS
-POS_NEXT_BUILD_VERSION=1.2.3 yarn build
+ecs_posnext_BUILD_VERSION=1.2.3 yarn build
 ```
 
 ## Release Process
@@ -103,7 +103,7 @@ POS_NEXT_BUILD_VERSION=1.2.3 yarn build
 
 3. **Verify Build**:
    ```bash
-   cat ../pos_next/public/pos/version.json
+   cat ../ecs_posnext/public/pos/version.json
    ```
 
 4. **Commit Changes**:
@@ -146,17 +146,17 @@ Check current build version:
 ```bash
 # Via bench console
 cd /home/ubuntu/frappe-bench
-bench --site nexus.local execute pos_next.utils.get_build_version
+bench --site nexus.local execute ecs_posnext.utils.get_build_version
 
 # Via Python
-python3 -c "import sys; sys.path.insert(0, 'apps/pos_next'); from pos_next.utils import get_build_version; print(get_build_version())"
+python3 -c "import sys; sys.path.insert(0, 'apps/ecs_posnext'); from ecs_posnext.utils import get_build_version; print(get_build_version())"
 ```
 
 ## File Structure
 
 ```
-pos_next/
-├── pos_next/
+ecs_posnext/
+├── ecs_posnext/
 │   ├── __init__.py              # App version (__version__ = "1.0.0")
 │   ├── hooks.py                 # Hooks with version integration
 │   ├── utils.py                 # Version utility functions
@@ -176,7 +176,7 @@ pos_next/
 
 1. **Check version.json exists**:
    ```bash
-   ls -la pos_next/public/pos/version.json
+   ls -la ecs_posnext/public/pos/version.json
    ```
 
 2. **Rebuild frontend**:
@@ -209,7 +209,7 @@ If frontend and backend versions don't match:
 ### Python API
 
 ```python
-from pos_next.utils import get_build_version, get_app_version
+from ecs_posnext.utils import get_build_version, get_app_version
 
 # Get current build version for cache busting
 build_ver = get_build_version()  # Returns: "1730043123456"

@@ -84,7 +84,7 @@ export async function printInvoice(invoiceData, printFormat = null, letterhead =
  * then open the browser print window.
  */
 export async function printInvoiceByName(invoiceName, printFormat = null, letterhead = null) {
-	const invoiceDoc = await call("pos_next.api.invoices.get_invoice", {
+	const invoiceDoc = await call("ecs_posnext.api.invoices.get_invoice", {
 		invoice_name: invoiceName,
 	})
 	if (!invoiceDoc) throw new Error("Invoice not found")

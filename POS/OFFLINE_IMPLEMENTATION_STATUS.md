@@ -82,7 +82,7 @@ await setSetting('cache_ready', true)      // Mark as ready
 ```javascript
 // In POSSale.vue - tries to fetch from server every time
 const itemsResource = createResource({
-	url: 'pos_next.api.invoices.get_items',
+	url: 'ecs_posnext.api.invoices.get_items',
 	// This FAILS when offline!
 })
 ```
@@ -289,7 +289,7 @@ export function useItems(posProfile) {
 Wherever you see:
 ```javascript
 const itemsResource = createResource({
-	url: 'pos_next.api.invoices.get_items',
+	url: 'ecs_posnext.api.invoices.get_items',
 	// ...
 })
 ```

@@ -25,7 +25,7 @@ With 65K+ items in a catalog:
 
 ## Backend Changes
 
-### 1. Item Group Hierarchy (`pos_next/api/items.py`)
+### 1. Item Group Hierarchy (`ecs_posnext/api/items.py`)
 
 #### New Function: `_get_item_group_with_descendants()`
 
@@ -105,7 +105,7 @@ Uses `_get_item_group_with_descendants()` to filter items by parent group + all 
 
 ---
 
-### 2. POS Profile API (`pos_next/api/pos_profile.py`)
+### 2. POS Profile API (`ecs_posnext/api/pos_profile.py`)
 
 #### Modified: `get_pos_profile_data()`
 
@@ -141,7 +141,7 @@ async function startBackgroundCacheSync(profile, filterGroups = []) {
     const syncLoop = async () => {
         while (cacheSyncing.value) {
             // Fetch batch
-            const response = await call("pos_next.api.items.get_items", {
+            const response = await call("ecs_posnext.api.items.get_items", {
                 pos_profile: profile,
                 item_group: currentGroup,
                 start: offset,
@@ -189,7 +189,7 @@ async function setSelectedItemGroup(group) {
                 items = await fetchItemsForGroup(posProfile.value, group, 0, 100)
             } else {
                 // "All Items" tab: fetch without group filter
-                const response = await call("pos_next.api.items.get_items", {
+                const response = await call("ecs_posnext.api.items.get_items", {
                     pos_profile: posProfile.value,
                     item_group: null,
                     limit: 100,
@@ -221,7 +221,7 @@ async function fetchItemsForGroup(profile, itemGroup, start = 0, limit = 100) {
 
     // Use bulk endpoint for multiple groups
     if (groupsToFetch.length > 1) {
-        const response = await call("pos_next.api.items.get_items_bulk", {
+        const response = await call("ecs_posnext.api.items.get_items_bulk", {
             pos_profile: profile,
             item_groups: JSON.stringify(groupsToFetch),
             limit: limit,
@@ -239,7 +239,7 @@ Uses combined API response to set both profile data and item groups hierarchy:
 ```javascript
 async function setPosProfile(profile, autoLoadItems = true) {
     // Single API call returns EVERYTHING
-    const data = await call("pos_next.api.pos_profile.get_pos_profile_data", {
+    const data = await call("ecs_posnext.api.pos_profile.get_pos_profile_data", {
         pos_profile: profile
     })
 

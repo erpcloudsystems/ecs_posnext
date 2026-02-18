@@ -11,8 +11,8 @@ const log = logger.create("Locale")
 const currentLocale = ref("en")
 const currentDir = ref("ltr")
 const allowedLocales = ref(null) // null = not fetched yet, array = fetched from server
-const PREFARED_LANGUAGE_KEY = "pos_next_language"
-const ALLOWED_LOCALES_KEY = "pos_next_allowed_locales"
+const PREFARED_LANGUAGE_KEY = "ecs_posnext_language"
+const ALLOWED_LOCALES_KEY = "ecs_posnext_allowed_locales"
 
 /** Track if initial language fetch from server has been attempted */
 let serverLanguageFetched = false
@@ -64,7 +64,7 @@ export const SUPPORTED_LOCALES = {
  */
 async function fetchAllowedLocalesFromServer() {
 	try {
-		const response = await call("pos_next.api.localization.get_allowed_locales", {})
+		const response = await call("ecs_posnext.api.localization.get_allowed_locales", {})
 		if (response?.locales && Array.isArray(response.locales)) {
 			// Cache for offline use
 			localStorage.setItem(ALLOWED_LOCALES_KEY, JSON.stringify(response.locales))
@@ -113,7 +113,7 @@ async function fetchLanguageFromServer() {
 
 	// Fallback to direct API call
 	try {
-		const response = await call("pos_next.api.localization.get_user_language", {})
+		const response = await call("ecs_posnext.api.localization.get_user_language", {})
 		if (response?.locale && SUPPORTED_LOCALES[response.locale]) {
 			log.info(`Fetched language from server: ${response.locale}`)
 			return response.locale
@@ -205,7 +205,7 @@ export function useLocale() {
 
 		// Update Frappe user settings first (this changes the user's language in Frappe)
 		try {
-			await call("pos_next.api.localization.change_user_language", {
+			await call("ecs_posnext.api.localization.change_user_language", {
 				locale: newLocale,
 			})
 		} catch (error) {

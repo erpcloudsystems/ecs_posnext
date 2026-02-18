@@ -269,7 +269,7 @@ async function loadInvoices() {
 	loading.value = true
 
 	try {
-		const result = await call("pos_next.api.partial_payments.get_partial_paid_invoices", {
+		const result = await call("ecs_posnext.api.partial_payments.get_partial_paid_invoices", {
 			pos_profile: props.posProfile,
 			limit: 50,
 		})
@@ -287,7 +287,7 @@ async function loadSummary() {
 	if (!props.posProfile) return
 
 	try {
-		const result = await call("pos_next.api.partial_payments.get_partial_payment_summary", {
+		const result = await call("ecs_posnext.api.partial_payments.get_partial_payment_summary", {
 			pos_profile: props.posProfile,
 		})
 
@@ -320,7 +320,7 @@ async function handlePaymentCompleted(paymentData) {
 
 	try {
 		console.log('[PartialPayments] Calling API to add payment...')
-		const result = await call("pos_next.api.partial_payments.add_payment_to_partial_invoice", {
+		const result = await call("ecs_posnext.api.partial_payments.add_payment_to_partial_invoice", {
 			invoice_name: selectedInvoice.value.name,
 			payments: paymentData.payments,
 		})

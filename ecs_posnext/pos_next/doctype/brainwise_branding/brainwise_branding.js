@@ -89,7 +89,7 @@ function verify_master_key(frm) {
 	}
 
 	frappe.call({
-		method: 'pos_next.pos_next.doctype.brainwise_branding.brainwise_branding.verify_master_key',
+		method: 'ecs_posnext.ecs_posnext.doctype.brainwise_branding.brainwise_branding.verify_master_key',
 		args: {
 			master_key_input: frm.doc.master_key_provided
 		},
@@ -164,7 +164,7 @@ function show_master_key_help() {
 
 function show_tampering_stats() {
 	frappe.call({
-		method: 'pos_next.api.branding.get_tampering_stats',
+		method: 'ecs_posnext.api.branding.get_tampering_stats',
 		callback: function(r) {
 			if (r.message) {
 				const stats = r.message;

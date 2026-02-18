@@ -33,9 +33,9 @@ function getCacheStructureHash(structure) {
 // Auto-increment cache version based on structure changes
 function getCacheVersion() {
 	const structureHash = getCacheStructureHash(CACHE_STRUCTURE)
-	const storedHash = localStorage.getItem("pos_next_cache_structure_hash")
+	const storedHash = localStorage.getItem("ecs_posnext_cache_structure_hash")
 	const storedVersion = Number.parseInt(
-		localStorage.getItem("pos_next_cache_version") || "1",
+		localStorage.getItem("ecs_posnext_cache_version") || "1",
 	)
 
 	if (storedHash !== structureHash.toString()) {
@@ -44,10 +44,10 @@ function getCacheVersion() {
 			`Cache structure changed. Upgrading from v${storedVersion} to v${newVersion}`,
 		)
 		localStorage.setItem(
-			"pos_next_cache_structure_hash",
+			"ecs_posnext_cache_structure_hash",
 			structureHash.toString(),
 		)
-		localStorage.setItem("pos_next_cache_version", newVersion.toString())
+		localStorage.setItem("ecs_posnext_cache_version", newVersion.toString())
 		return newVersion
 	}
 
@@ -162,7 +162,7 @@ export const cacheItemsFromServer = async (posProfile) => {
 	try {
 		console.log("Fetching items from server...")
 
-		const response = await call("pos_next.api.items.get_items", {
+		const response = await call("ecs_posnext.api.items.get_items", {
 			pos_profile: posProfile,
 			start: 0,
 			limit: 9999, // Get all items
@@ -197,7 +197,7 @@ export const cacheCustomersFromServer = async (posProfile) => {
 	try {
 		console.log("Fetching customers from server...")
 
-		const response = await call("pos_next.api.customers.get_customers", {
+		const response = await call("ecs_posnext.api.customers.get_customers", {
                         pos_profile: posProfile,
                         start: 0,
                         limit: 0, // Get all customers
@@ -374,7 +374,7 @@ export const getCacheStats = async () => {
  */
 export async function cachePaymentMethodsFromServer(posProfile) {
 	try {
-		const result = await call("pos_next.api.pos_profile.get_payment_methods", {
+		const result = await call("ecs_posnext.api.pos_profile.get_payment_methods", {
 			pos_profile: posProfile,
 		})
 		const paymentMethods = result?.message || result || []

@@ -119,8 +119,8 @@ body:
 
         Example:
         TypeError: Cannot read property 'amount' of undefined
-            at processPayment (pos_next.bundle.js:1234:56)
-            at HTMLButtonElement.onclick (pos_next.bundle.js:789:12)
+            at processPayment (ecs_posnext.bundle.js:1234:56)
+            at HTMLButtonElement.onclick (ecs_posnext.bundle.js:789:12)
         ```
       render: shell
     validations:
@@ -151,7 +151,7 @@ body:
       label: Exact Version (if known)
       description: |
         Provide the exact version number if you know it.
-        Run `bench version` or check `pos_next/__init__.py`
+        Run `bench version` or check `ecs_posnext/__init__.py`
       placeholder: "e.g., 1.13.0"
     validations:
       required: false

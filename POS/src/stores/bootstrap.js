@@ -54,7 +54,7 @@ export const useBootstrapStore = defineStore("bootstrap", () => {
 
 		try {
 			log.info("Loading bootstrap data...")
-			const result = await call("pos_next.api.bootstrap.get_initial_data", {})
+			const result = await call("ecs_posnext.api.bootstrap.get_initial_data", {})
 
 			if (result?.success) {
 				data.value = result

@@ -6,7 +6,7 @@ import frappe
 
 def execute():
 	"""Reinstall POSNext workspace with latest configuration."""
-	app_name = "pos_next"
+	app_name = "ecs_posnext"
 	workspace_dir = Path(frappe.get_app_path(app_name)) / f"{app_name}/workspace"
 
 	# Discover all workspace JSON files

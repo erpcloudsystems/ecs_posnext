@@ -251,7 +251,7 @@ const availableBatches = computed(() => {
 
 // Resource for loading batches with actual stock quantities
 const batchesResource = createResource({
-	url: "pos_next.api.items.get_item_details",
+	url: "ecs_posnext.api.items.get_item_details",
 	makeParams() {
 		return {
 			item_code: props.item?.item_code,

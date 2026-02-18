@@ -368,7 +368,7 @@ async function loadInvoiceDetails() {
 
 	loading.value = true
 	try {
-		const result = await call("pos_next.api.invoices.get_invoice", {
+		const result = await call("ecs_posnext.api.invoices.get_invoice", {
 			invoice_name: props.invoiceName,
 		})
 

@@ -336,7 +336,7 @@ class POSClosingShift(Document):
         ]
 
         return frappe.render_template(
-            "pos_next/pos_next/doctype/pos_closing_shift/closing_shift_details.html",
+            "ecs_posnext/ecs_posnext/doctype/pos_closing_shift/closing_shift_details.html",
             {
                 "data": self,
                 "currency": company_currency,

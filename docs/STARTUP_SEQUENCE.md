@@ -119,7 +119,7 @@ CSRF token initialization and user authentication run **in parallel** for faster
 
 ### 4. Bootstrap Data Preload
 
-**Files:** `POS/src/stores/bootstrap.js`, `pos_next/api/bootstrap.py`
+**Files:** `POS/src/stores/bootstrap.js`, `ecs_posnext/api/bootstrap.py`
 
 After authentication, the app preloads essential data in a single API call instead of multiple sequential calls.
 
@@ -279,4 +279,4 @@ Each phase has graceful fallbacks:
 - `POS/src/stores/bootstrap.js` - Bootstrap store
 - `POS/src/data/session.js` - Session management
 - `POS/src/data/user.js` - User resource
-- `pos_next/api/bootstrap.py` - Bootstrap API endpoint
+- `ecs_posnext/api/bootstrap.py` - Bootstrap API endpoint

@@ -298,7 +298,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Improved UOM selection UI and cart item handling
 
 - **POS Profile Handling**
-  - User company check utility moved to pos_next utilities
+  - User company check utility moved to ecs_posnext utilities
   - Refactored payment, user, item group, and customer group handling in profile update
   - Simplified profile creation with enhanced parameter parsing
   - Cleaned up imports in POS profile API

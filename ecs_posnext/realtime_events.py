@@ -10,7 +10,7 @@ Emits Socket.IO events when stock-affecting transactions occur.
 import frappe
 from frappe import _
 
-from pos_next.api.items import get_stock_quantities
+from ecs_posnext.api.items import get_stock_quantities
 
 
 def emit_stock_update_event(doc, method=None):

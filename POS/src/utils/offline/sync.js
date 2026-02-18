@@ -51,7 +51,7 @@ export const pingServer = async () => {
 		const controller = new AbortController()
 		const timeoutId = setTimeout(() => controller.abort(), SYNC_CONFIG.PING_TIMEOUT_MS)
 
-		const response = await fetch("/api/method/pos_next.api.ping", {
+		const response = await fetch("/api/method/ecs_posnext.api.ping", {
 			method: "GET",
 			signal: controller.signal,
 		})
@@ -165,7 +165,7 @@ export const checkOfflineIdSynced = async (offlineId) => {
 
 	try {
 		const response = await call(
-			"pos_next.api.invoices.check_offline_invoice_synced",
+			"ecs_posnext.api.invoices.check_offline_invoice_synced",
 			{ offline_id: offlineId },
 		)
 		return response || { synced: false }
@@ -312,7 +312,7 @@ const syncInvoiceToServer = async (invoice, retryCount = 0) => {
 	const invoiceData = normalizeInvoiceForSync(invoice.data, offlineId)
 
 	try {
-		const response = await call("pos_next.api.invoices.submit_invoice", {
+		const response = await call("ecs_posnext.api.invoices.submit_invoice", {
 			data: JSON.stringify({ invoice: invoiceData, data: {} }),
 		})
 

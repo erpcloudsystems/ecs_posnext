@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
-		"build": "vite build --base=/assets/pos_next/pos/",
+		"build": "vite build --base=/assets/ecs_posnext/pos/",
 		"preview": "vite preview",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
@@ -13,7 +13,7 @@
 		"test": "vitest",
 		"test:run": "vitest run",
 		"test:coverage": "vitest run --coverage",
-		"copy-html-entry": "cp ../pos_next/public/pos/index.html ../pos_next/www/pos.html"
+		"copy-html-entry": "cp ../ecs_posnext/public/pos/index.html ../ecs_posnext/www/pos.html"
 	},
 	"dependencies": {
 		"@abdulrysr/saudi-riyal-new-symbol-font": "^1.0.8",

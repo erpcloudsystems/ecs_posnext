@@ -15,7 +15,7 @@ export const shiftState = ref({
 export function useShift() {
 	// Check for existing open shift
 	const checkOpeningShift = createResource({
-		url: "pos_next.api.shifts.check_opening_shift",
+		url: "ecs_posnext.api.shifts.check_opening_shift",
 		auto: false,
 		onSuccess(data) {
 			if (data) {
@@ -77,13 +77,13 @@ export function useShift() {
 
 	// Get opening dialog data (POS profiles, payment methods, etc.)
 	const getOpeningDialogData = createResource({
-		url: "pos_next.api.shifts.get_opening_dialog_data",
+		url: "ecs_posnext.api.shifts.get_opening_dialog_data",
 		auto: false,
 	})
 
 	// Create new opening shift
 	const createOpeningShift = createResource({
-		url: "pos_next.api.shifts.create_opening_shift",
+		url: "ecs_posnext.api.shifts.create_opening_shift",
 		makeParams({ pos_profile, company, balance_details }) {
 			return {
 				pos_profile,
@@ -114,7 +114,7 @@ export function useShift() {
 
 	// Get closing shift data
 	const getClosingShiftData = createResource({
-		url: "pos_next.api.shifts.get_closing_shift_data",
+		url: "ecs_posnext.api.shifts.get_closing_shift_data",
 		makeParams({ opening_shift }) {
 			return { opening_shift }
 		},
@@ -123,7 +123,7 @@ export function useShift() {
 
 	// Submit closing shift
 	const submitClosingShift = createResource({
-		url: "pos_next.api.shifts.submit_closing_shift",
+		url: "ecs_posnext.api.shifts.submit_closing_shift",
 		makeParams({ closing_shift }) {
 			return { closing_shift: JSON.stringify(closing_shift) }
 		},

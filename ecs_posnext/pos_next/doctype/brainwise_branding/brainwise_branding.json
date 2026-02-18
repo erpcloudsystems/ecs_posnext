@@ -157,7 +157,7 @@
    "label": "Encryption Key"
   },
   {
-   "default": "/api/method/pos_next.api.branding.validate_branding",
+   "default": "/api/method/ecs_posnext.api.branding.validate_branding",
    "fieldname": "validation_endpoint",
    "fieldtype": "Data",
    "label": "Validation Endpoint",

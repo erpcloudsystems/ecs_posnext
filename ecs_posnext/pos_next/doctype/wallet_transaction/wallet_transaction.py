@@ -30,7 +30,7 @@ class WalletTransaction(AccountsController):
 
 		# For debit transactions, check if sufficient balance
 		if self.transaction_type == "Debit":
-			from pos_next.pos_next.doctype.wallet.wallet import get_customer_wallet_balance
+			from ecs_posnext.ecs_posnext.doctype.wallet.wallet import get_customer_wallet_balance
 			balance = get_customer_wallet_balance(self.customer, self.company)
 			if flt(self.amount) > flt(balance):
 				frappe.throw(
@@ -275,7 +275,7 @@ def credit_loyalty_points_to_wallet(customer, company, loyalty_points, conversio
 		return None
 
 	# Get or create customer wallet
-	from pos_next.pos_next.doctype.wallet.wallet import get_or_create_wallet
+	from ecs_posnext.ecs_posnext.doctype.wallet.wallet import get_or_create_wallet
 	wallet = get_or_create_wallet(customer, company)
 
 	# Create wallet credit transaction

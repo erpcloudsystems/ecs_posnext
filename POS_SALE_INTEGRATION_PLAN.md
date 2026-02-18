@@ -28,7 +28,7 @@ This document outlines the strategy for integrating the POS sale functionality i
 **Existing:**
 - ✅ Login page with Frappe UI components
 - ✅ Shift management (opening/closing)
-- ✅ Backend API for shifts (`pos_next/api/shifts.py`)
+- ✅ Backend API for shifts (`ecs_posnext/api/shifts.py`)
 - ✅ Composables pattern (`useShift.js`)
 - ✅ Frappe UI theme integration
 
@@ -52,7 +52,7 @@ This document outlines the strategy for integrating the POS sale functionality i
 ### Phase 1: Backend API Setup (Day 1)
 
 #### 1.1 Create Invoice API Module
-**File:** `pos_next/api/invoices.py`
+**File:** `ecs_posnext/api/invoices.py`
 
 ```python
 # API Endpoints needed:
@@ -98,7 +98,7 @@ def apply_offers(invoice_data):
 ```
 
 #### 1.2 Create Items API Module
-**File:** `pos_next/api/items.py`
+**File:** `ecs_posnext/api/items.py`
 
 ```python
 @frappe.whitelist()
@@ -135,12 +135,12 @@ export function useInvoice() {
 
   // Resources
   const submitInvoiceResource = createResource({
-    url: 'pos_next.api.invoices.submit_invoice',
+    url: 'ecs_posnext.api.invoices.submit_invoice',
     auto: false,
   })
 
   const applyOffersResource = createResource({
-    url: 'pos_next.api.invoices.apply_offers',
+    url: 'ecs_posnext.api.invoices.apply_offers',
     auto: false,
   })
 
@@ -285,7 +285,7 @@ export function useItems(posProfile) {
   const selectedItemGroup = ref(null)
 
   const itemsResource = createResource({
-    url: 'pos_next.api.invoices.get_items',
+    url: 'ecs_posnext.api.invoices.get_items',
     params: {
       pos_profile: posProfile,
       search_term: searchTerm.value,
@@ -298,7 +298,7 @@ export function useItems(posProfile) {
   })
 
   const searchByBarcodeResource = createResource({
-    url: 'pos_next.api.items.search_by_barcode',
+    url: 'ecs_posnext.api.items.search_by_barcode',
     auto: false,
   })
 
@@ -771,8 +771,8 @@ export default router
 ## Implementation Timeline
 
 ### Day 1: Backend Foundation
-- ✅ Create `pos_next/api/invoices.py`
-- ✅ Create `pos_next/api/items.py`
+- ✅ Create `ecs_posnext/api/invoices.py`
+- ✅ Create `ecs_posnext/api/items.py`
 - ✅ Test API endpoints with Postman/API client
 
 ### Day 2: Composables & State Management
@@ -804,7 +804,7 @@ export default router
 ### 2. **Build on Existing Backend**
 - Implement robust API methods for POS operations
 - Create efficient item/price logic
-- Wrapper API in `pos_next` for clean separation
+- Wrapper API in `ecs_posnext` for clean separation
 
 ### 3. **Simple First, Enhance Later**
 - Start with basic item selection + cart + payment
