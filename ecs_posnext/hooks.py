@@ -1,4 +1,4 @@
-from pos_next.utils import get_build_version
+from ecs_posnext.utils import get_build_version
 
 app_name = "ecs_posnext"
 app_title = "POS Next"
@@ -15,11 +15,11 @@ app_license = "agpl-3.0"
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
 # 	{
-# 		"name": "pos_next",
-# 		"logo": "/assets/pos_next/logo.png",
+# 		"name": "ecs_posnext",
+# 		"logo": "/assets/ecs_posnext/logo.png",
 # 		"title": "POS Next",
-# 		"route": "/pos_next",
-# 		"has_permission": "pos_next.api.permission.has_app_permission"
+# 		"route": "/ecs_posnext",
+# 		"has_permission": "ecs_posnext.api.permission.has_app_permission"
 # 	}
 # ]
 
@@ -30,15 +30,15 @@ app_license = "agpl-3.0"
 _asset_version = get_build_version()
 
 # include js, css files in header of desk.html
-# app_include_css = f"/assets/pos_next/css/pos_next.css?v={_asset_version}"
-# app_include_js = f"/assets/pos_next/js/pos_next.js?v={_asset_version}"
+# app_include_css = f"/assets/ecs_posnext/css/ecs_posnext.css?v={_asset_version}"
+# app_include_js = f"/assets/ecs_posnext/js/ecs_posnext.js?v={_asset_version}"
 
 # include js, css files in header of web template
-# web_include_css = "/assets/pos_next/css/pos_next.css"
-# web_include_js = "/assets/pos_next/js/pos_next.js"
+# web_include_css = "/assets/ecs_posnext/css/ecs_posnext.css"
+# web_include_js = "/assets/ecs_posnext/js/ecs_posnext.js"
 
 # include custom scss in every website theme (without file extension ".scss")
-# website_theme_scss = "pos_next/public/scss/website"
+# website_theme_scss = "ecs_posnext/public/scss/website"
 
 # include js, css files in header of web form
 # webform_include_js = {"doctype": "public/js/doctype.js"}
@@ -56,7 +56,7 @@ _asset_version = get_build_version()
 # Svg Icons
 # ------------------
 # include app icons in desk
-# app_include_icons = "pos_next/public/icons.svg"
+# app_include_icons = "ecs_posnext/public/icons.svg"
 
 # Home Pages
 # ----------
@@ -80,8 +80,8 @@ _asset_version = get_build_version()
 
 # add methods and filters to jinja environment
 # jinja = {
-# 	"methods": "pos_next.utils.jinja_methods",
-# 	"filters": "pos_next.utils.jinja_filters"
+# 	"methods": "ecs_posnext.utils.jinja_methods",
+# 	"filters": "ecs_posnext.utils.jinja_filters"
 # }
 
 # Fixtures
@@ -134,37 +134,37 @@ fixtures = [
 # Installation
 # ------------
 
-# before_install = "pos_next.install.before_install"
-after_install = "pos_next.install.after_install"
-after_migrate = "pos_next.install.after_migrate"
+# before_install = "ecs_posnext.install.before_install"
+after_install = "ecs_posnext.install.after_install"
+after_migrate = "ecs_posnext.install.after_migrate"
 
 # Uninstallation
 # ------------
 
-before_uninstall = "pos_next.uninstall.before_uninstall"
-# after_uninstall = "pos_next.uninstall.after_uninstall"
+before_uninstall = "ecs_posnext.uninstall.before_uninstall"
+# after_uninstall = "ecs_posnext.uninstall.after_uninstall"
 
 # Integration Setup
 # ------------------
 # To set up dependencies/integrations with other apps
 # Name of the app being installed is passed as an argument
 
-# before_app_install = "pos_next.utils.before_app_install"
-# after_app_install = "pos_next.utils.after_app_install"
+# before_app_install = "ecs_posnext.utils.before_app_install"
+# after_app_install = "ecs_posnext.utils.after_app_install"
 
 # Integration Cleanup
 # -------------------
 # To clean up dependencies/integrations with other apps
 # Name of the app being uninstalled is passed as an argument
 
-# before_app_uninstall = "pos_next.utils.before_app_uninstall"
-# after_app_uninstall = "pos_next.utils.after_app_uninstall"
+# before_app_uninstall = "ecs_posnext.utils.before_app_uninstall"
+# after_app_uninstall = "ecs_posnext.utils.after_app_uninstall"
 
 # Desk Notifications
 # ------------------
 # See frappe.core.notifications.get_notification_config
 
-# notification_config = "pos_next.notifications.get_notification_config"
+# notification_config = "ecs_posnext.notifications.get_notification_config"
 
 # Permissions
 # -----------
@@ -182,7 +182,7 @@ before_uninstall = "pos_next.uninstall.before_uninstall"
 # ----------------
 # Custom query for company-aware item filtering
 standard_queries = {
-	"Item": "pos_next.validations.item_query"
+	"Item": "ecs_posnext.validations.item_query"
 }
 
 # DocType Class
@@ -190,7 +190,7 @@ standard_queries = {
 # Override standard doctype classes
 
 override_doctype_class = {
-	"Sales Invoice": "pos_next.overrides.sales_invoice.CustomSalesInvoice"
+	"Sales Invoice": "ecs_posnext.overrides.sales_invoice.CustomSalesInvoice"
 }
 
 # Document Events
@@ -199,31 +199,31 @@ override_doctype_class = {
 
 doc_events = {
 	"Item": {
-		"validate": "pos_next.validations.validate_item"
+		"validate": "ecs_posnext.validations.validate_item"
 	},
 	"Customer": {
 		"after_insert": [
-			"pos_next.api.customers.auto_assign_loyalty_program",
-			"pos_next.realtime_events.emit_customer_event"
+			"ecs_posnext.api.customers.auto_assign_loyalty_program",
+			"ecs_posnext.realtime_events.emit_customer_event"
 		],
-		"on_update": "pos_next.realtime_events.emit_customer_event",
-		"on_trash": "pos_next.realtime_events.emit_customer_event"
+		"on_update": "ecs_posnext.realtime_events.emit_customer_event",
+		"on_trash": "ecs_posnext.realtime_events.emit_customer_event"
 	},
 	"Sales Invoice": {
 		"validate": [
-			"pos_next.api.sales_invoice_hooks.validate",
-			"pos_next.api.wallet.validate_wallet_payment"
+			"ecs_posnext.api.sales_invoice_hooks.validate",
+			"ecs_posnext.api.wallet.validate_wallet_payment"
 		],
-		"before_cancel": "pos_next.api.sales_invoice_hooks.before_cancel",
+		"before_cancel": "ecs_posnext.api.sales_invoice_hooks.before_cancel",
 		"on_submit": [
-			"pos_next.realtime_events.emit_stock_update_event",
-			"pos_next.api.wallet.process_loyalty_to_wallet"
+			"ecs_posnext.realtime_events.emit_stock_update_event",
+			"ecs_posnext.api.wallet.process_loyalty_to_wallet"
 		],
-		"on_cancel": "pos_next.realtime_events.emit_stock_update_event",
-		"after_insert": "pos_next.realtime_events.emit_invoice_created_event"
+		"on_cancel": "ecs_posnext.realtime_events.emit_stock_update_event",
+		"after_insert": "ecs_posnext.realtime_events.emit_invoice_created_event"
 	},
 	"POS Profile": {
-		"on_update": "pos_next.realtime_events.emit_pos_profile_updated_event"
+		"on_update": "ecs_posnext.realtime_events.emit_pos_profile_updated_event"
 	}
 }
 
@@ -232,34 +232,34 @@ doc_events = {
 
 scheduler_events = {
 	"hourly": [
-		"pos_next.tasks.branding_monitor.monitor_branding_integrity",
+		"ecs_posnext.tasks.branding_monitor.monitor_branding_integrity",
 	],
 	"daily": [
-		"pos_next.tasks.cleanup_expired_promotions.cleanup_expired_promotions",
-		"pos_next.tasks.branding_monitor.validate_all_active_sessions",
+		"ecs_posnext.tasks.cleanup_expired_promotions.cleanup_expired_promotions",
+		"ecs_posnext.tasks.branding_monitor.validate_all_active_sessions",
 	],
 	"monthly": [
-		"pos_next.tasks.branding_monitor.reset_tampering_counter",
+		"ecs_posnext.tasks.branding_monitor.reset_tampering_counter",
 	],
 }
 
 # Testing
 # -------
 
-# before_tests = "pos_next.install.before_tests"
+# before_tests = "ecs_posnext.install.before_tests"
 
 # Overriding Methods
 # ------------------------------
 #
 # override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "pos_next.event.get_events"
+# 	"frappe.desk.doctype.event.event.get_events": "ecs_posnext.event.get_events"
 # }
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
 # override_doctype_dashboards = {
-# 	"Task": "pos_next.task.get_dashboard_data"
+# 	"Task": "ecs_posnext.task.get_dashboard_data"
 # }
 
 # exempt linked doctypes from being automatically cancelled
@@ -273,13 +273,13 @@ scheduler_events = {
 
 # Request Events
 # ----------------
-# before_request = ["pos_next.utils.before_request"]
-# after_request = ["pos_next.utils.after_request"]
+# before_request = ["ecs_posnext.utils.before_request"]
+# after_request = ["ecs_posnext.utils.after_request"]
 
 # Job Events
 # ----------
-# before_job = ["pos_next.utils.before_job"]
-# after_job = ["pos_next.utils.after_job"]
+# before_job = ["ecs_posnext.utils.before_job"]
+# after_job = ["ecs_posnext.utils.after_job"]
 
 # User Data Protection
 # --------------------
@@ -309,7 +309,7 @@ scheduler_events = {
 # --------------------------------
 
 # auth_hooks = [
-# 	"pos_next.auth.validate"
+# 	"ecs_posnext.auth.validate"
 # ]
 
 # Automatically update python controller files with type annotations for this app.
