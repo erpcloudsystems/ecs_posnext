@@ -89,7 +89,7 @@ function verify_master_key(frm) {
 	}
 
 	frappe.call({
-		method: 'ecs_posnext.ecs_posnext.doctype.brainwise_branding.brainwise_branding.verify_master_key',
+		method: 'ecs_posnext.pos_next.doctype.brainwise_branding.brainwise_branding.verify_master_key',
 		args: {
 			master_key_input: frm.doc.master_key_provided
 		},

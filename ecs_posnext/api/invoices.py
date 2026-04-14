@@ -139,11 +139,16 @@ def validate_manual_rate_edit(item, pos_profile=None, pos_settings_cache=None):
             "message": _("POS Settings not found for profile {0}. Cannot validate rate edit.").format(pos_profile)
         }
 
-    # Check if rate editing is allowed
-    if not cint(pos_settings.get(FIELD_ALLOW_USER_TO_EDIT_RATE)):
+    # Check if rate editing is allowed (global setting OR item-level flag)
+    global_rate_edit_allowed = cint(pos_settings.get(FIELD_ALLOW_USER_TO_EDIT_RATE))
+    item_rate_edit_allowed = cint(
+        frappe.db.get_value("Item", item_code, "custom_allow_rate_edit")
+    ) if item_code else 0
+
+    if not global_rate_edit_allowed and not item_rate_edit_allowed:
         return {
             "valid": False,
-            "message": _("Rate editing is not allowed for this POS Profile")
+            "message": _("Rate editing is not allowed for item {0}").format(item_code)
         }
 
     # Validate against max discount if configured and rate is reduced
@@ -661,7 +666,7 @@ def update_invoice(data):
                             mode_of_payment, company
                         )
                         if account_info:
-                            payment["account"] = account_info.get("account")
+                            payment.account = account_info.get("account")
                     except Exception as e:
                         frappe.log_error(
                             f"Failed to get payment account for {mode_of_payment}: {e}",
@@ -858,7 +863,7 @@ def update_invoice(data):
         if coupon_code:
             # Validate POS Coupon exists and is valid
             if frappe.db.table_exists("POS Coupon"):
-                from ecs_posnext.ecs_posnext.doctype.pos_coupon.pos_coupon import check_coupon_code
+                from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import check_coupon_code
 
                 coupon_result = check_coupon_code(
                     coupon_code,
@@ -1077,7 +1082,7 @@ def check_offline_invoice_synced(offline_id):
     Returns:
         dict with 'synced' (bool) and 'sales_invoice' (str or None)
     """
-    from ecs_posnext.ecs_posnext.doctype.offline_invoice_sync.offline_invoice_sync import (
+    from ecs_posnext.pos_next.doctype.offline_invoice_sync.offline_invoice_sync import (
         OfflineInvoiceSync,
     )
 
@@ -1252,7 +1257,7 @@ def submit_invoice(invoice=None, data=None):
             # Increment usage counter for POS Coupon
             if frappe.db.table_exists("POS Coupon"):
                 try:
-                    from ecs_posnext.ecs_posnext.doctype.pos_coupon.pos_coupon import increment_coupon_usage
+                    from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import increment_coupon_usage
                     increment_coupon_usage(coupon_code)
                 except Exception as e:
                     frappe.log_error(
@@ -1320,7 +1325,7 @@ def submit_invoice(invoice=None, data=None):
         # Handle wallet transaction reversal for returns
         if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
             try:
-                from ecs_posnext.ecs_posnext.doctype.wallet_transaction.wallet_transaction import reverse_wallet_transactions_for_return
+                from ecs_posnext.pos_next.doctype.wallet_transaction.wallet_transaction import reverse_wallet_transactions_for_return
                 reverse_wallet_transactions_for_return(
                     original_invoice=invoice_doc.return_against,
                     return_invoice=invoice_doc.name

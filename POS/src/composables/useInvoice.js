@@ -2,6 +2,7 @@ import { createResource } from "frappe-ui"
 import { computed, ref, toRaw } from "vue"
 import { isOffline, getCachedItem } from "@/utils/offline"
 import { useSerialNumberStore } from "@/stores/serialNumber"
+import { usePOSSettingsStore } from "@/stores/posSettings"
 import { CoalescingMutex } from "@/utils/mutex"
 import { logger } from "@/utils/logger"
 import { roundCurrency } from "@/utils/currency"
@@ -18,6 +19,10 @@ const submitMutex = new CoalescingMutex({
 export function useInvoice() {
 	// Serial Number Store for returning serials when items are removed
 	const serialStore = useSerialNumberStore()
+	const settingsStore = usePOSSettingsStore()
+
+	// Reactive computed from settings store - always in sync
+	const allowAdditionalDiscount = computed(() => settingsStore.allowAdditionalDiscount)
 
 	// State
 	const invoiceItems = ref([])
@@ -184,7 +189,41 @@ export function useInvoice() {
 	// This ensures tax is not double-counted in inclusive mode!
 	// ========================================================================
 	// Use roundCurrency for monetary totals to match ERPNext's currency precision (from System Settings)
-	const subtotal = computed(() => roundCurrency(_cachedSubtotal.value))
+	// Total of custom_not_included items (excluded from subtotal when allowAdditionalDiscount is on)
+	const notIncludedTotal = computed(() => {
+		if (!allowAdditionalDiscount.value) {
+			console.log('[DEBUG notIncludedTotal] allowAdditionalDiscount is FALSE, returning 0')
+			return 0
+		}
+		let total = 0
+		for (const item of invoiceItems.value) {
+			console.log('[DEBUG notIncludedTotal] item:', item.item_code, 'custom_not_included:', item.custom_not_included, typeof item.custom_not_included)
+			if (!item.custom_not_included) continue
+			const isManuallyEdited = item.is_rate_manually_edited === 1
+			const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			total += roundCurrency(item.quantity * roundCurrency(effectiveRate))
+		}
+		console.log('[DEBUG notIncludedTotal] result:', total)
+		return roundCurrency(total)
+	})
+	const subtotal = computed(() => {
+		if (allowAdditionalDiscount.value) {
+			// Exclude custom_not_included items from subtotal
+			return roundCurrency(_cachedSubtotal.value - notIncludedTotal.value)
+		}
+		return roundCurrency(_cachedSubtotal.value)
+	})
+	// Subtotal excluding items with custom_not_included=1 (used as base for additional discount)
+	const discountEligibleSubtotal = computed(() => {
+		let total = 0
+		for (const item of invoiceItems.value) {
+			if (item.custom_not_included) continue
+			const isManuallyEdited = item.is_rate_manually_edited === 1
+			const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			total += roundCurrency(item.quantity * roundCurrency(effectiveRate))
+		}
+		return roundCurrency(total)
+	})
 	const totalTax = computed(() => roundCurrency(_cachedTotalTax.value))
 	const totalDiscount = computed(() =>
 		roundCurrency(_cachedTotalDiscount.value + (additionalDiscount.value || 0)),
@@ -192,6 +231,19 @@ export function useInvoice() {
 	const grandTotal = computed(() => {
 		const discount =
 			_cachedTotalDiscount.value + (additionalDiscount.value || 0)
+
+		if (allowAdditionalDiscount.value) {
+			// When allowAdditionalDiscount is on: discount applies only to eligible subtotal,
+			// then add back custom_not_included items after discount
+			const eligibleBase = _cachedSubtotal.value - notIncludedTotal.value
+			if (taxInclusive.value) {
+				return roundCurrency(eligibleBase - discount + notIncludedTotal.value)
+			} else {
+				return roundCurrency(
+					eligibleBase + _cachedTotalTax.value - discount + notIncludedTotal.value,
+				)
+			}
+		}
 
 		if (taxInclusive.value) {
 			// Tax inclusive: Subtotal already includes tax, so don't add it again
@@ -288,7 +340,12 @@ export function useInvoice() {
 				brand: item.brand,
 				// Resolved barcode flag - prevents editing qty/uom/rate for weighted/priced barcodes
 				is_resolved_barcode: item.is_resolved_barcode || false,
+				// Per-item rate edit control
+				custom_allow_rate_edit: item.custom_allow_rate_edit || 0,
+				// Exclude from additional discount
+				custom_not_included: item.custom_not_included || 0,
 			}
+			console.log('[DEBUG addItem]', item.item_code, 'source custom_not_included:', item.custom_not_included, '→ cart custom_not_included:', newItem.custom_not_included, '| allowAdditionalDiscount:', allowAdditionalDiscount.value)
 			invoiceItems.value.push(newItem)
 			// Recalculate the newly added item to apply taxes
 			recalculateItem(newItem)
@@ -1167,6 +1224,8 @@ export function useInvoice() {
 
 		// Computed
 		subtotal,
+		notIncludedTotal,
+		discountEligibleSubtotal,
 		totalTax,
 		totalDiscount,
 		grandTotal,

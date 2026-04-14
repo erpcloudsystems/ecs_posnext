@@ -317,6 +317,7 @@
 								:items="cartStore.invoiceItems"
 								:customer="cartStore.customer"
 								:subtotal="cartStore.subtotal"
+								:not-included-total="cartStore.notIncludedTotal"
 								:tax-amount="cartStore.totalTax"
 								:discount-amount="cartStore.totalDiscount"
 								:grand-total="cartStore.grandTotal"
@@ -439,6 +440,7 @@
 			v-model="uiStore.showPaymentDialog"
 			:grand-total="cartStore.grandTotal"
 			:subtotal="cartStore.subtotal"
+			:discount-eligible-subtotal="cartStore.discountEligibleSubtotal"
 			:pos-profile="shiftStore.profileName"
 			:currency="shiftStore.profileCurrency"
 			:is-offline="offlineStore.isOffline"
@@ -623,6 +625,9 @@
 				@delete-draft="handleDeleteDraft"
 				@refresh-history="loadInvoiceHistoryData"
 			/>
+
+			<!-- Daily Payment Management -->
+			<DailyPaymentManagement v-model="showDailyPayment" :branch="shiftStore.profileBranch" :payment-methods="shiftStore.profilePaymentMethods" />
 
 			<!-- Invoice Detail Dialog -->
 			<InvoiceDetailDialog
@@ -967,6 +972,7 @@ import ReturnInvoiceDialog from "@/components/sale/ReturnInvoiceDialog.vue";
 import WarehouseAvailabilityDialog from "@/components/sale/WarehouseAvailabilityDialog.vue";
 import POSSettings from "@/components/settings/POSSettings.vue";
 import InvoiceManagement from "@/components/invoices/InvoiceManagement.vue";
+import DailyPaymentManagement from "@/components/daily_payment/DailyPaymentManagement.vue";
 import InvoiceDetailDialog from "@/components/invoices/InvoiceDetailDialog.vue";
 import { useRealtimeStock } from "@/composables/useRealtimeStock";
 import { usePOSEvents } from "@/composables/usePOSEvents";
@@ -1073,6 +1079,9 @@ const showStockLookup = ref(false);
 
 // Invoice Management dialog
 const showInvoiceManagement = ref(false);
+
+// Daily Payment Management dialog
+const showDailyPayment = ref(false);
 
 // Invoice Detail dialog
 const showInvoiceDetail = ref(false);
@@ -2564,6 +2573,8 @@ function handleManagementMenuClick(menuItem) {
 	} else if (menuItem === "products") {
 		// Open Stock Lookup dialog in search mode
 		showStockLookup.value = true;
+	} else if (menuItem === "daily-payment") {
+		showDailyPayment.value = true;
 	}
 }
 
@@ -2643,14 +2654,9 @@ async function handlePrintInvoice(invoiceData) {
 			return;
 		}
 
-		// Standard browser print path
-		if (invoiceData.items && Array.isArray(invoiceData.items)) {
-			await printInvoice(invoiceData);
-		} else {
-			// If it's just an invoice object with name, fetch and print
-			// printInvoiceByName will automatically fetch the print format from the invoice's POS Profile
-			await printInvoiceByName(invoiceData.name);
-		}
+		// Standard browser print path — always fetch full invoice by name so
+		// sales_team and other child tables are available in the custom fallback too
+		await printInvoiceByName(invoiceData.name);
 	} catch (error) {
 		log.error("Error printing invoice:", error);
 		window.frappe?.msgprint({

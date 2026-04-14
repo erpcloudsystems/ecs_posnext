@@ -21,6 +21,10 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 	const profileWarehouse = computed(() => currentProfile.value?.warehouse)
 	const profileCompany = computed(() => currentProfile.value?.company)
 	const profileCustomer = computed(() => currentProfile.value?.customer)
+	const profileBranch = computed(() => currentProfile.value?.branch)
+	const profilePaymentMethods = computed(() =>
+		(currentProfile.value?.payments || []).map((p) => p.mode_of_payment).filter(Boolean)
+	)
 	const autoPrintEnabled = computed(
 		() => currentProfile.value?.print_receipt_on_order_complete,
 	)
@@ -105,6 +109,8 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 		profileWarehouse,
 		profileCompany,
 		profileCustomer,
+		profileBranch,
+		profilePaymentMethods,
 		autoPrintEnabled,
 		writeOffAccount,
 		writeOffCostCenter,

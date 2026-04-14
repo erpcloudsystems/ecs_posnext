@@ -128,9 +128,11 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 		}
 
 		// Second pass: Fill remaining slots with lower scores if needed
-		if (results.length < maxResults && scanned < allCustomers.value.length) {
-			for (let i = scanned; i < allCustomers.value.length; i++) {
+		if (results.length < maxResults) {
+			const highResultNames = new Set(results.map((r) => r.customer.name))
+			for (let i = 0; i < allCustomers.value.length; i++) {
 				const cust = allCustomers.value[i]
+				if (highResultNames.has(cust.name)) continue
 				const score = quickMatch(term, cust)
 
 				if (score > 0 && score < 240) {

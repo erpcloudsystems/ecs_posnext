@@ -91,7 +91,7 @@ def process_loyalty_to_wallet(doc, method=None):
 			return
 
 		# Create wallet transaction
-		from ecs_posnext.ecs_posnext.doctype.wallet_transaction.wallet_transaction import create_wallet_credit
+		from ecs_posnext.pos_next.doctype.wallet_transaction.wallet_transaction import create_wallet_credit
 
 		transaction = create_wallet_credit(
 			wallet=wallet.name,
@@ -463,7 +463,7 @@ def create_manual_wallet_credit(customer, company, amount, remarks=None):
 	if not wallet:
 		frappe.throw(_("Could not create wallet for customer {0}").format(customer))
 
-	from ecs_posnext.ecs_posnext.doctype.wallet_transaction.wallet_transaction import create_wallet_credit
+	from ecs_posnext.pos_next.doctype.wallet_transaction.wallet_transaction import create_wallet_credit
 
 	transaction = create_wallet_credit(
 		wallet=wallet.name if hasattr(wallet, 'name') else wallet["name"],

@@ -11,7 +11,7 @@ frappe.ui.form.on("POS Closing Shift", {
 
 		frm.set_query("user", function (doc) {
 			return {
-				query: "ecs_posnext.ecs_posnext.doctype.pos_closing_shift.pos_closing_shift.get_cashiers",
+				query: "ecs_posnext.pos_next.doctype.pos_closing_shift.pos_closing_shift.get_cashiers",
 				filters: { parent: doc.pos_profile },
 			};
 		});
@@ -51,7 +51,7 @@ frappe.ui.form.on("POS Closing Shift", {
 
 	get_pos_invoices(frm) {
 		frappe.call({
-			method: "ecs_posnext.ecs_posnext.doctype.pos_closing_shift.pos_closing_shift.get_pos_invoices",
+			method: "ecs_posnext.pos_next.doctype.pos_closing_shift.pos_closing_shift.get_pos_invoices",
 			args: {
 				pos_opening_shift: frm.doc.pos_opening_shift,
 			},
@@ -66,7 +66,7 @@ frappe.ui.form.on("POS Closing Shift", {
 
 	get_pos_payments(frm) {
 		frappe.call({
-			method: "ecs_posnext.ecs_posnext.doctype.pos_closing_shift.pos_closing_shift.get_payments_entries",
+			method: "ecs_posnext.pos_next.doctype.pos_closing_shift.pos_closing_shift.get_payments_entries",
 			args: {
 				pos_opening_shift: frm.doc.pos_opening_shift,
 			},

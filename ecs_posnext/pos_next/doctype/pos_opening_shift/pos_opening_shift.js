@@ -10,7 +10,7 @@ frappe.ui.form.on("POS Opening Shift", {
 		}
 		frm.set_query("user", function (doc) {
 			return {
-				query: "ecs_posnext.ecs_posnext.doctype.pos_closing_shift.pos_closing_shift.get_cashiers",
+				query: "ecs_posnext.pos_next.doctype.pos_closing_shift.pos_closing_shift.get_cashiers",
 				filters: { parent: doc.pos_profile },
 			};
 		});

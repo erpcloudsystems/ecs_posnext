@@ -146,7 +146,7 @@ def create_opening_shift(pos_profile, company, balance_details):
 @frappe.whitelist()
 def get_closing_shift_data(opening_shift):
 	"""Get data for closing shift"""
-	from ecs_posnext.ecs_posnext.doctype.pos_closing_shift.pos_closing_shift import make_closing_shift_from_opening
+	from ecs_posnext.pos_next.doctype.pos_closing_shift.pos_closing_shift import make_closing_shift_from_opening
 
 	try:
 		# Get the opening shift document
@@ -169,7 +169,7 @@ def get_closing_shift_data(opening_shift):
 @frappe.whitelist()
 def submit_closing_shift(closing_shift):
 	"""Submit closing shift"""
-	from ecs_posnext.ecs_posnext.doctype.pos_closing_shift.pos_closing_shift import submit_closing_shift as submit_shift
+	from ecs_posnext.pos_next.doctype.pos_closing_shift.pos_closing_shift import submit_closing_shift as submit_shift
 
 	try:
 		# closing_shift is already a JSON string from frontend

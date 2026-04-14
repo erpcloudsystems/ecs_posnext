@@ -332,7 +332,7 @@
 											@input="handleAdditionalDiscountChange"
 											:placeholder="additionalDiscountType === 'percentage' ? '0' : '0.00'"
 											min="0"
-											:max="additionalDiscountType === 'percentage' ? 100 : subtotal"
+											:max="additionalDiscountType === 'percentage' ? 100 : discountBase"
 											step="1"
 											class="flex-1 h-9 px-1 text-sm font-semibold text-center bg-transparent border-none focus:outline-none focus:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
 										/>
@@ -950,6 +950,10 @@ const props = defineProps({
 		type: Number,
 		default: 0,
 	},
+	discountEligibleSubtotal: {
+		type: Number,
+		default: 0,
+	},
 	posProfile: String,
 	currency: {
 		type: String,
@@ -1547,11 +1551,14 @@ const remainingAvailableCredit = computed(() => {
 })
 
 // Calculate the actual discount amount based on type (percentage or fixed amount)
+// Use discount-eligible subtotal (excludes items with custom_not_included=1) as base
+const discountBase = computed(() => props.discountEligibleSubtotal ?? props.subtotal)
+
 const calculatedAdditionalDiscount = computed(() => {
 	if (additionalDiscountType.value === "percentage") {
-		return roundCurrency((props.subtotal * localAdditionalDiscount.value) / 100)
+		return roundCurrency((discountBase.value * localAdditionalDiscount.value) / 100)
 	}
-	return roundCurrency(localAdditionalDiscount.value)
+	return roundCurrency(Math.min(localAdditionalDiscount.value, discountBase.value))
 })
 
 const remainingAmount = computed(() => {
@@ -2290,18 +2297,18 @@ function handleAdditionalDiscountChange() {
 			discountValue = 100
 		}
 
-		// Convert percentage to amount
-		discountAmount = (props.subtotal * discountValue) / 100
+		// Convert percentage to amount (based on eligible subtotal)
+		discountAmount = (discountBase.value * discountValue) / 100
 	} else {
 		// Amount mode
 		discountAmount = discountValue
 
 		// For amount mode, check if it exceeds percentage limit when converted
-		if (settingsStore.maxDiscountAllowed > 0 && props.subtotal > 0) {
-			const percentageEquivalent = (discountAmount / props.subtotal) * 100
+		if (settingsStore.maxDiscountAllowed > 0 && discountBase.value > 0) {
+			const percentageEquivalent = (discountAmount / discountBase.value) * 100
 			if (percentageEquivalent > settingsStore.maxDiscountAllowed) {
 				const maxAmount =
-					(props.subtotal * settingsStore.maxDiscountAllowed) / 100
+					(discountBase.value * settingsStore.maxDiscountAllowed) / 100
 				localAdditionalDiscount.value = maxAmount
 				discountAmount = maxAmount
 				// Show warning toast
@@ -2316,12 +2323,12 @@ function handleAdditionalDiscountChange() {
 		}
 	}
 
-	// Ensure discount doesn't exceed subtotal
-	if (discountAmount > props.subtotal) {
+	// Ensure discount doesn't exceed eligible subtotal
+	if (discountAmount > discountBase.value) {
 		if (additionalDiscountType.value === "amount") {
-			localAdditionalDiscount.value = props.subtotal
+			localAdditionalDiscount.value = discountBase.value
 		}
-		discountAmount = props.subtotal
+		discountAmount = discountBase.value
 	}
 
 	// Ensure non-negative

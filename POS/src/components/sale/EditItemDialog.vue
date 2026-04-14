@@ -141,7 +141,7 @@
 															/>
 														</div>
 														<!-- Compact warning when rate editing disabled due to pricing rules -->
-														<p v-if="hasPricingRules && settingsStore.allowUserToEditRate" class="mt-1 text-xs text-amber-600 flex items-center gap-1">
+														<p v-if="hasPricingRules && (settingsStore.allowUserToEditRate || itemAllowsRateEdit)" class="mt-1 text-xs text-amber-600 flex items-center gap-1">
 															<FeatherIcon name="lock" class="w-3 h-3" />
 															{{ __('Locked (offer applied)') }}
 														</p>
@@ -220,19 +220,23 @@
 													<!-- Discount Value -->
 													<div>
 														<label class="block text-xs text-gray-600 mb-1 text-start">{{ discountType === 'percentage' ? __('Percentage') : __('Amount') }}</label>
-														<div class="relative">
+														<!-- Percentage: predefined dropdown (0, 5, 10, ... 50) -->
+														<SelectInput
+															v-if="discountType === 'percentage'"
+															v-model="discountPercentageStr"
+															:options="discountPercentageOptions"
+															@change="handlePercentageSelect"
+														/>
+														<!-- Amount: free-text input -->
+														<div v-else class="relative">
 															<input
 																v-model.number="discountValue"
 																type="number"
 																min="0"
-																:max="discountType === 'percentage' ? 100 : undefined"
 																step="0.01"
-																class="w-full h-7 border border-gray-300 rounded-lg px-3 pe-8 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+																class="w-full h-7 border border-gray-300 rounded-lg px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 																@input="calculateDiscount"
 															/>
-															<span class="absolute inset-y-0 end-0 pe-3 flex items-center text-gray-500 text-sm">
-																{{ discountType === 'percentage' ? '%' : '' }}
-															</span>
 														</div>
 													</div>
 												</div>
@@ -282,6 +286,7 @@
 </template>
 
 <script setup>
+import { call } from "@/utils/apiWrapper"
 import { useToast } from "@/composables/useToast"
 import { usePOSSettingsStore } from "@/stores/posSettings"
 import { useSerialNumberStore } from "@/stores/serialNumber"
@@ -318,6 +323,7 @@ const localRate = ref(0)
 const localWarehouse = ref("")
 const discountType = ref("percentage")
 const discountValue = ref(0)
+const discountPercentageStr = ref("0")
 const calculatedSubtotal = ref(0)
 const calculatedDiscount = ref(0)
 const calculatedTotal = ref(0)
@@ -342,23 +348,51 @@ const availableUoms = computed(() => {
 
 const currencySymbol = computed(() => getCurrencySymbol(props.currency))
 
+function hasActivePricingRules(value) {
+	if (!value) return false
+	if (Array.isArray(value)) return value.length > 0
+	if (typeof value === "string") {
+		const trimmed = value.trim()
+		if (!trimmed || trimmed === "[]") return false
+		if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+			try {
+				const parsed = JSON.parse(trimmed)
+				return Array.isArray(parsed) && parsed.length > 0
+			} catch {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // Check if item has pricing rules applied (promotional offers)
 const hasPricingRules = computed(() => {
 	if (!localItem.value) return false
-	return Boolean(localItem.value.pricing_rules) && localItem.value.pricing_rules.length > 0
+	return hasActivePricingRules(localItem.value.pricing_rules)
 })
 
-// Rate editing is allowed only if:
-// 1. POS Settings allows rate editing AND
+// Check if item-level rate editing is enabled
+const itemAllowsRateEdit = computed(() => {
+	if (!localItem.value) return false
+	return Boolean(localItem.value.custom_allow_rate_edit)
+})
+
+// Rate editing is allowed if:
+// 1. (Global POS Settings allows rate editing OR item has custom_allow_rate_edit checked) AND
 // 2. Item does NOT have pricing rules (promotional offers) applied
 const canEditRate = computed(() => {
-	return settingsStore.allowUserToEditRate && !hasPricingRules.value
+	const globalAllow = settingsStore.allowUserToEditRate
+	const itemAllow = itemAllowsRateEdit.value
+	const pricingRules = hasPricingRules.value
+	return (globalAllow || itemAllow) && !pricingRules
 })
 
 // Tooltip message for why rate editing is disabled
 const rateEditDisabledReason = computed(() => {
-	if (!settingsStore.allowUserToEditRate) {
-		return __('Rate editing is disabled')
+	if (!settingsStore.allowUserToEditRate && !itemAllowsRateEdit.value) {
+		return __('Rate editing is disabled for this item')
 	}
 	if (hasPricingRules.value) {
 		return __('Locked (offer applied)')
@@ -393,10 +427,18 @@ const discountTypeOptions = computed(() => [
 	{ value: 'amount', label: __('Amount') }
 ])
 
+const discountPercentageOptions = computed(() => {
+	const options = []
+	for (let i = 0; i <= 50; i += 5) {
+		options.push({ value: String(i), label: `${i}%` })
+	}
+	return options
+})
+
 // Initialize local state when item changes
 watch(
 	() => props.item,
-	(newItem) => {
+	async (newItem) => {
 		if (newItem) {
 			localItem.value = { ...newItem }
 			localQuantity.value = newItem.quantity || 1
@@ -425,12 +467,15 @@ watch(
 			if (newItem.discount_percentage && newItem.discount_percentage > 0) {
 				discountType.value = "percentage"
 				discountValue.value = newItem.discount_percentage
+				discountPercentageStr.value = String(newItem.discount_percentage)
 			} else if (newItem.discount_amount && newItem.discount_amount > 0) {
 				discountType.value = "amount"
 				discountValue.value = newItem.discount_amount
+				discountPercentageStr.value = "0"
 			} else {
 				discountType.value = "percentage"
 				discountValue.value = 0
+				discountPercentageStr.value = "0"
 			}
 
 			// Reset stock check state
@@ -438,6 +483,22 @@ watch(
 			isCheckingStock.value = false
 
 			calculateTotals()
+
+			// Fallback: fetch custom_allow_rate_edit from server if missing from cached item
+			if (localItem.value.custom_allow_rate_edit === undefined) {
+				try {
+					const res = await call("frappe.client.get_value", {
+						doctype: "Item",
+						filters: { name: localItem.value.item_code },
+						fieldname: "custom_allow_rate_edit",
+					})
+					// frappe-ui call() returns response.message directly
+					const val = res?.custom_allow_rate_edit ?? 0
+					localItem.value = { ...localItem.value, custom_allow_rate_edit: val }
+				} catch (e) {
+					console.warn("[EditItemDialog] Failed to fetch custom_allow_rate_edit:", e)
+				}
+			}
 		}
 	},
 	{ immediate: true },
@@ -562,9 +623,15 @@ async function handleWarehouseChange() {
 	}
 }
 
+function handlePercentageSelect() {
+	discountValue.value = Number(discountPercentageStr.value) || 0
+	calculateDiscount()
+}
+
 function handleDiscountTypeChange() {
 	// Reset discount value when type changes
 	discountValue.value = 0
+	discountPercentageStr.value = "0"
 	calculateTotals()
 }
 
@@ -619,7 +686,7 @@ function updateItem() {
 	// ========================================================================
 	// RATE EDIT VALIDATION
 	// ========================================================================
-	if (settingsStore.allowUserToEditRate && isRateManuallyEdited) {
+	if ((settingsStore.allowUserToEditRate || itemAllowsRateEdit.value) && isRateManuallyEdited) {
 		// Validate rate is positive
 		if (localRate.value <= 0) {
 			showError(__('Rate must be greater than zero'))

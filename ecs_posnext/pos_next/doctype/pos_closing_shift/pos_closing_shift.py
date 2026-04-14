@@ -336,7 +336,7 @@ class POSClosingShift(Document):
         ]
 
         return frappe.render_template(
-            "ecs_posnext/ecs_posnext/doctype/pos_closing_shift/closing_shift_details.html",
+            "ecs_posnext/pos_next/doctype/pos_closing_shift/closing_shift_details.html",
             {
                 "data": self,
                 "currency": company_currency,
@@ -409,9 +409,29 @@ def get_payments_entries(pos_opening_shift):
 
 
 def _get_cash_mode_of_payment(pos_profile):
-    """Get the cash mode of payment for a POS profile."""
+    """
+    Get the cash mode of payment for a POS profile.
+    Looks up payment methods on the POS Profile and returns the one
+    whose Mode of Payment type is 'Cash'.
+    Falls back to 'Cash' if nothing found.
+    """
+    # Try custom field first
     cash_mode = frappe.get_value("POS Profile", pos_profile, "posa_cash_mode_of_payment")
-    return cash_mode or "Cash"
+    if cash_mode:
+        return cash_mode
+
+    # Find cash-type mode of payment from POS Profile payments table
+    payments = frappe.get_all(
+        "POS Payment Method",
+        filters={"parent": pos_profile},
+        fields=["mode_of_payment"],
+    )
+    for p in payments:
+        mop_type = frappe.get_cached_value("Mode of Payment", p.mode_of_payment, "type")
+        if mop_type == "Cash":
+            return p.mode_of_payment
+
+    return "Cash"
 
 
 def _aggregate_payment(payments, mode_of_payment, amount, opening_amount=0):
@@ -583,7 +603,148 @@ def submit_closing_shift(closing_shift):
     closing_shift_doc.flags.ignore_permissions = True
     closing_shift_doc.save()
     closing_shift_doc.submit()
+
+    # Auto-create cash transfer Payment Entry if enabled in POS Settings
+    _create_cash_transfer_payment_entry(closing_shift_doc)
+
     return closing_shift_doc.name
+
+
+def _auto_detect_cash_accounts(pos_profile, company):
+    """
+    Auto-detect branch cash accounts by matching POS Profile name against
+    account names using the pattern:
+      Branch Cash Account        : خزينة فرع [profile_name] - ABBR
+      Branch Manager Cash Account: خزينة مدير فرع [profile_name] - ABBR
+    Falls back to any account containing the profile name if exact match not found.
+    """
+    company_abbr = frappe.get_cached_value("Company", company, "abbr") or ""
+
+    # Build candidate patterns (exact first, then fuzzy)
+    branch_candidates = [
+        f"خزينة فرع {pos_profile} - {company_abbr}",
+        f"خزينة فرع {pos_profile}",
+    ]
+    manager_candidates = [
+        f"خزينة مدير فرع {pos_profile} - {company_abbr}",
+        f"خزينة مدير فرع {pos_profile}",
+    ]
+
+    def find_account(candidates, fallback_like):
+        for name in candidates:
+            if frappe.db.exists("Account", {"name": name, "company": company, "account_type": "Cash"}):
+                return name
+        # Fuzzy fallback: LIKE search
+        result = frappe.db.get_value(
+            "Account",
+            {"name": ["like", f"%{fallback_like}%"], "company": company, "account_type": "Cash"},
+            "name",
+        )
+        return result
+
+    branch_account = find_account(branch_candidates, f"خزينة فرع {pos_profile}")
+    manager_account = find_account(manager_candidates, f"خزينة مدير فرع {pos_profile}")
+
+    return branch_account, manager_account
+
+
+def _create_cash_transfer_payment_entry(closing_shift_doc):
+    """
+    Create an Internal Transfer Payment Entry for the total cash amount
+    when closing a shift, transferring from Branch Cash Account to
+    Branch Manager Cash Account. Accounts are auto-detected from the
+    POS Profile name — no manual configuration required.
+    """
+    try:
+        pos_profile = closing_shift_doc.pos_profile
+        if not pos_profile:
+            return
+
+        # Get POS Settings for this profile
+        pos_settings = frappe.db.get_value(
+            "POS Settings",
+            {"pos_profile": pos_profile, "enabled": 1},
+            ["enable_auto_cash_transfer", "branch_cash_account", "branch_manager_cash_account"],
+            as_dict=True,
+        )
+
+        if not pos_settings or not pos_settings.enable_auto_cash_transfer:
+            return
+
+        company = closing_shift_doc.company
+
+        # Use manually configured accounts if set, otherwise auto-detect
+        branch_cash_account = pos_settings.branch_cash_account
+        manager_cash_account = pos_settings.branch_manager_cash_account
+
+        if not branch_cash_account or not manager_cash_account:
+            branch_cash_account, manager_cash_account = _auto_detect_cash_accounts(pos_profile, company)
+
+        if not branch_cash_account or not manager_cash_account:
+            frappe.log_error(
+                f"Cash Transfer skipped for shift {closing_shift_doc.name}: "
+                f"Could not find cash accounts for POS Profile '{pos_profile}'. "
+                f"Detected: branch='{branch_cash_account}', manager='{manager_cash_account}'",
+                "POS Cash Transfer",
+            )
+            return
+
+        # Get the current total balance of the branch cash account from GL
+        # balance = SUM(debit) - SUM(credit) across all time (all voucher types)
+        gl_result = frappe.db.sql(
+            """
+            SELECT SUM(debit) - SUM(credit) AS balance
+            FROM `tabGL Entry`
+            WHERE account = %s
+              AND company = %s
+              AND is_cancelled = 0
+            """,
+            (branch_cash_account, company),
+            as_dict=True,
+        )
+
+        cash_amount = flt(gl_result[0].balance) if gl_result and gl_result[0].balance else 0
+
+        if cash_amount <= 0:
+            return
+
+        company_currency = frappe.get_cached_value("Company", company, "default_currency")
+
+        # Create Payment Entry - Internal Transfer
+        pe = frappe.new_doc("Payment Entry")
+        pe.payment_type = "Internal Transfer"
+        pe.company = company
+        pe.posting_date = frappe.utils.today()
+        pe.paid_from = branch_cash_account
+        pe.paid_to = manager_cash_account
+        pe.paid_amount = cash_amount
+        pe.received_amount = cash_amount
+        pe.paid_from_account_currency = company_currency
+        pe.paid_to_account_currency = company_currency
+        pe.reference_no = closing_shift_doc.name
+        pe.reference_date = frappe.utils.today()
+        pe.remarks = _("Auto cash transfer from POS Shift Close: {0}").format(closing_shift_doc.name)
+
+        pe.flags.ignore_permissions = True
+        pe.insert()
+        pe.submit()
+
+        frappe.msgprint(
+            _("Payment Entry {0} created: {1} transferred from {2} to {3}").format(
+                pe.name, frappe.format_value(cash_amount, {"fieldtype": "Currency"}),
+                branch_cash_account, manager_cash_account
+            ),
+            indicator="green",
+            alert=True,
+        )
+
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "POS Cash Transfer Error")
+        frappe.msgprint(
+            _("Shift closed successfully, but auto cash transfer failed. Check Error Log for details."),
+            indicator="orange",
+            alert=True,
+        )
 
 
 def submit_printed_invoices(pos_opening_shift, doctype):

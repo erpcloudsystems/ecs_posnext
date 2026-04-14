@@ -1309,6 +1309,10 @@ const props = defineProps({
 		type: Number,
 		default: 0,
 	},
+	notIncludedTotal: {
+		type: Number,
+		default: 0,
+	},
 	posProfile: String,
 	currency: {
 		type: String,
@@ -1579,9 +1583,9 @@ const displaySubtotal = computed(() => {
  * @returns {Number} Grand total amount to display
  */
 const displayGrandTotal = computed(() => {
-	// Always: displaySubtotal + tax - discount
-	// This makes the display consistent and intuitive
-	return displaySubtotal.value + props.taxAmount - props.discountAmount;
+	// displaySubtotal + tax - discount + notIncludedTotal
+	// notIncludedTotal adds back custom_not_included items after discount calculation
+	return displaySubtotal.value + props.taxAmount - props.discountAmount + (props.notIncludedTotal || 0);
 });
 
 /**

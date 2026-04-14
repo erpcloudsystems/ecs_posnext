@@ -1,0 +1,128 @@
+import frappe
+from frappe import _
+
+
+@frappe.whitelist()
+def employee_query(doctype, txt, searchfield, start, page_len, filters):
+	"""Custom search query for Employee - searches by both ID and employee_name, optionally filtered by branch."""
+	import json
+	txt = (txt or "").strip()
+	like = f"%{txt}%"
+
+	if isinstance(filters, str):
+		filters = json.loads(filters) if filters else {}
+	branch = (filters or {}).get("branch")
+
+	branch_clause = "AND branch = %(branch)s" if branch else ""
+	params = {"like": like, "start": int(start or 0), "page_len": int(page_len or 20)}
+	if branch:
+		params["branch"] = branch
+
+	return frappe.db.sql(
+		f"""
+		SELECT name, employee_name
+		FROM `tabEmployee`
+		WHERE (name LIKE %(like)s OR employee_name LIKE %(like)s)
+		{branch_clause}
+		ORDER BY employee_name
+		LIMIT %(start)s, %(page_len)s
+		""",
+		params,
+	)
+
+
+@frappe.whitelist()
+def get_daily_payments(employee=None, from_date=None, to_date=None, branch=None, limit=50):
+	"""Fetch Daily Payment records with optional filters by employee, date range, and branch."""
+	filters = {}
+	or_filters = []
+
+	if branch:
+		filters["branch"] = branch
+
+	if from_date:
+		if to_date:
+			filters["date"] = ["between", [from_date, to_date]]
+		else:
+			filters["date"] = [">=", from_date]
+	elif to_date:
+		filters["date"] = ["<=", to_date]
+
+	if employee:
+		like = f"%{employee}%"
+		or_filters = [
+			["name", "like", like],
+			["employee", "like", like],
+			["employee_name", "like", like],
+		]
+
+	fields = [
+		"name",
+		"date",
+		"employee",
+		"employee_name",
+		"branch",
+		"amount",
+		"mode_of_payment",
+		"company",
+		"loan_product",
+		"expenses",
+		"payment_to_employees",
+		"docstatus",
+	]
+
+	records = frappe.get_list(
+		"Daily Payment",
+		filters=filters,
+		or_filters=or_filters or None,
+		fields=fields,
+		order_by="date desc, creation desc",
+		limit=int(limit),
+	)
+
+	return records
+
+
+@frappe.whitelist()
+def get_daily_payment_detail(name):
+	"""Fetch a single Daily Payment record with all details."""
+	doc = frappe.get_doc("Daily Payment", name)
+	return doc.as_dict()
+
+
+@frappe.whitelist()
+def create_daily_payment(date, branch, employee=None, amount=None, mode_of_payment=None,
+						  payment_to_employees=0, expenses=0, loan_product=None,
+						  general_expenses=None):
+	"""Create a new Daily Payment record."""
+	import json
+
+	doc = frappe.new_doc("Daily Payment")
+	doc.date = date
+	doc.branch = branch
+
+	if frappe.parse_json(payment_to_employees) if isinstance(payment_to_employees, str) else payment_to_employees:
+		doc.payment_to_employees = 1
+		doc.employee = employee
+		doc.amount = amount
+		doc.loan_product = loan_product
+
+	if frappe.parse_json(expenses) if isinstance(expenses, str) else expenses:
+		doc.expenses = 1
+		if general_expenses:
+			rows = json.loads(general_expenses) if isinstance(general_expenses, str) else general_expenses
+			for row in rows:
+				doc.append("general_expenses", {
+					"expense_claim_type": row.get("expense_claim_type") or "",
+					"amount": row.get("amount") or 0,
+					"description": row.get("description") or "",
+				})
+
+	if mode_of_payment:
+		doc.mode_of_payment = mode_of_payment
+
+	doc.insert(ignore_permissions=True)
+	doc.submit()
+	frappe.db.commit()
+
+	return {"name": doc.name, "status": "submitted"}

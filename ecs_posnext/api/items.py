@@ -25,6 +25,8 @@ ITEM_RESULT_FIELDS = [
 	"has_variants",
 	"variant_of",
 	"custom_company",
+	"custom_allow_rate_edit",
+	"custom_not_included",
 	"disabled",
 ]
 
@@ -257,7 +259,7 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
 	item_data = frappe.db.get_value(
 		"Item",
 		item_code,
-		["max_discount", "item_group", "brand", "stock_uom"],
+		["max_discount", "item_group", "brand", "stock_uom", "custom_allow_rate_edit"],
 		as_dict=True
 	) or {}
 
@@ -286,6 +288,7 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
 	res["serial_no_data"] = serial_no_data
 	res["item_group"] = item_data.get("item_group")
 	res["brand"] = item_data.get("brand")
+	res["custom_allow_rate_edit"] = item_data.get("custom_allow_rate_edit") or 0
 
 	# Add UOMs data
 	uoms = frappe.get_all(
@@ -533,6 +536,8 @@ def get_item_variants(template_item, pos_profile):
 				Item.item_group,
 				Item.brand,
 				Item.custom_company,
+				Item.custom_allow_rate_edit,
+				Item.custom_not_included,
 				Item.variant_of,
 			)
 			.where(Item.variant_of == template_item)

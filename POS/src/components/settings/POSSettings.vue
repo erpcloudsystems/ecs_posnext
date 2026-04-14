@@ -429,6 +429,23 @@
 											</div>
 										</div>
 									</div>
+
+									<!-- Cash Transfer on Shift Close -->
+									<div class="p-4 bg-white border border-gray-200 rounded-xl">
+										<div class="flex items-center gap-2 mb-4">
+											<svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/>
+											</svg>
+											<h4 class="text-sm font-semibold text-gray-900">{{ __('Cash Transfer on Shift Close') }}</h4>
+										</div>
+										<div class="flex flex-col gap-3">
+											<CheckboxField
+												v-model="settings.enable_auto_cash_transfer"
+												:label="__('Enable Auto Cash Transfer')"
+												:description="__('Automatically create an Internal Transfer Payment Entry from the branch safe (خزينة فرع) to the manager safe (خزينة مدير فرع) when closing a shift. Accounts are detected automatically from the POS Profile name.')"
+											/>
+										</div>
+									</div>
 								</div>
 							</div>
 
@@ -512,6 +529,7 @@ const settings = ref({
 	silent_print: 0,
 	allow_negative_stock: 0,
 	tax_inclusive: 0,
+	enable_auto_cash_transfer: 0,
 })
 
 // Stock Sync Settings (localStorage persisted)
@@ -577,7 +595,7 @@ const warehousesResource = createResource({
 const originalAllowNegativeStock = ref(null)
 
 const settingsResource = createResource({
-	url: "ecs_posnext.ecs_posnext.doctype.pos_settings.pos_settings.get_pos_settings",
+	url: "ecs_posnext.pos_next.doctype.pos_settings.pos_settings.get_pos_settings",
 	makeParams() {
 		return {
 			pos_profile: props.posProfile,
@@ -700,7 +718,7 @@ async function saveSettings() {
 	try {
 		// Save POS Settings (without warehouse)
 		const result = await call(
-			"ecs_posnext.ecs_posnext.doctype.pos_settings.pos_settings.update_pos_settings",
+			"ecs_posnext.pos_next.doctype.pos_settings.pos_settings.update_pos_settings",
 			{
 				pos_profile: props.posProfile,
 				settings: settings.value,

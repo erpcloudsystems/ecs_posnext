@@ -223,6 +223,7 @@ export function printInvoiceCustom(invoiceData) {
 					<div><span>${__("Invoice #:")}</span><span><strong>${invoiceData.name}</strong></span></div>
 					<div><span>${__("Date:")}</span><span>${new Date(invoiceData.posting_date || Date.now()).toLocaleString()}</span></div>
 					${invoiceData.customer_name ? `<div><span>${__("Customer:")}</span><span>${invoiceData.customer_name}</span></div>` : ""}
+					${invoiceData.sales_team && invoiceData.sales_team.length > 0 ? `<div><span>${__("Sales Person:")}</span><span>${invoiceData.sales_team.map((st) => st.sales_person).join(", ")}</span></div>` : ""}
 					${(invoiceData.status === "Partly Paid" || (invoiceData.outstanding_amount && invoiceData.outstanding_amount > 0 && invoiceData.outstanding_amount < invoiceData.grand_total)) ? `<div class="partial-status"><span>${__("Status:")}</span><span>${__("PARTIAL PAYMENT")}</span></div>` : ""}
 				</div>
 

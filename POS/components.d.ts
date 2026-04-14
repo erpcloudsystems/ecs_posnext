@@ -18,6 +18,8 @@ declare module 'vue' {
     CouponManagement: typeof import('./src/components/sale/CouponManagement.vue')['default']
     CreateCustomerDialog: typeof import('./src/components/sale/CreateCustomerDialog.vue')['default']
     CustomerDialog: typeof import('./src/components/sale/CustomerDialog.vue')['default']
+    DailyPaymentForm: typeof import('./src/components/daily_payment/DailyPaymentForm.vue')['default']
+    DailyPaymentManagement: typeof import('./src/components/daily_payment/DailyPaymentManagement.vue')['default']
     DraftInvoicesDialog: typeof import('./src/components/sale/DraftInvoicesDialog.vue')['default']
     EditItemDialog: typeof import('./src/components/sale/EditItemDialog.vue')['default']
     InstallAppBadge: typeof import('./src/components/common/InstallAppBadge.vue')['default']
