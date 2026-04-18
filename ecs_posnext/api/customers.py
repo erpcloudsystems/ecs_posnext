@@ -62,7 +62,7 @@ def get_customers(search_term="", pos_profile=None, limit=20, modified_since=Non
 
 
 @frappe.whitelist()
-def create_customer(customer_name, mobile_no=None, email_id=None, customer_group="Individual", territory="All Territories", company=None):
+def create_customer(customer_name, mobile_no=None, email_id=None, customer_group="أفراد", territory="All Territories", company=None):
     """
     Create a new customer from POS.
 
@@ -70,7 +70,7 @@ def create_customer(customer_name, mobile_no=None, email_id=None, customer_group
         customer_name (str): Customer name (required)
         mobile_no (str): Mobile number (optional)
         email_id (str): Email address (optional)
-        customer_group (str): Customer group (default: Individual)
+        customer_group (str): Customer group (default: أفراد)
         territory (str): Territory (default: All Territories)
         company (str): Company (optional, used to auto-assign loyalty program)
 
@@ -94,7 +94,7 @@ def create_customer(customer_name, mobile_no=None, email_id=None, customer_group
             "doctype": "Customer",
             "customer_name": customer_name,
             "customer_type": "Individual",
-            "customer_group": customer_group or "Individual",
+            "customer_group": customer_group or "أفراد",
             "territory": territory or "All Territories",
             "mobile_no": mobile_no or "",
             "email_id": email_id or "",

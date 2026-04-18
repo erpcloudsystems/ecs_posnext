@@ -19,7 +19,17 @@
 								</svg>
 							</div>
 							<div>
-								<h2 class="text-xl font-bold text-gray-900">{{ __('Daily Payment') }}</h2>
+								<div class="flex flex-wrap items-center gap-2">
+									<h2 class="text-xl font-bold text-gray-900">{{ __('Daily Payment') }}</h2>
+									<div v-if="branch" class="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border text-xs font-semibold"
+										:class="loadingBranchBalance ? 'bg-white/70 border-gray-200 text-gray-600' : 'bg-white/80 border-emerald-200 text-emerald-800'">
+										<svg v-if="loadingBranchBalance" class="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+										</svg>
+										<span>{{ __('Balance') }}:</span>
+										<span>{{ branchBalanceDisplay }}</span>
+									</div>
+								</div>
 								<p class="text-sm text-gray-600 mt-0.5">
 									{{ branch ? __('Branch: {0}', [branch]) : __('Manage daily payment records') }}
 								</p>
@@ -281,7 +291,7 @@
 
 <script setup>
 import { call } from "frappe-ui"
-import { ref, watch } from "vue"
+import { computed, ref, watch } from "vue"
 import { useFormatters } from "@/composables/useFormatters"
 import { useToast } from "@/composables/useToast"
 import { logger } from "@/utils/logger"
@@ -309,6 +319,13 @@ const show = ref(props.modelValue)
 const loading = ref(false)
 const records = ref([])
 const showCreateForm = ref(false)
+const loadingBranchBalance = ref(false)
+const branchBalance = ref({
+	branch: null,
+	account: null,
+	balance: 0,
+	currency: null,
+})
 
 const searchEmployee = ref("")
 const fromDate = ref("")
@@ -316,12 +333,34 @@ const toDate = ref("")
 
 let debounceTimer = null
 
+const branchBalanceDisplay = computed(() => {
+	if (loadingBranchBalance.value) {
+		return __("Loading...")
+	}
+	return new Intl.NumberFormat(undefined, {
+		style: "currency",
+		currency: branchBalance.value.currency || "USD",
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+	}).format(Number(branchBalance.value.balance || 0))
+})
+
 watch(
 	() => props.modelValue,
 	(val) => {
 		show.value = val
 		if (val) {
+			loadBranchBalance()
 			loadRecords()
+		}
+	},
+)
+
+watch(
+	() => props.branch,
+	() => {
+		if (show.value) {
+			loadBranchBalance()
 		}
 	},
 )
@@ -346,6 +385,41 @@ function clearFilters() {
 	fromDate.value = ""
 	toDate.value = ""
 	loadRecords()
+}
+
+async function loadBranchBalance() {
+	if (!props.branch) {
+		branchBalance.value = {
+			branch: null,
+			account: null,
+			balance: 0,
+			currency: null,
+		}
+		return
+	}
+
+	loadingBranchBalance.value = true
+	try {
+		const result = await call("ecs_posnext.api.daily_payment.get_branch_balance", {
+			branch: props.branch,
+		})
+		branchBalance.value = result || {
+			branch: props.branch,
+			account: null,
+			balance: 0,
+			currency: null,
+		}
+	} catch (error) {
+		log.error("Error loading branch balance:", error)
+		branchBalance.value = {
+			branch: props.branch,
+			account: null,
+			balance: 0,
+			currency: null,
+		}
+	} finally {
+		loadingBranchBalance.value = false
+	}
 }
 
 async function loadRecords() {

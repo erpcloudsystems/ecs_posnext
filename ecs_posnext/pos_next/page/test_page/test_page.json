@@ -1,0 +1,19 @@
+{
+ "content": null,
+ "creation": "2026-04-15 15:05:57.787376",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-04-15 15:11:58.996501",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "test-page",
+ "owner": "Administrator",
+ "page_name": "test-page",
+ "roles": [],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "test page"
+}

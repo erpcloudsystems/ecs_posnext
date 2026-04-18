@@ -233,7 +233,7 @@ const customerData = ref({
 	customer_name: "",
 	mobile_no: "",
 	email_id: "",
-	customer_group: "Individual",
+	customer_group: "أفراد",
 	territory: "All Territories",
 })
 
@@ -338,7 +338,7 @@ const createCustomerResource = createResource({
 			doctype: "Customer",
 			customer_name: customerData.value.customer_name,
 			customer_type: "Individual",
-			customer_group: customerData.value.customer_group || __("Individual"),
+			customer_group: customerData.value.customer_group || __("أفراد"),
 			territory: customerData.value.territory || __("All Territories"),
 			mobile_no: customerData.value.mobile_no || "",
 			email_id: customerData.value.email_id || "",
@@ -362,7 +362,7 @@ const updateCustomerResource = createResource({
 		name: props.customer?.name,
 		fieldname: {
 			customer_name: customerData.value.customer_name,
-			customer_group: customerData.value.customer_group || __("Individual"),
+			customer_group: customerData.value.customer_group || __("أفراد"),
 			territory: customerData.value.territory || __("All Territories"),
 			mobile_no: customerData.value.mobile_no || "",
 			email_id: customerData.value.email_id || "",
@@ -461,7 +461,7 @@ const resetForm = () => {
 		customer_name: "",
 		mobile_no: "",
 		email_id: "",
-		customer_group: "Individual",
+		customer_group: "أفراد",
 		territory: "All Territories",
 	})
 	selectedCountryCode.value = ""
@@ -484,7 +484,7 @@ watch(
 		if (customer?.name) {
 			customerData.value.customer_name = customer.customer_name || ""
 			customerData.value.email_id = customer.email_id || ""
-			customerData.value.customer_group = customer.customer_group || "Individual"
+			customerData.value.customer_group = customer.customer_group || "أفراد"
 			customerData.value.territory = customer.territory || "All Territories"
 			// Handle mobile_no with country code
 			if (customer.mobile_no) {

@@ -580,59 +580,11 @@
 						</div>
 					</div>
 
-					<!-- Quick Amounts Area (Desktop) - Consistent layout for all payment methods -->
-					<div v-if="lastSelectedMethod && remainingAmount > 0" class="hidden lg:block" :class="isCompactMode ? 'mb-2' : 'mb-3'">
-						<div class="text-start text-xs font-medium text-gray-600 mb-1.5">
-							{{ (isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod))
-								? __('Exact amount only')
-								: __('Quick amounts for {0}', [__(lastSelectedMethod.mode_of_payment)])
-							}}
-						</div>
-						<div class="grid grid-cols-4 gap-1.5">
-							<button
-								v-for="amount in quickAmounts"
-								:key="amount"
-								@click="addCustomPayment(lastSelectedMethod, amount)"
-								:disabled="isQuickAmountDisabled(amount)"
-								:class="[
-									'font-semibold rounded-lg border-2 transition-all',
-									isCompactMode ? 'px-2 py-2 text-sm' : 'px-2 py-2 text-sm',
-									isQuickAmountDisabled(amount)
-										? 'bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed'
-										: 'bg-white border-gray-200 hover:border-blue-400 hover:bg-blue-50 text-gray-700 hover:text-blue-600'
-								]"
-							>
-								{{ formatCurrency(amount) }}
-							</button>
-						</div>
-					</div>
-					<div v-else-if="!lastSelectedMethod && remainingAmount > 0" class="hidden lg:block" :class="['bg-blue-50 rounded-lg text-center', isCompactMode ? 'mb-2 p-2' : 'mb-3 p-3 lg:p-2']">
-						<p class="text-xs text-blue-600">{{ __('Select a payment method to start') }}</p>
-					</div>
 
 					<!-- Mobile Payment Section - Dynamic & Responsive -->
 					<div class="lg:hidden flex flex-col" :class="isSmallMobile ? 'gap-1' : 'gap-1.5'">
-						<!-- Mobile Quick Amounts + Custom Input (consistent layout for all payment methods) -->
+						<!-- Mobile Custom Input -->
 						<div v-if="lastSelectedMethod && remainingAmount > 0" :class="['space-y-1 flex-shrink-0', isSmallMobile ? 'mb-1' : 'mb-1.5']">
-							<!-- Quick Amounts Row (4 columns, responsive sizing) -->
-							<div class="grid grid-cols-4" :class="isSmallMobile ? 'gap-0.5' : 'gap-1'">
-								<button
-									v-for="amount in quickAmounts"
-									:key="amount"
-									@click="addCustomPayment(lastSelectedMethod, amount)"
-									:disabled="isQuickAmountDisabled(amount)"
-									:class="[
-										'font-semibold rounded border transition-colors',
-										isSmallMobile ? 'py-1 text-[10px]' : 'py-1.5 text-xs',
-										isQuickAmountDisabled(amount)
-											? 'bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed'
-											: 'bg-white border-gray-200 text-gray-700 active:bg-blue-50 active:border-blue-400'
-									]"
-								>
-									{{ formatCurrency(amount) }}
-								</button>
-							</div>
-
 							<!-- Custom Amount Row (disabled for non-cash when exact amount mode is active) -->
 							<div :class="['flex', isSmallMobile ? 'gap-0.5' : 'gap-1']">
 								<div class="relative flex-1">
@@ -934,7 +886,6 @@ import { useToast } from "@/composables/useToast"
 import { useLongPress } from "@/composables/useLongPress"
 import { usePaymentNumpad } from "@/composables/usePaymentNumpad"
 import { useResponsivePayment } from "@/composables/useResponsivePayment"
-import { useQuickAmounts } from "@/composables/useQuickAmounts"
 
 const log = logger.create("PaymentDialog")
 const settingsStore = usePOSSettingsStore()
@@ -1786,25 +1737,6 @@ const paymentButtonText = computed(() => {
 	return __("Complete Payment")
 })
 
-// Use quick amounts composable for smart amount suggestions
-// Cash methods show rounded/ceil amounts (physical denominations),
-// non-cash methods show the exact fractional amount
-const isLastMethodCash = computed(() => {
-	return (
-		!lastSelectedMethod.value || isCashPaymentMethod(lastSelectedMethod.value)
-	)
-})
-const { quickAmounts } = useQuickAmounts(remainingAmount, isLastMethodCash)
-
-// Whether a quick amount button should be disabled in exact-amount mode
-// Non-cash methods can only pay the exact remaining — no rounding allowed
-function isQuickAmountDisabled(amount) {
-	return (
-		isExactAmountModeActive.value &&
-		!isCashPaymentMethod(lastSelectedMethod.value) &&
-		amount !== roundCurrency(remainingAmount.value)
-	)
-}
 
 // Preload payment methods when posProfile is set (before dialog opens)
 watch(
@@ -1881,6 +1813,11 @@ watch(show, (newVal) => {
 			log.debug("[PaymentDialog] Customer credit/balance should be pre-loaded, current balance:", customerBalance.value)
 		}
 
+		if (settingsStore.enableSalesPersons && props.posProfile && salesPersons.value.length === 0) {
+			loadingSalesPersons.value = true
+			salesPersonsResource.fetch()
+		}
+
 		// Load wallet info if customer is selected
 		if (props.customer && props.company) {
 			log.debug("[PaymentDialog] Loading wallet info...")
@@ -1898,6 +1835,17 @@ watch(show, (newVal) => {
 	}
 })
 
+watch(
+	() => [settingsStore.enableSalesPersons, props.posProfile],
+	([enabled, posProfile]) => {
+		if (enabled && posProfile && salesPersons.value.length === 0 && !loadingSalesPersons.value) {
+			loadingSalesPersons.value = true
+			salesPersonsResource.fetch()
+		}
+	},
+	{ immediate: true },
+)
+
 // ===========================================
 // Payment Method Press Handler (Long Press Support)
 // Uses composable for clean, reusable press handling
@@ -1907,6 +1855,12 @@ watch(show, (newVal) => {
 function selectPaymentMethod(method) {
 	lastSelectedMethod.value = method
 	log.debug("[PaymentDialog] Selected payment method:", method.mode_of_payment)
+	if (remainingAmount.value > 0) {
+		const isCash = isCashPaymentMethod(method)
+		const exactAmt = isCash ? Math.ceil(remainingAmount.value) : roundCurrency(remainingAmount.value)
+		setNumpadValue(exactAmt)
+		mobileCustomAmount.value = exactAmt.toFixed(2)
+	}
 }
 
 // Helper to get default non-wallet payment method

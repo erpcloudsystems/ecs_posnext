@@ -32,6 +32,44 @@ def employee_query(doctype, txt, searchfield, start, page_len, filters):
 
 
 @frappe.whitelist()
+def get_branch_balance(branch):
+	if not branch:
+		return {
+			"branch": None,
+			"account": None,
+			"balance": 0,
+			"currency": frappe.get_cached_value("Global Defaults", None, "default_currency"),
+		}
+
+	from frappe.utils import flt
+	fixed_account = "صندوق عمولات المساعدين - HR"
+	pos_profile = frappe.db.get_value("POS Profile", {"branch": branch}, ["name", "company"], as_dict=True)
+	company = pos_profile.company if pos_profile else None
+
+	balance = 0
+	gl_result = frappe.db.sql(
+		"""
+		SELECT SUM(debit) - SUM(credit) AS balance
+		FROM `tabGL Entry`
+		WHERE account = %s
+		  AND branch = %s
+		  AND is_cancelled = 0
+		  AND (%s IS NULL OR company = %s)
+		""",
+		(fixed_account, branch, company, company),
+		as_dict=True,
+	)
+	balance = flt(gl_result[0].balance) if gl_result and gl_result[0].balance else 0
+
+	return {
+		"branch": branch,
+		"account": fixed_account,
+		"balance": balance,
+		"currency": frappe.get_cached_value("Company", company, "default_currency") if company else frappe.get_cached_value("Global Defaults", None, "default_currency"),
+	}
+
+
+@frappe.whitelist()
 def get_daily_payments(employee=None, from_date=None, to_date=None, branch=None, limit=50):
 	"""Fetch Daily Payment records with optional filters by employee, date range, and branch."""
 	filters = {}

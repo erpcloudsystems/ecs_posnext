@@ -276,7 +276,7 @@
 				class="flex-1 overflow-y-auto p-1.5 sm:p-3"
 				style="min-height: 0;"
 			>
-				<div class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1.5 sm:gap-2.5">
+				<div class="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1 sm:gap-1.5">
 					<div
 						v-for="item in displayedItems"
 						:key="item.item_code"
@@ -285,7 +285,7 @@
 						@touchend.passive="getOptimizedClickHandler(item).touchend"
 						@click="getOptimizedClickHandler(item).click"
 						:class="[
-							'group relative bg-white border border-gray-200 rounded-lg p-1.5 sm:p-2.5 touch-manipulation transition-[border-color,box-shadow] duration-100 cursor-pointer hover:border-blue-400 hover:shadow-md',
+							'group relative bg-white border border-gray-200 rounded-lg p-1 sm:p-1.5 touch-manipulation transition-[border-color,box-shadow] duration-100 cursor-pointer hover:border-blue-400 hover:shadow-md',
 						]"
 					>
 						<!-- Stock Badge - Tap to select, long press to view warehouse availability -->
@@ -309,7 +309,7 @@
 						</div>
 
 						<!-- Item Image -->
-						<div class="relative aspect-square bg-gray-100 rounded-md mb-1.5 sm:mb-2 overflow-hidden">
+						<div class="relative w-8 h-8 sm:w-8 sm:h-8 mx-auto bg-gray-100 rounded-md mb-1.5 sm:mb-1.5 overflow-hidden">
 							<!-- Image with conditional blur on hover -->
 							<div :class="[
 								'w-full h-full transition-all duration-300',
@@ -376,10 +376,10 @@
 
 						<!-- Item Details -->
 						<div class="min-w-0">
-							<h3 class="text-[10px] sm:text-xs font-semibold text-gray-900 truncate mb-0.5 leading-tight">
+							<h3 class="text-[12px] sm:text-xl font-semibold text-gray-900 truncate mb-1 leading-tight">
 								{{ item.item_name }}
 							</h3>
-							<p class="text-[9px] sm:text-[10px] text-gray-500 leading-tight">
+							<p class="text-base sm:text-[10px] text-gray-500 leading-tight">
 									<span class="font-semibold text-blue-600">{{ formatCurrency(item.rate || item.price_list_rate || 0) }}</span>
 									<span class="text-gray-400">/ {{ item.uom || item.stock_uom || __('Nos', null, 'UOM') }}</span>
 							</p>
