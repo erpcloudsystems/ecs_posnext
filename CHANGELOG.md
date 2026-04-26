@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **PaymentDialog.vue UI Refinements**
+  - Removed numeric keypad section from payment dialog (desktop view)
+  - Moved Sales Person selection from left column to top of right column, above payment methods
+  - Payment method buttons now directly add the remaining amount on click (no separate Add button needed)
+- **DailyPaymentManagement.vue Default Filters**
+  - `from_date` and `to_date` filters now default to today's date instead of empty values
+- **Return Flow: Cancel-and-Recreate Pattern**
+  - Replaced "Create Return" button with "Cancel & Amend" in ReturnInvoiceDialog.vue
+  - Return process now cancels the original Sales Invoice instead of creating a separate `is_return=1` invoice
+  - If items remain after a partial return, a new Sales Invoice is created with only the remaining items
+  - New invoice is created with proportional payments copied from the original, making it auto-paid
+  - Existing `create_payment_entry_on_submit` hook creates Payment Entries automatically for the new invoice
+
+## [1.15.1] - 2026-04-26
+
+### Added
+- **Agent & AI Workflow Infrastructure**
+  - Created `chat/` directory to maintain structured AI-assisted development session logs
+  - Added `chat/chat_log.md` as the canonical session log for all AI development sessions
+  - Established session logging protocol: date, participants, topics, decisions, file changes, outcomes
+  - Updated `.clauderc` agent file with mandatory pre-session reading instructions (README, CHANGELOG, all chat logs)
+  - Added `## 🤖 Agent & AI Workflow` section to README documenting the new workflow structure
+
 ## [1.15.0] - 2026-02-06
 
 ### Added

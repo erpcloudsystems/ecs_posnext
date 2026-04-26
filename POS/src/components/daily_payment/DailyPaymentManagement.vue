@@ -328,8 +328,9 @@ const branchBalance = ref({
 })
 
 const searchEmployee = ref("")
-const fromDate = ref("")
-const toDate = ref("")
+const today = new Date().toISOString().split("T")[0]
+const fromDate = ref(today)
+const toDate = ref(today)
 
 let debounceTimer = null
 

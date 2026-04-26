@@ -2783,3 +2783,124 @@ def apply_offers(invoice_data, selected_offers=None):
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Apply Offers Error")
         frappe.throw(_("Error applying offers: {0}").format(str(e)))
+
+
+@frappe.whitelist()
+def process_return_by_cancel(invoice_name, returned_items, pos_opening_shift=None, pos_profile=None, return_reason=None):
+    """Process a return by cancelling the original invoice.
+
+    If there are remaining items (not all returned), a new Sales Invoice
+    is created with only the remaining items.
+
+    Args:
+        invoice_name: Original Sales Invoice name
+        returned_items: JSON list of returned items with sales_invoice_item and return_qty
+        pos_opening_shift: Current POS Opening Shift
+        pos_profile: POS Profile (fallback if original doesn't have one)
+        return_reason: Optional reason for the return
+
+    Returns:
+        dict: cancelled_invoice, new_invoice (if any), has_remaining_items
+    """
+    import json
+
+    returned_items = json.loads(returned_items) if isinstance(returned_items, str) else returned_items
+
+    original = frappe.get_doc("Sales Invoice", invoice_name)
+    if original.docstatus != 1:
+        frappe.throw(_("Invoice must be submitted to process a return"))
+
+    # Build map of returned items by row name or item_code
+    returned_map = {}
+    for item in returned_items:
+        key = item.get("sales_invoice_item") or item.get("name") or item.get("item_code")
+        returned_map[key] = flt(item.get("return_qty", 0))
+
+    # Determine remaining items
+    remaining_items = []
+    for item in original.items:
+        returned_qty = returned_map.get(item.name, 0)
+        if returned_qty == 0:
+            returned_qty = returned_map.get(item.item_code, 0)
+
+        remaining_qty = flt(item.qty) - returned_qty
+        if remaining_qty > 0:
+            remaining_items.append({
+                "item_code": item.item_code,
+                "item_name": item.item_name,
+                "qty": remaining_qty,
+                "rate": flt(item.rate),
+                "price_list_rate": flt(item.price_list_rate),
+                "discount_percentage": flt(item.discount_percentage),
+                "warehouse": item.warehouse,
+                "uom": item.uom,
+                "conversion_factor": flt(item.conversion_factor or 1),
+                "branch": item.branch,
+            })
+
+    # Cancel the original invoice
+    try:
+        original.cancel()
+    except Exception as e:
+        frappe.log_error(f"Failed to cancel invoice {invoice_name}: {str(e)}")
+        frappe.throw(_("Failed to cancel invoice {0}: {1}").format(invoice_name, str(e)))
+
+    new_invoice_name = None
+    if remaining_items:
+        # Build proportional payments based on original invoice payments.
+        # If the original had no payments (credit sale), the new invoice
+        # also has no payments.
+        original_payments = original.get("payments") or []
+        original_total = flt(original.grand_total)
+        new_payments = []
+        if original_payments and original_total > 0:
+            # Proportional payments: new invoice total / original grand_total
+            new_total = sum(
+                flt(it["qty"]) * flt(it["rate"]) for it in remaining_items
+            )
+            ratio = new_total / original_total if original_total else 0
+            for p in original_payments:
+                p_amount = flt(p.get("amount", 0)) * ratio
+                if p_amount > 0:
+                    new_payments.append({
+                        "mode_of_payment": p.get("mode_of_payment"),
+                        "amount": round(p_amount, 2),
+                    })
+
+        new_invoice_data = {
+            "doctype": "Sales Invoice",
+            "customer": original.customer,
+            "company": original.company,
+            "pos_profile": original.pos_profile or pos_profile,
+            "is_pos": 1,
+            "update_stock": 1,
+            "posting_date": frappe.utils.nowdate(),
+            "posting_time": frappe.utils.nowtime(),
+            "set_posting_time": 1,
+            "items": remaining_items,
+            "payments": new_payments,
+            "remarks": return_reason or _("Amended from {0}").format(invoice_name),
+        }
+
+        if original.branch:
+            new_invoice_data["branch"] = original.branch
+
+        # Copy sales team
+        if original.sales_team:
+            new_invoice_data["sales_team"] = []
+            for member in original.sales_team:
+                new_invoice_data["sales_team"].append({
+                    "sales_person": member.sales_person,
+                    "allocated_percentage": flt(member.allocated_percentage),
+                })
+
+        # Use standard submit flow to create and submit the new invoice
+        result = submit_invoice(invoice=json.dumps(new_invoice_data), data="{}")
+        if result and isinstance(result, dict):
+            new_invoice_name = result.get("name")
+
+    return {
+        "cancelled_invoice": invoice_name,
+        "new_invoice": new_invoice_name,
+        "has_remaining_items": bool(remaining_items),
+    }

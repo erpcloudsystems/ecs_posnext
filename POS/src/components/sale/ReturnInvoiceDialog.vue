@@ -678,12 +678,12 @@
 						<Button
 							variant="solid"
 							theme="red"
-							@click="handleCreateReturn"
-							:disabled="!canCreateReturn || isSubmitting"
+							@click="handleCancelAndRecreate"
+							:disabled="!canProcessReturn || isSubmitting"
 							:loading="isSubmitting"
 							class="flex-1 sm:flex-initial"
 						>
-							<span class="text-sm whitespace-nowrap">{{ __('Create Return') }}</span>
+							<span class="text-sm whitespace-nowrap">{{ __('Cancel & Amend') }}</span>
 						</Button>
 					</div>
 				</div>
@@ -1011,6 +1011,51 @@ const fetchInvoiceResource = createResource({
 	},
 })
 
+// Resource for the new cancel-and-recreate return flow
+const cancelAndRecreateResource = createResource({
+	url: "ecs_posnext.api.invoices.process_return_by_cancel",
+	auto: false,
+	makeParams() {
+		return {
+			invoice_name: originalInvoice.value.name,
+			returned_items: JSON.stringify(
+				selectedItems.value.map((item) => ({
+					sales_invoice_item: item.name,
+					item_code: item.item_code,
+					return_qty: item.return_qty,
+				})),
+			),
+			pos_opening_shift: props.posOpeningShift,
+			pos_profile: props.posProfile,
+			return_reason: returnReason.value,
+		}
+	},
+	onSuccess(data) {
+		isSubmitting.value = false
+		if (data.new_invoice) {
+			showSuccess(
+				__("Invoice cancelled and recreated as {0}", [data.new_invoice]),
+			)
+		} else {
+			showSuccess(
+				__("Invoice {0} cancelled successfully", [data.cancelled_invoice]),
+			)
+		}
+		emit("return-created", data)
+		loadInvoicesResource.reload()
+		closeReturnModal()
+	},
+	onError(error) {
+		isSubmitting.value = false
+		const errorMsg = extractErrorMessage(
+			error,
+			__("Failed to process return"),
+		)
+		submitError.value = errorMsg
+		openErrorDialog(errorMsg)
+	},
+})
+
 // Resource for submitting the return invoice to the server
 const createReturnResource = createResource({
 	url: "ecs_posnext.api.invoices.submit_invoice",
@@ -1266,6 +1311,12 @@ const canCreateReturn = computed(() => {
 		hasValidPayments &&
 		Math.abs(totalPaymentAmount.value - returnTotal.value) < 0.01
 	)
+})
+
+// New flow: cancel original invoice and recreate with remaining items.
+// Only requires items to be selected and a POS shift to be open.
+const canProcessReturn = computed(() => {
+	return selectedItems.value.length > 0 && hasOpenShift.value
 })
 
 // Shared filter function to avoid duplicate code
@@ -1601,6 +1652,36 @@ async function handleCreateReturn() {
 		}
 	} catch (error) {
 		console.error("Caught error in handleCreateReturn:", error)
+		if (!submitError.value) {
+			const errorMsg = extractErrorMessage(error)
+			submitError.value = errorMsg
+			openErrorDialog(errorMsg)
+		}
+	} finally {
+		isSubmitting.value = false
+	}
+}
+
+async function handleCancelAndRecreate() {
+	if (!canProcessReturn.value || isSubmitting.value) return
+	if (!hasOpenShift.value) {
+		const message = __("Open a shift before processing a return.")
+		submitError.value = message
+		openErrorDialog(message)
+		return
+	}
+
+	if (!validateSelectedItems()) {
+		return
+	}
+
+	submitError.value = ""
+	isSubmitting.value = true
+
+	try {
+		await cancelAndRecreateResource.submit()
+	} catch (error) {
+		console.error("Caught error in handleCancelAndRecreate:", error)
 		if (!submitError.value) {
 			const errorMsg = extractErrorMessage(error)
 			submitError.value = errorMsg

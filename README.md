@@ -406,7 +406,47 @@ frappe.call({
 })
 ```
 
-## 🤝 Contributing
+## � Agent & AI Workflow
+
+This project uses structured AI-assisted development. Before starting any work session, all agents and contributors must read:
+
+1. **`README.md`** (this file) — project overview, architecture, configuration, and API reference
+2. **`CHANGELOG.md`** — full version history, what changed and why
+3. **`chat/*.md`** — all previous AI development sessions (one file per session, named `subject-date.md`), decisions made, and outcomes
+
+### Chat Log
+
+All AI-assisted development sessions are recorded as individual files in the `chat/` folder, named `subject-date.md` (e.g., `fix-login-error-2026-04-26.md`).
+
+Each session entry includes:
+- Date and participants
+- Topics discussed
+- Decisions made
+- Files created or modified
+- Outcomes and next steps
+
+### Agent File
+
+Project-specific agent rules are defined in [`.clauderc`](.clauderc). This file governs:
+- Package manager rules (always use `yarn`)
+- File creation policy
+- API call conventions
+- Pre-session reading requirements
+
+### Workflow Protocol
+
+```
+1. Read README.md        → understand the project
+2. Read CHANGELOG.md     → understand recent changes
+3. Read chat/*.md         → understand previous session decisions
+4. Do the work
+5. Create new file in chat/ → log the session
+6. Update CHANGELOG.md [Unreleased] if applicable
+```
+
+---
+
+## �🤝 Contributing
 
 We welcome contributions! Here's how:
 

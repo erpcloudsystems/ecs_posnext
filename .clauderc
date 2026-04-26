@@ -1,5 +1,23 @@
 # Claude Code Instructions
 
+## MANDATORY: Pre-Session Reading
+
+Before starting ANY work on this project, you MUST read the following files in order:
+
+1. **`README.md`** — Project overview, features, installation, configuration, API reference, and the Agent & AI Workflow section
+2. **`CHANGELOG.md`** — Full version history; understand what has changed and why before touching any code
+3. **`chat/*.md`** — All previous AI development sessions (one file per session, named `subject-date.md`); contains decisions made, patterns established, and context that must not be lost
+
+Failure to read these files before working risks duplicating effort, reversing past decisions, or breaking established patterns.
+
+## MANDATORY: Post-Session Logging
+
+After completing any work session, you MUST:
+
+1. Create a new file in `chat/` named `subject-date.md` (e.g., `fix-login-error-2026-04-26.md`) following the existing per-session format
+2. Update the `## [Unreleased]` section in `CHANGELOG.md` if any code changes were made
+3. Keep entries concise but complete — include all files modified and decisions made
+
 ## Package Manager
 - Always use `yarn` as the package manager for this project
 - Never use `npm` for installing, updating, or managing dependencies

@@ -141,3 +141,107 @@ def before_cancel(doc, method=None):
 			alert=True,
 			indicator="orange"
 		)
+
+
+def create_payment_entry_on_submit(doc, method=None):
+	"""
+	Create and submit a Payment Entry for each payment row on POS Sales Invoice submit.
+	Skips silently if Payment Entries already exist for this invoice + mode of payment
+	(guards against duplicate execution when multiple apps handle the same hook).
+
+	Args:
+		doc: Sales Invoice document
+		method: Hook method name (unused)
+	"""
+	try:
+		if not doc.is_pos:
+			return
+
+		if not doc.payments:
+			return
+
+		for payment in doc.payments:
+			if not payment.amount or payment.amount <= 0:
+				continue
+
+			# Guard: skip if a Payment Entry already exists for this invoice + mode of payment
+			existing = frappe.db.exists("Payment Entry", {
+				"reference_no": doc.name,
+				"mode_of_payment": payment.mode_of_payment,
+				"party": doc.customer,
+				"docstatus": ["!=", 2]
+			})
+			if existing:
+				continue
+
+			# Resolve the cash/bank account linked to this mode of payment for this company
+			paid_to_account = frappe.db.get_value(
+				"Mode of Payment Account",
+				{"parent": payment.mode_of_payment, "company": doc.company},
+				"default_account"
+			)
+
+			if not paid_to_account:
+				frappe.log_error(
+					title="Error : Missing Mode of Payment Account",
+					message="No account found for Mode of Payment {} in company {}".format(
+						payment.mode_of_payment, doc.company
+					)
+				)
+				continue
+
+			pe = frappe.new_doc("Payment Entry")
+			pe.payment_type = "Receive"
+			pe.party_type = "Customer"
+			pe.party = doc.customer
+			pe.company = doc.company
+			pe.posting_date = doc.posting_date
+			pe.mode_of_payment = payment.mode_of_payment
+			pe.paid_from = doc.debit_to
+			pe.paid_to = paid_to_account
+			pe.paid_amount = payment.amount
+			pe.received_amount = payment.amount
+			pe.reference_no = doc.name
+			pe.reference_date = doc.posting_date
+
+			pe.insert(ignore_permissions=True)
+			pe.submit()
+
+	except Exception as e:
+		frappe.log_error(
+			title="Error creating Payment Entry for Sales Invoice {}".format(doc.name),
+			message="{}\n{}".format(str(e), frappe.get_traceback())
+		)
+
+
+def cancel_payment_entries_on_cancel(doc, method=None):
+	"""
+	Cancel all submitted Payment Entries linked to this POS Sales Invoice.
+
+	Args:
+		doc: Sales Invoice document
+		method: Hook method name (unused)
+	"""
+	try:
+		if not doc.is_pos:
+			return
+
+		pe_list = frappe.get_all(
+			"Payment Entry",
+			filters={
+				"reference_no": doc.name,
+				"party": doc.customer,
+				"docstatus": 1
+			},
+			fields=["name"]
+		)
+
+		for pe_row in pe_list:
+			pe_doc = frappe.get_doc("Payment Entry", pe_row.name)
+			pe_doc.cancel()
+
+	except Exception as e:
+		frappe.log_error(
+			title="Error cancelling Payment Entry for Sales Invoice {}".format(doc.name),
+			message="{}\n{}".format(str(e), frappe.get_traceback())
+		)
