@@ -384,25 +384,34 @@
 								</div>
 							</div>
 
-							<!-- Validation message -->
+							<!-- Validation messages -->
 							<div v-if="!isSalesPersonValid" class="mt-1 text-xs text-red-600 flex items-center gap-1">
 								<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
 									<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
 								</svg>
-								{{ __('Sales person is required') }}
+								<span v-if="selectedSalesPersons.length === 0">{{ __('Sales person is required') }}</span>
+								<span v-else>{{ __('At least one salesperson must have commission enabled') }}</span>
 							</div>
 
-							<!-- Selected Sales Persons (chips) -->
+							<!-- Selected Sales Persons (chips with commission checkboxes) -->
 							<div v-if="selectedSalesPersons.length > 0" class="mt-2 flex flex-wrap gap-1">
 								<div
 									v-for="person in selectedSalesPersons"
 									:key="person.sales_person"
 									class="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 border border-purple-300 rounded text-xs"
+									:class="{ 'opacity-50': person.include_in_commission === 0 }"
 								>
-									<span class="font-medium text-gray-900 truncate max-w-[120px]">
+									<!-- Commission Checkbox -->
+									<input
+										type="checkbox"
+										:checked="person.include_in_commission !== 0"
+										@change="toggleCommissionInclusion(person.sales_person)"
+										class="w-3.5 h-3.5 rounded border-purple-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+									/>
+									<span class="font-medium text-gray-900 truncate max-w-[100px]" :class="{ 'line-through text-gray-500': person.include_in_commission === 0 }">
 										{{ person.sales_person_name || person.sales_person }}
 									</span>
-									<span class="text-purple-600 font-semibold">
+									<span class="text-purple-600 font-semibold" :class="{ 'text-gray-400': person.include_in_commission === 0 }">
 										{{ Math.round(person.allocated_percentage) }}%
 									</span>
 									<button
@@ -1205,7 +1214,14 @@ const isSalesPersonValid = computed(() => {
 		return true
 	}
 	// At least one sales person must be selected
-	return selectedSalesPersons.value.length > 0
+	if (selectedSalesPersons.value.length === 0) {
+		return false
+	}
+	// At least one sales person must have include_in_commission === 1 (or not set to 0)
+	const hasActivePerson = selectedSalesPersons.value.some(
+		(p) => p.include_in_commission !== 0,
+	)
+	return hasActivePerson
 })
 
 // Helper functions for sales persons
@@ -1218,6 +1234,7 @@ function addSalesPerson(person) {
 				sales_person_name: person.sales_person_name || person.name,
 				allocated_percentage: 100,
 				commission_rate: person.commission_rate,
+				include_in_commission: 1,
 			},
 		]
 		// Close dropdown after single selection
@@ -1230,6 +1247,7 @@ function addSalesPerson(person) {
 			sales_person_name: person.sales_person_name || person.name,
 			allocated_percentage: 0, // Will be recalculated
 			commission_rate: person.commission_rate,
+			include_in_commission: 1,
 		})
 		// Redistribute commission evenly among all selected
 		redistributeCommission()
@@ -1259,13 +1277,34 @@ function clearSalesPersons() {
 
 // Redistribute commission evenly among all selected sales persons
 function redistributeCommission() {
-	const count = selectedSalesPersons.value.length
+	const activePersons = selectedSalesPersons.value.filter(
+		(p) => p.include_in_commission !== 0,
+	)
+	const count = activePersons.length
 	if (count === 0) return
 
 	const evenShare = 100 / count
 	selectedSalesPersons.value.forEach((person) => {
-		person.allocated_percentage = evenShare
+		if (person.include_in_commission !== 0) {
+			person.allocated_percentage = evenShare
+		} else {
+			person.allocated_percentage = 0
+		}
 	})
+}
+
+function toggleCommissionInclusion(personName) {
+	const person = selectedSalesPersons.value.find(
+		(p) => p.sales_person === personName,
+	)
+	if (!person) return
+
+	// Toggle inclusion: 1 -> 0, or 0 -> 1
+	person.include_in_commission =
+		person.include_in_commission === 0 ? 1 : 0
+
+	// Recalculate percentages after toggling
+	redistributeCommission()
 }
 
 // Handle blur event for dropdown
