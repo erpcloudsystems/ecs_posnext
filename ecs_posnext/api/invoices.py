@@ -1199,8 +1199,9 @@ def submit_invoice(invoice=None, data=None):
             invoice_doc = frappe.get_doc(doctype, invoice_name)
             invoice_doc.update(invoice)
 
-        # Ensure update_stock is set for Sales Invoice
+        # Ensure POS flags are set for Sales Invoice
         if doctype == "Sales Invoice":
+            invoice_doc.is_pos = 1
             invoice_doc.update_stock = 1
 
         # For return invoices, set update_outstanding_for_self = 0
