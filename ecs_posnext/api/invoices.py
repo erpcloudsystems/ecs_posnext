@@ -1229,6 +1229,16 @@ def submit_invoice(invoice=None, data=None):
                 )
 
         # Set accounts for all payment methods before saving
+        frappe.log_error(
+            title="[DEBUG] ecs_posnext submit_invoice - payments state",
+            message="Invoice: {}\nis_pos: {}\nupdate_stock: {}\npayments count: {}\npayments: {}".format(
+                invoice_doc.name or "(new)",
+                invoice_doc.get("is_pos"),
+                invoice_doc.get("update_stock"),
+                len(invoice_doc.payments) if invoice_doc.payments else 0,
+                [(p.get("mode_of_payment"), p.get("amount")) for p in invoice_doc.payments] if invoice_doc.payments else []
+            )
+        )
         if doctype == "Sales Invoice" and hasattr(invoice_doc, "payments"):
             for payment in invoice_doc.payments:
                 if payment.mode_of_payment:
@@ -1318,10 +1328,29 @@ def submit_invoice(invoice=None, data=None):
         # Save before submit
         invoice_doc.flags.ignore_permissions = True
         frappe.flags.ignore_account_permission = True
+        frappe.log_error(
+            title="[DEBUG] ecs_posnext submit_invoice - before save",
+            message="Invoice: {}\nis_pos: {}\npayments count: {}\npayments: {}".format(
+                invoice_doc.name or "(new)",
+                invoice_doc.get("is_pos"),
+                len(invoice_doc.payments) if invoice_doc.payments else 0,
+                [(p.get("mode_of_payment"), p.get("amount")) for p in invoice_doc.payments] if invoice_doc.payments else []
+            )
+        )
         invoice_doc.save()
 
         # Submit invoice
+        frappe.log_error(
+            title="[DEBUG] ecs_posnext submit_invoice - before submit",
+            message="Invoice: {}\nis_pos: {}\npayments count: {}\npayments: {}".format(
+                invoice_doc.name,
+                invoice_doc.get("is_pos"),
+                len(invoice_doc.payments) if invoice_doc.payments else 0,
+                [(p.get("mode_of_payment"), p.get("amount")) for p in invoice_doc.payments] if invoice_doc.payments else []
+            )
+        )
         invoice_doc.submit()
+        frappe.log_error(title="[DEBUG] ecs_posnext submit_invoice - SUBMITTED", message="Invoice {} submitted successfully".format(invoice_doc.name))
         invoice_submitted = True
         # Handle wallet transaction reversal for returns
         if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
