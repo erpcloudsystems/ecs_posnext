@@ -204,6 +204,14 @@ def create_payment_entry_on_submit(doc, method=None):
 			pe.reference_no = doc.name
 			pe.reference_date = doc.posting_date
 
+			pe.append("references", {
+				"reference_doctype": "Sales Invoice",
+				"reference_name": doc.name,
+				"total_amount": doc.grand_total,
+				"outstanding_amount": doc.outstanding_amount,
+				"allocated_amount": payment.amount,
+			})
+
 			pe.insert(ignore_permissions=True)
 			pe.submit()
 

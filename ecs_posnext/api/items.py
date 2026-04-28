@@ -1512,7 +1512,6 @@ def get_items_bulk(pos_profile, item_groups=None, start=0, limit=2000, include_v
 				.select(ItemPrice.item_code, ItemPrice.uom, ItemPrice.price_list_rate)
 				.where(ItemPrice.price_list == price_list)
 				.where(ItemPrice.item_code.isin(item_codes))
-				.where(ItemPrice.selling == 1)
 				.run(as_dict=True)
 			)
 			for p in prices:
@@ -1562,9 +1561,10 @@ def get_items_bulk(pos_profile, item_groups=None, start=0, limit=2000, include_v
 			item_code = item["item_code"]
 			stock_uom = item.get("stock_uom")
 
-			# Price
+			# Price — prefer stock UOM price, fall back to any available price (handles null/empty UOM keys)
 			prices = uom_prices_map.get(item_code, {})
-			item["rate"] = prices.get(stock_uom, 0)
+			rate = prices.get(stock_uom) or prices.get(None) or prices.get("") or (next(iter(prices.values()), 0) if prices else 0)
+			item["rate"] = flt(rate)
 			item["price_list_rate"] = item["rate"]
 			item["uom"] = stock_uom
 			item["price_uom"] = stock_uom
