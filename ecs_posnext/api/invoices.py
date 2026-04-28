@@ -615,6 +615,15 @@ def update_invoice(data):
     try:
         data = json.loads(data) if isinstance(data, str) else data
 
+        # DEBUG: log raw payments from frontend
+        raw_payments = data.get("payments", [])
+        frappe.log_error(
+            title="[DEBUG] update_invoice - RAW frontend payments",
+            message="raw payments from frontend: {}".format(
+                [(p.get("mode_of_payment"), p.get("amount")) for p in raw_payments]
+            )
+        )
+
         pos_profile = data.get("pos_profile")
         doctype = data.get("doctype", "Sales Invoice")
 
@@ -630,6 +639,15 @@ def update_invoice(data):
             invoice_doc.update(data)
         else:
             invoice_doc = frappe.get_doc(data)
+
+        # DEBUG: log payments on invoice_doc immediately after creation/update
+        frappe.log_error(
+            title="[DEBUG] update_invoice - after doc creation",
+            message="invoice: {}\npayments from doc: {}".format(
+                invoice_doc.get("name") or "(new)",
+                [(p.mode_of_payment, p.amount) for p in invoice_doc.payments] if invoice_doc.payments else []
+            )
+        )
 
         pos_profile_doc = None
         if pos_profile:
@@ -823,6 +841,18 @@ def update_invoice(data):
 
         # Calculate totals and apply discounts (with rounding disabled)
         invoice_doc.calculate_taxes_and_totals()
+
+        # DEBUG: log payments after calculate_taxes_and_totals
+        frappe.log_error(
+            title="[DEBUG] update_invoice - after calculate_taxes_and_totals",
+            message="invoice: {}\npayments after calc: {}\npaid_amount: {}\ngrand_total: {}".format(
+                invoice_doc.get("name") or "(new)",
+                [(p.mode_of_payment, p.amount) for p in invoice_doc.payments] if invoice_doc.payments else [],
+                invoice_doc.get("paid_amount"),
+                invoice_doc.get("grand_total"),
+            )
+        )
+
         if invoice_doc.grand_total is None:
             invoice_doc.grand_total = 0.0
         if invoice_doc.base_grand_total is None:
@@ -884,7 +914,28 @@ def update_invoice(data):
         invoice_doc.docstatus = 0
         invoice_doc.save()
 
-        return invoice_doc.as_dict()
+        # DEBUG: log payments after save
+        frappe.log_error(
+            title="[DEBUG] update_invoice - after save",
+            message="invoice: {}\npayments after save: {}\npaid_amount: {}".format(
+                invoice_doc.name,
+                [(p.mode_of_payment, p.amount) for p in invoice_doc.payments] if invoice_doc.payments else [],
+                invoice_doc.get("paid_amount"),
+            )
+        )
+
+        result_dict = invoice_doc.as_dict()
+
+        # DEBUG: log payments in returned dict
+        frappe.log_error(
+            title="[DEBUG] update_invoice - returned dict",
+            message="invoice: {}\npayments in returned dict: {}".format(
+                result_dict.get("name"),
+                [(p.get("mode_of_payment"), p.get("amount")) for p in result_dict.get("payments", [])]
+            )
+        )
+
+        return result_dict
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Update Invoice Error")
         raise
@@ -1183,6 +1234,15 @@ def submit_invoice(invoice=None, data=None):
     # Track whether invoice was successfully submitted
     invoice_submitted = False
 
+    # Log raw payment data from frontend before any processing
+    frappe.log_error(
+        title="[DEBUG] submit_invoice - RAW frontend payments",
+        message="invoice name: {}\nraw payments from frontend: {}".format(
+            invoice.get("name"),
+            [(p.get("mode_of_payment"), p.get("amount")) for p in invoice.get("payments", [])] if invoice.get("payments") else []
+        )
+    )
+
     try:
         invoice_name = invoice.get("name")
 
@@ -1195,9 +1255,30 @@ def submit_invoice(invoice=None, data=None):
             if not invoice_name:
                 frappe.throw(_("Failed to get invoice name from draft"))
             invoice_doc = frappe.get_doc(doctype, invoice_name)
+            frappe.log_error(
+                title="[DEBUG] submit_invoice - after update_invoice (fetched from DB)",
+                message="invoice: {}\npayments from DB after update_invoice: {}".format(
+                    invoice_name,
+                    [(p.mode_of_payment, p.amount) for p in invoice_doc.payments] if invoice_doc.payments else []
+                )
+            )
         else:
             invoice_doc = frappe.get_doc(doctype, invoice_name)
+            frappe.log_error(
+                title="[DEBUG] submit_invoice - before invoice_doc.update (existing invoice from DB)",
+                message="invoice: {}\npayments from DB: {}".format(
+                    invoice_name,
+                    [(p.mode_of_payment, p.amount) for p in invoice_doc.payments] if invoice_doc.payments else []
+                )
+            )
             invoice_doc.update(invoice)
+            frappe.log_error(
+                title="[DEBUG] submit_invoice - after invoice_doc.update",
+                message="invoice: {}\npayments after update: {}".format(
+                    invoice_name,
+                    [(p.mode_of_payment, p.amount) for p in invoice_doc.payments] if invoice_doc.payments else []
+                )
+            )
 
         # Ensure POS flags are set for Sales Invoice
         if doctype == "Sales Invoice":

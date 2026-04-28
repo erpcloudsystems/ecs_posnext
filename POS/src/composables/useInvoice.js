@@ -944,6 +944,9 @@ export function useInvoice() {
 				const rawPayments = toRaw(payments.value)
 				const rawSalesTeam = toRaw(salesTeam.value)
 
+				// DEBUG: log raw payments before sending
+				console.log("[DEBUG useInvoice] rawPayments before map:", JSON.parse(JSON.stringify(rawPayments)))
+
 				const invoiceData = {
 					doctype: targetDoctype,
 					pos_profile: posProfile.value,
@@ -960,6 +963,9 @@ export function useInvoice() {
 					is_pos: 1,
 					update_stock: 1, // Critical: Ensures stock is updated
 				}
+
+				// DEBUG: log payments in invoiceData
+				console.log("[DEBUG useInvoice] invoiceData.payments before updateInvoice:", JSON.parse(JSON.stringify(invoiceData.payments)))
 
 				if (targetDoctype === "Sales Order" && deliveryDate) {
 					invoiceData.delivery_date = deliveryDate
@@ -986,6 +992,10 @@ export function useInvoice() {
 					invoiceDoc = draftInvoice.data
 				}
 
+				// DEBUG: log payments in returned draft invoice
+				console.log("[DEBUG useInvoice] draftInvoice response:", JSON.parse(JSON.stringify(draftInvoice)))
+				console.log("[DEBUG useInvoice] invoiceDoc.payments after updateInvoice:", JSON.parse(JSON.stringify(invoiceDoc?.payments || [])))
+
 				if (!invoiceDoc || !invoiceDoc.name) {
 					throw new Error(
 						"Failed to create draft invoice - no invoice name returned",
@@ -997,6 +1007,9 @@ export function useInvoice() {
 						remainingAmount.value < 0 ? Math.abs(remainingAmount.value) : 0,
 					write_off_amount: writeOffAmount || 0,
 				}
+
+				// DEBUG: log invoiceDoc before submitInvoice
+				console.log("[DEBUG useInvoice] invoiceDoc before submitInvoice:", JSON.parse(JSON.stringify(invoiceDoc)))
 
 				try {
 					const result = await submitInvoiceResource.submit({
