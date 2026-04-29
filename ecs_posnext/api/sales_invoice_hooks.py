@@ -154,34 +154,14 @@ def create_payment_entry_on_submit(doc, method=None):
 		method: Hook method name (unused)
 	"""
 	try:
-		frappe.log_error(
-			title="[DEBUG] ecs_posnext PE on_submit START",
-			message="Invoice: {}\nis_pos: {}\npayments count: {}\npayments: {}".format(
-				doc.name,
-				doc.is_pos,
-				len(doc.payments) if doc.payments else 0,
-				[(p.mode_of_payment, p.amount) for p in doc.payments] if doc.payments else []
-			)
-		)
-
 		if not doc.is_pos:
-			frappe.log_error(title="[DEBUG] ecs_posnext PE skipped", message="Invoice {} is not POS".format(doc.name))
 			return
 
 		if not doc.payments:
-			frappe.log_error(title="[DEBUG] ecs_posnext PE skipped", message="Invoice {} has no payments".format(doc.name))
 			return
 
 		for payment in doc.payments:
-			frappe.log_error(
-				title="[DEBUG] ecs_posnext PE loop - payment row",
-				message="Invoice: {}\nmode_of_payment: {}\namount: {}".format(
-					doc.name, payment.mode_of_payment, payment.amount
-				)
-			)
-
 			if not payment.amount or payment.amount <= 0:
-				frappe.log_error(title="[DEBUG] ecs_posnext PE skipped", message="Invoice {} - payment amount zero: {}".format(doc.name, payment.amount))
 				continue
 
 			# Guard: skip if a Payment Entry already exists for this invoice + mode of payment
@@ -192,25 +172,13 @@ def create_payment_entry_on_submit(doc, method=None):
 				"docstatus": ["!=", 2]
 			})
 			if existing:
-				frappe.log_error(title="[DEBUG] ecs_posnext PE skipped", message="Invoice {} - PE already exists: {}".format(doc.name, existing))
 				continue
 
-			# Resolve the cash/bank account.
-			# Use payment.account first (already resolved with fallbacks during submit_invoice),
-			# then fall back to Mode of Payment Account direct lookup.
-			paid_to_account = payment.account
-			if not paid_to_account:
-				paid_to_account = frappe.db.get_value(
-					"Mode of Payment Account",
-					{"parent": payment.mode_of_payment, "company": doc.company},
-					"default_account"
-				)
-
-			frappe.log_error(
-				title="[DEBUG] ecs_posnext PE account lookup",
-				message="Invoice: {}\nmode_of_payment: {}\ncompany: {}\npaid_to_account: {}\ndebit_to: {}".format(
-					doc.name, payment.mode_of_payment, doc.company, paid_to_account, doc.debit_to
-				)
+			# Resolve the cash/bank account linked to this mode of payment for this company
+			paid_to_account = frappe.db.get_value(
+				"Mode of Payment Account",
+				{"parent": payment.mode_of_payment, "company": doc.company},
+				"default_account"
 			)
 
 			if not paid_to_account:
@@ -244,9 +212,16 @@ def create_payment_entry_on_submit(doc, method=None):
 				"allocated_amount": payment.amount,
 			})
 
-			pe.insert(ignore_permissions=True)
-			pe.submit()
-			frappe.log_error(title="[DEBUG] ecs_posnext PE created", message="Invoice {} - Payment Entry created successfully".format(doc.name))
+			try:
+				pe.insert(ignore_permissions=True)
+				pe.submit()
+			except frappe.ValidationError as e:
+				if "already been fully paid" in str(e):
+					pe.references = []
+					pe.insert(ignore_permissions=True)
+					pe.submit()
+				else:
+					raise
 
 	except Exception as e:
 		frappe.log_error(
