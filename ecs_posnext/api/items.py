@@ -8,7 +8,7 @@ import frappe
 from erpnext.stock.doctype.batch.batch import get_batch_qty
 from erpnext.stock.get_item_details import get_item_details as erpnext_get_item_details
 from frappe import _
-from frappe.query_builder import DocType, functions as fn
+from frappe.query_builder import DocType, Order, functions as fn
 from frappe.utils import flt, nowdate
 
 ITEM_RESULT_FIELDS = [
@@ -395,15 +395,21 @@ def search_by_barcode(barcode, pos_profile):
 		uom_prices = {}
 		if pos_profile_doc.selling_price_list:
 			ItemPrice = DocType("Item Price")
+			today = nowdate()
 			prices = (
 				frappe.qb.from_(ItemPrice)
 				.select(ItemPrice.uom, ItemPrice.price_list_rate)
 				.where(ItemPrice.item_code == item_code)
 				.where(ItemPrice.price_list == pos_profile_doc.selling_price_list)
+				.where((ItemPrice.valid_from.isnull()) | (ItemPrice.valid_from <= today))
+				.where((ItemPrice.valid_upto.isnull()) | (ItemPrice.valid_upto >= today))
+				.orderby(ItemPrice.uom)
+				.orderby(ItemPrice.modified, order=Order.desc)
 				.run(as_dict=True)
 			)
+			# With ORDER BY modified DESC, first result per uom is the most recent
 			for p in prices:
-				if p["uom"]:
+				if p["uom"] and p["uom"] not in uom_prices:
 					uom_prices[p["uom"]] = p["price_list_rate"]
 
 		item_details["uom_prices"] = uom_prices
@@ -588,6 +594,7 @@ def get_item_variants(template_item, pos_profile):
 		uom_prices_map = {}
 		if variant_codes:
 			ItemPrice = DocType("Item Price")
+			today = nowdate()
 			prices = (
 				frappe.qb.from_(ItemPrice)
 				.select(
@@ -597,14 +604,19 @@ def get_item_variants(template_item, pos_profile):
 				)
 				.where(ItemPrice.item_code.isin(variant_codes))
 				.where(ItemPrice.price_list == pos_profile_doc.selling_price_list)
+				.where((ItemPrice.valid_from.isnull()) | (ItemPrice.valid_from <= today))
+				.where((ItemPrice.valid_upto.isnull()) | (ItemPrice.valid_upto >= today))
 				.orderby(ItemPrice.item_code)
 				.orderby(ItemPrice.uom)
+				.orderby(ItemPrice.modified, order=Order.desc)
 				.run(as_dict=True)
 			)
+			# With ORDER BY modified DESC, first result per item_code + uom is the most recent
 			for price in prices:
 				if price["item_code"] not in uom_prices_map:
 					uom_prices_map[price["item_code"]] = {}
-				uom_prices_map[price["item_code"]][price["uom"]] = price["price_list_rate"]
+				if price["uom"] not in uom_prices_map[price["item_code"]]:
+					uom_prices_map[price["item_code"]][price["uom"]] = price["price_list_rate"]
 
 		# Get all variant attributes in a single query (performance optimization)
 		attributes_map = {}
@@ -1190,6 +1202,7 @@ def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20,
 		# UOM-specific prices - batch query ALL prices for all items using Query Builder
 		if item_codes:
 			ItemPrice = DocType("Item Price")
+			today = nowdate()
 			prices = (
 				frappe.qb.from_(ItemPrice)
 				.select(
@@ -1199,12 +1212,20 @@ def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20,
 				)
 				.where(ItemPrice.item_code.isin(item_codes))
 				.where(ItemPrice.price_list == pos_profile_doc.selling_price_list)
+				.where((ItemPrice.valid_from.isnull()) | (ItemPrice.valid_from <= today))
+				.where((ItemPrice.valid_upto.isnull()) | (ItemPrice.valid_upto >= today))
 				.orderby(ItemPrice.item_code)
 				.orderby(ItemPrice.uom)
+				.orderby(ItemPrice.modified, order=Order.desc)
 				.run(as_dict=True)
 			)
+			# Use dict to keep only the latest price per item_code + uom combination
+			# With ORDER BY modified DESC, first result is the most recent
 			for price in prices:
-				uom_prices_map.setdefault(price["item_code"], {})[price["uom"]] = price["price_list_rate"]
+				if price["item_code"] not in uom_prices_map:
+					uom_prices_map[price["item_code"]] = {}
+				if price["uom"] not in uom_prices_map[price["item_code"]]:
+					uom_prices_map[price["item_code"]][price["uom"]] = price["price_list_rate"]
 
 		# Batch query stock for all items at once using Query Builder
 		stock_map = {}
@@ -1507,15 +1528,25 @@ def get_items_bulk(pos_profile, item_groups=None, start=0, limit=2000, include_v
 		price_list = pos_profile_doc.selling_price_list
 		if price_list and item_codes:
 			ItemPrice = DocType("Item Price")
+			today = nowdate()
 			prices = (
 				frappe.qb.from_(ItemPrice)
 				.select(ItemPrice.item_code, ItemPrice.uom, ItemPrice.price_list_rate)
 				.where(ItemPrice.price_list == price_list)
 				.where(ItemPrice.item_code.isin(item_codes))
+				.where((ItemPrice.valid_from.isnull()) | (ItemPrice.valid_from <= today))
+				.where((ItemPrice.valid_upto.isnull()) | (ItemPrice.valid_upto >= today))
+				.orderby(ItemPrice.item_code)
+				.orderby(ItemPrice.uom)
+				.orderby(ItemPrice.modified, order=Order.desc)
 				.run(as_dict=True)
 			)
+			# With ORDER BY modified DESC, first result per item_code + uom is the most recent
 			for p in prices:
-				uom_prices_map.setdefault(p.item_code, {})[p.uom] = flt(p.price_list_rate)
+				if p.item_code not in uom_prices_map:
+					uom_prices_map[p.item_code] = {}
+				if p.uom not in uom_prices_map[p.item_code]:
+					uom_prices_map[p.item_code][p.uom] = flt(p.price_list_rate)
 
 		# Stock
 		warehouse = pos_profile_doc.warehouse

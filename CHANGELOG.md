@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Item Price Validity Filters**
+  - Added `valid_from` and `valid_upto` date filters to all Item Price queries across `get_items()`, `get_items_bulk()`, `get_item_variants()`, and `search_by_barcode()` functions
+  - POS now displays only currently valid prices, excluding expired or future-dated prices
+  - Ensures price list rates match ERPNext's validity period logic
+  - Added `ORDER BY modified DESC` and fixed price selection logic to ensure the most recently updated price is returned when multiple valid prices exist for the same item/price list/UOM (prevents older prices from overwriting newer ones)
+
 ### Changed
 - **PaymentDialog.vue UI Refinements**
   - Removed numeric keypad section from payment dialog (desktop view)
