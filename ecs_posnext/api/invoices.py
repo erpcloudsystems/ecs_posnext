@@ -341,6 +341,48 @@ def get_payment_account(mode_of_payment, company):
     )
 
 
+def _reapply_payment_amounts(invoice_doc, original_payments, doctype="Sales Invoice"):
+    """
+    Re-apply frontend payment amounts after ERPNext's set_pos_fields resets them.
+
+    ERPNext's set_pos_fields (called inside set_missing_values during save) clears
+    the entire payments child table and re-populates it from the POS Profile with
+    amount=0 (or outstanding_amount for the default method, which may be 0 at that
+    point). This wipes the cashier's actual payment entries.
+
+    This function restores the amounts by directly updating the DB rows after save,
+    bypassing set_missing_values.
+    """
+    if not original_payments or doctype != DOCTYPE_SALES_INVOICE:
+        return
+    if invoice_doc.get("is_return"):
+        return  # Return invoice payments are handled separately (negated amounts)
+
+    payment_amount_map = {}
+    for p in original_payments:
+        mode = p.get("mode_of_payment")
+        if not mode:
+            continue
+        amount = flt(p.get("amount") or 0)
+        if amount > 0:
+            payment_amount_map[mode] = amount
+
+    if not payment_amount_map:
+        return
+
+    total_paid = 0
+    for payment in invoice_doc.payments:
+        if payment.mode_of_payment in payment_amount_map:
+            amt = payment_amount_map[payment.mode_of_payment]
+            payment.db_set("amount", amt, update_modified=False)
+            payment.amount = amt
+        total_paid += flt(payment.amount)
+
+    if total_paid > 0:
+        invoice_doc.db_set("paid_amount", total_paid, update_modified=False)
+        invoice_doc.paid_amount = total_paid
+
+
 def create_payment_entries_for_invoice(invoice_doc):
     """
     Explicitly create Payment Entries for a submitted POS Sales Invoice.
@@ -974,6 +1016,12 @@ def update_invoice(data):
         invoice_doc.docstatus = 0
         invoice_doc.save()
 
+        # Re-apply payment amounts after save.
+        # ERPNext's set_pos_fields (called inside save → set_missing_values) clears
+        # the payments table and re-populates it from the POS Profile with amount=0,
+        # wiping the cashier's actual entries. Restore them now via direct DB update.
+        _reapply_payment_amounts(invoice_doc, data.get("payments"), doctype)
+
         return invoice_doc.as_dict()
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Update Invoice Error")
@@ -1409,6 +1457,13 @@ def submit_invoice(invoice=None, data=None):
         invoice_doc.flags.ignore_permissions = True
         frappe.flags.ignore_account_permission = True
         invoice_doc.save()
+
+        # Re-apply payment amounts after save.
+        # ERPNext's set_pos_fields (called inside save → set_missing_values) clears
+        # the payments table and re-populates it from the POS Profile with amount=0,
+        # wiping the cashier's actual entries. Restore them now via direct DB update
+        # so the submitted invoice has the correct paid_amount and status = "Paid".
+        _reapply_payment_amounts(invoice_doc, invoice.get("payments"), doctype)
 
         # Submit invoice
         invoice_doc.submit()
