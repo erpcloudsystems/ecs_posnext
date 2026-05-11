@@ -261,12 +261,13 @@
 								@input="handleCustomerNameInput"
 								@focus="customerNameDropdownOpen = true"
 								@blur="handleCustomerNameBlur"
-								class="w-full px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+								class="w-full h-12 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
 								:class="customerRequired && !effectiveCustomer && !customerNameQuery.trim() ? 'border-red-300' : 'border-blue-300'"
 							/>
 							<div v-if="customerSearchLoading" class="absolute end-2 top-1/2 -translate-y-1/2">
 								<div class="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
 							</div>
+
 							<div
 								v-if="customerNameDropdownOpen && customerNameResults.length > 0"
 								class="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto border border-blue-200 rounded-lg bg-white shadow-lg"
@@ -291,7 +292,7 @@
 								@input="handleCustomerMobileInput"
 								@focus="customerMobileDropdownOpen = true"
 								@blur="handleCustomerMobileBlur"
-								class="w-full px-2 py-1.5 text-xs border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+								class="w-full h-12 px-3 text-sm border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
 							/>
 							<div
 								v-if="customerMobileDropdownOpen && customerMobileResults.length > 0"
