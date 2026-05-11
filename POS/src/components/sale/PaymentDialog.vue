@@ -230,11 +230,97 @@
 					]"
 					:style="isMobileView ? {} : { minHeight: rightColumnMinHeight }"
 				>
+					<!-- Customer Inline Search -->
+					<div :class="[
+						'rounded-lg p-2 mb-1.5 lg:mb-2',
+						customerRequired && !effectiveCustomer && !customerNameQuery.trim() ? 'bg-red-50 border-2 border-red-300' : 'bg-blue-50 border border-blue-200'
+					]">
+						<div class="flex items-center gap-1 mb-1">
+							<svg class="w-3.5 h-3.5 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+							</svg>
+							<span class="text-xs font-medium text-blue-700">{{ __('Customer') }}<span v-if="customerRequired" class="text-red-500 ms-0.5">*</span></span>
+							<a
+								v-if="selectedCustomer?.name"
+								:href="`/app/customer/${encodeURIComponent(selectedCustomer.name)}`"
+								target="_blank"
+								class="ms-auto text-blue-500 hover:text-blue-700 p-0.5 rounded hover:bg-blue-100"
+								:title="__('Open customer record')"
+							>
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+								</svg>
+							</a>
+						</div>
+						<!-- Customer Name field with search dropdown -->
+						<div class="relative mb-1">
+							<input
+								v-model="customerNameQuery"
+								type="text"
+								:placeholder="__('Customer name...')"
+								@input="handleCustomerNameInput"
+								@focus="customerNameDropdownOpen = true"
+								@blur="handleCustomerNameBlur"
+								class="w-full px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+								:class="customerRequired && !effectiveCustomer && !customerNameQuery.trim() ? 'border-red-300' : 'border-blue-300'"
+							/>
+							<div v-if="customerSearchLoading" class="absolute end-2 top-1/2 -translate-y-1/2">
+								<div class="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+							</div>
+							<div
+								v-if="customerNameDropdownOpen && customerNameResults.length > 0"
+								class="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto border border-blue-200 rounded-lg bg-white shadow-lg"
+							>
+								<div
+									v-for="cust in customerNameResults"
+									:key="cust.name"
+									@mousedown.prevent="selectCustomerFromSearch(cust)"
+									class="flex flex-col px-2 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-blue-100 last:border-b-0"
+								>
+									<span class="text-xs font-medium text-gray-900">{{ cust.customer_name }}</span>
+									<span v-if="cust.mobile_no" class="text-[10px] text-gray-500">📱 {{ cust.mobile_no }}</span>
+								</div>
+							</div>
+						</div>
+						<!-- Customer Mobile field with search dropdown -->
+						<div class="relative">
+							<input
+								v-model="customerMobileQuery"
+								type="text"
+								:placeholder="__('Mobile number...')"
+								@input="handleCustomerMobileInput"
+								@focus="customerMobileDropdownOpen = true"
+								@blur="handleCustomerMobileBlur"
+								class="w-full px-2 py-1.5 text-xs border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+							/>
+							<div
+								v-if="customerMobileDropdownOpen && customerMobileResults.length > 0"
+								class="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto border border-blue-200 rounded-lg bg-white shadow-lg"
+							>
+								<div
+									v-for="cust in customerMobileResults"
+									:key="cust.name"
+									@mousedown.prevent="selectCustomerFromSearch(cust)"
+									class="flex flex-col px-2 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-blue-100 last:border-b-0"
+								>
+									<span class="text-xs font-medium text-gray-900">{{ cust.customer_name }}</span>
+									<span v-if="cust.mobile_no" class="text-[10px] text-gray-500">📱 {{ cust.mobile_no }}</span>
+								</div>
+							</div>
+						</div>
+						<div v-if="customerRequired && !effectiveCustomer && !customerNameQuery.trim()" class="mt-1 text-xs text-red-600 flex items-center gap-1">
+							<svg class="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+								<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+							</svg>
+							{{ __('Customer name is required') }}
+						</div>
+					</div>
+
 					<!-- Sales Person Selection (top of right column) -->
 					<div v-if="settingsStore.enableSalesPersons" :class="[
-						'rounded-lg p-2 mb-1.5 lg:mb-2',
-						!isSalesPersonValid ? 'bg-red-50 border-2 border-red-300' : 'bg-purple-50 border border-purple-200'
-					]">
+							'rounded-lg p-2 mb-1.5 lg:mb-2',
+							!isSalesPersonValid ? 'bg-red-50 border-2 border-red-300' : 'bg-purple-50 border border-purple-200'
+						]">
 						<!-- Single Mode: Show selected person or dropdown -->
 						<template v-if="settingsStore.isSingleSalesPerson">
 							<!-- Show selected person as a nice display -->
@@ -651,7 +737,7 @@
 							<button
 								v-if="(remainingAmount === 0 || (applyWriteOff && canWriteOff)) && totalPaid > 0"
 								@click="completePayment"
-								:disabled="isSubmitting || !canComplete"
+								:disabled="isSubmitting || !canComplete || isCreatingCustomer"
 								:class="[
 									'w-full font-bold rounded-lg flex items-center justify-center',
 									isSubmitting
@@ -701,7 +787,7 @@
 						<!-- Complete/Partial Payment Button -->
 						<button
 							@click="completePayment"
-							:disabled="!canComplete || isSubmitting"
+							:disabled="!canComplete || isSubmitting || isCreatingCustomer"
 							:class="[
 								'flex-1 inline-flex items-center justify-center gap-2 transition-colors focus:outline-none',
 								dynamicButtonHeight, 'text-sm font-semibold px-5 rounded-lg',
@@ -825,6 +911,10 @@ const props = defineProps({
 		type: Boolean,
 		default: false,
 	},
+	profileCustomer: {
+		type: String,
+		default: null,
+	},
 })
 
 const emit = defineEmits([
@@ -851,6 +941,17 @@ const customerBalance = ref({
 })
 const loadingCredit = ref(false)
 
+// Customer inline search state
+const customerNameQuery = ref("")
+const customerMobileQuery = ref("")
+const customerNameResults = ref([])
+const customerMobileResults = ref([])
+const customerSearchLoading = ref(false)
+const selectedCustomer = ref(null)
+const customerNameDropdownOpen = ref(false)
+const customerMobileDropdownOpen = ref(false)
+const isCreatingCustomer = ref(false)
+
 // Wallet state
 const walletInfo = ref({
 	wallet_enabled: false,
@@ -865,6 +966,19 @@ const walletPaymentMethods = ref(new Set()) // Set of mode_of_payment names that
 const deliveryDate = ref("")
 const today = new Date().toISOString().split("T")[0]
 const isSalesOrder = computed(() => props.targetDoctype === "Sales Order")
+
+// Customer is required when cart has no customer AND POS profile has no default customer
+const customerRequired = computed(() => {
+	const hasCartCustomer = !!(props.customer?.name || (typeof props.customer === "string" && props.customer))
+	const hasProfileCustomer = !!props.profileCustomer
+	return !hasCartCustomer && !hasProfileCustomer
+})
+
+// Resolved customer: from search selection (initialized on open), null if typing without selecting
+const effectiveCustomer = computed(() => {
+	if (selectedCustomer.value?.name) return selectedCustomer.value
+	return null
+})
 
 // Column refs for height matching
 const rightColumnRef = ref(null)
@@ -1315,6 +1429,85 @@ function handleSalesPersonBlur() {
 	}, 150)
 }
 
+// ===========================================
+// Customer Inline Search
+// ===========================================
+let _nameSearchTimer = null
+let _mobileSearchTimer = null
+
+async function _searchCustomersByName(query) {
+	if (!query || query.length < 2) {
+		customerNameResults.value = []
+		return
+	}
+	customerSearchLoading.value = true
+	try {
+		const results = await call("frappe.client.get_list", {
+			doctype: "Customer",
+			fields: ["name", "customer_name", "mobile_no"],
+			filters: [["customer_name", "like", `%${query}%`]],
+			limit_page_length: 10,
+			order_by: "customer_name asc",
+		})
+		customerNameResults.value = results || []
+	} catch (err) {
+		log.error("[PaymentDialog] Customer name search error:", err)
+		customerNameResults.value = []
+	} finally {
+		customerSearchLoading.value = false
+	}
+}
+
+async function _searchCustomersByMobile(query) {
+	if (!query || query.length < 3) {
+		customerMobileResults.value = []
+		return
+	}
+	try {
+		const results = await call("frappe.client.get_list", {
+			doctype: "Customer",
+			fields: ["name", "customer_name", "mobile_no"],
+			filters: [["mobile_no", "like", `%${query}%`]],
+			limit_page_length: 10,
+			order_by: "customer_name asc",
+		})
+		customerMobileResults.value = results || []
+	} catch (err) {
+		log.error("[PaymentDialog] Customer mobile search error:", err)
+		customerMobileResults.value = []
+	}
+}
+
+function handleCustomerNameInput() {
+	selectedCustomer.value = null
+	clearTimeout(_nameSearchTimer)
+	_nameSearchTimer = setTimeout(() => _searchCustomersByName(customerNameQuery.value), 300)
+}
+
+function handleCustomerMobileInput() {
+	selectedCustomer.value = null
+	clearTimeout(_mobileSearchTimer)
+	_mobileSearchTimer = setTimeout(() => _searchCustomersByMobile(customerMobileQuery.value), 300)
+}
+
+function selectCustomerFromSearch(cust) {
+	selectedCustomer.value = cust
+	customerNameQuery.value = cust.customer_name
+	customerMobileQuery.value = cust.mobile_no || ""
+	customerNameResults.value = []
+	customerMobileResults.value = []
+	customerNameDropdownOpen.value = false
+	customerMobileDropdownOpen.value = false
+}
+
+function handleCustomerNameBlur() {
+	setTimeout(() => { customerNameDropdownOpen.value = false }, 150)
+}
+
+function handleCustomerMobileBlur() {
+	setTimeout(() => { customerMobileDropdownOpen.value = false }, 150)
+}
+
 // Load payment methods - from cache if offline, from server if online
 async function loadPaymentMethods() {
 	// Guard: Don't load if posProfile is not set or already loading
@@ -1582,6 +1775,10 @@ const isExactAmountValid = computed(() => {
 })
 
 const canComplete = computed(() => {
+	// Check customer (required when no cart/profile customer and nothing entered)
+	if (customerRequired.value && !customerNameQuery.value.trim() && !selectedCustomer.value) {
+		return false
+	}
 	// Check sales person validation first (mandatory when enabled)
 	if (!isSalesPersonValid.value) {
 		return false
@@ -1669,6 +1866,22 @@ watch(show, (newVal) => {
 		selectedSalesPersons.value = []
 		salesPersonSearch.value = ""
 		applyWriteOff.value = false // Reset write-off state
+		// Initialize customer inline search fields from current cart customer
+		selectedCustomer.value = null
+		isCreatingCustomer.value = false
+		customerNameResults.value = []
+		customerMobileResults.value = []
+		if (props.customer) {
+			const custObj = typeof props.customer === "object"
+				? props.customer
+				: { name: props.customer, customer_name: props.customer }
+			customerNameQuery.value = custObj.customer_name || custObj.name || ""
+			customerMobileQuery.value = custObj.mobile_no || ""
+			selectedCustomer.value = custObj
+		} else {
+			customerNameQuery.value = ""
+			customerMobileQuery.value = ""
+		}
 		// Set default delivery date to today for Sales Orders
 		deliveryDate.value = isSalesOrder.value ? today : ""
 
@@ -2053,7 +2266,7 @@ function clearAll() {
 	customAmount.value = ""
 }
 
-function completePayment() {
+async function completePayment() {
 	log.debug("[PaymentDialog] Complete payment called:", {
 		canComplete: canComplete.value,
 		totalPaid: totalPaid.value,
@@ -2071,6 +2284,34 @@ function completePayment() {
 	if (!canComplete.value) {
 		log.warn("[PaymentDialog] Cannot complete - validation failed")
 		return
+	}
+
+	// Resolve customer: auto-create if name typed but not selected from search
+	let resolvedCustomer = effectiveCustomer.value
+	if (!resolvedCustomer && customerNameQuery.value.trim()) {
+		isCreatingCustomer.value = true
+		try {
+			const newCust = await call("frappe.client.insert", {
+				doc: {
+					doctype: "Customer",
+					customer_name: customerNameQuery.value.trim(),
+					customer_type: "Individual",
+					customer_group: "أفراد",
+					territory: "All Territories",
+					mobile_no: customerMobileQuery.value.trim() || "",
+				},
+			})
+			resolvedCustomer = newCust
+			selectedCustomer.value = newCust
+			log.debug("[PaymentDialog] New customer created:", newCust)
+		} catch (err) {
+			log.error("[PaymentDialog] Failed to create customer:", err)
+			showWarning(__("Failed to create customer: {0}", [err.message || "Unknown error"]))
+			isCreatingCustomer.value = false
+			return
+		} finally {
+			isCreatingCustomer.value = false
+		}
 	}
 
 	// Calculate if this is a partial payment (considering write-off)
@@ -2091,6 +2332,8 @@ function completePayment() {
 		// Write-off data
 		write_off_amount: writeOffAmount.value,
 		is_write_off: writeOffAmount.value > 0,
+		// Customer resolved from inline fields (null if using existing cart/profile customer)
+		customer: resolvedCustomer,
 	}
 
 	log.debug("[PaymentDialog] Emitting payment-completed:", paymentData)

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **POS Customer Inline Entry in Payment Dialog**
+  - Removed mandatory customer selection popup that blocked checkout when no customer was selected
+  - Added Customer Name and Mobile Number fields inline in the Complete Payment dialog, above the Sales Person section
+  - Both fields support live search: typing in either field queries existing customers by name or mobile number and shows a dropdown of matches
+  - Selecting a customer from the dropdown fills both fields and enables a link icon to open the customer record in a new tab
+  - If the entered customer name does not match any existing customer, a new Customer record is automatically created on Complete Payment
+  - If a customer is already selected in the cart, the fields are pre-filled with their name and mobile number
+  - Customer fields are required (with red validation styling) only when the cart has no customer and the POS profile has no default customer
+  - All existing payment dialog functionality (sales persons, payment methods, write-off, etc.) is preserved
+
 ### Fixed
 - **Item Price Validity Filters**
   - Added `valid_from` and `valid_upto` date filters to all Item Price queries across `get_items()`, `get_items_bulk()`, `get_item_variants()`, and `search_by_barcode()` functions
