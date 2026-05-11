@@ -457,6 +457,7 @@
 			:discount-amount="cartStore.totalDiscount"
 			:target-doctype="cartStore.targetDoctype"
 			:is-submitting="cartStore.isSubmitting"
+			:profile-customer="shiftStore.profileCustomer"
 			@payment-completed="handlePaymentCompleted"
 			@update-additional-discount="handleAdditionalDiscountUpdate"
 		/>
@@ -1835,14 +1836,6 @@ function handleProceedToPayment() {
 		return;
 	}
 
-	const customerValue = cartStore.customer?.name || cartStore.customer;
-	if (!customerValue && !shiftStore.profileCustomer) {
-		showWarning(__("Please select a customer before proceeding"));
-		uiStore.showCustomerDialog = true;
-		pendingPaymentAfterCustomer.value = true;
-		return;
-	}
-
 	uiStore.showPaymentDialog = true;
 }
 
@@ -1875,11 +1868,13 @@ async function handleErrorRetry() {
 
 async function handlePaymentCompleted(paymentData) {
 	try {
+		// Apply customer from payment dialog inline fields if provided
+		if (paymentData.customer) {
+			cartStore.setCustomer(paymentData.customer);
+		}
 		const customerValue = cartStore.customer?.name || cartStore.customer;
 		if (!customerValue && !shiftStore.profileCustomer) {
-			showWarning(__("Please select a customer before proceeding"));
-			uiStore.showPaymentDialog = false;
-			uiStore.showCustomerDialog = true;
+			showWarning(__("Please select a customer"));
 			return;
 		}
 
