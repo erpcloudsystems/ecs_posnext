@@ -626,9 +626,6 @@
 				@refresh-history="loadInvoiceHistoryData"
 			/>
 
-			<!-- Daily Payment Management -->
-			<DailyPaymentManagement v-model="showDailyPayment" :branch="shiftStore.profileBranch" :payment-methods="shiftStore.profilePaymentMethods" />
-
 			<!-- Invoice Detail Dialog -->
 			<InvoiceDetailDialog
 				v-model="showInvoiceDetail"
@@ -972,7 +969,6 @@ import ReturnInvoiceDialog from "@/components/sale/ReturnInvoiceDialog.vue";
 import WarehouseAvailabilityDialog from "@/components/sale/WarehouseAvailabilityDialog.vue";
 import POSSettings from "@/components/settings/POSSettings.vue";
 import InvoiceManagement from "@/components/invoices/InvoiceManagement.vue";
-import DailyPaymentManagement from "@/components/daily_payment/DailyPaymentManagement.vue";
 import InvoiceDetailDialog from "@/components/invoices/InvoiceDetailDialog.vue";
 import { useRealtimeStock } from "@/composables/useRealtimeStock";
 import { usePOSEvents } from "@/composables/usePOSEvents";
@@ -1079,9 +1075,6 @@ const showStockLookup = ref(false);
 
 // Invoice Management dialog
 const showInvoiceManagement = ref(false);
-
-// Daily Payment Management dialog
-const showDailyPayment = ref(false);
 
 // Invoice Detail dialog
 const showInvoiceDetail = ref(false);
@@ -2573,8 +2566,6 @@ function handleManagementMenuClick(menuItem) {
 	} else if (menuItem === "products") {
 		// Open Stock Lookup dialog in search mode
 		showStockLookup.value = true;
-	} else if (menuItem === "daily-payment") {
-		showDailyPayment.value = true;
 	}
 }
 

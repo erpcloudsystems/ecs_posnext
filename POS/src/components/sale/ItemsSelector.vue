@@ -1,37 +1,83 @@
 <template>
 	<div class="flex flex-col h-full bg-gray-50">
-		<!-- Item Groups Filter Tabs -->
-		<div class="px-1.5 sm:px-3 pt-1.5 sm:pt-3 pb-1.5 sm:pb-2 bg-white border-b border-gray-200">
-			<div class="flex items-center gap-1 sm:gap-2 overflow-x-auto pb-1 scrollbar-hide snap-x snap-mandatory">
-				<button
-					@click="itemStore.setSelectedItemGroup(null)"
-					:class="[
-						'flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-medium whitespace-nowrap transition-[background-color,border-color] duration-75 touch-manipulation snap-start flex-shrink-0',
-						!selectedItemGroup
-							? 'bg-blue-50 text-blue-600 border-2 border-blue-500 shadow-sm'
-							: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 active:bg-gray-100',
-					]"
-				>
-					<svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-					</svg>
-					<span>{{ __('All Items') }}</span>
-				</button>
-				<button
-					v-for="group in itemGroups"
-					:key="group.item_group"
-					@click="itemStore.setSelectedItemGroup(group.item_group)"
-					:class="[
-						'flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-medium whitespace-nowrap transition-[background-color,border-color] duration-75 touch-manipulation snap-start flex-shrink-0',
-						selectedItemGroup === group.item_group
-							? 'bg-blue-50 text-blue-600 border-2 border-blue-500 shadow-sm'
-							: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 active:bg-gray-100',
-					]"
-				>
-					<span>{{ __(group.item_group) }}</span>
-				</button>
+		<!-- Item Groups Card View -->
+		<template v-if="showGroupsView">
+			<!-- Search bar (typing switches to items view automatically) -->
+			<div class="px-1.5 sm:px-3 py-1.5 sm:py-2 bg-white border-b border-gray-200">
+				<div class="relative">
+					<div class="absolute inset-y-0 start-0 ps-2 sm:ps-3 flex items-center pointer-events-none">
+						<svg class="h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+						</svg>
+					</div>
+					<input
+						ref="searchInputRef"
+						:value="searchTerm"
+						@input="handleSearchInput"
+						@keydown="handleKeyDown"
+						type="text"
+						:placeholder="__('Search items by name or code...')"
+						class="w-full text-[11px] sm:text-sm border border-gray-300 rounded-lg px-2 sm:px-3 py-2 ps-7 sm:ps-10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+					/>
+				</div>
 			</div>
-		</div>
+			<!-- Loading indicator while groups load -->
+			<div v-if="!itemGroups?.length" class="flex-1 flex items-center justify-center p-3">
+				<div class="text-center py-8">
+					<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+					<p class="mt-3 text-xs text-gray-500">{{ __('Loading groups...') }}</p>
+				</div>
+			</div>
+			<!-- Groups grid -->
+			<div v-else class="flex-1 overflow-y-auto p-2 sm:p-4">
+				<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+					<!-- All Items card -->
+					<button
+						@click="showAllItemsView"
+						class="flex flex-col items-center justify-center bg-white border-2 border-blue-200 hover:border-blue-500 rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-150 touch-manipulation text-center min-h-[80px] sm:min-h-[100px]"
+					>
+						<div class="w-10 h-10 sm:w-12 sm:h-12 bg-blue-50 rounded-full flex items-center justify-center mb-2">
+							<svg class="w-5 h-5 sm:w-6 sm:h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+							</svg>
+						</div>
+						<span class="text-xs sm:text-sm font-semibold text-blue-700">{{ __('All Items') }}</span>
+					</button>
+					<!-- Group cards -->
+					<button
+						v-for="group in itemGroups"
+						:key="group.item_group"
+						@click="itemStore.setSelectedItemGroup(group.item_group)"
+						class="flex flex-col items-center justify-center bg-white border-2 border-gray-200 hover:border-blue-400 rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-150 touch-manipulation text-center min-h-[80px] sm:min-h-[100px]"
+					>
+						<div class="w-10 h-10 sm:w-12 sm:h-12 bg-gray-50 rounded-full flex items-center justify-center mb-2">
+							<svg class="w-5 h-5 sm:w-6 sm:h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+							</svg>
+						</div>
+						<span class="text-xs sm:text-sm font-semibold text-gray-700">{{ __(group.item_group) }}</span>
+					</button>
+				</div>
+			</div>
+		</template>
+
+		<!-- Items View: shown when a group is selected or user is searching -->
+		<template v-else>
+			<!-- Back to groups header -->
+			<div class="px-1.5 sm:px-3 py-1.5 sm:py-2 bg-white border-b border-gray-200 flex items-center gap-2">
+				<button
+					@click="goBackToGroups"
+					class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 active:bg-gray-300 transition-colors duration-75 touch-manipulation flex-shrink-0"
+				>
+					<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+					</svg>
+					<span>{{ __('Groups') }}</span>
+				</button>
+				<span class="text-sm font-semibold text-gray-800 truncate">
+					{{ selectedItemGroup ? __(selectedItemGroup) : __('All Items') }}
+				</span>
+			</div>
 
 		<!-- Cache Sync Indicator -->
 		<div v-if="cacheSyncing" class="px-1.5 sm:px-3 py-1 bg-blue-50 border-b border-blue-200">
@@ -696,6 +742,7 @@
 				</div>
 			</div>
 		</div>
+		</template>
 	</div>
 
 	<!-- Warehouse Availability Dialog -->
@@ -777,6 +824,22 @@ const {
 	itemStore, onItemFound: selectItem,
 	showWarning, isAnyDialogOpen,
 })
+
+// Groups / items view mode
+const showingAllItems = ref(false)
+const showGroupsView = computed(
+	() => !selectedItemGroup.value && !searchTerm.value?.trim() && !showingAllItems.value
+)
+
+function showAllItemsView() {
+	showingAllItems.value = true
+}
+
+function goBackToGroups() {
+	showingAllItems.value = false
+	itemStore.setSelectedItemGroup(null)
+	clearSearchAndResetInput()
+}
 
 // Local state
 const viewMode = ref("grid")
@@ -883,6 +946,11 @@ const searchMode = computed(() => {
 })
 
 const searchPlaceholder = computed(() => SEARCH_PLACEHOLDERS[searchMode.value])
+
+// When a specific group is selected, exit the "all items" overlay view
+watch(selectedItemGroup, (newVal) => {
+	if (newVal) showingAllItems.value = false
+})
 
 // Watch for cart items and pos profile changes (optimized - uses length + hash instead of deep watch)
 // Tracks: length, item_code, quantity, and amount to detect all cart changes including array replacements
