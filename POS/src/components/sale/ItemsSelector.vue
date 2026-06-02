@@ -1,34 +1,56 @@
 <template>
 	<div class="flex flex-col h-full bg-gray-50">
-		<!-- Item Groups Filter Tabs -->
+		<!-- Navigation Header: Breadcrumb + Price List indicator -->
 		<div class="px-1.5 sm:px-3 pt-1.5 sm:pt-3 pb-1.5 sm:pb-2 bg-white border-b border-gray-200">
-			<div class="flex items-center gap-1 sm:gap-2 overflow-x-auto pb-1 scrollbar-hide snap-x snap-mandatory">
+			<div class="flex items-center gap-1 sm:gap-2 flex-wrap">
+				<!-- Price List Badge (always visible when selected) -->
+				<div v-if="selectedPriceList" class="flex items-center gap-1">
+					<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[10px] sm:text-xs font-medium border border-emerald-200">
+						<svg class="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+						</svg>
+						{{ selectedPriceList }}
+						<button @click="itemStore.changePriceList()" class="ms-1 hover:text-emerald-900 transition-colors" :title="__('Change Price List')">
+							<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+							</svg>
+						</button>
+					</span>
+				</div>
+
+				<!-- Breadcrumb (visible when navigating groups) -->
+				<div v-if="navigationStep !== 'price_list' && groupBreadcrumb.length > 0" class="flex items-center gap-1 overflow-x-auto scrollbar-hide">
+					<button @click="itemStore.navigateToBreadcrumb(-1)" class="text-[10px] sm:text-xs text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap transition-colors">
+						{{ __('Groups') }}
+					</button>
+					<template v-for="(crumb, idx) in groupBreadcrumb" :key="idx">
+						<svg class="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+						</svg>
+						<button
+							@click="itemStore.navigateToBreadcrumb(idx)"
+							:class="[
+								'text-[10px] sm:text-xs font-medium whitespace-nowrap transition-colors',
+								idx === groupBreadcrumb.length - 1
+									? 'text-gray-900'
+									: 'text-blue-600 hover:text-blue-800'
+							]"
+						>
+							{{ __(crumb.label) }}
+						</button>
+					</template>
+				</div>
+
+				<!-- Back button (when inside groups or items) -->
 				<button
-					@click="itemStore.setSelectedItemGroup(null)"
-					:class="[
-						'flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-medium whitespace-nowrap transition-[background-color,border-color] duration-75 touch-manipulation snap-start flex-shrink-0',
-						!selectedItemGroup
-							? 'bg-blue-50 text-blue-600 border-2 border-blue-500 shadow-sm'
-							: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 active:bg-gray-100',
-					]"
+					v-if="navigationStep !== 'price_list' && groupBreadcrumb.length > 0"
+					@click="itemStore.navigateBack()"
+					class="ms-auto flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] sm:text-xs font-medium text-gray-600 hover:bg-gray-100 active:bg-gray-200 transition-colors touch-manipulation"
 				>
 					<svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
 					</svg>
-					<span>{{ __('All Items') }}</span>
-				</button>
-				<button
-					v-for="group in itemGroups"
-					:key="group.item_group"
-					@click="itemStore.setSelectedItemGroup(group.item_group)"
-					:class="[
-						'flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-medium whitespace-nowrap transition-[background-color,border-color] duration-75 touch-manipulation snap-start flex-shrink-0',
-						selectedItemGroup === group.item_group
-							? 'bg-blue-50 text-blue-600 border-2 border-blue-500 shadow-sm'
-							: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 active:bg-gray-100',
-					]"
-				>
-					<span>{{ __(group.item_group) }}</span>
+					{{ __('Back') }}
 				</button>
 			</div>
 		</div>
@@ -41,8 +63,8 @@
 			</div>
 		</div>
 
-		<!-- Search Bar with Barcode Scanner and View Controls -->
-		<div class="px-1.5 sm:px-3 py-1.5 sm:py-2 bg-white border-b border-gray-200">
+		<!-- Search Bar with Barcode Scanner and View Controls (only visible on items step) -->
+		<div v-if="navigationStep === 'items'" class="px-1.5 sm:px-3 py-1.5 sm:py-2 bg-white border-b border-gray-200">
 			<div class="flex items-center gap-1 sm:gap-2">
 				<div class="flex-1 relative min-w-0">
 					<!-- Search Icon -->
@@ -233,8 +255,95 @@
 			</div>
 		</div>
 
+		<!-- ========== STEP 1: Price List Card Selection ========== -->
+		<div v-if="navigationStep === 'price_list'" class="flex-1 overflow-y-auto p-3 sm:p-4">
+			<div class="text-center mb-4">
+				<h3 class="text-sm sm:text-base font-semibold text-gray-800">{{ __('Select a Price List') }}</h3>
+				<p class="text-[10px] sm:text-xs text-gray-500 mt-1">{{ __('Choose a price list to start selling') }}</p>
+			</div>
+			<!-- Loading -->
+			<div v-if="availablePriceLists.length === 0" class="flex items-center justify-center py-8">
+				<div class="text-center">
+					<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+					<p class="mt-3 text-xs text-gray-500">{{ __('Loading price lists...') }}</p>
+				</div>
+			</div>
+			<!-- Price List Cards Grid -->
+			<div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+				<button
+					v-for="pl in availablePriceLists"
+					:key="pl.name"
+					@click="itemStore.selectPriceList(pl.name)"
+					class="group relative flex flex-col items-center p-3 sm:p-4 rounded-xl border-2 border-gray-200 bg-white hover:border-blue-400 hover:shadow-md active:scale-[0.98] transition-all duration-150 touch-manipulation"
+				>
+					<!-- POS Badge -->
+					<span class="absolute top-1.5 end-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+						POS
+					</span>
+					<!-- Icon -->
+					<div class="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-50 flex items-center justify-center mb-2 group-hover:bg-blue-100 transition-colors">
+						<svg class="w-5 h-5 sm:w-6 sm:h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+						</svg>
+					</div>
+					<!-- Name -->
+					<span class="text-[11px] sm:text-xs font-semibold text-gray-800 text-center leading-tight">{{ pl.price_list_name || pl.name }}</span>
+					<!-- Currency -->
+					<span class="text-[9px] sm:text-[10px] text-gray-500 mt-0.5">{{ pl.currency }}</span>
+				</button>
+			</div>
+		</div>
+
+		<!-- ========== STEP 2: Item Group Card Navigation ========== -->
+		<div v-else-if="navigationStep === 'groups'" class="flex-1 overflow-y-auto p-3 sm:p-4">
+			<!-- Loading -->
+			<div v-if="loadingGroups" class="flex items-center justify-center py-8">
+				<div class="text-center">
+					<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+					<p class="mt-3 text-xs text-gray-500">{{ __('Loading groups...') }}</p>
+				</div>
+			</div>
+			<!-- Empty Groups -->
+			<div v-else-if="currentGroupChildren.length === 0" class="flex items-center justify-center py-8">
+				<div class="text-center">
+					<svg class="mx-auto h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+					</svg>
+					<p class="mt-2 text-xs text-gray-500">{{ __('No groups found') }}</p>
+				</div>
+			</div>
+			<!-- Group Cards Grid -->
+			<div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+				<button
+					v-for="group in currentGroupChildren"
+					:key="group.item_group"
+					@click="itemStore.navigateToGroup(group)"
+					class="group relative flex flex-col items-center p-3 sm:p-4 rounded-xl border-2 border-gray-200 bg-white hover:border-indigo-400 hover:shadow-md active:scale-[0.98] transition-all duration-150 touch-manipulation"
+				>
+					<!-- Group Image or Folder Icon -->
+					<div class="w-12 h-12 sm:w-14 sm:h-14 rounded-lg bg-indigo-50 flex items-center justify-center mb-2 group-hover:bg-indigo-100 transition-colors overflow-hidden">
+						<img v-if="group.image" :src="group.image" :alt="group.item_group" class="w-full h-full object-cover rounded-lg" />
+						<svg v-else class="w-6 h-6 sm:w-7 sm:h-7 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+						</svg>
+					</div>
+					<!-- Group Name -->
+					<span class="text-[11px] sm:text-xs font-semibold text-gray-800 text-center leading-tight">{{ __(group.item_group) }}</span>
+					<!-- is_group indicator (has children) -->
+					<span v-if="group.is_group" class="mt-1 inline-flex items-center gap-0.5 text-[8px] sm:text-[9px] text-indigo-500 font-medium">
+						<svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+						</svg>
+						{{ __('Sub-groups') }}
+					</span>
+				</button>
+			</div>
+		</div>
+
+		<!-- ========== STEP 3: Items Display ========== -->
+
 		<!-- Initial Loading State - Show spinner while fetching items -->
-		<div v-if="loading && (!filteredItems || filteredItems.length === 0)" class="flex-1 flex items-center justify-center p-3">
+		<div v-else-if="loading && (!filteredItems || filteredItems.length === 0)" class="flex-1 flex items-center justify-center p-3">
 			<div class="text-center py-8">
 				<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
 				<p class="mt-3 text-xs text-gray-500">{{ __('Loading items...') }}</p>
@@ -270,7 +379,7 @@
 		</div>
 
 		<!-- Grid View -->
-		<div v-if="viewMode === 'grid'" key="grid" class="flex-1 flex flex-col overflow-hidden min-h-0">
+		<div v-if="navigationStep === 'items' && viewMode === 'grid'" key="grid" class="flex-1 flex flex-col overflow-hidden min-h-0">
 			<div
 				ref="gridScrollContainer"
 				class="flex-1 overflow-y-auto p-1.5 sm:p-3"
@@ -493,7 +602,7 @@
 		</div>
 
 		<!-- Table View -->
-		<div v-if="viewMode === 'list'" key="list" class="flex-1 flex flex-col overflow-hidden min-h-0">
+		<div v-if="navigationStep === 'items' && viewMode === 'list'" key="list" class="flex-1 flex flex-col overflow-hidden min-h-0">
 			<div
 				ref="listScrollContainer"
 				class="flex-1 overflow-x-auto overflow-y-auto"
@@ -764,6 +873,13 @@ const {
 	sortBy,
 	sortOrder,
 	totalServerItems,
+	// Price List & Group Navigation
+	selectedPriceList,
+	availablePriceLists,
+	groupBreadcrumb,
+	currentGroupChildren,
+	loadingGroups,
+	navigationStep,
 } = storeToRefs(itemStore)
 
 // Search input composable — owns search/scanner state, timers, concurrency

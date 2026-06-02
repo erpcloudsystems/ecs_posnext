@@ -188,6 +188,86 @@ def get_default_loyalty_program_from_settings():
 
 
 @frappe.whitelist()
+def get_customer_addresses(customer):
+    """
+    Get all addresses linked to a customer.
+
+    Args:
+        customer (str): Customer ID
+
+    Returns:
+        list: List of address dicts with name, address_title, address_line1, city, phone, is_shipping_address, is_primary_address
+    """
+    if not customer:
+        frappe.throw(_("Customer is required"))
+
+    addresses = frappe.get_all(
+        "Dynamic Link",
+        filters={"link_doctype": "Customer", "link_name": customer, "parenttype": "Address"},
+        fields=["parent"],
+    )
+
+    if not addresses:
+        return []
+
+    address_names = [a.parent for a in addresses]
+    result = frappe.get_all(
+        "Address",
+        filters={"name": ["in", address_names], "disabled": 0},
+        fields=[
+            "name", "address_title", "address_line1", "address_line2",
+            "city", "state", "country", "pincode", "phone",
+            "is_shipping_address", "is_primary_address",
+        ],
+        order_by="is_primary_address desc, creation desc",
+    )
+
+    return result
+
+
+@frappe.whitelist()
+def create_customer_address(customer, address_title=None, address_line1=None, city=None, state=None, country=None, pincode=None, phone=None, is_shipping_address=1):
+    """
+    Create a new address linked to a customer.
+
+    Args:
+        customer (str): Customer ID
+        address_title (str): Address title/label
+        address_line1 (str): Street address
+        city (str): City
+        state (str): State/Province
+        country (str): Country
+        pincode (str): Postal/ZIP code
+        phone (str): Phone number
+        is_shipping_address (int): Whether this is a shipping address (default 1)
+
+    Returns:
+        dict: Created address document
+    """
+    if not customer:
+        frappe.throw(_("Customer is required"))
+    if not address_line1:
+        frappe.throw(_("Address line 1 is required"))
+
+    address = frappe.get_doc({
+        "doctype": "Address",
+        "address_title": address_title or customer,
+        "address_line1": address_line1,
+        "city": city or "",
+        "state": state or "",
+        "country": country or frappe.db.get_default("country") or "",
+        "pincode": pincode or "",
+        "phone": phone or "",
+        "is_shipping_address": int(is_shipping_address),
+        "links": [{"link_doctype": "Customer", "link_name": customer}],
+    })
+
+    address.insert()
+
+    return address.as_dict()
+
+
+@frappe.whitelist()
 def get_customer_details(customer):
     """
     Get detailed customer information.

@@ -105,23 +105,53 @@ def create_opening_shift(pos_profile, company, balance_details):
 	"""Create a new POS Opening Shift"""
 	balance_details = json.loads(balance_details) if isinstance(balance_details, str) else balance_details
 
-	# Check if user already has an open shift
-	existing_shift = check_opening_shift(frappe.session.user)
-	if existing_shift:
-		frappe.throw(_("You already have an open shift: {0}").format(existing_shift["pos_opening_shift"].name))
-
-	new_pos_opening = frappe.get_doc(
-		{
-			"doctype": "POS Opening Shift",
-			"period_start_date": get_datetime(),
-			"posting_date": nowdate(),
-			"posting_time": nowtime(),
-			"user": frappe.session.user,
-			"pos_profile": pos_profile,
-			"company": company,
-			"status": "Open",
-		}
+	# Block if user has a draft closing shift pending manager review
+	draft_closing = frappe.get_all(
+		"POS Closing Shift",
+		filters={"user": frappe.session.user, "docstatus": 0},
+		fields=["name"],
+		limit=1,
 	)
+	if draft_closing:
+		frappe.throw(
+			_("You have a closing shift {0} pending manager review. You cannot open a new shift until it is approved.").format(
+				frappe.bold(draft_closing[0].name)
+			)
+		)
+
+	# Check if user already has an open or prepared shift
+	existing_shift_data = check_opening_shift(frappe.session.user)
+	
+	if existing_shift_data and not existing_shift_data.get("is_prepared"):
+		frappe.throw(_("You already have an open shift: {0}").format(existing_shift_data["pos_opening_shift"].name))
+
+	if existing_shift_data and existing_shift_data.get("is_prepared"):
+		new_pos_opening = frappe.get_doc("POS Opening Shift", existing_shift_data["pos_opening_shift"].name)
+		# Update profile and company if they changed
+		new_pos_opening.pos_profile = pos_profile
+		new_pos_opening.company = company
+		# Update period start date to now
+		new_pos_opening.period_start_date = get_datetime()
+		new_pos_opening.posting_date = nowdate()
+		new_pos_opening.posting_time = nowtime()
+	else:
+		new_pos_opening = frappe.get_doc(
+			{
+				"doctype": "POS Opening Shift",
+				"period_start_date": get_datetime(),
+				"posting_date": nowdate(),
+				"posting_time": nowtime(),
+				"user": frappe.session.user,
+				"pos_profile": pos_profile,
+				"company": company,
+				"status": "Open",
+			}
+		)
+
+	# Mark is_waiter if user has the 'weter' role
+	user_roles = frappe.get_roles(frappe.session.user)
+	if "weter" in user_roles:
+		new_pos_opening.is_waiter = 1
 
 	# Add balance details - map opening_amount to amount
 	formatted_balance_details = []
@@ -132,7 +162,18 @@ def create_opening_shift(pos_profile, company, balance_details):
 		})
 
 	new_pos_opening.set("balance_details", formatted_balance_details)
-	new_pos_opening.insert(ignore_permissions=True)
+
+	# Ensure each child row has a unique name to avoid duplicate key collisions.
+	# We must also pass set_child_names=False to insert() because Frappe's
+	# set_new_name() would otherwise overwrite these names with new 10-char hashes.
+	for row in new_pos_opening.balance_details:
+		row.name = frappe.generate_hash(length=20)
+
+	if new_pos_opening.name:
+		new_pos_opening.save(ignore_permissions=True)
+	else:
+		new_pos_opening.insert(ignore_permissions=True, set_child_names=False)
+		
 	new_pos_opening.submit()
 
 	data = {}

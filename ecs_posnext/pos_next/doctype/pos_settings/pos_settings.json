@@ -41,6 +41,7 @@
   "allow_select_sales_order",
   "create_only_sales_order",
   "column_break_operations",
+  "hide_close_shift",
   "allow_return_without_invoice",
   "return_validity_days",
   "allow_free_batch_return",
@@ -324,6 +325,13 @@
   {
    "fieldname": "column_break_operations",
    "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Hide the Close Shift button in the POS interface",
+   "fieldname": "hide_close_shift",
+   "fieldtype": "Check",
+   "label": "Hide Close Shift"
   },
   {
    "default": "0",

@@ -31,6 +31,7 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 	const writeOffAccount = computed(() => currentProfile.value?.write_off_account)
 	const writeOffCostCenter = computed(() => currentProfile.value?.write_off_cost_center)
 	const writeOffLimit = computed(() => currentProfile.value?.write_off_limit || 0)
+	const isWaiter = computed(() => !!currentShift.value?.is_waiter)
 
 	// Actions
 	function updateShiftDuration() {
@@ -115,6 +116,7 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 		writeOffAccount,
 		writeOffCostCenter,
 		writeOffLimit,
+		isWaiter,
 
 		// Actions
 		updateShiftDuration,

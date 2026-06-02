@@ -100,12 +100,61 @@ def emit_stock_update_event(doc, method=None):
 		)
 
 
+def emit_kitchen_order_event(doc, method=None):
+	"""
+	Emit real-time kitchen order event when a Sales Invoice is created or submitted.
+	This notifies the kitchen Pending page to refresh and show the new order.
+
+	Args:
+		doc: Sales Invoice document
+		method: Hook method name
+	"""
+	try:
+		# Only emit for invoices that should appear in kitchen
+		if getattr(doc, "custom_skip_kitchen", 0):
+			return
+
+		# Determine current kitchen status
+		kitchen_status = getattr(doc, "custom_order_in_kitchen_", "") or "Pending"
+
+		status_event_map = {
+			"Pending": "kitchen_order_pending",
+			"Preparing": "kitchen_order_preparing",
+			"Packing": "kitchen_order_packing",
+			"Delivery": "kitchen_order_delivery",
+			"Completed": "kitchen_order_completed",
+		}
+
+		event_name = status_event_map.get(kitchen_status, "kitchen_order_pending")
+
+		frappe.publish_realtime(
+			event=event_name,
+			message={
+				"invoice": doc.name,
+				"status": kitchen_status,
+				"event_type": method or "created",
+			},
+			user=None,
+			after_commit=True,
+		)
+
+	except Exception as e:
+		frappe.log_error(
+			title=_("Real-time Kitchen Order Event Error"),
+			message=f"Failed to emit kitchen order event for {doc.name}: {str(e)}"
+		)
+
+
 def emit_invoice_created_event(doc, method=None):
 	"""
 	Emit real-time event when invoice is created.
 
 	This can be used to notify other terminals about new sales,
 	update dashboards, or trigger other real-time UI updates.
+
+	Also auto-frees tables when a Dinin invoice is submitted,
+	ensuring Table Management stays in sync even if the frontend
+	call to set_tables_status fails or is delayed.
 
 	Args:
 		doc: Sales Invoice document
@@ -115,12 +164,37 @@ def emit_invoice_created_event(doc, method=None):
 		return
 
 	try:
+		# Auto-free tables when a Dinin invoice is submitted
+		freed_tables = []
+		if getattr(doc, "custom_so_type", "") == "Dinin":
+			# Collect table names from child table
+			table_names = []
+			for row in doc.get("custom_numbers_of_table", []):
+				if row.table_name:
+					table_names.append(row.table_name)
+			# Also check the single link field as fallback
+			if not table_names and getattr(doc, "custom_table_number", ""):
+				table_names = [doc.custom_table_number]
+
+			for table_name in table_names:
+				if frappe.db.exists("Table Number", table_name):
+					frappe.db.set_value("Table Number", table_name, "disabled", 0)
+					freed_tables.append(table_name)
+
+			if freed_tables:
+				frappe.publish_realtime(
+					"table_status_changed",
+					{"table_names": freed_tables, "status": "free"},
+					after_commit=True,
+				)
+
 		event_data = {
 			"invoice_name": doc.name,
 			"grand_total": doc.grand_total,
 			"customer": doc.customer,
 			"pos_profile": doc.pos_profile,
 			"timestamp": frappe.utils.now(),
+			"freed_tables": freed_tables,
 		}
 
 		frappe.publish_realtime(

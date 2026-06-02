@@ -434,16 +434,10 @@
 													{{ __('Customer: {0}', [(draft.customer?.customer_name || draft.customer?.name || draft.customer)]) }}
 												</p>
 												<p class="text-xs text-gray-400 mt-0.5">{{ formatDateTime(draft.created_at) }}</p>
+												<p v-if="getTableDisplay(draft)" class="text-xs text-green-600 font-medium mt-0.5">
+													{{ __('Table: {0}', [getTableDisplay(draft)]) }}
+												</p>
 											</div>
-											<button
-												@click.stop="$emit('delete-draft', draft.draft_id)"
-												class="text-gray-400 hover:text-red-600 transition-colors p-1"
-												:title="__('Delete draft')"
-											>
-												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-												</svg>
-											</button>
 										</div>
 
 										<div class="flex items-center justify-between text-xs">
@@ -602,7 +596,6 @@ const emit = defineEmits([
 	"view-invoice",
 	"print-invoice",
 	"load-draft",
-	"delete-draft",
 	"refresh-history",
 ])
 
@@ -993,6 +986,16 @@ function calculateDraftTotal(items) {
 		(sum, item) => sum + (item.quantity || item.qty || 0) * (item.rate || 0),
 		0,
 	)
+}
+
+function getTableDisplay(draft) {
+	if (draft.table_numbers && draft.table_numbers.length > 0) {
+		return draft.table_numbers.join(", ")
+	}
+	if (draft.table_number) {
+		return draft.table_number
+	}
+	return ""
 }
 
 // Lifecycle

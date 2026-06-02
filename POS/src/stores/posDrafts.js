@@ -1,7 +1,29 @@
-import { deleteDraft, getDraftsCount, saveDraft, getAllDrafts, updateDraft } from "@/utils/draftManager"
+import { getDraftsCount, saveDraft, getAllDrafts, updateDraft, getDraftById } from "@/utils/draftManager"
 import { useToast } from "@/composables/useToast"
 import { defineStore } from "pinia"
 import { ref } from "vue"
+
+// Internal-only delete (not exported, used only after successful invoice submission)
+const _DB_NAME = "ecs_posnext_drafts"
+const _STORE_NAME = "invoices"
+
+async function _internalDeleteDraft(draftId) {
+	const draft = await getDraftById(draftId)
+	if (!draft) return
+
+	return new Promise((resolve, reject) => {
+		const request = indexedDB.open(_DB_NAME, 1)
+		request.onsuccess = () => {
+			const db = request.result
+			const tx = db.transaction([_STORE_NAME], "readwrite")
+			const store = tx.objectStore(_STORE_NAME)
+			const delReq = store.delete(draft.id)
+			delReq.onsuccess = () => resolve(true)
+			delReq.onerror = () => reject(delReq.error)
+		}
+		request.onerror = () => reject(request.error)
+	})
+}
 
 export const usePOSDraftsStore = defineStore("posDrafts", () => {
 	// Use custom toast
@@ -35,6 +57,9 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 		posProfile,
 		appliedOffers = [],
 		draftId = null,
+		orderType = "",
+		tableNumbers = [],
+		serverDraftName = null,
 	) {
 		if (invoiceItems.length === 0) {
 			showWarning(__("Cannot save an empty cart as draft"))
@@ -47,6 +72,11 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 				customer: customer,
 				items: invoiceItems,
 				applied_offers: appliedOffers, // Save applied offers
+				order_type: orderType || "", // Save order type (custom_so_type)
+				table_numbers: Array.isArray(tableNumbers) ? tableNumbers : [], // Save multiple tables
+				// Backward compat: keep table_number as first selected table
+				table_number: Array.isArray(tableNumbers) && tableNumbers.length > 0 ? tableNumbers[0] : "",
+				server_draft_name: serverDraftName || null, // Server-side draft link (for Dinin)
 			}
 
 			let savedDraft
@@ -76,6 +106,10 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 				items: draft.items || [],
 				customer: draft.customer,
 				applied_offers: draft.applied_offers || [], // Restore applied offers
+				order_type: draft.order_type || "", // Restore order type
+				// Multi-table: prefer table_numbers array, fall back to single table_number for old drafts
+				table_numbers: draft.table_numbers || (draft.table_number ? [draft.table_number] : []),
+				server_draft_name: draft.server_draft_name || null, // Restore server draft link
 			}
 		} catch (error) {
 			console.error("Error loading draft:", error)
@@ -84,14 +118,13 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 		}
 	}
 
-	async function deleteDraftById(draftId) {
+	// Internal: delete draft after successful invoice submission only
+	async function deleteDraft(draftId) {
 		try {
-			await deleteDraft(draftId)
-			await loadDrafts() // Refresh drafts list and count
-			showSuccess(__("Draft deleted successfully"))
+			await _internalDeleteDraft(draftId)
+			await loadDrafts()
 		} catch (error) {
-			console.error("Error deleting draft:", error)
-			showError(__("Failed to delete draft"))
+			console.error("Error cleaning up draft after submission:", error)
 		}
 	}
 
@@ -105,6 +138,6 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 		loadDrafts,
 		saveDraftInvoice,
 		loadDraft,
-		deleteDraft: deleteDraftById,
+		deleteDraft,
 	}
 })

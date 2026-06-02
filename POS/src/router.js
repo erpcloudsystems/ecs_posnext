@@ -14,6 +14,31 @@ const routes = [
 		path: "/account/login",
 		component: () => import("@/pages/Login.vue"),
 	},
+	{
+		name: "TableManagement",
+		path: "/tables",
+		component: () => import("@/pages/TableManagement.vue"),
+	},
+	{
+		name: "PendingOrders",
+		path: "/pendingapp",
+		component: () => import("@/pages/PendingOrders.vue"),
+	},
+	{
+		name: "PreparingOrders",
+		path: "/prepapp",
+		component: () => import("@/pages/PreparingOrders.vue"),
+	},
+	{
+		name: "PackingOrders",
+		path: "/packapp",
+		component: () => import("@/pages/PackingOrders.vue"),
+	},
+	{
+		name: "DeliveryOrders",
+		path: "/deliverapp",
+		component: () => import("@/pages/DeliveryOrders.vue"),
+	},
 	// Catch-all route
 	{
 		path: "/:pathMatch(.*)*",

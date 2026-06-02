@@ -9,6 +9,7 @@ import { defineStore } from "pinia"
 import { computed, ref } from "vue"
 import { useStockStore } from "./stock"
 import { usePOSShiftStore } from "./posShift"
+import { usePOSCartStore } from "./posCart"
 import { useRealtimePosProfile } from "@/composables/useRealtimePosProfile"
 
 const log = logger.create('ItemSearch')
@@ -150,6 +151,25 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	const sortBy = ref(null) // Options: 'name', 'quantity', 'item_group', null (no sorting)
 	const sortOrder = ref('asc') // Options: 'asc', 'desc'
 
+	// Price List & Group Navigation state
+	const selectedPriceList = ref(localStorage.getItem("pos_selected_price_list") || null)
+	const availablePriceLists = ref([])
+	const groupBreadcrumb = ref([]) // Stack of { name, label } for nested navigation
+	const currentGroupChildren = ref([]) // Current group's children for card display
+	const loadingGroups = ref(false)
+	// Navigation step: 'price_list' -> 'groups' -> 'items'
+	const navigationStep = computed(() => {
+		if (!selectedPriceList.value) return 'price_list'
+		// Show groups when: loading groups, or groups are available to display
+		if (loadingGroups.value) return 'groups'
+		if (currentGroupChildren.value.length > 0) return 'groups'
+		// Only show items when a leaf group is selected (breadcrumb has entries and no children)
+		if (groupBreadcrumb.value.length > 0 && currentGroupChildren.value.length === 0) return 'items'
+		// Fallback: price list selected but no groups loaded yet (initial state) → show groups
+		if (!selectedItemGroup.value && groupBreadcrumb.value.length === 0) return 'groups'
+		return 'items'
+	})
+
 	// Lazy loading state - dynamically adjusted based on device performance
 	const currentOffset = ref(0)
 	const itemsPerPage = computed(() => performanceConfig.get("itemsPerPage")) // Reactive: auto-adjusted 20/50/100 based on device
@@ -180,6 +200,26 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 
 	// Sync cancellation token - incremented to cancel any in-flight sync
 	let syncGeneration = 0
+
+	// ========================================================================
+	// PRICE LIST HELPER
+	// ========================================================================
+
+	/**
+	 * Returns price_list param for API calls if a custom price list is selected
+	 */
+	function getPriceListParam() {
+		const cartStore = usePOSCartStore()
+		return selectedPriceList.value || cartStore.selectedBranchPriceList || undefined
+	}
+
+	/**
+	 * Returns warehouse param for API calls if a custom branch/warehouse is selected
+	 */
+	function getWarehouseParam() {
+		const cartStore = usePOSCartStore()
+		return cartStore.selectedBranchWarehouse || undefined
+	}
 
 	// ========================================================================
 	// SMART CACHE UPDATE HELPERS
@@ -776,6 +816,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			// Skip when offline — count can't be fetched without network
 			const countPromise = !offline ? call("ecs_posnext.api.items.get_items_count", {
 				pos_profile: profile,
+				warehouse: getWarehouseParam(),
 			}).then(r => r?.message ?? r ?? 0).catch(countErr => {
 				log.warn("Could not fetch item count:", countErr.message)
 				return 0
@@ -984,6 +1025,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 					item_group: null, // No filter - get items from all groups
 					start: 0,
 					limit: unfilteredLimit,
+					price_list: getPriceListParam(),
 				})
 				const list = response?.message || response || []
 
@@ -1070,6 +1112,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 				pos_profile: profile,
 				search_term: "",
 				item_group: firstGroup, // Server-side filter via DB index
+				price_list: getPriceListParam(),
+				warehouse: getWarehouseParam(),
 				start: 0,
 				limit: effectiveLimit,
 			})
@@ -1107,6 +1151,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 					item_groups: JSON.stringify(groupsToFetch),
 					start: start,
 					limit: effectiveLimit,
+					price_list: getPriceListParam(),
+					warehouse: getWarehouseParam(),
 				})
 				return response?.message || response || []
 			} else {
@@ -1114,6 +1160,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 					pos_profile: profile,
 					search_term: "",
 					item_group: itemGroup,
+					price_list: getPriceListParam(),
+					warehouse: getWarehouseParam(),
 					start: start,
 					limit: effectiveLimit,
 				})
@@ -1186,6 +1234,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 					pos_profile: posProfile.value,
 					search_term: "",
 					item_group: null,
+					price_list: getPriceListParam(),
+					warehouse: getWarehouseParam(),
 					start: start,
 					limit: pageSize,
 				})
@@ -1275,6 +1325,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 					pos_profile: posProfile.value,
 					search_term: "",
 					item_group: null,
+					price_list: getPriceListParam(),
+					warehouse: getWarehouseParam(),
 					start: currentOffset.value,
 					limit: itemsPerPage.value,
 				})
@@ -1419,6 +1471,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 							start: groupOffset,
 							limit: batchSize,
 							include_variants: 1,
+							price_list: getPriceListParam(),
+							warehouse: getWarehouseParam(),
 						})
 						if (myGeneration !== syncGeneration) return
 						const list = response?.message || response || []
@@ -1468,6 +1522,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 									start: offset,
 									limit: batchSize,
 									include_variants: 1,
+									price_list: getPriceListParam(),
+									warehouse: getWarehouseParam(),
 								}).then(r => r?.message || r || [])
 								.catch(err => {
 									log.warn(`Parallel batch at offset ${offset} failed:`, err.message)
@@ -1625,6 +1681,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 						pos_profile: posProfile.value,
 						search_term: term,
 						item_group: selectedItemGroup.value,
+						price_list: getPriceListParam(),
+						warehouse: getWarehouseParam(),
 						start: 0,
 						limit: searchLimit, // Dynamically adjusted based on device performance
 					})
@@ -1856,6 +1914,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 				const countPromise = call("ecs_posnext.api.items.get_items_count", {
 					pos_profile: posProfile.value,
 					item_group: group || undefined,
+					warehouse: getWarehouseParam(),
 				}).catch(err => {
 					log.warn("Could not fetch item count:", err.message)
 					return 0
@@ -1872,6 +1931,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 						pos_profile: posProfile.value,
 						search_term: "",
 						item_group: null,
+						price_list: getPriceListParam(),
+						warehouse: getWarehouseParam(),
 						start: 0,
 						limit: pageSize,
 					})
@@ -1950,6 +2011,145 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		}
 	}
 
+	// ========================================================================
+	// PRICE LIST & GROUP NAVIGATION ACTIONS
+	// ========================================================================
+
+	/**
+	 * Load available POS price lists for card selection
+	 */
+	async function loadPriceLists() {
+		try {
+			const data = await call("ecs_posnext.api.items.get_pos_price_lists")
+			availablePriceLists.value = data?.message || data || []
+			log.info(`Loaded ${availablePriceLists.value.length} price lists`)
+		} catch (error) {
+			log.error("Error loading price lists:", error)
+			availablePriceLists.value = []
+		}
+	}
+
+	/**
+	 * Select a price list and move to group navigation
+	 */
+	async function selectPriceList(priceListName) {
+		selectedPriceList.value = priceListName
+		localStorage.setItem("pos_selected_price_list", priceListName)
+		log.info(`Selected price list: ${priceListName}`)
+
+		// Load top-level groups
+		await loadGroupChildren(null)
+	}
+
+	/**
+	 * Change price list (manual override)
+	 */
+	function changePriceList() {
+		selectedPriceList.value = null
+		localStorage.removeItem("pos_selected_price_list")
+		groupBreadcrumb.value = []
+		currentGroupChildren.value = []
+		selectedItemGroup.value = null
+		replaceAllItems([])
+	}
+
+	/**
+	 * Load children of a group for nested card navigation
+	 */
+	async function loadGroupChildren(parentGroup) {
+		loadingGroups.value = true
+		try {
+			const data = await call("ecs_posnext.api.items.get_child_item_groups", {
+				parent_group: parentGroup || "",
+				pos_profile: posProfile.value,
+			})
+			const groups = data?.message || data || []
+			currentGroupChildren.value = groups
+			log.info(`Loaded ${groups.length} child groups for: ${parentGroup || 'root'}`)
+			return groups
+		} catch (error) {
+			log.error("Error loading child groups:", error)
+			currentGroupChildren.value = []
+			return []
+		} finally {
+			loadingGroups.value = false
+		}
+	}
+
+	/**
+	 * Navigate into a group card (drill down)
+	 * If group has children → show them as cards
+	 * If leaf group → load items
+	 */
+	async function navigateToGroup(group) {
+		const groupName = group.item_group || group
+		const isGroup = group.is_group
+
+		if (isGroup) {
+			// Drill down: load children and push breadcrumb
+			const children = await loadGroupChildren(groupName)
+			if (children.length > 0) {
+				groupBreadcrumb.value = [...groupBreadcrumb.value, { name: groupName, label: groupName }]
+				return
+			}
+		}
+
+		// Leaf group or group with no children → load items
+		groupBreadcrumb.value = [...groupBreadcrumb.value, { name: groupName, label: groupName }]
+		currentGroupChildren.value = [] // Clear children to show items
+		selectedItemGroup.value = groupName
+
+		// Trigger item loading with the selected group
+		if (posProfile.value) {
+			await setSelectedItemGroup(groupName)
+		}
+	}
+
+	/**
+	 * Navigate back in the breadcrumb
+	 */
+	async function navigateBack() {
+		if (groupBreadcrumb.value.length === 0) return
+
+		// Remove last breadcrumb entry
+		const newBreadcrumb = [...groupBreadcrumb.value]
+		newBreadcrumb.pop()
+		groupBreadcrumb.value = newBreadcrumb
+
+		// Clear items state
+		selectedItemGroup.value = null
+		replaceAllItems([])
+
+		if (newBreadcrumb.length === 0) {
+			// Back to top-level groups
+			await loadGroupChildren(null)
+		} else {
+			// Load children of parent group
+			const parentGroup = newBreadcrumb[newBreadcrumb.length - 1].name
+			await loadGroupChildren(parentGroup)
+		}
+	}
+
+	/**
+	 * Navigate to a specific breadcrumb level
+	 */
+	async function navigateToBreadcrumb(index) {
+		if (index < 0) {
+			// Go to root (top-level groups)
+			groupBreadcrumb.value = []
+			selectedItemGroup.value = null
+			replaceAllItems([])
+			await loadGroupChildren(null)
+			return
+		}
+
+		const targetGroup = groupBreadcrumb.value[index]
+		groupBreadcrumb.value = groupBreadcrumb.value.slice(0, index + 1)
+		selectedItemGroup.value = null
+		replaceAllItems([])
+		await loadGroupChildren(targetGroup.name)
+	}
+
 	/**
 	 * Update cart items - delegates to stock store
 	 */
@@ -2018,10 +2218,21 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			// Stop any existing sync before loading items for new profile
 			stopBackgroundCacheSync()
 
-			// Load items in background (non-blocking)
-			if (autoLoadItems) {
-				loadAllItems(profile)
+			// Load available price lists for card selection
+			loadPriceLists()
+
+			// If a price list was previously selected, resume group navigation
+			if (selectedPriceList.value) {
+				log.info(`Resuming with previously selected price list: ${selectedPriceList.value}`)
+				// Load top-level groups to show group cards
+				await loadGroupChildren(null)
+
+				// Only load items if autoLoadItems and no group children (edge case)
+				if (autoLoadItems && currentGroupChildren.value.length === 0) {
+					loadAllItems(profile)
+				}
 			}
+			// If no price list selected, don't load items — wait for user to pick one
 		} catch (error) {
 			log.error("Error fetching POS Profile data", error)
 
@@ -2116,6 +2327,23 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		// ========================================================================
 		applyStockUpdates,        // Delegates to stockStore.applyUpdates
 		refreshStockFromServer,   // Delegates to stockStore.refreshFromServer
+
+		// ========================================================================
+		// PRICE LIST & GROUP NAVIGATION
+		// ========================================================================
+		selectedPriceList,
+		availablePriceLists,
+		groupBreadcrumb,
+		currentGroupChildren,
+		loadingGroups,
+		navigationStep,
+		loadPriceLists,
+		selectPriceList,
+		changePriceList,
+		loadGroupChildren,
+		navigateToGroup,
+		navigateBack,
+		navigateToBreadcrumb,
 
 		// ========================================================================
 		// STOCK STORE ACCESS

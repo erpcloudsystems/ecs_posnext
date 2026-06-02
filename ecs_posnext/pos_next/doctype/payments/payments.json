@@ -1,0 +1,75 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-02-09 11:19:24.811676",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "date",
+  "branch",
+  "payment_table",
+  "total_instapay",
+  "total_credit",
+  "total_vodafon_cash"
+ ],
+ "fields": [
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "label": "Date"
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "label": "Branch",
+   "options": "Branch"
+  },
+  {
+   "fieldname": "payment_table",
+   "fieldtype": "Table",
+   "label": "Payment Table",
+   "options": "Payment Table"
+  },
+  {
+   "fieldname": "total_instapay",
+   "fieldtype": "Currency",
+   "label": "Total Instapay"
+  },
+  {
+   "fieldname": "total_credit",
+   "fieldtype": "Currency",
+   "label": "Total Credit "
+  },
+  {
+   "fieldname": "total_vodafon_cash",
+   "fieldtype": "Currency",
+   "label": "Total Vodafon Cash"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-02-09 18:23:28.280732",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "Payments",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -7,6 +7,7 @@ import { ref, computed, onMounted, onUnmounted } from "vue"
 
 export function usePaymentNumpad(options = {}) {
 	const numpadDisplay = ref("")
+	let shouldClearOnNextInput = false
 
 	const numpadValue = computed(() => {
 		const val = Number.parseFloat(numpadDisplay.value)
@@ -18,6 +19,11 @@ export function usePaymentNumpad(options = {}) {
 	 * @param {string} char - Character to add ('0'-'9', '.', '00')
 	 */
 	function numpadInput(char) {
+		if (shouldClearOnNextInput) {
+			numpadDisplay.value = ""
+			shouldClearOnNextInput = false
+		}
+
 		// Prevent multiple decimal points
 		if (char === "." && numpadDisplay.value.includes(".")) {
 			return
@@ -44,6 +50,11 @@ export function usePaymentNumpad(options = {}) {
 	 * Remove the last character from numpad display
 	 */
 	function numpadBackspace() {
+		if (shouldClearOnNextInput) {
+			numpadDisplay.value = ""
+			shouldClearOnNextInput = false
+			return
+		}
 		numpadDisplay.value = numpadDisplay.value.slice(0, -1)
 	}
 
@@ -52,6 +63,7 @@ export function usePaymentNumpad(options = {}) {
 	 */
 	function numpadClear() {
 		numpadDisplay.value = ""
+		shouldClearOnNextInput = false
 	}
 
 	/**
@@ -60,10 +72,14 @@ export function usePaymentNumpad(options = {}) {
 	 */
 	function setNumpadValue(value) {
 		if (typeof value === "number") {
-			numpadDisplay.value = value.toFixed(2)
+			// Instead of always forcing 2 decimals, format cleanly
+			// so 50 doesn't become 50.00 and block input as easily,
+			// though shouldClearOnNextInput handles it now anyway.
+			numpadDisplay.value = Number.isInteger(value) ? String(value) : value.toFixed(2)
 		} else {
 			numpadDisplay.value = String(value)
 		}
+		shouldClearOnNextInput = true
 	}
 
 	// Keyboard input handling

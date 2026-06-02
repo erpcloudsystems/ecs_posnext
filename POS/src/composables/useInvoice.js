@@ -344,6 +344,8 @@ export function useInvoice() {
 				custom_allow_rate_edit: item.custom_allow_rate_edit || 0,
 				// Exclude from additional discount
 				custom_not_included: item.custom_not_included || 0,
+				// Kitchen item status (Pending, Preparing, Packing, etc.)
+				custom_item_status: item.custom_item_status || "",
 			}
 			console.log('[DEBUG addItem]', item.item_code, 'source custom_not_included:', item.custom_not_included, '→ cart custom_not_included:', newItem.custom_not_included, '| allowAdditionalDiscount:', allowAdditionalDiscount.value)
 			invoiceItems.value.push(newItem)
@@ -376,6 +378,13 @@ export function useInvoice() {
 			)
 		} else {
 			itemToRemove = invoiceItems.value.find((i) => i.item_code === itemCode)
+		}
+
+		// Block removal if item has progressed past Pending in kitchen
+		// Allow removal only when status is empty/unset or "Pending"
+		if (itemToRemove && itemToRemove.custom_item_status && itemToRemove.custom_item_status !== "Pending" && itemToRemove.custom_item_status !== "") {
+			log.warn("Cannot remove item - already in kitchen:", itemToRemove.custom_item_status)
+			return
 		}
 
 		if (itemToRemove) {
@@ -807,6 +816,8 @@ export function useInvoice() {
 			// Manual rate edit tracking for audit logging
 			is_rate_manually_edited: item.is_rate_manually_edited || 0,
 			original_rate: item.original_rate || null,
+			// Preserve kitchen item status for held orders
+			custom_item_status: item.custom_item_status || "",
 		}))
 	}
 
@@ -871,7 +882,7 @@ export function useInvoice() {
 		}
 	}
 
-	async function saveDraft(targetDoctype = "Sales Invoice") {
+	async function saveDraft(targetDoctype = "Sales Invoice", orderType = "", tableNumber = "", tableNumbers = []) {
 		/**
 		 * Save invoice as draft (Step 1)
 		 * This creates the invoice with docstatus=0
@@ -895,6 +906,10 @@ export function useInvoice() {
 			coupon_code: couponCode.value,
 			is_pos: 1,
 			update_stock: 1,
+			custom_so_type: orderType || "",
+			custom_table_number: tableNumber || "",
+			// Multi-table support: populate child table rows
+			custom_numbers_of_table: (tableNumbers || []).map(name => ({ table_name: name })),
 		}
 
 		if (targetDoctype === "Sales Order") {
@@ -911,6 +926,11 @@ export function useInvoice() {
 		targetDoctype = "Sales Invoice",
 		deliveryDate = null,
 		writeOffAmount = 0,
+		orderType = "",
+		tableNumber = "",
+		tableNumbers = [],
+		deliveryAddress = null,
+		serverDraftName = null,
 	) {
 		/**
 		 * Two-step submission process with mutex protection:
@@ -959,6 +979,14 @@ export function useInvoice() {
 					coupon_code: couponCode.value,
 					is_pos: 1,
 					update_stock: 1, // Critical: Ensures stock is updated
+					custom_so_type: orderType || "",
+					custom_table_number: tableNumber || "",
+					// Multi-table support: populate child table rows
+					custom_numbers_of_table: (tableNumbers || []).map(name => ({ table_name: name })),
+					// Delivery address
+					...(deliveryAddress ? { customer_address: deliveryAddress, shipping_address_name: deliveryAddress } : {}),
+					// Reuse existing server draft if available (prevents orphaned drafts)
+					...(serverDraftName ? { name: serverDraftName } : {}),
 				}
 
 				if (targetDoctype === "Sales Order" && deliveryDate) {

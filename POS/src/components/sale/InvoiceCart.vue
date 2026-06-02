@@ -161,6 +161,92 @@
 							</div>
 						</div>
 					</div>
+
+					<!-- Order Type Selector -->
+					<div class="mt-1.5">
+						<div class="flex items-center gap-1">
+							<button
+								v-for="ot in orderTypes"
+								:key="ot.value"
+								type="button"
+								@click="selectOrderType(ot.value)"
+								:class="[
+									'flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[10px] font-bold transition-all duration-150 border touch-manipulation',
+									cartStore.orderType === ot.value
+										? 'bg-gradient-to-b from-blue-500 to-blue-600 text-white border-blue-600 shadow-md scale-[1.02]'
+										: 'bg-white text-gray-500 border-gray-200 hover:border-blue-200 hover:text-blue-600 hover:bg-blue-50 active:scale-95'
+								]"
+							>
+								<span v-html="ot.icon" class="w-3.5 h-3.5 flex-shrink-0"></span>
+								<span class="truncate">{{ __(ot.value) }}</span>
+							</button>
+						</div>
+					</div>
+
+					<!-- Table Indicator for Dinin (multi-table) -->
+					<div v-if="cartStore.orderType === 'Dinin'" class="mt-1.5">
+						<button
+							type="button"
+							@click="showTableDialog = true"
+							:class="[
+								'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border transition-all touch-manipulation',
+								cartStore.tableNumbers.length > 0
+									? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+									: 'bg-amber-50 border-amber-200 hover:bg-amber-100 animate-pulse'
+							]"
+						>
+							<div class="flex items-center gap-2 min-w-0">
+								<svg class="w-4 h-4 flex-shrink-0" :class="cartStore.tableNumbers.length > 0 ? 'text-emerald-600' : 'text-amber-600'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<rect x="3" y="4" width="18" height="12" rx="2"/>
+									<path d="M7 20h10M9 16v4M15 16v4"/>
+								</svg>
+								<span v-if="cartStore.tableNumbers.length > 0" class="text-xs font-bold text-emerald-700 truncate">
+									{{ selectedTablesLabel }}
+								</span>
+								<span v-else class="text-xs font-bold text-amber-700">
+									{{ __("Select Table") }}
+								</span>
+							</div>
+							<div class="flex items-center gap-1.5 flex-shrink-0">
+								<span v-if="cartStore.tableNumbers.length > 1" class="bg-emerald-600 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+									{{ cartStore.tableNumbers.length }}
+								</span>
+								<svg class="w-3.5 h-3.5" :class="cartStore.tableNumbers.length > 0 ? 'text-emerald-500' : 'text-amber-500'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+								</svg>
+							</div>
+						</button>
+					</div>
+
+					<!-- Delivery Address Indicator -->
+					<div v-if="cartStore.orderType === 'Delivery'" class="mt-1.5">
+						<button
+							type="button"
+							@click="openAddressDialog"
+							:class="[
+								'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border transition-all touch-manipulation',
+								cartStore.deliveryAddress
+									? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+									: 'bg-amber-50 border-amber-200 hover:bg-amber-100 animate-pulse'
+							]"
+						>
+							<div class="flex items-center gap-2 min-w-0">
+								<svg class="w-4 h-4 flex-shrink-0" :class="cartStore.deliveryAddress ? 'text-emerald-600' : 'text-amber-600'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+									<path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+								</svg>
+								<span v-if="selectedAddressLabel" class="text-xs font-bold text-emerald-700 truncate">
+									{{ selectedAddressLabel }}
+								</span>
+								<span v-else class="text-xs font-bold text-amber-700">
+									{{ __("Select Address") }}
+								</span>
+							</div>
+							<svg class="w-3.5 h-3.5 flex-shrink-0" :class="cartStore.deliveryAddress ? 'text-emerald-500' : 'text-amber-500'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+							</svg>
+						</button>
+					</div>
 				</div>
 				<div v-else>
 					<div class="flex gap-1.5">
@@ -748,6 +834,23 @@
 					class="bg-white border border-gray-200 rounded-md p-1.5 sm:p-2 hover:border-blue-300 hover:shadow-md transition-all duration-200 active:scale-[0.99] cursor-pointer group"
 				>
 					<div class="flex gap-1.5 sm:gap-2">
+						<!-- Split Mode Checkbox -->
+						<div
+							v-if="cartStore.splitMode"
+							class="flex items-center flex-shrink-0"
+							@click.stop="cartStore.toggleSplitItem(index)"
+						>
+							<div
+								:class="[
+									'w-5 h-5 rounded border-2 flex items-center justify-center transition-all cursor-pointer',
+									cartStore.selectedForSplit.has(index)
+										? 'bg-blue-600 border-blue-600'
+										: 'border-gray-300 hover:border-blue-400'
+								]"
+							>
+								<svg v-if="cartStore.selectedForSplit.has(index)" class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+							</div>
+						</div>
 						<!-- Item Image Thumbnail -->
 						<div
 							class="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg flex-shrink-0 flex items-center justify-center overflow-hidden border border-gray-200"
@@ -831,6 +934,7 @@
 									</div>
 								</div>
 								<button
+									v-if="!item.custom_item_status || item.custom_item_status === 'Pending'"
 									type="button"
 									@click.stop="$emit('remove-item', item.item_code, item.uom)"
 									class="text-gray-400 hover:text-red-600 active:text-red-700 transition-colors flex-shrink-0 p-0.5 -m-0.5 touch-manipulation active:scale-90"
@@ -1165,60 +1269,106 @@
 				</div>
 			</div>
 
+			<!-- Split Mode Bar -->
+			<div v-if="cartStore.splitMode" class="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 mb-1">
+				<div class="flex items-center gap-2">
+					<span class="text-xs font-semibold text-blue-800">
+						{{ __("{0} selected", [cartStore.selectedForSplit.size]) }}
+					</span>
+					<button
+						type="button"
+						@click="cartStore.selectAllForSplit()"
+						class="text-[10px] font-medium text-blue-600 hover:text-blue-800 underline"
+					>{{ __("All") }}</button>
+					<button
+						type="button"
+						@click="cartStore.deselectAllForSplit()"
+						class="text-[10px] font-medium text-blue-600 hover:text-blue-800 underline"
+					>{{ __("None") }}</button>
+				</div>
+				<span class="text-xs font-bold text-blue-900">
+					{{ Number(cartStore.splitSelectedTotal).toFixed(2) }}
+				</span>
+			</div>
+
 			<!-- Action Buttons -->
 			<div class="flex gap-1.5">
-				<!-- Checkout Button (Primary - 50% width) -->
-				<button
-					type="button"
-					@click="handleProceedToPayment"
-					:disabled="items.length === 0"
-					:class="[
-						'flex-1 py-2.5 px-3 rounded-lg font-bold text-xs text-white transition-all flex items-center justify-center touch-manipulation',
-						items.length === 0
-							? 'bg-gray-300 cursor-not-allowed'
-							: 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-lg hover:shadow-xl active:scale-[0.98]',
-					]"
-					:aria-label="__('Proceed to payment')"
-				>
-					<svg
-						class="w-4 h-4 me-1.5"
-						fill="none"
-						stroke="currentColor"
-						viewBox="0 0 24 24"
-						stroke-width="2"
+				<!-- Split Mode: Split Checkout Button -->
+				<template v-if="cartStore.splitMode">
+					<button
+						type="button"
+						@click="$emit('split-checkout')"
+						:disabled="cartStore.selectedForSplit.size === 0"
+						:class="[
+							'flex-1 py-2.5 px-3 rounded-lg font-bold text-xs text-white transition-all flex items-center justify-center touch-manipulation',
+							cartStore.selectedForSplit.size === 0
+								? 'bg-gray-300 cursor-not-allowed'
+								: 'bg-green-600 hover:bg-green-700 active:bg-green-800 shadow-lg active:scale-[0.98]',
+						]"
 					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-						/>
-					</svg>
-					<span>{{ __("Checkout") }}</span>
-				</button>
+						<svg class="w-4 h-4 me-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
+						</svg>
+						<span>{{ __("Pay Selected") }}</span>
+					</button>
+					<button
+						type="button"
+						@click="cartStore.toggleSplitMode()"
+						class="py-2.5 px-3 rounded-lg font-semibold text-xs text-gray-600 bg-gray-100 hover:bg-gray-200 active:bg-gray-300 transition-all touch-manipulation active:scale-[0.98] flex items-center justify-center"
+					>
+						<span>{{ __("Cancel") }}</span>
+					</button>
+				</template>
 
-				<!-- Hold Order Button (Secondary - 50% width) -->
-				<button
-					type="button"
-					v-if="items.length > 0"
-					@click="$emit('save-draft')"
-					class="flex-1 py-2.5 px-2 rounded-lg font-semibold text-xs text-orange-700 bg-orange-50 hover:bg-orange-100 active:bg-orange-200 transition-all touch-manipulation active:scale-[0.98] flex items-center justify-center"
-					:aria-label="__('Hold order as draft')"
-				>
-					<svg
-						class="w-4 h-4 me-1.5"
-						fill="none"
-						stroke="currentColor"
-						viewBox="0 0 24 24"
-						stroke-width="2"
+				<!-- Normal Mode Buttons -->
+				<template v-else>
+					<!-- Checkout Button -->
+					<button
+						type="button"
+						@click="handleProceedToPayment"
+						:disabled="items.length === 0"
+						:class="[
+							'flex-1 py-2.5 px-3 rounded-lg font-bold text-xs text-white transition-all flex items-center justify-center touch-manipulation',
+							items.length === 0
+								? 'bg-gray-300 cursor-not-allowed'
+								: 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-lg hover:shadow-xl active:scale-[0.98]',
+						]"
+						:aria-label="__('Proceed to payment')"
 					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-						/>
-					</svg>
-					<span>{{ __("Hold", null, "order") }}</span>
-				</button>
+						<svg class="w-4 h-4 me-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
+						</svg>
+						<span>{{ __("Checkout") }}</span>
+					</button>
+
+					<!-- Split Button -->
+					<button
+						type="button"
+						v-if="items.length > 1"
+						@click="cartStore.toggleSplitMode()"
+						class="py-2.5 px-2 rounded-lg font-semibold text-xs text-purple-700 bg-purple-50 hover:bg-purple-100 active:bg-purple-200 transition-all touch-manipulation active:scale-[0.98] flex items-center justify-center"
+						:aria-label="__('Split checkout')"
+					>
+						<svg class="w-4 h-4 me-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12M8 12h12M8 17h12M4 7h.01M4 12h.01M4 17h.01"/>
+						</svg>
+						<span>{{ __("Split") }}</span>
+					</button>
+
+					<!-- Hold Order Button -->
+					<button
+						type="button"
+						v-if="items.length > 0"
+						@click="$emit('save-draft')"
+						class="flex-1 py-2.5 px-2 rounded-lg font-semibold text-xs text-orange-700 bg-orange-50 hover:bg-orange-100 active:bg-orange-200 transition-all touch-manipulation active:scale-[0.98] flex items-center justify-center"
+						:aria-label="__('Hold order as draft')"
+					>
+						<svg class="w-4 h-4 me-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+						</svg>
+						<span>{{ __("Hold", null, "order") }}</span>
+					</button>
+				</template>
 			</div>
 		</div>
 
@@ -1230,6 +1380,250 @@
 			:currency="currency"
 			@update-item="handleUpdateItem"
 		/>
+
+		<!-- Table Selection Dialog -->
+		<Teleport to="body">
+			<Transition name="fade">
+				<div
+					v-if="showTableDialog"
+					class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+					@click.self="showTableDialog = false"
+				>
+					<!-- Backdrop -->
+					<div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+
+					<!-- Dialog -->
+					<div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+						<!-- Header -->
+						<div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+							<div class="flex items-center gap-2.5">
+								<div class="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center">
+									<svg class="w-5 h-5 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<rect x="3" y="4" width="18" height="12" rx="2"/>
+										<path d="M7 20h10M9 16v4M15 16v4"/>
+									</svg>
+								</div>
+								<div>
+									<h3 class="text-sm font-bold text-gray-900">{{ __("Select Tables") }}</h3>
+									<p class="text-[10px] text-gray-500">
+										{{ cartStore.tableNumbers.length > 0
+											? __('{0} table(s) selected', [cartStore.tableNumbers.length])
+											: __('Tap tables to select multiple')
+										}}
+									</p>
+								</div>
+							</div>
+							<button
+								type="button"
+								@click="showTableDialog = false"
+								class="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+							>
+								<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+								</svg>
+							</button>
+						</div>
+
+						<!-- Table Grid -->
+						<div class="flex-1 overflow-y-auto p-4">
+							<div v-if="availableTables.length > 0" class="grid grid-cols-5 gap-2">
+								<button
+									v-for="table in availableTables"
+									:key="table.name"
+									type="button"
+									@click="toggleTable(table.name)"
+									:disabled="table.disabled"
+									:class="[
+										'relative h-12 rounded-xl text-sm font-bold transition-all duration-150 border-2 touch-manipulation flex items-center justify-center',
+										table.disabled
+											? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+											: cartStore.tableNumbers.includes(table.name)
+												? 'bg-gradient-to-b from-emerald-500 to-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-200 scale-105'
+												: 'bg-white text-gray-700 border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 active:scale-95 shadow-sm'
+									]"
+								>
+									{{ table.no }}
+									<span
+										v-if="cartStore.tableNumbers.includes(table.name)"
+										class="absolute -top-1 -right-1 w-4 h-4 bg-white rounded-full flex items-center justify-center shadow"
+									>
+										<svg class="w-3 h-3 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
+											<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+										</svg>
+									</span>
+								</button>
+							</div>
+							<div v-else class="flex items-center justify-center py-8">
+								<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-500"></div>
+							</div>
+						</div>
+
+						<!-- Footer -->
+						<div class="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
+							<button
+								v-if="cartStore.tableNumbers.length > 0"
+								type="button"
+								@click="clearTables"
+								class="px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+							>
+								{{ __("Clear All") }}
+							</button>
+							<span v-else></span>
+							<button
+								type="button"
+								@click="showTableDialog = false"
+								class="px-6 py-2.5 text-sm font-bold rounded-xl transition-all active:scale-95"
+								:style="{
+									backgroundColor: cartStore.tableNumbers.length > 0 ? '#059669' : '#e5e7eb',
+									color: cartStore.tableNumbers.length > 0 ? '#ffffff' : '#6b7280',
+									boxShadow: cartStore.tableNumbers.length > 0 ? '0 4px 6px -1px rgba(5,150,105,0.3)' : 'none'
+								}"
+							>
+								{{ __("OK") }}
+							</button>
+						</div>
+					</div>
+				</div>
+			</Transition>
+		</Teleport>
+
+		<!-- Address Selection Dialog -->
+		<Teleport to="body">
+			<Transition name="fade">
+				<div
+					v-if="showAddressDialog"
+					class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+					@click.self="showAddressDialog = false"
+				>
+					<div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+					<div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+						<!-- Header -->
+						<div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+							<div class="flex items-center gap-2.5">
+								<div class="w-9 h-9 bg-blue-100 rounded-xl flex items-center justify-center">
+									<svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+										<path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+									</svg>
+								</div>
+								<div>
+									<h3 class="text-sm font-bold text-gray-900">{{ __("Delivery Address") }}</h3>
+									<p class="text-[10px] text-gray-500">{{ showNewAddressForm ? __("Add new address") : __("Select or add address") }}</p>
+								</div>
+							</div>
+							<button type="button" @click="showAddressDialog = false" class="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+								<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+								</svg>
+							</button>
+						</div>
+
+						<!-- Address List / New Address Form -->
+						<div class="flex-1 overflow-y-auto p-4">
+							<!-- New Address Form -->
+							<div v-if="showNewAddressForm" class="flex flex-col gap-2.5">
+								<input v-model="newAddress.address_line1" :placeholder="__('Street Address *')" class="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"/>
+								<div class="grid grid-cols-2 gap-2">
+									<input v-model="newAddress.city" :placeholder="__('City')" class="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"/>
+									<input v-model="newAddress.state" :placeholder="__('State')" class="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"/>
+								</div>
+								<div class="grid grid-cols-2 gap-2">
+									<input v-model="newAddress.pincode" :placeholder="__('Postal Code')" class="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"/>
+									<input v-model="newAddress.phone" :placeholder="__('Phone')" class="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"/>
+								</div>
+							</div>
+
+							<!-- Existing Addresses -->
+							<div v-else>
+								<div v-if="addressesLoading" class="flex items-center justify-center py-8">
+									<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+								</div>
+								<div v-else-if="customerAddresses.length === 0" class="text-center py-6">
+									<svg class="w-10 h-10 mx-auto text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+										<path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+									</svg>
+									<p class="text-xs text-gray-500">{{ __("No addresses found") }}</p>
+								</div>
+								<div v-else class="flex flex-col gap-2">
+									<button
+										v-for="addr in customerAddresses"
+										:key="addr.name"
+										type="button"
+										@click="selectAddress(addr)"
+										:class="[
+											'w-full text-start px-3 py-2.5 rounded-lg border-2 transition-all',
+											cartStore.deliveryAddress === addr.name
+												? 'border-blue-500 bg-blue-50'
+												: 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+										]"
+									>
+										<div class="flex items-start gap-2">
+											<svg class="w-4 h-4 mt-0.5 flex-shrink-0" :class="cartStore.deliveryAddress === addr.name ? 'text-blue-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+												<path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+												<path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+											</svg>
+											<div class="min-w-0 flex-1">
+												<p class="text-xs font-bold text-gray-900 truncate">{{ addr.address_line1 }}</p>
+												<p v-if="addr.city || addr.state" class="text-[10px] text-gray-500 truncate">
+													{{ [addr.city, addr.state].filter(Boolean).join(", ") }}
+												</p>
+												<p v-if="addr.phone" class="text-[10px] text-gray-400">{{ addr.phone }}</p>
+											</div>
+											<svg v-if="cartStore.deliveryAddress === addr.name" class="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+												<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+											</svg>
+										</div>
+									</button>
+								</div>
+							</div>
+						</div>
+
+						<!-- Footer -->
+						<div class="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
+							<template v-if="showNewAddressForm">
+								<button type="button" @click="showNewAddressForm = false" class="px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+									{{ __("Back") }}
+								</button>
+								<button
+									type="button"
+									@click="saveNewAddress"
+									:disabled="!newAddress.address_line1 || savingAddress"
+									:class="[
+										'px-5 py-2 text-xs font-bold rounded-lg transition-all',
+										!newAddress.address_line1 || savingAddress
+											? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+											: 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
+									]"
+								>
+									{{ savingAddress ? __("Saving...") : __("Save & Select") }}
+								</button>
+							</template>
+							<template v-else>
+								<button type="button" @click="showNewAddressForm = true" class="px-3 py-2 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-1">
+									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+									</svg>
+									{{ __("New Address") }}
+								</button>
+								<button
+									type="button"
+									@click="showAddressDialog = false"
+									:class="[
+										'px-5 py-2 text-xs font-bold rounded-lg transition-all',
+										cartStore.deliveryAddress
+											? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
+											: 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+									]"
+								>
+									{{ cartStore.deliveryAddress ? __("Done") : __("Close") }}
+								</button>
+							</template>
+						</div>
+					</div>
+				</div>
+			</Transition>
+		</Teleport>
 
 	</div>
 </template>
@@ -1256,6 +1650,9 @@ const log = logger.create("InvoiceCart");
 import { createResource } from "frappe-ui";
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue";
 import EditItemDialog from "./EditItemDialog.vue";
+import { useSocket } from "@/socket";
+
+const socket = useSocket();
 
 /**
  * ============================================================================
@@ -1267,6 +1664,219 @@ const settingsStore = usePOSSettingsStore(); // Pinia store for POS settings
 const offersStore = usePOSOffersStore(); // Pinia store for offers/promotions
 const customerSearchStore = useCustomerSearchStore(); // Pinia store for customer search
 const { formatQuantity } = useFormatters(); // Quantity formatting utilities
+
+// Order Type options (maps to custom_so_type field on Sales Invoice)
+const orderTypes = [
+	{
+		value: "Pickup",
+		icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 11V7a4 4 0 00-8 0v4"/><rect x="3" y="11" width="18" height="11" rx="2"/></svg>',
+	},
+	{
+		value: "Dinin",
+		icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 002-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 00-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/></svg>',
+	},
+	{
+		value: "Delivery",
+		icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>',
+	},
+	// {
+	// 	value: "Car Service",
+	// 	icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14v-5l-2-6H7L5 12z"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="17.5" r="2.5"/></svg>',
+	// },
+	// {
+	// 	value: "Talabat",
+	// 	icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>',
+	// },
+];
+
+// Table management for Dinin order type
+const availableTables = ref([]);
+const showTableDialog = ref(false);
+
+const tablesResource = createResource({
+	url: "frappe.client.get_list",
+	makeParams() {
+		return {
+			doctype: "Table Number",
+			fields: ["name", "no", "branch", "disabled"],
+			order_by: "CAST(no AS UNSIGNED) ASC",
+			limit_page_length: 0,
+		};
+	},
+	auto: false,
+	onSuccess(data) {
+		availableTables.value = (data || []).map((t) => ({
+			name: t.name,
+			no: t.no,
+			branch: t.branch,
+			disabled: !!t.disabled,
+		}));
+	},
+});
+
+// Fetch tables when Dinin is selected, and auto-open dialog
+watch(
+	() => cartStore.orderType,
+	(newType) => {
+		if (newType === "Dinin") {
+			if (availableTables.value.length === 0) {
+				tablesResource.fetch();
+			}
+			// Auto-open table dialog when switching to Dinin
+			if (cartStore.tableNumbers.length === 0) {
+				showTableDialog.value = true;
+			}
+		}
+	},
+	{ immediate: true }
+);
+
+function getTableNo(tableName) {
+	const table = availableTables.value.find((t) => t.name === tableName);
+	return table ? table.no : tableName;
+}
+
+/** Computed label for the table indicator button */
+const selectedTablesLabel = computed(() => {
+	const names = cartStore.tableNumbers;
+	if (names.length === 0) return "";
+	// Show comma-separated table numbers (up to 4), then "+N more"
+	const displayNos = names.slice(0, 4).map((n) => getTableNo(n));
+	const label = __("Table Number") + " " + displayNos.join(", ");
+	if (names.length > 4) {
+		return label + " +" + (names.length - 4);
+	}
+	return label;
+});
+
+/** Toggle a table in/out of the multi-selection */
+function toggleTable(tableName) {
+	cartStore.toggleTableNumber(tableName);
+}
+
+/** Clear all selected tables */
+function clearTables() {
+	cartStore.clearTableNumbers();
+}
+
+function selectOrderType(type) {
+	// Toggle: if already selected, deselect
+	if (cartStore.orderType === type) {
+		cartStore.setOrderType("");
+	} else {
+		cartStore.setOrderType(type);
+	}
+}
+
+// ---- Delivery Address management ----
+const showAddressDialog = ref(false);
+const showNewAddressForm = ref(false);
+const customerAddresses = ref([]);
+const addressesLoading = ref(false);
+const savingAddress = ref(false);
+const newAddress = ref({ address_line1: "", city: "", state: "", pincode: "", phone: "" });
+
+const selectedAddressLabel = computed(() => {
+	if (!cartStore.deliveryAddress) return "";
+	const addr = customerAddresses.value.find((a) => a.name === cartStore.deliveryAddress);
+	if (addr) {
+		const parts = [addr.address_line1, addr.city].filter(Boolean);
+		return parts.join(", ");
+	}
+	return cartStore.deliveryAddress;
+});
+
+async function fetchCustomerAddresses() {
+	const customerValue = cartStore.customer?.name || cartStore.customer;
+	if (!customerValue) {
+		customerAddresses.value = [];
+		return;
+	}
+	addressesLoading.value = true;
+	try {
+		const addressResource = createResource({
+			url: "ecs_posnext.api.customers.get_customer_addresses",
+			params: { customer: customerValue },
+		});
+		const result = await addressResource.fetch();
+		customerAddresses.value = result || [];
+	} catch (err) {
+		log.warn("Failed to fetch addresses:", err);
+		customerAddresses.value = [];
+	} finally {
+		addressesLoading.value = false;
+	}
+}
+
+function openAddressDialog() {
+	const customerValue = cartStore.customer?.name || cartStore.customer;
+	if (!customerValue) {
+		return;
+	}
+	showNewAddressForm.value = false;
+	newAddress.value = { address_line1: "", city: "", state: "", pincode: "", phone: "" };
+	fetchCustomerAddresses();
+	showAddressDialog.value = true;
+}
+
+function selectAddress(addr) {
+	cartStore.setDeliveryAddress(addr.name);
+	showAddressDialog.value = false;
+}
+
+async function saveNewAddress() {
+	const customerValue = cartStore.customer?.name || cartStore.customer;
+	if (!customerValue || !newAddress.value.address_line1) return;
+
+	savingAddress.value = true;
+	try {
+		const saveResource = createResource({
+			url: "ecs_posnext.api.customers.create_customer_address",
+			params: {
+				customer: customerValue,
+				address_line1: newAddress.value.address_line1,
+				city: newAddress.value.city,
+				state: newAddress.value.state,
+				pincode: newAddress.value.pincode,
+				phone: newAddress.value.phone,
+			},
+		});
+		const result = await saveResource.fetch();
+		if (result && result.name) {
+			customerAddresses.value.unshift(result);
+			cartStore.setDeliveryAddress(result.name);
+			showAddressDialog.value = false;
+		}
+	} catch (err) {
+		log.error("Failed to create address:", err);
+	} finally {
+		savingAddress.value = false;
+	}
+}
+
+// Auto-open address dialog when Delivery is selected and no address is set
+watch(
+	() => cartStore.orderType,
+	(newType) => {
+		if (newType === "Delivery" && !cartStore.deliveryAddress) {
+			const customerValue = cartStore.customer?.name || cartStore.customer;
+			if (customerValue) {
+				openAddressDialog();
+			}
+		}
+		if (newType !== "Delivery") {
+			cartStore.setDeliveryAddress(null);
+		}
+	}
+);
+
+/** Refresh table statuses from server (call after Hold/Checkout changes occupancy) */
+function refreshTables() {
+	tablesResource.reload();
+}
+
+// Expose methods for parent component
+defineExpose({ refreshTables });
 
 function handleProceedToPayment() {
 	emit("proceed-to-payment");
@@ -1343,6 +1953,7 @@ const emit = defineEmits([
 	"proceed-to-payment", // () - Navigate to payment screen
 	"clear-cart", // () - Clear all items from cart
 	"save-draft", // () - Save current cart as draft/hold order
+	"split-checkout", // () - Checkout selected split items
 	"apply-coupon", // () - Open coupon application dialog
 	"show-coupons", // () - Show available coupons
 	"show-offers", // () - Show available offers dialog
@@ -1994,6 +2605,50 @@ onMounted(() => {
 	if (typeof document === "undefined") return;
 	// Use mousedown instead of click to catch events before they are swallowed by other handlers
 	document.addEventListener("mousedown", handleOutsideClick);
+
+	if (cartStore.orderType === "Dinin" && availableTables.value.length === 0) {
+		tablesResource.fetch();
+	}
+
+	if (socket) {
+		socket.connect();
+
+		const subscribe = () => {
+			log.debug("[Socket] Connected, subscribing to Table Number events");
+			socket.emit("doctype_subscribe", "Table Number");
+		};
+
+		if (socket.connected) {
+			subscribe();
+		}
+
+		socket.on("connect", subscribe);
+
+		// Debug: log all incoming events
+		socket.onAny((event, ...args) => {
+			log.debug(`[Socket] Debug Event: ${event}`, args);
+		});
+
+		const handleUpdate = (event, data) => {
+			log.debug(`[InvoiceCart] Realtime update [${event}] received:`, data);
+			// Small delay to ensure DB consistency
+			setTimeout(() => {
+				tablesResource.fetch();
+			}, 500);
+		};
+
+		socket.on("table_status_changed", (data) => handleUpdate("table_status_changed", data));
+		socket.on("pos_invoice_created", (data) => handleUpdate("pos_invoice_created", data));
+
+		// Fallback for some Frappe versions/configurations
+		socket.on("msg", (data) => {
+			const event = data?.event || data?.message?.event;
+			if (data && (event === "table_status_changed" || event === "pos_invoice_created")) {
+				log.debug(`[InvoiceCart] Realtime update [${event}] received via msg:`, data);
+				handleUpdate(event, data);
+			}
+		});
+	}
 });
 
 /**
@@ -2003,6 +2658,25 @@ onMounted(() => {
 onBeforeUnmount(() => {
 	if (typeof document === "undefined") return;
 	document.removeEventListener("mousedown", handleOutsideClick);
+
+	if (socket) {
+		socket.emit("doctype_unsubscribe", "Table Number");
+		socket.off("table_status_changed");
+		socket.off("pos_invoice_created");
+		socket.off("msg");
+		socket.off("connect");
+		socket.offAny();
+	}
 });
 </script>
-```
+
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+	transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+	opacity: 0;
+}
+</style>

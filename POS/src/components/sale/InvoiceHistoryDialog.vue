@@ -146,6 +146,14 @@
 		:preselected-invoice="selectedInvoiceForReturn"
 		@return-created="handleReturnCreated"
 	/>
+
+	<!-- Password Dialog -->
+	<PasswordDialog
+		v-model="showPasswordDialog"
+		:pos-profile="posProfile"
+		@verified="handlePasswordVerified"
+		@cancelled="pendingReturnInvoice = null"
+	/>
 </template>
 
 <script setup>
@@ -155,6 +163,7 @@ import { getInvoiceStatusColor } from "@/utils/invoice"
 import { Button, Dialog, Input, createResource } from "frappe-ui"
 import { computed, ref, watch } from "vue"
 import ReturnInvoiceDialog from "./ReturnInvoiceDialog.vue"
+import PasswordDialog from "./PasswordDialog.vue"
 
 const { showError } = useToast()
 
@@ -184,6 +193,10 @@ const hasMore = ref(true)
 // Return dialog state
 const showReturnDialog = ref(false)
 const selectedInvoiceForReturn = ref(null)
+
+// Password dialog state
+const showPasswordDialog = ref(false)
+const pendingReturnInvoice = ref(null)
 
 // Track if we're loading more (appending) vs fresh load (replacing)
 const isLoadingMore = ref(false)
@@ -310,8 +323,16 @@ function canCreateReturn(invoice) {
 }
 
 function openReturnModal(invoice) {
-	selectedInvoiceForReturn.value = invoice
-	showReturnDialog.value = true
+	pendingReturnInvoice.value = invoice
+	showPasswordDialog.value = true
+}
+
+function handlePasswordVerified() {
+	if (pendingReturnInvoice.value) {
+		selectedInvoiceForReturn.value = pendingReturnInvoice.value
+		pendingReturnInvoice.value = null
+		showReturnDialog.value = true
+	}
 }
 
 function handleReturnCreated(returnInvoice) {

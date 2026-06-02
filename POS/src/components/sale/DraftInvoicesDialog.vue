@@ -36,27 +36,19 @@
 								<p class="text-xs text-gray-400 mt-0.5">
 									{{ formatDateTime(draft.created_at) }}
 								</p>
+								<p v-if="getTableDisplay(draft)" class="text-xs text-green-600 font-medium mt-0.5">
+									{{ __('Table: {0}', [getTableDisplay(draft)]) }}
+								</p>
 							</div>
-							<div class="flex items-center gap-1">
-								<button
-									@click.stop="handlePrintDraft(draft)"
-									class="text-gray-400 hover:text-blue-600 transition-colors p-1"
-									:title="__('Print draft')"
-								>
-									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
-									</svg>
-								</button>
-								<button
-									@click.stop="handleDeleteDraft(draft.draft_id)"
-									class="text-gray-400 hover:text-red-600 transition-colors p-1"
-									:title="__('Delete draft')"
-								>
-									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-									</svg>
-								</button>
-							</div>
+							<button
+								@click.stop="handlePrintDraft(draft)"
+								class="text-gray-400 hover:text-blue-600 transition-colors p-1"
+								:title="__('Print draft')"
+							>
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+								</svg>
+							</button>
 						</div>
 
 						<!-- Items Preview -->
@@ -92,15 +84,7 @@
 			</div>
 		</template>
 		<template #actions>
-			<div class="flex justify-between items-center w-full">
-				<Button
-					v-if="drafts.length > 0"
-					variant="subtle"
-					theme="red"
-					@click="showClearAllDialog = true"
-				>
-					{{ __('Clear All') }}
-				</Button>
+			<div class="flex justify-end items-center w-full">
 				<Button variant="subtle" @click="show = false">
 					{{ __('Close') }}
 				</Button>
@@ -108,53 +92,7 @@
 		</template>
 	</Dialog>
 
-	<!-- Delete Single Draft Confirmation -->
-	<Dialog
-		v-model="showDeleteDialog"
-		:options="{ title: __('Delete Draft?'), size: 'xs' }"
-	>
-		<template #body-content>
-			<div class="py-3">
-				<p class="text-sm text-gray-600">
-					{{ __('Permanently delete this draft invoice?') }}
-				</p>
-			</div>
-		</template>
-		<template #actions>
-			<div class="flex gap-2 w-full">
-				<Button class="flex-1" variant="subtle" @click="showDeleteDialog = false">
-					{{ __('Cancel') }}
-				</Button>
-				<Button class="flex-1" variant="solid" theme="red" @click="confirmDeleteDraft">
-					{{ __('Delete') }}
-				</Button>
-			</div>
-		</template>
-	</Dialog>
 
-	<!-- Clear All Drafts Confirmation -->
-	<Dialog
-		v-model="showClearAllDialog"
-		:options="{ title: __('Clear All Drafts?'), size: 'xs' }"
-	>
-		<template #body-content>
-			<div class="py-3">
-				<p class="text-sm text-gray-600">
-					{{ __('Permanently delete all {0} draft invoices?', [drafts.length]) }}
-				</p>
-			</div>
-		</template>
-		<template #actions>
-			<div class="flex gap-2 w-full">
-				<Button class="flex-1" variant="subtle" @click="showClearAllDialog = false">
-					{{ __('Cancel') }}
-				</Button>
-				<Button class="flex-1" variant="solid" theme="red" @click="confirmClearAll">
-					{{ __('Clear All') }}
-				</Button>
-			</div>
-		</template>
-	</Dialog>
 </template>
 
 <script setup>
@@ -164,7 +102,7 @@ import {
 	formatCurrency as formatCurrencyUtil,
 	roundCurrency,
 } from "@/utils/currency"
-import { clearAllDrafts, deleteDraft, getAllDrafts } from "@/utils/draftManager"
+import { call } from "@/utils/apiWrapper"
 import { printInvoiceCustom } from "@/utils/printInvoice"
 import { useToast } from "@/composables/useToast"
 import { usePOSShiftStore } from "@/stores/posShift"
@@ -186,9 +124,6 @@ const emit = defineEmits(["update:modelValue", "load-draft", "drafts-updated"])
 
 const show = ref(props.modelValue)
 const drafts = ref([])
-const showDeleteDialog = ref(false)
-const showClearAllDialog = ref(false)
-const draftToDelete = ref(null)
 
 watch(
 	() => props.modelValue,
@@ -210,7 +145,33 @@ onMounted(() => {
 
 async function loadDrafts() {
 	try {
-		drafts.value = await getAllDrafts()
+		const openingShift = shiftStore.currentShift?.name
+		if (!openingShift) {
+			drafts.value = []
+			return
+		}
+		const result = await call("ecs_posnext.api.invoices.get_draft_invoices", {
+			pos_opening_shift: openingShift,
+		})
+		// Map server invoice format to dialog expected format
+		drafts.value = (result || []).map((inv) => ({
+			draft_id: inv.name,
+			customer: inv.customer_name || inv.customer,
+			created_at: inv.creation,
+			order_type: inv.custom_so_type || "",
+			items: (inv.items || []).map((item) => ({
+				item_code: item.item_code,
+				item_name: item.item_name,
+				quantity: item.qty,
+				qty: item.qty,
+				rate: item.rate,
+				amount: item.amount,
+			})),
+			table_numbers: inv.custom_table_number
+				? inv.custom_table_number.split(",").map((t) => t.trim()).filter(Boolean)
+				: [],
+			server_draft_name: inv.name,
+		}))
 	} catch (error) {
 		console.error("Error loading drafts:", error)
 		showError(__("Failed to load draft invoices"))
@@ -237,43 +198,7 @@ function handlePrintDraft(draft) {
 	}
 }
 
-function handleDeleteDraft(draftId) {
-	draftToDelete.value = draftId
-	showDeleteDialog.value = true
-}
 
-async function confirmDeleteDraft() {
-	try {
-		await deleteDraft(draftToDelete.value)
-		await loadDrafts()
-		showDeleteDialog.value = false
-		draftToDelete.value = null
-
-		// Notify parent to update count
-		emit("drafts-updated")
-
-		showSuccess(__("Draft invoice deleted"))
-	} catch (error) {
-		console.error("Error deleting draft:", error)
-		showError(__("Failed to delete draft"))
-	}
-}
-
-async function confirmClearAll() {
-	try {
-		await clearAllDrafts()
-		await loadDrafts()
-		showClearAllDialog.value = false
-
-		// Notify parent to update count
-		emit("drafts-updated")
-
-		showSuccess(__("All draft invoices deleted"))
-	} catch (error) {
-		console.error("Error clearing drafts:", error)
-		showError(__("Failed to clear drafts"))
-	}
-}
 
 function formatDateTime(dateStr) {
 	const date = new Date(dateStr)
@@ -298,5 +223,15 @@ function calculateTotal(items) {
 			return sum + roundCurrency(qty * roundCurrency(rate))
 		}, 0),
 	)
+}
+
+function getTableDisplay(draft) {
+	if (draft.table_numbers && draft.table_numbers.length > 0) {
+		return draft.table_numbers.join(", ")
+	}
+	if (draft.table_number) {
+		return draft.table_number
+	}
+	return ""
 }
 </script>

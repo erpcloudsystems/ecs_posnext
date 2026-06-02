@@ -605,6 +605,135 @@ def validate_return_items(original_invoice_name, return_items, doctype="Sales In
 
 
 # ==========================================
+# Table Occupancy Management
+# ==========================================
+
+
+@frappe.whitelist()
+def set_tables_status(table_names, disabled=1):
+    """Bulk update Table Number disabled (occupied) status.
+
+    Called by POS frontend:
+    - On Hold (Dinin): disabled=1 to mark tables as occupied
+    - On Checkout/Payment: disabled=0 to free tables
+
+    Args:
+        table_names: JSON list of Table Number names, e.g. ["Table-001", "Table-003"]
+        disabled: 1 = occupied/closed, 0 = available/open
+    """
+    if isinstance(table_names, str):
+        table_names = json.loads(table_names)
+
+    if not isinstance(table_names, list) or not table_names:
+        return {"success": True, "updated": 0}
+
+    disabled = cint(disabled)
+    updated = 0
+
+    for table_name in table_names:
+        if not table_name or not frappe.db.exists("Table Number", table_name):
+            continue
+        frappe.db.set_value("Table Number", table_name, "disabled", disabled)
+        updated += 1
+
+    if updated:
+        frappe.db.commit()
+        # Emit realtime event for Table Management page
+        frappe.publish_realtime("table_status_changed", {
+            "table_names": table_names,
+            "status": "occupied" if disabled else "free"
+        }, doctype="Table Number", after_commit=True)
+        
+        # Backend log for debugging
+        frappe.logger().debug(f"Realtime: table_status_changed published for {table_names} (status: {disabled})")
+    return {"success": True, "updated": updated}
+
+
+@frappe.whitelist()
+def get_tables_with_draft_info(pos_profile=None):
+    """
+    Fetch all Table Numbers and their associated draft Sales Invoices.
+    Used for Table Management dashboard.
+    """
+    # 1. Fetch all tables
+    tables = frappe.get_list(
+        "Table Number",
+        fields=["name", "no", "branch", "disabled"],
+        order_by="CAST(no AS UNSIGNED) ASC",
+        limit_page_length=0
+    )
+
+    # 2. Fetch all draft invoices with table numbers
+    draft_invoices = frappe.get_list(
+        "Sales Invoice",
+        filters={
+            "docstatus": 0,
+            "custom_table_number": ["is", "set"]
+        },
+        fields=["name", "customer_name", "grand_total", "custom_table_number", "modified", "creation"],
+        order_by="modified desc"
+    )
+
+    # 3. Map invoices to tables
+    table_draft_map = {}
+    for inv in draft_invoices:
+        inv_tables = [t.strip() for t in (inv.custom_table_number or "").split(",") if t.strip()]
+        for table_name in inv_tables:
+            # Most recently modified draft for the table takes precedence
+            if table_name not in table_draft_map:
+                table_draft_map[table_name] = inv
+
+    # 4. Combine data
+    for table in tables:
+        draft = table_draft_map.get(table.name)
+        if draft:
+            table["draft"] = draft
+        else:
+            table["draft"] = None
+
+    return tables
+
+
+@frappe.whitelist()
+def get_draft_invoice_details(invoice_name):
+    """Fetch details of a draft invoice (customer, items, total)"""
+    doc = frappe.get_doc("Sales Invoice", invoice_name)
+    return {
+        "name": doc.name,
+        "customer": doc.customer,
+        "customer_name": doc.customer_name,
+        "grand_total": doc.grand_total,
+        "items": [{
+            "item_code": d.item_code,
+            "item_name": d.item_name,
+            "qty": d.qty,
+            "rate": d.rate,
+            "amount": d.amount
+        } for d in doc.items]
+    }
+
+
+@frappe.whitelist()
+def reopen_table(table_name):
+    """Manually reopen a table (sets disabled=0)"""
+    if not frappe.db.exists("Table Number", table_name):
+        frappe.throw(_("Table {0} not found").format(table_name))
+
+    frappe.db.set_value("Table Number", table_name, "disabled", 0)
+    frappe.db.commit()
+
+    # Emit realtime event for Table Management page
+    frappe.publish_realtime("table_status_changed", {
+        "table_names": [table_name],
+        "status": "free"
+    }, doctype="Table Number", after_commit=True)
+    
+    frappe.logger().debug(f"Realtime: table_status_changed published for {table_name} (reopened)")
+
+    return True
+
+
+# ==========================================
 # Invoice Management (Two-Step Flow)
 # ==========================================
 
@@ -621,13 +750,64 @@ def update_invoice(data):
         # Ensure the document type is set
         data.setdefault("doctype", doctype)
 
+        # If the linked opening shift belongs to a waiter, re-link the invoice to
+        # the cashier's open shift (same pos_profile, is_waiter=0) so it appears
+        # in the cashier's draft invoices list.
+        opening_shift_name = data.get("posa_pos_opening_shift")
+        if opening_shift_name:
+            shift_info = frappe.db.get_value(
+                "POS Opening Shift",
+                opening_shift_name,
+                ["is_waiter", "pos_profile"],
+                as_dict=True,
+            )
+            if shift_info and shift_info.get("is_waiter"):
+                target_profile = pos_profile or shift_info.get("pos_profile")
+                cashier_shift = frappe.get_all(
+                    "POS Opening Shift",
+                    filters={
+                        "pos_profile": target_profile,
+                        "status": "Open",
+                        "is_waiter": 0,
+                        "docstatus": 1,
+                    },
+                    order_by="period_start_date desc",
+                    limit=1,
+                    pluck="name",
+                )
+                if cashier_shift:
+                    data["posa_pos_opening_shift"] = cashier_shift[0]
+
         # Normalize pricing_rules before document creation
         standardize_pricing_rules(data.get("items"))
 
         # Create or update invoice
         if data.get("name"):
             invoice_doc = frappe.get_doc(doctype, data.get("name"))
+
+            # Preserve custom_item_status for existing items before update overwrites them
+            # Build a map: item_code -> list of statuses (handles duplicate item_codes)
+            existing_item_statuses = {}
+            for item in invoice_doc.get("items", []):
+                status = item.get("custom_item_status")
+                if status:
+                    existing_item_statuses.setdefault(item.item_code, []).append(status)
+
             invoice_doc.update(data)
+
+            # Restore custom_item_status on items after update
+            # Priority: 1) frontend-sent status, 2) previously saved status from DB
+            restore_map = {}  # item_code -> list of statuses (copy for consumption)
+            for k, v in existing_item_statuses.items():
+                restore_map[k] = list(v)
+
+            for item in invoice_doc.get("items", []):
+                # If frontend already sent a valid status, keep it
+                if item.get("custom_item_status") and item.custom_item_status != "":
+                    continue
+                # Otherwise restore from DB snapshot
+                if item.item_code in restore_map and restore_map[item.item_code]:
+                    item.custom_item_status = restore_map[item.item_code].pop(0)
         else:
             invoice_doc = frappe.get_doc(data)
 
@@ -747,6 +927,10 @@ def update_invoice(data):
         # Reverse: price_list_rate = rate / (1 - discount_percentage/100)
         # ========================================================================
         for item in invoice_doc.get("items", []):
+            # Default item kitchen status to Pending if not already set
+            if not item.get("custom_item_status"):
+                item.custom_item_status = "Pending"
+
             item_rate = flt(item.rate or 0)
             discount_pct = flt(item.discount_percentage or 0)
             frontend_price_list_rate = flt(item.get("price_list_rate") or 0)
@@ -818,6 +1002,11 @@ def update_invoice(data):
 
         invoice_doc.disable_rounded_total = disable_rounded
 
+        # Set permissions flags BEFORE set_missing_values to avoid
+        # PermissionError when resolving customer address details
+        invoice_doc.flags.ignore_permissions = True
+        frappe.flags.ignore_account_permission = True
+
         # Populate missing fields (company, currency, accounts, etc.)
         invoice_doc.set_missing_values()
 
@@ -879,10 +1068,22 @@ def update_invoice(data):
                 invoice_doc.coupon_code = coupon_code
 
         # Save as draft
-        invoice_doc.flags.ignore_permissions = True
-        frappe.flags.ignore_account_permission = True
         invoice_doc.docstatus = 0
         invoice_doc.save()
+
+        # Notify KDS pages if invoice has pending kitchen items
+        if not getattr(invoice_doc, "custom_skip_kitchen", 0):
+            has_pending = any(
+                not item.get("custom_item_status") or item.get("custom_item_status") == "Pending"
+                for item in invoice_doc.get("items", [])
+            )
+            if has_pending:
+                frappe.publish_realtime(
+                    event="kitchen_order_pending",
+                    message={"invoice": invoice_doc.name, "status": "Pending", "event_type": "draft_update"},
+                    user=None,
+                    after_commit=True,
+                )
 
         return invoice_doc.as_dict()
     except Exception as e:
@@ -1525,9 +1726,7 @@ def get_draft_invoices(pos_opening_shift, doctype="Sales Invoice"):
         "docstatus": 0,
     }
 
-    # Add pos_opening_shift filter if the field exists
-    if frappe.db.has_column(doctype, "pos_opening_shift"):
-        filters["pos_opening_shift"] = pos_opening_shift
+    
 
     # Performance: Get all invoice names first
     invoices_list = frappe.get_list(

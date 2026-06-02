@@ -65,6 +65,8 @@ class POSClosingShift(Document):
                 _("Selected POS Opening Shift should be open."),
                 title=_("Invalid Opening Entry"),
             )
+        self.calculate_total_cash()
+        self.set_closing_amounts()
         self.update_payment_reconciliation()
 
     def update_payment_reconciliation(self):
@@ -73,6 +75,31 @@ class POSClosingShift(Document):
         precision = frappe.get_cached_value("System Settings", None, "currency_precision") or 3
         for d in self.payment_reconciliation:
             d.difference = +flt(d.closing_amount, precision) - flt(d.expected_amount, precision)
+
+    def calculate_total_cash(self):
+        self.total_cash = (
+            (flt(self.cash_200_egp) or 0) * 200 +
+            (flt(self.cash_100_egp) or 0) * 100 +
+            (flt(self.cash_50_egp) or 0) * 50 +
+            (flt(self.cash_20_egp) or 0) * 20 +
+            (flt(self.cash_10_egp) or 0) * 10 +
+            (flt(self.cash_5_egp) or 0) * 5 +
+            (flt(self.cash_1_egp) or 0) * 1
+        )
+
+    def set_closing_amounts(self):
+        """Set closing amounts: total_cash for cash mode, expected_amount for others."""
+        if not self.payment_reconciliation:
+            return
+
+        cash_mop = _get_cash_mode_of_payment(self.pos_profile)
+
+        for d in self.payment_reconciliation:
+            is_cash = d.mode_of_payment == cash_mop or "cash" in (d.mode_of_payment or "").lower()
+            if is_cash:
+                d.closing_amount = self.total_cash
+            else:
+                d.closing_amount = d.expected_amount
 
     def on_submit(self):
         opening_entry = frappe.get_doc("POS Opening Shift", self.pos_opening_shift)
@@ -363,27 +390,36 @@ def get_cashiers(doctype, txt, searchfield, start, page_len, filters):
 @frappe.whitelist()
 def get_pos_invoices(pos_opening_shift, doctype=None):
     if not doctype:
-        pos_profile = frappe.db.get_value("POS Opening Shift", pos_opening_shift, "pos_profile")
-        use_pos_invoice = False
-        doctype = "POS Invoice" if use_pos_invoice else "Sales Invoice"
+        doctype = "Sales Invoice"
+
     submit_printed_invoices(pos_opening_shift, doctype)
-    cond = " and ifnull(consolidated_invoice,'') = ''" if doctype == "POS Invoice" else ""
-    data = frappe.db.sql(
-        f"""
-	select
-		name
-	from
-		`tab{doctype}`
-	where
-		docstatus = 1 and posa_pos_opening_shift = %s{cond}
-	""",
-        (pos_opening_shift),
-        as_dict=1,
+
+    filters = {
+        "posa_pos_opening_shift": pos_opening_shift,
+        "docstatus": 1,
+    }
+    if doctype == "POS Invoice":
+        filters["consolidated_invoice"] = ""
+
+    invoices = frappe.get_all(
+        doctype,
+        filters=filters,
+        fields=["*"],
     )
 
-    data = [frappe.get_doc(doctype, d.name).as_dict() for d in data]
+    for inv in invoices:
+        inv.taxes = frappe.get_all(
+            "Sales Taxes and Charges",
+            filters={"parent": inv.name},
+            fields=["*"],
+        )
+        inv.payments = frappe.get_all(
+            "Sales Invoice Payment",
+            filters={"parent": inv.name},
+            fields=["*"],
+        )
 
-    return data
+    return invoices
 
 
 @frappe.whitelist()
@@ -406,6 +442,11 @@ def get_payments_entries(pos_opening_shift):
             "party",
         ],
     )
+
+
+@frappe.whitelist()
+def get_cash_mode_of_payment_py(pos_profile):
+    return _get_cash_mode_of_payment(pos_profile)
 
 
 def _get_cash_mode_of_payment(pos_profile):
@@ -553,7 +594,8 @@ def make_closing_shift_from_opening(opening_shift):
     # Process invoices
     invoices = get_pos_invoices(opening_shift.get("name"), doctype)
     for invoice in invoices:
-        txn = _process_invoice(invoice, invoice_field, company_currency, cash_mode, payments, taxes, summary)
+        current_invoice_field = "pos_invoice" if invoice.get("doctype") == "POS Invoice" else "sales_invoice"
+        txn = _process_invoice(invoice, current_invoice_field, company_currency, cash_mode, payments, taxes, summary)
         pos_transactions.append(txn)
 
     # Process payment entries
@@ -602,10 +644,15 @@ def submit_closing_shift(closing_shift):
     closing_shift_doc = frappe.get_doc(closing_shift)
     closing_shift_doc.flags.ignore_permissions = True
     closing_shift_doc.save()
-    closing_shift_doc.submit()
+    # closing_shift_doc.submit()
+    opening_entry = frappe.get_doc("POS Opening Shift", closing_shift_doc.pos_opening_shift)
+    opening_entry.pos_closing_shift = closing_shift_doc.name
+    opening_entry.status = "Closed"
+    opening_entry.flags.ignore_permissions = True
+    opening_entry.flags.ignore_validate = True
+    opening_entry.save()
+    # Manually close the opening shift since we're not submitting the closing shift
 
-    # Auto-create cash transfer Payment Entry if enabled in POS Settings
-    _create_cash_transfer_payment_entry(closing_shift_doc)
 
     return closing_shift_doc.name
 

@@ -40,6 +40,30 @@ def get_csrf_token():
 	}
 
 
+@frappe.whitelist()
+def verify_password(password, pos_profile):
+	"""
+	Verify password against the POS Profile's custom_discaunt_password field.
+	Used to gate actions like Return Invoice and Additional Discount.
+	"""
+	if not password:
+		frappe.throw(_("Password is required"), frappe.ValidationError)
+
+	if not pos_profile:
+		frappe.throw(_("POS Profile is required"), frappe.ValidationError)
+
+	stored_password = frappe.db.get_value("POS Profile", pos_profile, "custom_discaunt_password")
+
+	if not stored_password:
+		# No password configured — allow action without verification
+		return {"verified": True}
+
+	if password == stored_password:
+		return {"verified": True}
+
+	frappe.throw(_("Incorrect password"), frappe.ValidationError)
+
+
 def _parse_list_parameter(value, param_name="parameter"):
 	"""
 	Parse a list parameter that may come as JSON string or list.

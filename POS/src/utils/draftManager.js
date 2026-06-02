@@ -140,42 +140,6 @@ export async function getDraftById(draftId) {
 	})
 }
 
-// Delete draft
-export async function deleteDraft(draftId) {
-	const database = await initDB()
-
-	return new Promise(async (resolve, reject) => {
-		try {
-			const draft = await getDraftById(draftId)
-			if (!draft) {
-				return reject(new Error("Draft not found"))
-			}
-
-			const transaction = database.transaction([STORE_NAME], "readwrite")
-			const store = transaction.objectStore(STORE_NAME)
-			const request = store.delete(draft.id)
-
-			request.onsuccess = () => resolve(true)
-			request.onerror = () => reject(request.error)
-		} catch (error) {
-			reject(error)
-		}
-	})
-}
-
-// Clear all drafts
-export async function clearAllDrafts() {
-	const database = await initDB()
-
-	return new Promise((resolve, reject) => {
-		const transaction = database.transaction([STORE_NAME], "readwrite")
-		const store = transaction.objectStore(STORE_NAME)
-		const request = store.clear()
-
-		request.onsuccess = () => resolve(true)
-		request.onerror = () => reject(request.error)
-	})
-}
 
 // Get drafts count
 export async function getDraftsCount() {

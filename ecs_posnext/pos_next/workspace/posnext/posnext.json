@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"cDBfxZcI12\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">POSNext</span>\",\"col\":12}},{\"id\":\"EuDVjJUKSQ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Start POS\",\"col\":3}},{\"id\":\"uXQ4aBaRfk\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"jEFYB2fX3t\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Settings\",\"col\":3}},{\"id\":\"RoWvjX8Ocp\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Profile\",\"col\":3}},{\"id\":\"p4KrSYzInK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Opening Shift\",\"col\":3}},{\"id\":\"VO-VLNdx_2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Closing Shift\",\"col\":3}},{\"id\":\"OYrA05uyCG\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Offer\",\"col\":3}},{\"id\":\"FUd4_fFBgH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Coupon\",\"col\":3}}]",
+ "content": "[{\"id\":\"cDBfxZcI12\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">POSNext</span>\",\"col\":12}},{\"id\":\"EuDVjJUKSQ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Start POS\",\"col\":3}},{\"id\":\"uXQ4aBaRfk\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"jEFYB2fX3t\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Settings\",\"col\":3}},{\"id\":\"RoWvjX8Ocp\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Profile\",\"col\":3}},{\"id\":\"p4KrSYzInK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Opening Shift\",\"col\":3}},{\"id\":\"VO-VLNdx_2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Closing Shift\",\"col\":3}},{\"id\":\"OYrA05uyCG\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Offer\",\"col\":3}},{\"id\":\"FUd4_fFBgH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Coupon\",\"col\":3}},{\"id\":\"FqV6WSTvJx\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"ki9L62qa5d\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"So_zwiV7Uu\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pending\",\"col\":4}},{\"id\":\"DUl8QLgUaX\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Preparing\",\"col\":4}},{\"id\":\"LDSrFeO5Ud\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Packing\",\"col\":4}},{\"id\":\"Zlgp4q3xzd\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Delivery\",\"col\":4}},{\"id\":\"kdj-lCrAHe\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Table Management\",\"col\":4}}]",
  "creation": "2026-01-28 16:48:36.007405",
  "custom_blocks": [],
  "docstatus": 0,
@@ -13,22 +13,6 @@
  "is_hidden": 0,
  "label": "POSNext",
  "links": [
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS",
-   "link_count": 1,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Configuration",
-   "link_count": 2,
-   "onboard": 0,
-   "type": "Card Break"
-  },
   {
    "hidden": 0,
    "is_query_report": 0,
@@ -48,84 +32,10 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Shift Management",
-   "link_count": 2,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS Opening Shift",
-   "link_count": 0,
-   "link_to": "POS Opening Shift",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS Closing Shift",
-   "link_count": 0,
-   "link_to": "POS Closing Shift",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Offers & Coupons",
-   "link_count": 2,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS Offer",
-   "link_count": 0,
-   "link_to": "POS Offer",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS Coupon",
-   "link_count": 0,
-   "link_to": "POS Coupon",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Items",
-   "link_count": 1,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Item",
-   "link_count": 0,
-   "link_to": "Item",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
   }
  ],
- "modified": "2026-04-05 15:02:26.578321",
- "modified_by": "mario@erpcloud.systems",
+ "modified": "2026-05-17 14:58:50.645332",
+ "modified_by": "Administrator",
  "module": "POS Next",
  "name": "POSNext",
  "number_cards": [],
@@ -136,10 +46,51 @@
  "roles": [
   {
    "role": "Sales User"
+  },
+  {
+   "role": "weter"
+  },
+  {
+   "role": "Screen"
   }
  ],
  "sequence_id": 28.0,
  "shortcuts": [
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Packing",
+   "type": "URL",
+   "url": "https://bouza15.erpnext.cloud/pos/packapp"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Preparing",
+   "type": "URL",
+   "url": "https://bouza15.erpnext.cloud/pos/prepapp"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Delivery",
+   "type": "URL",
+   "url": "https://bouza15.erpnext.cloud/pos/deliverapp"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Pending",
+   "type": "URL",
+   "url": "https://bouza15.erpnext.cloud/pos/pendingapp"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Table Management",
+   "type": "URL",
+   "url": "https://bouza15.erpnext.cloud/pos/tables"
+  },
   {
    "color": "Grey",
    "doc_view": "List",

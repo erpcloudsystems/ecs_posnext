@@ -1,7 +1,7 @@
 <template>
 	<Dialog v-model="show" :options="{ title: isEditMode ? __('Edit Customer') : __('Create New Customer'), size: 'md' }">
 		<template #body-content>
-			<div class="flex flex-col gap-6">
+			<div class="flex flex-col gap-5">
 				<!-- Customer Name (Required) -->
 				<div>
 					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
@@ -15,120 +15,82 @@
 					/>
 				</div>
 
-				<!-- Mobile Number with Country Code Selector -->
-				<div>
-					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
-						{{ __("Mobile Number") }}
-					</label>
-					<div class="flex gap-2">
-						<!-- Country Code Dropdown -->
-						<div class="relative" ref="dropdownRef">
-							<button
-								type="button"
-								@click="showCountryDropdown = !showCountryDropdown"
-								class="flex items-center gap-1 w-24 ps-2 pe-1 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white hover:bg-gray-50"
-							>
-								<img
-									:src="`https://flagcdn.com/h24/${currentCountryCode}.png`"
-									:alt="currentCountryCode"
-									class="w-6 h-auto rounded-sm"
-									@error="handleFlagError"
-								/>
-								<span class="flex-1 text-start">{{ selectedCountryCode || "+20" }}</span>
-								<svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-								</svg>
-							</button>
-
-							<!-- Country Search Dropdown -->
-							<div
-								v-if="showCountryDropdown"
-								class="absolute start-0 z-50 mt-1 w-80 max-h-80 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden"
-							>
-								<div class="sticky top-0 bg-white border-b border-gray-200 p-2">
-									<input
-										ref="countrySearchRef"
-										v-model="countrySearchQuery"
-										type="text"
-										:placeholder="__('Search country or code...')"
-										class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-										@keydown.escape="showCountryDropdown = false"
-									/>
-								</div>
-								<div class="overflow-y-auto max-h-64">
-									<button
-										v-for="country in filteredCountries"
-										:key="country.code"
-										type="button"
-										@click="selectCountry(country)"
-										class="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors text-start"
-										:class="{ 'bg-blue-50': selectedCountryCode === country.isd }"
-									>
-										<img
-											:src="`https://flagcdn.com/h24/${country.code.toLowerCase()}.png`"
-											:alt="country.name"
-											class="w-6 h-auto rounded-sm shadow-sm"
-											@error="(e) => (e.target.style.display = 'none')"
-										/>
-										<span class="flex-1 text-sm font-medium text-gray-700">{{ country.name }}</span>
-										<span class="text-sm text-gray-500">{{ country.isd }}</span>
-									</button>
-									<div v-if="filteredCountries.length === 0" class="px-4 py-8 text-center text-sm text-gray-500">
-										{{ __("No countries found") }}
-									</div>
-								</div>
-							</div>
-						</div>
-
-						<!-- Phone Number Input -->
+				<!-- Row: Mobile No, Other Mobile No, Gender -->
+				<div class="grid grid-cols-3 gap-3">
+					<!-- Mobile Number (Required) -->
+					<div>
+						<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+							{{ __("Mobile No") }} <span class="text-red-500">*</span>
+						</label>
 						<input
-							v-model="phoneNumber"
+							v-model="customerData.mobile_no"
 							type="tel"
-							:placeholder="__('Enter phone number')"
-							class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-start"
-							@input="updateMobileNumber"
+							:placeholder="__('Mobile No')"
+							required
+							class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
 						/>
+					</div>
+
+					<!-- Other Mobile No (Optional) -->
+					<div>
+						<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+							{{ __("Other Mobile No") }}
+						</label>
+						<input
+							v-model="customerData.custom_other_mobile_no"
+							type="tel"
+							:placeholder="__('Other Mobile No')"
+							class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+						/>
+					</div>
+
+					<!-- Gender (Optional) -->
+					<div>
+						<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+							{{ __("Gender") }}
+						</label>
+						<select
+							v-model="customerData.gender"
+							class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+						>
+							<option value="">{{ __("Gender") }}</option>
+							<option value="Male">{{ __("Male") }}</option>
+							<option value="Female">{{ __("Female") }}</option>
+							<option value="Other">{{ __("Other") }}</option>
+							<option value="Prefer not to say">{{ __("Prefer not to say") }}</option>
+						</select>
 					</div>
 				</div>
 
-				<!-- Email -->
-				<div>
-					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
-						{{ __("Email") }}
-					</label>
-					<Input v-model="customerData.email_id" type="email" :placeholder="__('Enter email address')" />
-				</div>
+				<!-- Row: Birthday, Customer Group -->
+				<div class="grid grid-cols-2 gap-3">
+					<!-- Birthday (Optional) -->
+					<div>
+						<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+							{{ __("Birthday") }}
+						</label>
+						<Input
+							v-model="customerData.custom_birthday"
+							type="date"
+							:placeholder="__('Birthday')"
+						/>
+					</div>
 
-				<!-- Customer Group -->
-				<div>
-					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
-						{{ __("Customer Group") }}
-					</label>
-					<select
-						v-model="customerData.customer_group"
-						class="w-full px-8 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-					>
-						<option value="">{{ __("Select Customer Group") }}</option>
-						<option v-for="group in customerGroups" :key="group" :value="group">
-							{{ group }}
-						</option>
-					</select>
-				</div>
-
-				<!-- Territory -->
-				<div>
-					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
-						{{ __("Territory") }}
-					</label>
-					<select
-						v-model="customerData.territory"
-						class="w-full px-8 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-					>
-						<option value="">{{ __("Select Territory") }}</option>
-						<option v-for="territory in territories" :key="territory" :value="territory">
-							{{ territory }}
-						</option>
-					</select>
+					<!-- Customer Group (Required) -->
+					<div>
+						<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+							{{ __("Customer Group") }} <span class="text-red-500">*</span>
+						</label>
+						<select
+							v-model="customerData.customer_group"
+							class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+						>
+							<option value="">{{ __("Select Customer Group") }}</option>
+							<option v-for="group in customerGroups" :key="group" :value="group">
+								{{ group }}
+							</option>
+						</select>
+					</div>
 				</div>
 			</div>
 		</template>
@@ -158,13 +120,13 @@
 					<Button
 						variant="solid"
 						@click="handleCreate"
-						:loading="createCustomerResource.loading || updateCustomerResource.loading || checkingPermission"
-						:disabled="!customerData.customer_name || !hasPermission"
+						:loading="isSubmitting || checkingPermission"
+						:disabled="!customerData.customer_name || !customerData.mobile_no || !customerData.customer_group || !hasPermission"
 					>
-						{{ isEditMode ? __("Save Changes") : __("Create Customer") }}
+						{{ isEditMode ? __("Save Changes") : __("Submit") }}
 					</Button>
 					<Button variant="subtle" @click="show = false">
-						{{ __("Cancel") }}
+						{{ __("Close") }}
 					</Button>
 				</div>
 			</div>
@@ -176,19 +138,27 @@
 /**
  * CreateCustomerDialog - Quick customer creation from POS
  *
- * Features:
- * - Country code selector with flag icons and search
- * - Auto-sets territory based on selected country
- * - Permission checking before allowing creation
- * - Lazy loads countries data when dialog opens (not on app startup)
+ * Fields:
+ * - customer_name (required)
+ * - mobile_no (required, checked for duplicates)
+ * - custom_other_mobile_no (optional)
+ * - gender (optional select)
+ * - custom_birthday (optional date)
+ * - customer_group (required, fetched from Customer Group doctype)
+ *
+ * On submit:
+ * 1. Validates required fields
+ * 2. Checks duplicate mobile_no
+ * 3. Creates Customer doc via frappe.client.insert
+ * 4. Emits customer-created so parent sets as active POS customer
+ * 5. Shows frappe.show_alert success
+ * 6. Errors shown via frappe.msgprint
  */
 
 import { usePOSPermissions } from "@/composables/usePermissions"
-import { useToast } from "@/composables/useToast"
-import { useCountriesStore } from "@/stores/countries"
 import { logger } from "@/utils/logger"
 import { Button, Dialog, Input, createResource } from "frappe-ui"
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
 
 const log = logger.create("CreateCustomerDialog")
 
@@ -196,9 +166,7 @@ const log = logger.create("CreateCustomerDialog")
 // Composables & Stores
 // =============================================================================
 
-const countriesStore = useCountriesStore()
 const { canCreateCustomer } = usePOSPermissions()
-const { showSuccess, showError } = useToast()
 
 // =============================================================================
 // Props & Emits
@@ -219,22 +187,17 @@ const emit = defineEmits(["update:modelValue", "customer-created", "customer-upd
 
 const hasPermission = ref(true)
 const checkingPermission = ref(false)
-const selectedCountryCode = ref("")
-const phoneNumber = ref("")
-const showCountryDropdown = ref(false)
-const countrySearchQuery = ref("")
-const dropdownRef = ref(null)
-const countrySearchRef = ref(null)
+const isSubmitting = ref(false)
 
-const customerGroups = ref(["Commercial", "Individual", "Non Profit", "Government"])
-const territories = ref(["All Territories"])
+const customerGroups = ref([])
 
 const customerData = ref({
 	customer_name: "",
 	mobile_no: "",
-	email_id: "",
-	customer_group: "أفراد",
-	territory: "All Territories",
+	custom_other_mobile_no: "",
+	gender: "",
+	custom_birthday: "",
+	customer_group: "",
 })
 
 // =============================================================================
@@ -248,85 +211,6 @@ const show = computed({
 
 const isEditMode = computed(() => !!props.customer?.name)
 
-const currentCountryCode = computed(() => {
-	const country = countriesStore.countries.find((c) => c.isd === selectedCountryCode.value)
-	return country?.code.toLowerCase() || "eg"
-})
-
-const filteredCountries = computed(() => {
-	if (!countrySearchQuery.value) return countriesStore.countries
-
-	const query = countrySearchQuery.value.toLowerCase()
-	return countriesStore.countries.filter(
-		(c) => c.name.toLowerCase().includes(query) || c.isd.includes(query) || c.code.toLowerCase().includes(query)
-	)
-})
-
-// =============================================================================
-// Country & Territory Methods
-// =============================================================================
-
-const handleFlagError = (e) => (e.target.style.display = "none")
-
-const selectCountry = (country) => {
-	selectedCountryCode.value = country.isd
-	showCountryDropdown.value = false
-	countrySearchQuery.value = ""
-	updateMobileNumber()
-}
-
-const updateMobileNumber = () => {
-	customerData.value.mobile_no = phoneNumber.value ? `${selectedCountryCode.value}-${phoneNumber.value}` : ""
-}
-
-const handleClickOutside = (event) => {
-	if (dropdownRef.value && !dropdownRef.value.contains(event.target)) {
-		showCountryDropdown.value = false
-		countrySearchQuery.value = ""
-	}
-}
-
-const setCountryFromName = (countryName) => {
-	if (!countryName) {
-		selectedCountryCode.value = "+20"
-		return
-	}
-
-	const isd = countriesStore.countryNameToISDMap[countryName]
-	if (isd) {
-		selectedCountryCode.value = isd
-		log.info(`Set country code to ${isd} for ${countryName}`)
-	} else {
-		log.warn(`Country "${countryName}" not found`)
-		selectedCountryCode.value = "+20"
-	}
-}
-
-/** Auto-set territory based on selected country (exact or fuzzy match) */
-const updateTerritoryFromCountry = () => {
-	if (!territories.value.length) return
-
-	const country = countriesStore.countries.find((c) => c.isd === selectedCountryCode.value)
-	if (!country) return
-
-	// Try exact match first
-	if (territories.value.includes(country.name)) {
-		customerData.value.territory = country.name
-		log.info(`Territory set to: ${country.name}`)
-		return
-	}
-
-	// Try fuzzy match
-	const fuzzyMatch = territories.value.find(
-		(t) => t.toLowerCase().includes(country.name.toLowerCase()) || country.name.toLowerCase().includes(t.toLowerCase())
-	)
-
-	if (fuzzyMatch) {
-		customerData.value.territory = fuzzyMatch
-		log.info(`Territory set to fuzzy match: ${fuzzyMatch}`)
-	}
-}
-
 // =============================================================================
 // API Resources
 // =============================================================================
@@ -338,20 +222,28 @@ const createCustomerResource = createResource({
 			doctype: "Customer",
 			customer_name: customerData.value.customer_name,
 			customer_type: "Individual",
-			customer_group: customerData.value.customer_group || __("أفراد"),
-			territory: customerData.value.territory || __("All Territories"),
-			mobile_no: customerData.value.mobile_no || "",
-			email_id: customerData.value.email_id || "",
+			customer_group: customerData.value.customer_group,
+			mobile_no: customerData.value.mobile_no,
+			gender: customerData.value.gender || undefined,
+			custom_other_mobile_no: customerData.value.custom_other_mobile_no || undefined,
+			custom_birthday: customerData.value.custom_birthday || undefined,
 		},
 	}),
 	onSuccess: (data) => {
-		showSuccess(__("Customer {0} created successfully", [data.customer_name]))
+		frappe.show_alert({
+			message: __("Customer {0} created successfully", [data.customer_name]),
+			indicator: "green",
+		})
 		emit("customer-created", data)
 		show.value = false
 	},
 	onError: (error) => {
 		log.error("Error creating customer", error)
-		showError(error.message || __("Failed to create customer"))
+		frappe.msgprint({
+			title: __("Error"),
+			message: error.message || __("Failed to create customer"),
+			indicator: "red",
+		})
 	},
 })
 
@@ -362,75 +254,143 @@ const updateCustomerResource = createResource({
 		name: props.customer?.name,
 		fieldname: {
 			customer_name: customerData.value.customer_name,
-			customer_group: customerData.value.customer_group || __("أفراد"),
-			territory: customerData.value.territory || __("All Territories"),
-			mobile_no: customerData.value.mobile_no || "",
-			email_id: customerData.value.email_id || "",
+			customer_group: customerData.value.customer_group,
+			mobile_no: customerData.value.mobile_no,
+			gender: customerData.value.gender || "",
+			custom_other_mobile_no: customerData.value.custom_other_mobile_no || "",
+			custom_birthday: customerData.value.custom_birthday || "",
 		},
 	}),
 	onSuccess: (data) => {
-		showSuccess(__("Customer {0} updated successfully", [data.customer_name]))
+		frappe.show_alert({
+			message: __("Customer {0} updated successfully", [data.customer_name]),
+			indicator: "green",
+		})
 		emit("customer-updated", data)
 		show.value = false
 	},
 	onError: (error) => {
 		log.error("Error updating customer", error)
-		showError(error.message || __("Failed to update customer"))
+		frappe.msgprint({
+			title: __("Error"),
+			message: error.message || __("Failed to update customer"),
+			indicator: "red",
+		})
 	},
 })
 
-/** Helper to create list fetch resources */
-const createListResource = (doctype, onSuccess) =>
-	createResource({
-		url: "frappe.client.get_list",
-		makeParams: () => ({
-			doctype,
-			fields: ["name"],
-			filters: doctype === "Customer Group" ? { is_group: 0 } : {},
-			limit_page_length: 500,
-		}),
-		auto: false,
-		onSuccess: (data) => data?.length && onSuccess(data.map((d) => d.name)),
-		onError: (err) => log.error(`Error loading ${doctype}`, err),
-	})
-
-const customerGroupsResource = createListResource("Customer Group", (names) => (customerGroups.value = names))
-const territoriesResource = createListResource("Territory", (names) => (territories.value = names))
-
-const posProfileResource = createResource({
-	url: "frappe.client.get_value",
+/** Fetch customer groups (non-group nodes only) */
+const customerGroupsResource = createResource({
+	url: "frappe.client.get_list",
 	makeParams: () => ({
-		doctype: "POS Profile",
-		filters: { name: props.posProfile },
-		fieldname: ["country"],
+		doctype: "Customer Group",
+		fields: ["name"],
+		filters: { is_group: 0 },
+		limit_page_length: 500,
 	}),
 	auto: false,
-	onSuccess: (data) => setCountryFromName(data?.country || "Egypt"),
-	onError: (err) => {
-		log.error("Error loading POS Profile", err)
-		selectedCountryCode.value = "+20"
+	onSuccess: (data) => {
+		if (data?.length) {
+			customerGroups.value = data.map((d) => d.name)
+		}
 	},
+	onError: (err) => log.error("Error loading Customer Groups", err),
 })
+
+// =============================================================================
+// Validation & Duplicate Check
+// =============================================================================
+
+/**
+ * Check if another Customer already has the same mobile_no.
+ * Returns true if a duplicate exists, false otherwise.
+ */
+const checkDuplicateMobile = async (mobileNo) => {
+	try {
+		const filters = { mobile_no: mobileNo }
+		// In edit mode, exclude the current customer
+		if (isEditMode.value && props.customer?.name) {
+			filters.name = ["!=", props.customer.name]
+		}
+		const result = await frappe.call({
+			method: "frappe.client.get_count",
+			args: {
+				doctype: "Customer",
+				filters,
+			},
+		})
+		return (result?.message || 0) > 0
+	} catch (err) {
+		log.error("Duplicate check failed", err)
+		return false
+	}
+}
+
+const handleCreate = async () => {
+	// 1. Validate required fields
+	if (!customerData.value.customer_name?.trim()) {
+		frappe.msgprint({
+			title: __("Validation Error"),
+			message: __("Customer Name is required"),
+			indicator: "orange",
+		})
+		return
+	}
+	if (!customerData.value.mobile_no?.trim()) {
+		frappe.msgprint({
+			title: __("Validation Error"),
+			message: __("Mobile No is required"),
+			indicator: "orange",
+		})
+		return
+	}
+	if (!customerData.value.customer_group) {
+		frappe.msgprint({
+			title: __("Validation Error"),
+			message: __("Customer Group is required"),
+			indicator: "orange",
+		})
+		return
+	}
+
+	isSubmitting.value = true
+	try {
+		// 2. Check duplicate mobile_no
+		const isDuplicate = await checkDuplicateMobile(customerData.value.mobile_no.trim())
+		if (isDuplicate) {
+			frappe.msgprint({
+				title: __("Duplicate Mobile No"),
+				message: __("Another customer already has the mobile number {0}", [customerData.value.mobile_no]),
+				indicator: "red",
+			})
+			return
+		}
+
+		// 3. Create or update
+		if (isEditMode.value) {
+			await updateCustomerResource.submit()
+		} else {
+			await createCustomerResource.submit()
+		}
+	} catch (err) {
+		log.error("handleCreate error", err)
+		frappe.msgprint({
+			title: __("Error"),
+			message: err.message || __("An unexpected error occurred"),
+			indicator: "red",
+		})
+	} finally {
+		isSubmitting.value = false
+	}
+}
 
 // =============================================================================
 // Dialog Lifecycle
 // =============================================================================
 
 const loadDialogData = async () => {
-	// Lazy load countries (non-blocking)
-	countriesStore.loadCountries()
-
-	// Load form options
-	await territoriesResource.reload()
 	customerGroupsResource.reload()
 	checkPermissions()
-
-	// Set country from POS Profile
-	if (props.posProfile) {
-		await posProfileResource.reload()
-	} else {
-		selectedCountryCode.value = "+20"
-	}
 }
 
 const checkPermissions = async () => {
@@ -445,27 +405,15 @@ const checkPermissions = async () => {
 	}
 }
 
-const handleCreate = async () => {
-	if (!customerData.value.customer_name) {
-		return showError(__("Customer Name is required"))
-	}
-	if (isEditMode.value) {
-		await updateCustomerResource.submit()
-	} else {
-		await createCustomerResource.submit()
-	}
-}
-
 const resetForm = () => {
 	Object.assign(customerData.value, {
 		customer_name: "",
 		mobile_no: "",
-		email_id: "",
-		customer_group: "أفراد",
-		territory: "All Territories",
+		custom_other_mobile_no: "",
+		gender: "",
+		custom_birthday: "",
+		customer_group: "",
 	})
-	selectedCountryCode.value = ""
-	phoneNumber.value = ""
 }
 
 // =============================================================================
@@ -483,47 +431,15 @@ watch(
 	(customer) => {
 		if (customer?.name) {
 			customerData.value.customer_name = customer.customer_name || ""
-			customerData.value.email_id = customer.email_id || ""
-			customerData.value.customer_group = customer.customer_group || "أفراد"
-			customerData.value.territory = customer.territory || "All Territories"
-			// Handle mobile_no with country code
-			if (customer.mobile_no) {
-				customerData.value.mobile_no = customer.mobile_no
-				if (customer.mobile_no.includes("-")) {
-					const [code, ...rest] = customer.mobile_no.split("-")
-					selectedCountryCode.value = code
-					phoneNumber.value = rest.join("-")
-				} else {
-					phoneNumber.value = customer.mobile_no
-				}
-			}
+			customerData.value.mobile_no = customer.mobile_no || ""
+			customerData.value.custom_other_mobile_no = customer.custom_other_mobile_no || ""
+			customerData.value.gender = customer.gender || ""
+			customerData.value.custom_birthday = customer.custom_birthday || ""
+			customerData.value.customer_group = customer.customer_group || ""
 		}
 	},
 	{ immediate: true }
 )
-
-watch(
-	() => customerData.value.mobile_no,
-	(value) => {
-		if (value?.includes("-")) {
-			const [code, ...rest] = value.split("-")
-			selectedCountryCode.value = code
-			phoneNumber.value = rest.join("-")
-		}
-	}
-)
-
-watch(selectedCountryCode, async () => {
-	await nextTick()
-	updateTerritoryFromCountry()
-})
-
-watch(showCountryDropdown, async (isOpen) => {
-	if (isOpen) {
-		await nextTick()
-		countrySearchRef.value?.focus()
-	}
-})
 
 watch(
 	() => props.modelValue,
@@ -541,24 +457,5 @@ watch(show, (val) => emit("update:modelValue", val))
 
 onMounted(() => {
 	loadDialogData()
-	document.addEventListener("click", handleClickOutside)
-})
-
-onBeforeUnmount(() => {
-	document.removeEventListener("click", handleClickOutside)
 })
 </script>
-
-<style scoped>
-.sr-only {
-	position: absolute;
-	width: 1px;
-	height: 1px;
-	padding: 0;
-	margin: -1px;
-	overflow: hidden;
-	clip: rect(0, 0, 0, 0);
-	white-space: nowrap;
-	border-width: 0;
-}
-</style>

@@ -32,6 +32,7 @@ _asset_version = get_build_version()
 # include js, css files in header of desk.html
 # app_include_css = f"/assets/ecs_posnext/css/ecs_posnext.css?v={_asset_version}"
 # app_include_js = f"/assets/ecs_posnext/js/ecs_posnext.js?v={_asset_version}"
+app_include_js = "ecs_posnext.bundle.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/ecs_posnext/css/ecs_posnext.css"
@@ -218,10 +219,14 @@ doc_events = {
 		"before_cancel": "ecs_posnext.api.sales_invoice_hooks.before_cancel",
 		"on_submit": [
 			"ecs_posnext.realtime_events.emit_stock_update_event",
-			"ecs_posnext.api.wallet.process_loyalty_to_wallet"
+			"ecs_posnext.api.wallet.process_loyalty_to_wallet",
+			"ecs_posnext.realtime_events.emit_kitchen_order_event"
 		],
 		"on_cancel": "ecs_posnext.realtime_events.emit_stock_update_event",
-		"after_insert": "ecs_posnext.realtime_events.emit_invoice_created_event"
+		"after_insert": [
+			"ecs_posnext.realtime_events.emit_invoice_created_event",
+			"ecs_posnext.realtime_events.emit_kitchen_order_event"
+		]
 	},
 	"POS Profile": {
 		"on_update": "ecs_posnext.realtime_events.emit_pos_profile_updated_event"

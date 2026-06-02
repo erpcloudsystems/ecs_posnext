@@ -23,40 +23,36 @@
    "reqd": 1
   },
   {
-   "fetch_from": "pos_invoice.posting_date",
    "fieldname": "posting_date",
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "Date",
-   "reqd": 1
+   "read_only": 1
   },
   {
    "fieldname": "column_break_3",
    "fieldtype": "Column Break"
   },
   {
-   "fetch_from": "pos_invoice.customer",
    "fieldname": "customer",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Customer",
    "options": "Customer",
-   "read_only": 1,
-   "reqd": 1
+   "read_only": 1
   },
   {
-   "fetch_from": "pos_invoice.grand_total",
    "fieldname": "paid_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Amount",
-   "reqd": 1
+   "read_only": 1
   },
   {
    "fieldname": "mode_of_payment",
    "fieldtype": "Data",
    "label": "Mode Of Payment",
-   "reqd": 1
+   "read_only": 1
   }
  ],
  "istable": 1,

@@ -125,6 +125,16 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	const suppressOfferReapply = ref(false)
 	const currentDraftId = ref(null)
 	const targetDoctype = ref("Sales Invoice")
+	const orderType = ref("") // custom_so_type: Pickup, Dinin, Delivery, Car Service, Talabat
+	const tableNumbers = ref([]) // Array of selected Table Number names for multi-table support
+	// Backward-compatible computed: returns the first selected table (or "")
+	const tableNumber = computed(() => tableNumbers.value.length > 0 ? tableNumbers.value[0] : "")
+	const serverDraftName = ref(null) // Server-side draft Sales Invoice name (for Dinin orders)
+	const deliveryAddress = ref(null) // Selected Address name for Delivery orders
+
+	// Split checkout state
+	const splitMode = ref(false) // When true, shows item selection checkboxes
+	const selectedForSplit = ref(new Set()) // Set of indices of items selected for split checkout
 
 	// Offer processing state management
 	const offerProcessingState = ref({
@@ -230,6 +240,12 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		appliedCoupon.value = null
 		currentDraftId.value = null
 		targetDoctype.value = "Sales Invoice"
+		orderType.value = ""
+		tableNumbers.value = []
+		serverDraftName.value = null
+		deliveryAddress.value = null
+		splitMode.value = false
+		selectedForSplit.value = new Set()
 
 		// Reset offer processing state
 		suppressOfferReapply.value = false
@@ -243,6 +259,43 @@ export const usePOSCartStore = defineStore("posCart", () => {
 
 	function setTargetDoctype(doctype) {
 		targetDoctype.value = doctype
+	}
+
+	function setOrderType(type) {
+		orderType.value = type
+		// Clear tables when switching away from Dinin
+		if (type !== "Dinin") {
+			tableNumbers.value = []
+		}
+	}
+
+	/** Toggle a table in/out of the selection (multi-select) */
+	function toggleTableNumber(tableName) {
+		const idx = tableNumbers.value.indexOf(tableName)
+		if (idx >= 0) {
+			tableNumbers.value.splice(idx, 1)
+		} else {
+			tableNumbers.value.push(tableName)
+		}
+	}
+
+	/** Replace all selected tables at once (used when loading drafts) */
+	function setTableNumbers(tables) {
+		tableNumbers.value = Array.isArray(tables) ? [...tables] : []
+	}
+
+	/** Clear all selected tables */
+	function clearTableNumbers() {
+		tableNumbers.value = []
+	}
+
+	/** @deprecated Use toggleTableNumber / setTableNumbers instead */
+	function setTableNumber(table) {
+		if (table) {
+			tableNumbers.value = [table]
+		} else {
+			tableNumbers.value = []
+		}
 	}
 
 	const deliveryDate = ref("")
@@ -265,8 +318,12 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			showWarning(__("Please select a customer"))
 			return
 		}
+		if (!orderType.value) {
+			showWarning(__("Please select an order type"))
+			return
+		}
 
-		const result = await baseSubmitInvoice(targetDoctype.value, deliveryDate.value, writeOffAmount.value)
+		const result = await baseSubmitInvoice(targetDoctype.value, deliveryDate.value, writeOffAmount.value, orderType.value, tableNumber.value, tableNumbers.value, deliveryAddress.value, serverDraftName.value)
 		// Reset write-off amount after successful submission
 		if (result) {
 			writeOffAmount.value = 0
@@ -278,7 +335,108 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		return await submitInvoice()
 	}
 
+	// ---- Split Checkout helpers ----
 
+	function toggleSplitMode() {
+		splitMode.value = !splitMode.value
+		if (!splitMode.value) {
+			selectedForSplit.value = new Set()
+		}
+	}
+
+	function toggleSplitItem(index) {
+		const next = new Set(selectedForSplit.value)
+		if (next.has(index)) {
+			next.delete(index)
+		} else {
+			next.add(index)
+		}
+		selectedForSplit.value = next
+	}
+
+	function selectAllForSplit() {
+		const all = new Set()
+		invoiceItems.value.forEach((_, i) => all.add(i))
+		selectedForSplit.value = all
+	}
+
+	function deselectAllForSplit() {
+		selectedForSplit.value = new Set()
+	}
+
+	const splitSelectedItems = computed(() => {
+		return invoiceItems.value.filter((_, i) => selectedForSplit.value.has(i))
+	})
+
+	const splitSelectedTotal = computed(() => {
+		let total = 0
+		for (const idx of selectedForSplit.value) {
+			const item = invoiceItems.value[idx]
+			if (item) {
+				total += (item.quantity || 1) * (item.rate || 0)
+			}
+		}
+		return Math.round(total * 100) / 100
+	})
+
+	/**
+	 * Submit only the selected split items as an invoice.
+	 * Returns the result. The caller is responsible for removing
+	 * the submitted items from the cart afterwards.
+	 */
+	async function submitSplitInvoice() {
+		if (selectedForSplit.value.size === 0) {
+			showWarning(__("Please select items to checkout"))
+			return null
+		}
+		if (!customer.value) {
+			showWarning(__("Please select a customer"))
+			return null
+		}
+		if (!orderType.value) {
+			showWarning(__("Please select an order type"))
+			return null
+		}
+
+		// Temporarily swap invoiceItems with only selected items
+		const allItems = [...invoiceItems.value]
+		const selectedItems = allItems.filter((_, i) => selectedForSplit.value.has(i))
+		const remainingItems = allItems.filter((_, i) => !selectedForSplit.value.has(i))
+
+		invoiceItems.value = selectedItems
+		rebuildIncrementalCache()
+
+		try {
+			const result = await baseSubmitInvoice(
+				targetDoctype.value,
+				deliveryDate.value,
+				0, // no write-off for split
+				orderType.value,
+				tableNumber.value,
+				tableNumbers.value,
+				deliveryAddress.value,
+			)
+
+			if (result) {
+				// Success: keep only the remaining items
+				invoiceItems.value = remainingItems
+				rebuildIncrementalCache()
+				splitMode.value = false
+				selectedForSplit.value = new Set()
+				return result
+			} else {
+				// Failed: restore all items
+				invoiceItems.value = allItems
+				rebuildIncrementalCache()
+				return null
+			}
+		} catch (error) {
+			// Error: restore all items
+			invoiceItems.value = allItems
+			rebuildIncrementalCache()
+			throw error
+		}
+	}
 
 	function setCustomer(selectedCustomer) {
 		customer.value = selectedCustomer
@@ -1730,9 +1888,31 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		// Sales Order feature
 		targetDoctype,
 		setTargetDoctype,
+		orderType,
+		setOrderType,
+		tableNumber,
+		tableNumbers,
+		setTableNumber,
+		toggleTableNumber,
+		setTableNumbers,
+		clearTableNumbers,
+		serverDraftName,
+		deliveryAddress,
+		setDeliveryAddress: (addr) => { deliveryAddress.value = addr },
 		createSalesOrder,
 		deliveryDate,
 		setDeliveryDate,
+
+		// Split checkout
+		splitMode,
+		selectedForSplit,
+		splitSelectedItems,
+		splitSelectedTotal,
+		toggleSplitMode,
+		toggleSplitItem,
+		selectAllForSplit,
+		deselectAllForSplit,
+		submitSplitInvoice,
 
 		// Write-off feature
 		writeOffAmount,

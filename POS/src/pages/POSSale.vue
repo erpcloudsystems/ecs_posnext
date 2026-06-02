@@ -33,6 +33,25 @@
 				@logout="uiStore.showLogoutDialog = true"
 			>
 				<template #menu-items>
+					<router-link
+						to="/tables"
+						class="w-full text-start px-4 py-2.5 text-sm text-gray-700 hover:bg-emerald-50 flex items-center gap-3 transition-colors"
+					>
+						<svg
+							class="w-5 h-5 text-emerald-600"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+						>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+							/>
+						</svg>
+						<span>{{ __("Tables Dashboard") }}</span>
+					</router-link>
 					<button
 						v-if="shiftStore.hasOpenShift"
 						@click="uiStore.showOpenShiftDialog = true"
@@ -126,7 +145,7 @@
 						</span>
 					</button>
 					<button
-						@click="uiStore.showReturnDialog = true"
+						@click="requestPasswordFor('return')"
 						class="w-full text-start px-4 py-2.5 text-sm text-gray-700 hover:bg-red-50 flex items-center gap-3 transition-colors"
 					>
 						<svg
@@ -314,6 +333,7 @@
 							style="min-width: 300px; contain: layout style paint"
 						>
 							<InvoiceCart
+								ref="invoiceCartRef"
 								:items="cartStore.invoiceItems"
 								:customer="cartStore.customer"
 								:subtotal="cartStore.subtotal"
@@ -335,6 +355,7 @@
 								@proceed-to-payment="handleProceedToPayment"
 								@clear-cart="handleClearCart"
 								@save-draft="handleSaveDraft"
+								@split-checkout="handleSplitCheckout"
 								@apply-coupon="uiStore.showCouponDialog = true"
 								@show-offers="uiStore.showOffersDialog = true"
 								@remove-offer="
@@ -350,7 +371,7 @@
 								@view-shift="uiStore.showOpenShiftDialog = true"
 								@show-drafts="uiStore.showDraftDialog = true"
 								@show-history="uiStore.showHistoryDialog = true"
-								@show-return="uiStore.showReturnDialog = true"
+								@show-return="requestPasswordFor('return')"
 								@close-shift="handleCloseShift()"
 							/>
 						</div>
@@ -438,9 +459,9 @@
 			<!-- Payment Dialog -->
 		<PaymentDialog
 			v-model="uiStore.showPaymentDialog"
-			:grand-total="cartStore.grandTotal"
-			:subtotal="cartStore.subtotal"
-			:discount-eligible-subtotal="cartStore.discountEligibleSubtotal"
+			:grand-total="cartStore.splitMode ? cartStore.splitSelectedTotal : cartStore.grandTotal"
+			:subtotal="cartStore.splitMode ? cartStore.splitSelectedTotal : cartStore.subtotal"
+			:discount-eligible-subtotal="cartStore.splitMode ? cartStore.splitSelectedTotal : cartStore.discountEligibleSubtotal"
 			:pos-profile="shiftStore.profileName"
 			:currency="shiftStore.profileCurrency"
 			:is-offline="offlineStore.isOffline"
@@ -457,8 +478,10 @@
 			:discount-amount="cartStore.totalDiscount"
 			:target-doctype="cartStore.targetDoctype"
 			:is-submitting="cartStore.isSubmitting"
+			:discount-unlocked="discountPasswordVerified"
 			@payment-completed="handlePaymentCompleted"
 			@update-additional-discount="handleAdditionalDiscountUpdate"
+			@request-discount-password="requestPasswordFor('discount')"
 		/>
 
 			<!-- Customer Selection Dialog -->
@@ -496,6 +519,14 @@
 				:pos-opening-shift="shiftStore.currentShift?.name"
 				:currency="shiftStore.profileCurrency"
 				@return-created="handleReturnCreated"
+			/>
+
+			<!-- Password Verification Dialog -->
+			<PasswordDialog
+				v-model="showPasswordDialog"
+				:pos-profile="shiftStore.profileName"
+				@verified="handlePasswordVerified"
+				@cancelled="pendingPasswordAction = null"
 			/>
 
 			<!-- Coupon Dialog -->
@@ -622,7 +653,6 @@
 				@view-invoice="handleViewInvoice"
 				@print-invoice="handlePrintInvoice"
 				@load-draft="handleLoadDraftFromManagement"
-				@delete-draft="handleDeleteDraft"
 				@refresh-history="loadInvoiceHistoryData"
 			/>
 
@@ -969,6 +999,7 @@ import OfflineInvoicesDialog from "@/components/sale/OfflineInvoicesDialog.vue";
 import PaymentDialog from "@/components/sale/PaymentDialog.vue";
 import PromotionManagement from "@/components/sale/PromotionManagement.vue";
 import ReturnInvoiceDialog from "@/components/sale/ReturnInvoiceDialog.vue";
+import PasswordDialog from "@/components/sale/PasswordDialog.vue";
 import WarehouseAvailabilityDialog from "@/components/sale/WarehouseAvailabilityDialog.vue";
 import POSSettings from "@/components/settings/POSSettings.vue";
 import InvoiceManagement from "@/components/invoices/InvoiceManagement.vue";
@@ -1041,6 +1072,7 @@ const { isRTL } = useLocale();
 
 // Component refs
 const itemsSelectorRef = ref(null);
+const invoiceCartRef = ref(null);
 const offersDialogRef = ref(null);
 const containerRef = ref(null);
 const dividerRef = ref(null);
@@ -1079,6 +1111,39 @@ const showStockLookup = ref(false);
 
 // Invoice Management dialog
 const showInvoiceManagement = ref(false);
+
+// Password verification dialog
+const showPasswordDialog = ref(false);
+const pendingPasswordAction = ref(null);
+
+function requestPasswordFor(action) {
+	pendingPasswordAction.value = action;
+	// Close PaymentDialog if open (discount unlock flow)
+	if (action === "discount") {
+		uiStore.showPaymentDialog = false;
+	}
+	showPasswordDialog.value = true;
+}
+
+function handlePasswordVerified() {
+	const action = pendingPasswordAction.value;
+	pendingPasswordAction.value = null;
+	if (action === "return") {
+		uiStore.showReturnDialog = true;
+	} else if (action === "discount") {
+		discountPasswordVerified.value = true;
+		uiStore.showPaymentDialog = true;
+	}
+}
+
+const discountPasswordVerified = ref(false);
+
+// Reset discount unlock when payment dialog closes
+watch(() => uiStore.showPaymentDialog, (val) => {
+	if (!val) {
+		discountPasswordVerified.value = false;
+	}
+});
 
 // Daily Payment Management dialog
 const showDailyPayment = ref(false);
@@ -1842,6 +1907,16 @@ function handleProceedToPayment() {
 		return;
 	}
 
+	if (shiftStore.isWaiter) {
+		showWarning(__("Waiters are not allowed to checkout. Please save the order as draft."));
+		return;
+	}
+
+	if (cartStore.orderType === "Dinin" && cartStore.tableNumbers.length === 0) {
+		showWarning(__("Please select a table for Dine-in orders"));
+		return;
+	}
+
 	const customerValue = cartStore.customer?.name || cartStore.customer;
 	if (!customerValue && !shiftStore.profileCustomer) {
 		showWarning(__("Please select a customer before proceeding"));
@@ -1850,6 +1925,37 @@ function handleProceedToPayment() {
 		return;
 	}
 
+	uiStore.showPaymentDialog = true;
+}
+
+function handleSplitCheckout() {
+	if (cartStore.selectedForSplit.size === 0) {
+		showWarning(__("Please select items to checkout"));
+		return;
+	}
+
+	if (shiftStore.isWaiter) {
+		showWarning(__("Waiters are not allowed to checkout. Please save the order as draft."));
+		return;
+	}
+
+	const customerValue = cartStore.customer?.name || cartStore.customer;
+	if (!customerValue && !shiftStore.profileCustomer) {
+		showWarning(__("Please select a customer before proceeding"));
+		return;
+	}
+
+	if (!cartStore.orderType) {
+		showWarning(__("Please select an order type"));
+		return;
+	}
+
+	if (cartStore.orderType === "Dinin" && cartStore.tableNumbers.length === 0) {
+		showWarning(__("Please select a table for Dine-in orders"));
+		return;
+	}
+
+	// Open payment dialog — split totals are passed via the template bindings
 	uiStore.showPaymentDialog = true;
 }
 
@@ -1938,6 +2044,10 @@ async function handlePaymentCompleted(paymentData) {
 				total_tax: cartStore.totalTax,
 				total_discount: cartStore.totalDiscount,
 				write_off_amount: paymentData.write_off_amount || 0,
+				custom_so_type: cartStore.orderType || "",
+				custom_table_number: cartStore.tableNumber || "",
+				// Multi-table support: populate child table rows
+				custom_numbers_of_table: (cartStore.tableNumbers || []).map(name => ({ table_name: name })),
 			};
 
 			await offlineStore.saveInvoiceOffline(invoiceData);
@@ -1947,9 +2057,20 @@ async function handlePaymentCompleted(paymentData) {
 				paymentData.paid_amount
 			);
 			uiStore.showPaymentDialog = false;
+
+			// Free tables for offline Dinin payment (before clearCart resets tableNumbers)
+			const offlineTableNumbers = [...cartStore.tableNumbers];
+			const offlineWasDinin = cartStore.orderType === "Dinin";
+
 			cartStore.clearCart();
 			// Reset cart hash after successful payment
 			previousCartHash = "";
+
+			// Free tables after clearCart (offline)
+			if (offlineWasDinin && offlineTableNumbers.length > 0) {
+				await setTablesStatus(offlineTableNumbers, 0);
+				invoiceCartRef.value?.refreshTables();
+			}
 
 			// Delete draft after successful save
 			if (draftIdToDelete) {
@@ -1957,7 +2078,49 @@ async function handlePaymentCompleted(paymentData) {
 			}
 
 			showSuccess(__("Invoice saved offline. Will sync when online"));
+		} else if (cartStore.splitMode) {
+			// ---- Split checkout: submit only selected items ----
+			const soldItemCodes = cartStore.splitSelectedItems.map((i) => i.item_code);
+
+			const result = await cartStore.submitSplitInvoice();
+
+			if (result) {
+				const invoiceName = result.name || result.message?.name || __("Unknown");
+				const invoiceTotal = result.grand_total || result.total || 0;
+				const paidAmount = paymentData.paid_amount || invoiceTotal;
+
+				uiStore.showPaymentDialog = false;
+
+				// Refresh stock for sold items
+				await stockStore.refresh(soldItemCodes, shiftStore.profileWarehouse);
+
+				// Refresh invoice history in background
+				loadInvoiceHistoryData().catch(() => {});
+
+				if (shiftStore.autoPrintEnabled || posSettingsStore.silentPrint) {
+					try {
+						await handlePrintInvoice({ name: invoiceName });
+						showSuccess(__("Split invoice {0} created and sent to printer", [invoiceName]));
+					} catch (error) {
+						showWarning(__("Split invoice {0} created but print failed", [invoiceName]));
+					}
+				} else {
+					uiStore.showSuccess(invoiceName, invoiceTotal, paidAmount);
+					showSuccess(__("Split invoice {0} created successfully", [invoiceName]));
+				}
+
+				// If cart is now empty after split, clear fully
+				if (cartStore.invoiceItems.length === 0) {
+					cartStore.clearCart();
+					previousCartHash = "";
+
+					if (draftIdToDelete) {
+						draftsStore.deleteDraft(draftIdToDelete);
+					}
+				}
+			}
 		} else {
+			// ---- Normal checkout ----
 			// Get item codes from cart before clearing
 			const soldItemCodes = cartStore.invoiceItems.map((item) => item.item_code);
 
@@ -1969,9 +2132,20 @@ async function handlePaymentCompleted(paymentData) {
 				const paidAmount = paymentData.paid_amount || invoiceTotal;
 
 				uiStore.showPaymentDialog = false;
+
+				// Free tables on successful Dinin payment (before clearCart resets tableNumbers)
+				const paidTableNumbers = [...cartStore.tableNumbers];
+				const wasDinin = cartStore.orderType === "Dinin";
+
 				cartStore.clearCart();
 				// Reset cart hash after successful payment
 				previousCartHash = "";
+
+				// Free tables after clearCart
+				if (wasDinin && paidTableNumbers.length > 0) {
+					await setTablesStatus(paidTableNumbers, 0);
+					invoiceCartRef.value?.refreshTables();
+				}
 
 				// Delete draft after successful submission
 				if (draftIdToDelete) {
@@ -2141,19 +2315,78 @@ function logoutWithCloseShift() {
 	uiStore.showCloseShiftDialog = true;
 }
 
-async function handleSaveDraft() {
-	const savedDraft = await draftsStore.saveDraftInvoice(
-		cartStore.invoiceItems,
-		cartStore.customer,
-		cartStore.posProfile,
-		cartStore.appliedOffers,
-		cartStore.currentDraftId
-	);
-	if (savedDraft) {
-		cartStore.clearCart();
-		// Reset cart hash when cart is saved as draft and cleared
-		previousCartHash = "";
+/**
+ * Helper: set table occupancy status via backend API.
+ * @param {Array} tableNames - Array of Table Number names
+ * @param {number} disabled - 1 = occupied, 0 = available
+ */
+async function setTablesStatus(tableNames, disabled) {
+	if (!tableNames || tableNames.length === 0) return;
+	try {
+		await call("ecs_posnext.api.invoices.set_tables_status", {
+			table_names: tableNames,
+			disabled: disabled,
+		});
+	} catch (error) {
+		log.error("Failed to update table status:", error);
 	}
+}
+
+async function handleSaveDraft() {
+	if (!cartStore.orderType) {
+		showWarning(__("Please select an order type"));
+		return;
+	}
+
+	if (cartStore.orderType === "Dinin" && cartStore.tableNumbers.length === 0) {
+		showWarning(__("Please select a table for Dine-in orders"));
+		return;
+	}
+
+	// Capture table numbers before any cart clearing
+	const currentTableNumbers = [...cartStore.tableNumbers];
+	const isDinin = cartStore.orderType === "Dinin";
+
+	// Create/update a server-side draft Sales Invoice for all order types
+	if (cartStore.invoiceItems.length > 0) {
+		try {
+			const serverDraft = await call("ecs_posnext.api.invoices.update_invoice", {
+				data: JSON.stringify({
+					name: cartStore.serverDraftName || undefined,
+					doctype: "Sales Invoice",
+					pos_profile: cartStore.posProfile,
+					posa_pos_opening_shift: cartStore.posOpeningShift,
+					customer: cartStore.customer?.name || cartStore.customer || shiftStore.profileCustomer,
+					items: cartStore.formatItemsForSubmission(cartStore.invoiceItems),
+					payments: [],
+					discount_amount: cartStore.additionalDiscount || 0,
+					is_pos: 1,
+					update_stock: 1,
+					custom_so_type: cartStore.orderType || "",
+					custom_table_number: cartStore.tableNumber || "",
+					custom_numbers_of_table: currentTableNumbers.map(name => ({ table_name: name })),
+				}),
+			});
+			if (serverDraft?.name) {
+				cartStore.serverDraftName = serverDraft.name;
+			}
+		} catch (error) {
+			log.error("Failed to create server draft:", error);
+			showError(__("Failed to save draft invoice"));
+			return;
+		}
+
+		// Mark tables as occupied for Dinin orders
+		if (isDinin && currentTableNumbers.length > 0) {
+			await setTablesStatus(currentTableNumbers, 1);
+			// Refresh table list to show updated occupancy
+			invoiceCartRef.value?.refreshTables();
+		}
+	}
+
+	cartStore.clearCart();
+	// Reset cart hash when cart is saved as draft and cleared
+	previousCartHash = "";
 }
 
 async function handleLoadDraft(draft) {
@@ -2165,7 +2398,10 @@ async function handleLoadDraft(draft) {
 				cartStore.customer,
 				cartStore.posProfile,
 				cartStore.appliedOffers,
-				cartStore.currentDraftId
+				cartStore.currentDraftId,
+				cartStore.orderType,
+				cartStore.tableNumbers,
+				cartStore.serverDraftName
 			);
 
 			if (!saved) {
@@ -2183,6 +2419,35 @@ async function handleLoadDraft(draft) {
 		cartStore.invoiceItems = draftData.items;
 		cartStore.setCustomer(draftData.customer);
 		cartStore.currentDraftId = draft.draft_id; // Set current draft ID
+		cartStore.setOrderType(draftData.order_type || ""); // Restore order type
+		cartStore.setTableNumbers(draftData.table_numbers || []); // Restore selected tables
+		cartStore.serverDraftName = draftData.server_draft_name || null; // Restore server draft link
+
+		// Fetch item statuses from server draft to lock non-pending items
+		if (draftData.server_draft_name) {
+			try {
+				const res = await call("ecs_posnext.api.kitchen_order.get_item_statuses", {
+					invoice_name: draftData.server_draft_name,
+				});
+				if (res && res.length) {
+					// Track which cart items have already been matched (handles duplicate item_codes)
+					const matched = new Set();
+					for (const serverItem of res) {
+						const status = serverItem.custom_item_status || "Pending";
+						const cartItem = cartStore.invoiceItems.find(
+							(i, idx) => i.item_code === serverItem.item_code && !matched.has(idx)
+						);
+						if (cartItem) {
+							const cartIdx = cartStore.invoiceItems.indexOf(cartItem);
+							matched.add(cartIdx);
+							cartItem.custom_item_status = status;
+						}
+					}
+				}
+			} catch (err) {
+				log.warn("Could not fetch item kitchen statuses:", err);
+			}
+		}
 
 		// Rebuild incremental cache to recalculate totals
 		cartStore.rebuildIncrementalCache();
@@ -2673,9 +2938,7 @@ function handleLoadDraftFromManagement(draft) {
 	showInvoiceManagement.value = false;
 }
 
-function handleDeleteDraft(draftId) {
-	draftsStore.deleteDraft(draftId);
-}
+
 
 async function handleWarehouseChanged(newWarehouse) {
 	log.info("Warehouse changed to:", newWarehouse);
