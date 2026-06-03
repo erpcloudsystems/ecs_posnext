@@ -1,11 +1,31 @@
 <template>
-	<Dialog
-		v-model="show"
-		:options="{ title: __('Invoice History'), size: '5xl' }"
-	>
-		<template #body-content>
-			<div class="flex flex-col gap-4">
-				<!-- Filters -->
+	<!-- Custom overlay (avoids radix-vue Dialog focus-trap that blocked the search input) -->
+	<Transition name="fade">
+		<div
+			v-if="show"
+			class="fixed inset-0 bg-black bg-opacity-50 z-[300]"
+			@click.self="show = false"
+		>
+			<div class="fixed inset-0 flex items-center justify-center p-4">
+				<div class="w-full max-w-5xl max-h-[90vh] bg-white rounded-lg shadow-2xl overflow-hidden flex flex-col">
+					<!-- Header -->
+					<div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+						<h2 class="text-lg font-bold text-gray-900">{{ __('Invoice History') }}</h2>
+						<button
+							@click="show = false"
+							class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+							:aria-label="__('Close')"
+						>
+							<svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+							</svg>
+						</button>
+					</div>
+
+					<!-- Body -->
+					<div class="flex-1 overflow-y-auto p-4">
+						<div class="flex flex-col gap-4">
+							<!-- Filters -->
 				<div class="flex items-center gap-2">
 					<div class="flex-1 relative">
 						<svg class="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -127,14 +147,19 @@
 						{{ __('Load More') }}
 					</Button>
 				</div>
+						</div>
+					</div>
+
+					<!-- Footer -->
+					<div class="px-6 py-3 border-t border-gray-200 flex justify-end">
+						<Button variant="subtle" @click="show = false">
+							{{ __('Close') }}
+						</Button>
+					</div>
+				</div>
 			</div>
-		</template>
-		<template #actions>
-			<Button variant="subtle" @click="show = false">
-				{{ __('Close') }}
-			</Button>
-		</template>
-	</Dialog>
+		</div>
+	</Transition>
 
 	<!-- Return Invoice Dialog -->
 	<ReturnInvoiceDialog
@@ -159,7 +184,7 @@
 import { useToast } from "@/composables/useToast"
 import { DEFAULT_CURRENCY, DEFAULT_LOCALE, formatCurrency as formatCurrencyUtil } from "@/utils/currency"
 import { getInvoiceStatusColor } from "@/utils/invoice"
-import { Button, Dialog, createResource } from "frappe-ui"
+import { Button, createResource } from "frappe-ui"
 import { computed, ref, watch } from "vue"
 import ReturnInvoiceDialog from "./ReturnInvoiceDialog.vue"
 import PasswordDialog from "./PasswordDialog.vue"
@@ -353,3 +378,14 @@ function formatDateTime(date, time) {
 	return dateStr
 }
 </script>
+
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+	transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+	opacity: 0;
+}
+</style>
