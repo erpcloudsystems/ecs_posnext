@@ -112,12 +112,12 @@ def create_opening_shift(pos_profile, company, balance_details):
 		fields=["name"],
 		limit=1,
 	)
-	if draft_closing:
-		frappe.throw(
-			_("You have a closing shift {0} pending manager review. You cannot open a new shift until it is approved.").format(
-				frappe.bold(draft_closing[0].name)
-			)
-		)
+	# if draft_closing:
+	# 	frappe.throw(
+	# 		_("You have a closing shift {0} pending manager review. You cannot open a new shift until it is approved.").format(
+	# 			frappe.bold(draft_closing[0].name)
+	# 		)
+	# 	)
 
 	# Check if user already has an open or prepared shift
 	existing_shift_data = check_opening_shift(frappe.session.user)
