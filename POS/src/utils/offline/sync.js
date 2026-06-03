@@ -541,7 +541,7 @@ export const cacheInvoiceHistory = async (invoices, posProfile) => {
  */
 export const getCachedInvoiceHistory = async (posProfile, options = {}) => {
 	try {
-		const { limit = 100, customer, fromDate, toDate } = options
+		const { limit = 100, customer, fromDate, toDate, pos_opening_shift } = options
 
 		let query = db.invoice_history
 
@@ -551,6 +551,11 @@ export const getCachedInvoiceHistory = async (posProfile, options = {}) => {
 		}
 
 		let invoices = await query.toArray()
+
+		// Filter by opening shift if provided
+		if (pos_opening_shift) {
+			invoices = invoices.filter((inv) => inv.posa_pos_opening_shift === pos_opening_shift)
+		}
 
 		// Apply additional filters
 		if (customer) {

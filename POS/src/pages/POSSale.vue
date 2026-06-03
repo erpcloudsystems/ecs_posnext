@@ -2850,12 +2850,15 @@ async function loadInvoiceHistoryData() {
 	// Also reload drafts
 	await draftsStore.loadDrafts();
 
+	const currentShift = shiftStore.currentShift?.name;
+
 	// Check if offline - use cached data
 	if (offlineStore.isOffline) {
 		log.info("Offline mode - loading invoice history from cache");
 		try {
 			const cachedInvoices = await getCachedInvoiceHistory(shiftStore.profileName, {
 				limit: 100,
+				pos_opening_shift: currentShift,
 			});
 			invoiceHistoryData.value = cachedInvoices || [];
 			log.info("Loaded", invoiceHistoryData.value.length, "invoices from offline cache");
@@ -2871,6 +2874,7 @@ async function loadInvoiceHistoryData() {
 		const result = await call("ecs_posnext.api.invoices.get_invoices", {
 			pos_profile: shiftStore.profileName,
 			limit: 100,
+			pos_opening_shift: currentShift,
 		});
 
 		invoiceHistoryData.value = result || [];
@@ -2887,6 +2891,7 @@ async function loadInvoiceHistoryData() {
 		try {
 			const cachedInvoices = await getCachedInvoiceHistory(shiftStore.profileName, {
 				limit: 100,
+				pos_opening_shift: currentShift,
 			});
 			if (cachedInvoices && cachedInvoices.length > 0) {
 				invoiceHistoryData.value = cachedInvoices;

@@ -73,7 +73,7 @@ const CURRENT_SCHEMA = {
 
 	// Invoice history cache for offline viewing
 	// Stores submitted invoices for offline access
-	invoice_history: "&name, pos_profile, posting_date, customer",
+	invoice_history: "&name, pos_profile, posa_pos_opening_shift, posting_date, customer",
 
 	// Unpaid invoices cache for offline viewing
 	// Stores invoices with outstanding amounts for partial payment management

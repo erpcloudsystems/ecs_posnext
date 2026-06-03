@@ -1638,13 +1638,14 @@ def get_invoice(invoice_name):
 
 
 @frappe.whitelist()
-def get_invoices(pos_profile, limit=100):
+def get_invoices(pos_profile, limit=100, pos_opening_shift=None):
 	"""
 	Get list of invoices for a POS Profile.
 
 	Args:
 		pos_profile: POS Profile name
 		limit: Maximum number of invoices to return (default 100)
+		pos_opening_shift: If provided, only return invoices from this opening shift
 
 	Returns:
 		List of invoices with details
@@ -1660,6 +1661,17 @@ def get_invoices(pos_profile, limit=100):
 
 	if not has_access and not frappe.has_permission("Sales Invoice", "read"):
 		frappe.throw(_("You don't have access to this POS Profile"))
+
+	# Build filters
+	filters = {
+		"pos_profile": pos_profile,
+		"limit": limit
+	}
+
+	opening_shift_filter = ""
+	if pos_opening_shift:
+		opening_shift_filter = "AND posa_pos_opening_shift = %(pos_opening_shift)s"
+		filters["pos_opening_shift"] = pos_opening_shift
 
 	# Query for invoices
 	invoices = frappe.db.sql("""
@@ -1682,14 +1694,12 @@ def get_invoices(pos_profile, limit=100):
 			pos_profile = %(pos_profile)s
 			AND docstatus = 1
 			AND is_pos = 1
+			{opening_shift_filter}
 		ORDER BY
 			posting_date DESC,
 			posting_time DESC
 		LIMIT %(limit)s
-	""", {
-		"pos_profile": pos_profile,
-		"limit": limit
-	}, as_dict=True)
+	""".format(opening_shift_filter=opening_shift_filter), filters, as_dict=True)
 
 	# Load items for each invoice for filtering purposes
 	for invoice in invoices:

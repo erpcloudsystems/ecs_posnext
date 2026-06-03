@@ -2049,7 +2049,6 @@ def get_pos_price_lists():
 			)
 			.where(PriceList.selling == 1)
 			.where(PriceList.enabled == 1)
-			.where(PriceList.is_pos == 1)
 			.orderby(PriceList.name)
 			.run(as_dict=True)
 		)
