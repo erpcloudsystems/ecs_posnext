@@ -35,6 +35,17 @@
 						</div>
 					</div>
 
+					<!-- Invoice Note (shown on kitchen screens) -->
+					<div class="bg-gray-50 border border-gray-200 rounded-lg p-2">
+						<label class="block text-xs font-medium text-gray-700 mb-1 text-start">{{ __("Order Note") }}</label>
+						<textarea
+							v-model="cartStore.invoiceNote"
+							rows="2"
+							:placeholder="__('Add a note for the whole order (optional)')"
+							class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white"
+						></textarea>
+					</div>
+
 					<!-- Sales Person Selection (Compact) -->
 					<div v-if="settingsStore.enableSalesPersons" :class="[
 						'rounded-lg p-2',
@@ -884,6 +895,7 @@
 
 <script setup>
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import { usePOSCartStore } from "@/stores/posCart"
 import {
 	DEFAULT_CURRENCY,
 	formatCurrency as formatCurrencyUtil,
@@ -902,6 +914,7 @@ import { useResponsivePayment } from "@/composables/useResponsivePayment"
 
 const log = logger.create("PaymentDialog")
 const settingsStore = usePOSSettingsStore()
+const cartStore = usePOSCartStore()
 const { showWarning, showInfo } = useToast()
 
 const props = defineProps({

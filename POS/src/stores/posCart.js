@@ -93,6 +93,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		payments,
 		salesTeam,
 		additionalDiscount,
+		invoiceNote,
 		taxInclusive,
 		isSubmitting,
 		addItem: addItemToInvoice,
@@ -125,7 +126,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	const suppressOfferReapply = ref(false)
 	const currentDraftId = ref(null)
 	const targetDoctype = ref("Sales Invoice")
-	const orderType = ref("") // custom_so_type: Pickup, Dinin, Delivery, Car Service, Talabat
+	const orderType = ref("Pickup") // custom_so_type: Pickup, Dinin, Delivery, Car Service, Talabat
 	const tableNumbers = ref([]) // Array of selected Table Number names for multi-table support
 	// Backward-compatible computed: returns the first selected table (or "")
 	const tableNumber = computed(() => tableNumbers.value.length > 0 ? tableNumbers.value[0] : "")
@@ -240,7 +241,8 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		appliedCoupon.value = null
 		currentDraftId.value = null
 		targetDoctype.value = "Sales Invoice"
-		orderType.value = ""
+		orderType.value = "Pickup"
+		invoiceNote.value = ""
 		tableNumbers.value = []
 		serverDraftName.value = null
 		deliveryAddress.value = null
@@ -1506,6 +1508,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			if (updates.rate !== undefined) cartItem.rate = updates.rate
 			if (updates.price_list_rate !== undefined) cartItem.price_list_rate = updates.price_list_rate
 			if (updates.serial_no !== undefined) cartItem.serial_no = updates.serial_no
+			if (updates.posa_notes !== undefined) cartItem.posa_notes = updates.posa_notes
 			// Track manual rate edits for audit purposes
 			if (updates.is_rate_manually_edited !== undefined) cartItem.is_rate_manually_edited = updates.is_rate_manually_edited
 			if (updates.original_rate !== undefined) cartItem.original_rate = updates.original_rate
@@ -1890,6 +1893,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		setTargetDoctype,
 		orderType,
 		setOrderType,
+		invoiceNote,
 		tableNumber,
 		tableNumbers,
 		setTableNumber,

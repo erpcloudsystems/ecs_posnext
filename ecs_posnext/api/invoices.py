@@ -1526,6 +1526,16 @@ def submit_invoice(invoice=None, data=None):
         if not pos_settings_allow_negative:
             _validate_stock_on_invoice(invoice_doc)
 
+        # Post at the current date/time on submit.
+        # A held (or offline) invoice keeps the older posting_date from when its
+        # draft was first created. Submitting it as-is creates a back-dated stock
+        # ledger entry, which forces a heavy "Repost Item Valuation". Stamping the
+        # current date/time keeps the entry current and avoids the repost.
+        if doctype == "Sales Invoice":
+            invoice_doc.set_posting_time = 1
+            invoice_doc.posting_date = nowdate()
+            invoice_doc.posting_time = nowtime()
+
         # Save before submit
         invoice_doc.flags.ignore_permissions = True
         frappe.flags.ignore_account_permission = True

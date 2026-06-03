@@ -33,8 +33,11 @@ def get_orders(status=None, fromDelivery=False):
     items_class = frappe.get_list("item Class", fields=["name"])
     items_class_names = [row.name for row in items_class]
 
-    # Hide Pickup orders from fridge screen
-    hide_pickup = "ثلاجة" in items_class_names
+    # Hide Pickup orders from the fridge screen ONLY.
+    # The fridge screen is identified by the user being scoped to the "ثلاجة"
+    # item class alone. General screens (pending/prep) whose users also have
+    # other classes (مطبخ/بار) must still show Pickup orders.
+    hide_pickup = set(items_class_names) == {"ثلاجة"}
     if hide_pickup:
         so_type_filter += " AND t.custom_so_type NOT IN ('Pickup', 'Pick Up')"
 

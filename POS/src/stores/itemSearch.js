@@ -2018,9 +2018,11 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	/**
 	 * Load available POS price lists for card selection
 	 */
-	async function loadPriceLists() {
+	async function loadPriceLists(profile = posProfile.value) {
 		try {
-			const data = await call("ecs_posnext.api.items.get_pos_price_lists")
+			const data = await call("ecs_posnext.api.items.get_pos_price_lists", {
+				pos_profile: profile,
+			})
 			availablePriceLists.value = data?.message || data || []
 			log.info(`Loaded ${availablePriceLists.value.length} price lists`)
 		} catch (error) {
@@ -2218,8 +2220,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			// Stop any existing sync before loading items for new profile
 			stopBackgroundCacheSync()
 
-			// Load available price lists for card selection
-			loadPriceLists()
+			// Load available price lists for card selection (scoped to this profile)
+			loadPriceLists(profile)
 
 			// If a price list was previously selected, resume group navigation
 			if (selectedPriceList.value) {

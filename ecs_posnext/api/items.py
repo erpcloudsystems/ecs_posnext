@@ -1210,7 +1210,9 @@ def _calculate_bundle_availability_bulk(bundle_codes, warehouse):
 				# Subsequent components - take minimum (most constrained)
 				bundle_availability[bundle_code] = min(bundle_availability[bundle_code], possible)
 
-	return bundle_availability
+	# Clamp to 0: if a component is oversold (negative Bin available_qty), the
+	# bundle simply cannot be assembled — its availability is 0, never negative.
+	return {code: max(0, qty) for code, qty in bundle_availability.items()}
 
 
 def _get_bundle_warehouse_availability_bulk(bundle_codes, warehouses):
@@ -2036,11 +2038,16 @@ def get_item_groups(pos_profile):
 
 
 @frappe.whitelist()
-def get_pos_price_lists():
-	"""Get all selling price lists for POS selection."""
+def get_pos_price_lists(pos_profile=None):
+	"""Get selling price lists for POS selection.
+
+	When a POS Profile is provided, restrict the result to that profile's
+	configured ``selling_price_list``. Falls back to all enabled selling price
+	lists when no profile is given or the profile has no price list set.
+	"""
 	try:
 		PriceList = DocType("Price List")
-		result = (
+		query = (
 			frappe.qb.from_(PriceList)
 			.select(
 				PriceList.name,
@@ -2049,10 +2056,18 @@ def get_pos_price_lists():
 			)
 			.where(PriceList.selling == 1)
 			.where(PriceList.enabled == 1)
-			.orderby(PriceList.name)
-			.run(as_dict=True)
 		)
-		return result
+
+		# Limit to the price list configured on the POS Profile
+		profile_price_list = None
+		if pos_profile:
+			profile_price_list = frappe.db.get_value(
+				"POS Profile", pos_profile, "selling_price_list"
+			)
+		if profile_price_list:
+			query = query.where(PriceList.name == profile_price_list)
+
+		return query.orderby(PriceList.name).run(as_dict=True)
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Get POS Price Lists Error")
 		frappe.throw(_("Error fetching price lists: {0}").format(str(e)))

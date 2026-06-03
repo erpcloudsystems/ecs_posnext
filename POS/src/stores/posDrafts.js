@@ -60,6 +60,7 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 		orderType = "",
 		tableNumbers = [],
 		serverDraftName = null,
+		invoiceNote = "",
 	) {
 		if (invoiceItems.length === 0) {
 			showWarning(__("Cannot save an empty cart as draft"))
@@ -77,6 +78,7 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 				// Backward compat: keep table_number as first selected table
 				table_number: Array.isArray(tableNumbers) && tableNumbers.length > 0 ? tableNumbers[0] : "",
 				server_draft_name: serverDraftName || null, // Server-side draft link (for Dinin)
+				invoice_note: invoiceNote || "", // Invoice-level note (posa_notes)
 			}
 
 			let savedDraft
@@ -110,6 +112,7 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 				// Multi-table: prefer table_numbers array, fall back to single table_number for old drafts
 				table_numbers: draft.table_numbers || (draft.table_number ? [draft.table_number] : []),
 				server_draft_name: draft.server_draft_name || null, // Restore server draft link
+				invoice_note: draft.invoice_note || "", // Restore invoice-level note
 			}
 		} catch (error) {
 			console.error("Error loading draft:", error)

@@ -247,6 +247,16 @@
 							</svg>
 						</button>
 					</div>
+
+					<!-- Order Note (shown on kitchen screens; captured even when held) -->
+					<div class="mt-1.5">
+						<textarea
+							v-model="cartStore.invoiceNote"
+							rows="1"
+							:placeholder="__('Order note for kitchen (optional)')"
+							class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+						></textarea>
+					</div>
 				</div>
 				<div v-else>
 					<div class="flex gap-1.5">
@@ -550,7 +560,8 @@
 			</div>
 
 			<!-- Offers & Coupon Buttons -->
-			<div class="flex gap-2">
+			<!-- Hidden per request: set v-if back to true (or remove it) to restore Offers/Coupon buttons -->
+			<div v-if="false" class="flex gap-2">
 				<!-- View All Offers Button -->
 				<button
 					type="button"
@@ -1001,10 +1012,10 @@
 										<button
 											type="button"
 											@click.stop="decrementQuantity(item)"
-											:disabled="item.is_resolved_barcode"
+											:disabled="item.is_resolved_barcode || (item.custom_item_status && item.custom_item_status !== 'Pending')"
 											:class="[
 												'w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center font-bold transition-colors touch-manipulation border-e',
-												item.is_resolved_barcode
+												(item.is_resolved_barcode || (item.custom_item_status && item.custom_item_status !== 'Pending'))
 													? 'bg-gray-100 text-gray-400 cursor-not-allowed border-amber-300'
 													: 'bg-white hover:bg-gray-100 active:bg-gray-200 text-gray-700 border-gray-200'
 											]"

@@ -33,6 +33,7 @@ export function useInvoice() {
 	const posOpeningShift = ref(null) // POS Opening Shift name
 	const additionalDiscount = ref(0)
 	const couponCode = ref(null)
+	const invoiceNote = ref("") // Invoice-level note (posa_notes) shown on kitchen screens
 	const taxRules = ref([]) // Tax rules from POS Profile
 	const taxInclusive = ref(false) // Tax inclusive setting from POS Settings
 
@@ -346,6 +347,8 @@ export function useInvoice() {
 				custom_not_included: item.custom_not_included || 0,
 				// Kitchen item status (Pending, Preparing, Packing, etc.)
 				custom_item_status: item.custom_item_status || "",
+				// Item-level note shown on kitchen screens
+				posa_notes: item.posa_notes || "",
 			}
 			console.log('[DEBUG addItem]', item.item_code, 'source custom_not_included:', item.custom_not_included, '→ cart custom_not_included:', newItem.custom_not_included, '| allowAdditionalDiscount:', allowAdditionalDiscount.value)
 			invoiceItems.value.push(newItem)
@@ -446,6 +449,18 @@ export function useInvoice() {
 			const oldQuantity = item.quantity
 
 			const newQuantity = Number.parseFloat(quantity) || 1
+
+			// Block reducing quantity once the item has progressed past Pending in
+			// the kitchen. Increasing quantity is still allowed (adds to the order).
+			if (
+				newQuantity < oldQuantity &&
+				item.custom_item_status &&
+				item.custom_item_status !== "Pending" &&
+				item.custom_item_status !== ""
+			) {
+				log.warn("Cannot reduce quantity - item already in kitchen:", item.custom_item_status)
+				return
+			}
 
 			// Handle serial number items - adjust serials when quantity changes
 			if (item.has_serial_no && item.serial_no) {
@@ -818,6 +833,8 @@ export function useInvoice() {
 			original_rate: item.original_rate || null,
 			// Preserve kitchen item status for held orders
 			custom_item_status: item.custom_item_status || "",
+			// Item-level note shown on kitchen screens
+			posa_notes: item.posa_notes || "",
 		}))
 	}
 
@@ -910,6 +927,8 @@ export function useInvoice() {
 			custom_table_number: tableNumber || "",
 			// Multi-table support: populate child table rows
 			custom_numbers_of_table: (tableNumbers || []).map(name => ({ table_name: name })),
+			// Invoice-level note shown on kitchen screens
+			posa_notes: invoiceNote.value || "",
 		}
 
 		if (targetDoctype === "Sales Order") {
@@ -983,6 +1002,8 @@ export function useInvoice() {
 					custom_table_number: tableNumber || "",
 					// Multi-table support: populate child table rows
 					custom_numbers_of_table: (tableNumbers || []).map(name => ({ table_name: name })),
+					// Invoice-level note shown on kitchen screens
+					posa_notes: invoiceNote.value || "",
 					// Delivery address
 					...(deliveryAddress ? { customer_address: deliveryAddress, shipping_address_name: deliveryAddress } : {}),
 					// Reuse existing server draft if available (prevents orphaned drafts)
@@ -1246,6 +1267,7 @@ export function useInvoice() {
 		posOpeningShift,
 		additionalDiscount,
 		couponCode,
+		invoiceNote,
 		taxRules,
 		taxInclusive,
 		isSubmitting,

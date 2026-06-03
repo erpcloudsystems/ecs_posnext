@@ -2048,6 +2048,8 @@ async function handlePaymentCompleted(paymentData) {
 				custom_table_number: cartStore.tableNumber || "",
 				// Multi-table support: populate child table rows
 				custom_numbers_of_table: (cartStore.tableNumbers || []).map(name => ({ table_name: name })),
+				// Invoice-level note shown on kitchen screens
+				posa_notes: cartStore.invoiceNote || "",
 			};
 
 			await offlineStore.saveInvoiceOffline(invoiceData);
@@ -2365,6 +2367,8 @@ async function handleSaveDraft() {
 					custom_so_type: cartStore.orderType || "",
 					custom_table_number: cartStore.tableNumber || "",
 					custom_numbers_of_table: currentTableNumbers.map(name => ({ table_name: name })),
+					// Invoice-level note shown on kitchen screens
+					posa_notes: cartStore.invoiceNote || "",
 				}),
 			});
 			if (serverDraft?.name) {
@@ -2401,7 +2405,8 @@ async function handleLoadDraft(draft) {
 				cartStore.currentDraftId,
 				cartStore.orderType,
 				cartStore.tableNumbers,
-				cartStore.serverDraftName
+				cartStore.serverDraftName,
+				cartStore.invoiceNote
 			);
 
 			if (!saved) {
@@ -2420,6 +2425,7 @@ async function handleLoadDraft(draft) {
 		cartStore.setCustomer(draftData.customer);
 		cartStore.currentDraftId = draft.draft_id; // Set current draft ID
 		cartStore.setOrderType(draftData.order_type || ""); // Restore order type
+		cartStore.invoiceNote = draftData.invoice_note || ""; // Restore invoice-level note
 		cartStore.setTableNumbers(draftData.table_numbers || []); // Restore selected tables
 		cartStore.serverDraftName = draftData.server_draft_name || null; // Restore server draft link
 
@@ -2632,6 +2638,9 @@ async function handleEditOfflineInvoice(invoice) {
 		if (invoiceData.customer) {
 			cartStore.setCustomer(invoiceData.customer);
 		}
+
+		// Restore invoice-level note
+		cartStore.invoiceNote = invoiceData.posa_notes || "";
 
 		if (invoiceData.items && invoiceData.items.length > 0) {
 			for (const item of invoiceData.items) {

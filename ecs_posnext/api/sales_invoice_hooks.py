@@ -10,6 +10,9 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+# Items in this class need no kitchen preparation; they are auto-completed.
+FRIDGE_ITEM_CLASS = "ثلاجة"
+
 
 def validate(doc, method=None):
 	"""
@@ -23,6 +26,42 @@ def validate(doc, method=None):
 	"""
 	apply_tax_inclusive(doc)
 	auto_assign_loyalty_program_on_invoice(doc)
+	auto_complete_fridge_items(doc)
+
+
+def auto_complete_fridge_items(doc):
+	"""Mark fridge (ثلاجة) items as Completed automatically.
+
+	Fridge items are simply retrieved, not prepared, so they should never sit
+	in the kitchen queue. The authoritative class is the Item master's
+	custom_item_class (Link field); the row-level Data field is used first and
+	backfilled when empty so kitchen screens (which query the row) stay correct.
+	"""
+	items = doc.get("items") or []
+	if not items:
+		return
+
+	# Resolve classes from the Item master only for rows missing the row value
+	missing = list({
+		i.item_code for i in items
+		if i.get("item_code") and not i.get("custom_item_class")
+	})
+	class_map = {}
+	if missing:
+		for row in frappe.get_all(
+			"Item",
+			filters={"name": ["in", missing]},
+			fields=["name", "custom_item_class"],
+		):
+			class_map[row.name] = row.custom_item_class
+
+	for item in items:
+		item_class = item.get("custom_item_class") or class_map.get(item.item_code)
+		if item_class == FRIDGE_ITEM_CLASS:
+			# Keep the row-level class in sync (kitchen screens query this field)
+			if not item.get("custom_item_class"):
+				item.custom_item_class = item_class
+			item.custom_item_status = "Completed"
 
 
 def apply_tax_inclusive(doc):

@@ -242,6 +242,17 @@
 												</div>
 											</div>
 
+											<!-- Item Note (shown on kitchen screens) -->
+											<div class="border-t border-gray-200 pt-4">
+												<label class="block text-sm font-medium text-gray-700 mb-2 text-start">{{ __('Note') }}</label>
+												<textarea
+													v-model="localItem.posa_notes"
+													rows="2"
+													:placeholder="__('Add a note for the kitchen (optional)')"
+													class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+												></textarea>
+											</div>
+
 											<!-- Totals -->
 											<div class="bg-gray-50 rounded-lg p-4 flex flex-col gap-2">
 												<div class="flex items-center justify-between text-sm">

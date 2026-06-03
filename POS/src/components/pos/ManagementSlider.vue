@@ -1,8 +1,9 @@
 <template>
 	<!-- Icon-Only Sidebar - Hidden on Mobile, Visible on Desktop -->
 	<div class="hidden lg:flex w-16 flex-shrink-0 bg-white border-e border-gray-200 flex-col items-center py-4 flex flex-col gap-2">
-		<!-- Promotions -->
+		<!-- Promotions (hidden per request: set v-if back to true / remove to restore) -->
 		<button
+			v-if="false"
 			@click="handleMenuClick('promotions')"
 			:class="[
 				'w-12 h-12 rounded-lg flex items-center justify-center transition-all relative group',
@@ -18,8 +19,9 @@
 			</div>
 		</button>
 
-		<!-- Products -->
+		<!-- Products / Stock (hidden per request: set v-if back to true / remove to restore) -->
 		<button
+			v-if="false"
 			@click="handleMenuClick('products')"
 			:class="[
 				'w-12 h-12 rounded-lg flex items-center justify-center transition-all relative group',
@@ -52,8 +54,9 @@
 			</div>
 		</button>
 
-		<!-- Daily Payment -->
+		<!-- Daily Payment (hidden per request: set v-if back to true / remove to restore) -->
 		<button
+			v-if="false"
 			@click="handleMenuClick('daily-payment')"
 			:class="[
 				'w-12 h-12 rounded-lg flex items-center justify-center transition-all relative group',
