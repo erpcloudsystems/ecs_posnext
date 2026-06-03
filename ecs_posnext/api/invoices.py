@@ -801,11 +801,22 @@ def update_invoice(data):
             for k, v in existing_item_statuses.items():
                 restore_map[k] = list(v)
 
+            # Pass 1: for items that already carry a status from the frontend,
+            # consume the matching DB snapshot entry. This prevents a leftover
+            # status (e.g. an existing "Preparing" line) from bleeding onto a
+            # newly added line of the same item_code, which would otherwise
+            # inherit it via the FIFO restore below.
             for item in invoice_doc.get("items", []):
-                # If frontend already sent a valid status, keep it
+                status = item.get("custom_item_status")
+                if status and item.item_code in restore_map and status in restore_map[item.item_code]:
+                    restore_map[item.item_code].remove(status)
+
+            # Pass 2: restore from the remaining DB snapshot only for items that
+            # don't already have a status. Lines with no remaining snapshot entry
+            # (e.g. genuinely new items) fall through and default to "Pending" below.
+            for item in invoice_doc.get("items", []):
                 if item.get("custom_item_status") and item.custom_item_status != "":
                     continue
-                # Otherwise restore from DB snapshot
                 if item.item_code in restore_map and restore_map[item.item_code]:
                     item.custom_item_status = restore_map[item.item_code].pop(0)
         else:
