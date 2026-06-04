@@ -653,7 +653,7 @@ def get_unpaid_invoices(pos_profile: str, limit: int = DEFAULT_INVOICE_LIMIT) ->
     elif limit > MAX_INVOICE_LIMIT:
         limit = MAX_INVOICE_LIMIT
 
-    # Get all unpaid invoices (any invoice with outstanding > 0)
+    # Get today's unpaid invoices (any invoice with outstanding > 0)
     invoices = frappe.get_all(
         "Sales Invoice",
         filters={
@@ -662,6 +662,7 @@ def get_unpaid_invoices(pos_profile: str, limit: int = DEFAULT_INVOICE_LIMIT) ->
             "is_pos": 1,
             "outstanding_amount": [">", 0],
             "is_return": 0,
+            "posting_date": frappe.utils.today(),
         },
         fields=[
             "name",

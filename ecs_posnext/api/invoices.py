@@ -1684,15 +1684,14 @@ def get_invoices(pos_profile, limit=100, pos_opening_shift=None):
 		frappe.throw(_("You don't have access to this POS Profile"))
 
 	# Build filters
+	# Show all of today's invoices for this profile, across all opening shifts.
+	# pos_opening_shift is accepted for backward compatibility but no longer
+	# restricts the result set.
 	filters = {
 		"pos_profile": pos_profile,
+		"today": frappe.utils.today(),
 		"limit": limit
 	}
-
-	opening_shift_filter = ""
-	if pos_opening_shift:
-		opening_shift_filter = "AND posa_pos_opening_shift = %(pos_opening_shift)s"
-		filters["pos_opening_shift"] = pos_opening_shift
 
 	# Query for invoices
 	invoices = frappe.db.sql("""
@@ -1715,12 +1714,12 @@ def get_invoices(pos_profile, limit=100, pos_opening_shift=None):
 			pos_profile = %(pos_profile)s
 			AND docstatus = 1
 			AND is_pos = 1
-			{opening_shift_filter}
+			AND posting_date = %(today)s
 		ORDER BY
 			posting_date DESC,
 			posting_time DESC
 		LIMIT %(limit)s
-	""".format(opening_shift_filter=opening_shift_filter), filters, as_dict=True)
+	""", filters, as_dict=True)
 
 	# Load items for each invoice for filtering purposes
 	for invoice in invoices:
