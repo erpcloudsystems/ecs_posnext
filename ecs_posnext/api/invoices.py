@@ -1752,12 +1752,25 @@ def get_invoices(pos_profile, limit=100, pos_opening_shift=None):
 
 @frappe.whitelist()
 def get_draft_invoices(pos_opening_shift, doctype="Sales Invoice"):
-    """Get all draft invoices for a POS opening shift."""
+    """Get all draft invoices for the POS profile that the given opening shift belongs to.
+
+    Returns drafts for the whole POS profile, not just the ones tied to this
+    specific opening shift.
+    """
+    pos_profile = frappe.db.get_value(
+        "POS Opening Shift", pos_opening_shift, "pos_profile"
+    )
+    if not pos_profile:
+        frappe.throw(
+            _("POS Opening Shift {0} not found or has no POS Profile").format(
+                pos_opening_shift
+            )
+        )
+
     filters = {
         "docstatus": 0,
+        "pos_profile": pos_profile,
     }
-
-    
 
     # Performance: Get all invoice names first
     invoices_list = frappe.get_list(
