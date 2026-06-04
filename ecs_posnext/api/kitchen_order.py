@@ -75,7 +75,10 @@ def get_orders(status=None, fromDelivery=False):
         WHERE
             IFNULL(NULLIF(t1.custom_item_status, ''), 'Pending') IN ('{status_placeholders}')
             AND t1.custom_item_class IN ('{items_class_str}')
-            AND t.docstatus = 0 
+            AND (
+                (t.custom_so_type = 'Dinin' AND t.docstatus = 0)
+                OR (IFNULL(t.custom_so_type, '') != 'Dinin' AND t.docstatus = 1)
+            )
             AND t.is_return = 0
             AND IFNULL(t.custom_skip_kitchen, 0) = 0
             {so_type_filter}
