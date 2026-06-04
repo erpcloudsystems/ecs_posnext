@@ -76,24 +76,6 @@
 		<div class="flex-1"></div>
 
 		<!-- Divider -->
-		<div class="w-8 border-t border-gray-200 my-2"></div>
-
-		<!-- Settings -->
-		<button
-			@click="handleMenuClick('settings')"
-			:class="[
-				'w-12 h-12 rounded-lg flex items-center justify-center transition-all relative group',
-				activeMenu === 'settings'
-					? 'bg-gray-100 text-gray-900'
-					: 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-			]"
-			:title="__('Settings')"
-		>
-			<FeatherIcon name="settings" class="w-5 h-5" />
-			<div class="absolute start-full ms-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
-				{{ __('Settings') }}
-			</div>
-		</button>
 	</div>
 </template>
 

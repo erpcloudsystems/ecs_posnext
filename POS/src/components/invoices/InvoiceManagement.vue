@@ -694,14 +694,6 @@ const tabs = computed(() => [
 		badge: () => filteredHistoryInvoices.value.length,
 	},
 	{
-		id: "drafts",
-		label: __("Drafts"),
-		icon: "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z",
-		color: "purple",
-		activeClass: "text-purple-600",
-		badge: () => props.draftInvoices.length,
-	},
-	{
 		id: "returns",
 		label: __("Returns"),
 		icon: "M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6",
