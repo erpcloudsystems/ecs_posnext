@@ -345,6 +345,7 @@
 								:currency="shiftStore.profileCurrency"
 								:applied-offers="cartStore.appliedOffers"
 								:warehouses="profileWarehouses"
+								:saving-draft="isSavingDraft"
 								@update-quantity="cartStore.updateItemQuantity"
 								@remove-item="
 									(itemCode, uom) => cartStore.removeItem(itemCode, uom)
@@ -2334,7 +2335,15 @@ async function setTablesStatus(tableNames, disabled) {
 	}
 }
 
+// Guards against duplicate held invoices from rapid "Hold" clicks
+const isSavingDraft = ref(false);
+
 async function handleSaveDraft() {
+	// Re-entrancy guard: rapid clicks on "Hold" would otherwise each create a
+	// new server draft (serverDraftName is only set after the first await),
+	// producing duplicate invoices.
+	if (isSavingDraft.value) return;
+
 	if (!cartStore.orderType) {
 		showWarning(__("Please select an order type"));
 		return;
@@ -2345,14 +2354,16 @@ async function handleSaveDraft() {
 		return;
 	}
 
-	// Capture table numbers before any cart clearing
-	const currentTableNumbers = [...cartStore.tableNumbers];
-	const isDinin = cartStore.orderType === "Dinin";
+	isSavingDraft.value = true;
+	try {
+		// Capture table numbers before any cart clearing
+		const currentTableNumbers = [...cartStore.tableNumbers];
+		const isDinin = cartStore.orderType === "Dinin";
 
-	// Create/update a server-side draft Sales Invoice for all order types
-	if (cartStore.invoiceItems.length > 0) {
-		try {
-			const serverDraft = await call("ecs_posnext.api.invoices.update_invoice", {
+		// Create/update a server-side draft Sales Invoice for all order types
+		if (cartStore.invoiceItems.length > 0) {
+			try {
+				const serverDraft = await call("ecs_posnext.api.invoices.update_invoice", {
 				data: JSON.stringify({
 					name: cartStore.serverDraftName || undefined,
 					doctype: "Sales Invoice",
@@ -2388,9 +2399,12 @@ async function handleSaveDraft() {
 		}
 	}
 
-	cartStore.clearCart();
-	// Reset cart hash when cart is saved as draft and cleared
-	previousCartHash = "";
+		cartStore.clearCart();
+		// Reset cart hash when cart is saved as draft and cleared
+		previousCartHash = "";
+	} finally {
+		isSavingDraft.value = false;
+	}
 }
 
 async function handleLoadDraft(draft) {
