@@ -2268,3 +2268,110 @@ def get_batch_serial_data_for_items(item_codes, warehouse):
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Get Batch/Serial Data for Items Error")
 		return {}
+
+
+@frappe.whitelist()
+def get_pos_price_lists(pos_profile=None):
+	"""Get selling price lists for POS selection.
+
+	When a POS Profile is provided, restrict the result to that profile's
+	configured selling_price_list. Falls back to all enabled selling price
+	lists when no profile is given or the profile has no price list set.
+	"""
+	try:
+		PriceList = DocType("Price List")
+		query = (
+			frappe.qb.from_(PriceList)
+			.select(
+				PriceList.name,
+				PriceList.price_list_name,
+				PriceList.currency,
+			)
+			.where(PriceList.selling == 1)
+			.where(PriceList.enabled == 1)
+		)
+
+		profile_price_list = None
+		if pos_profile:
+			profile_price_list = frappe.db.get_value(
+				"POS Profile", pos_profile, "selling_price_list"
+			)
+		if profile_price_list:
+			query = query.where(PriceList.name == profile_price_list)
+
+		return query.orderby(PriceList.name).run(as_dict=True)
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), "Get POS Price Lists Error")
+		frappe.throw(_("Error fetching price lists: {0}").format(str(e)))
+
+
+@frappe.whitelist()
+def get_child_item_groups(parent_group=None, pos_profile=None):
+	"""Get direct child item groups for nested card navigation.
+
+	If parent_group is None or empty, returns top-level groups from POS Profile config.
+	If parent_group is set, returns its direct child groups.
+
+	Returns:
+		List of dicts with item_group, is_group, image fields.
+	"""
+	try:
+		ItemGroup = DocType("Item Group")
+
+		if not parent_group:
+			if pos_profile:
+				POSItemGroup = DocType("POS Item Group")
+				configured = (
+					frappe.qb.from_(POSItemGroup)
+					.select(POSItemGroup.item_group)
+					.distinct()
+					.where(POSItemGroup.parent == pos_profile)
+					.orderby(POSItemGroup.item_group)
+					.run(pluck="item_group")
+				)
+				if configured:
+					result = []
+					for group_name in configured:
+						group_data = frappe.db.get_value(
+							"Item Group", group_name,
+							["name", "is_group", "image"],
+							as_dict=True
+						)
+						if group_data:
+							result.append({
+								"item_group": group_data["name"],
+								"is_group": group_data["is_group"],
+								"image": group_data.get("image"),
+							})
+					return result
+
+			# Fallback: return leaf groups
+			return (
+				frappe.qb.from_(ItemGroup)
+				.select(
+					ItemGroup.name.as_("item_group"),
+					ItemGroup.is_group,
+					ItemGroup.image,
+				)
+				.where(ItemGroup.in_list == 1)
+				.orderby(ItemGroup.name)
+				.limit(50)
+				.run(as_dict=True)
+			)
+
+		# Get direct children of parent_group
+		return (
+			frappe.qb.from_(ItemGroup)
+			.select(
+				ItemGroup.name.as_("item_group"),
+				ItemGroup.is_group,
+				ItemGroup.image,
+			)
+			.where(ItemGroup.parent_item_group == parent_group)
+			.orderby(ItemGroup.name)
+			.run(as_dict=True)
+		)
+
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), "Get Child Item Groups Error")
+		frappe.throw(_("Error fetching child item groups: {0}").format(str(e)))

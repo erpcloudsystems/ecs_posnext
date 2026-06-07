@@ -150,6 +150,22 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	const sortBy = ref(null) // Options: 'name', 'quantity', 'item_group', null (no sorting)
 	const sortOrder = ref('asc') // Options: 'asc', 'desc'
 
+	// Price List & Group Navigation state
+	const selectedPriceList = ref(localStorage.getItem("pos_selected_price_list") || null)
+	const availablePriceLists = ref([])
+	const groupBreadcrumb = ref([]) // Stack of { name, label } for nested navigation
+	const currentGroupChildren = ref([]) // Current group's children for card display
+	const loadingGroups = ref(false)
+	// Navigation step: 'price_list' -> 'groups' -> 'items'
+	const navigationStep = computed(() => {
+		if (!selectedPriceList.value) return 'price_list'
+		if (loadingGroups.value) return 'groups'
+		if (currentGroupChildren.value.length > 0) return 'groups'
+		if (groupBreadcrumb.value.length > 0 && currentGroupChildren.value.length === 0) return 'items'
+		if (!selectedItemGroup.value && groupBreadcrumb.value.length === 0) return 'groups'
+		return 'items'
+	})
+
 	// Lazy loading state - dynamically adjusted based on device performance
 	const currentOffset = ref(0)
 	const itemsPerPage = computed(() => performanceConfig.get("itemsPerPage")) // Reactive: auto-adjusted 20/50/100 based on device
@@ -1964,6 +1980,111 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	 * @param {string} profile - POS Profile name
 	 * @param {boolean} autoLoadItems - Automatically load items after setting profile (default: true)
 	 */
+	// ========================================================================
+	// PRICE LIST & GROUP NAVIGATION ACTIONS
+	// ========================================================================
+
+	async function loadPriceLists(profile = posProfile.value) {
+		try {
+			const data = await call("ecs_posnext.api.items.get_pos_price_lists", {
+				pos_profile: profile,
+			})
+			availablePriceLists.value = data?.message || data || []
+		} catch (error) {
+			log.error("Error loading price lists:", error)
+			availablePriceLists.value = []
+		}
+	}
+
+	async function selectPriceList(priceListName) {
+		selectedPriceList.value = priceListName
+		localStorage.setItem("pos_selected_price_list", priceListName)
+		await loadGroupChildren(null)
+	}
+
+	function changePriceList() {
+		selectedPriceList.value = null
+		localStorage.removeItem("pos_selected_price_list")
+		groupBreadcrumb.value = []
+		currentGroupChildren.value = []
+		selectedItemGroup.value = null
+		replaceAllItems([])
+	}
+
+	async function loadGroupChildren(parentGroup) {
+		loadingGroups.value = true
+		try {
+			const data = await call("ecs_posnext.api.items.get_child_item_groups", {
+				parent_group: parentGroup || "",
+				pos_profile: posProfile.value,
+			})
+			const groups = data?.message || data || []
+			currentGroupChildren.value = groups
+			return groups
+		} catch (error) {
+			log.error("Error loading child groups:", error)
+			currentGroupChildren.value = []
+			return []
+		} finally {
+			loadingGroups.value = false
+		}
+	}
+
+	async function navigateToGroup(group) {
+		const groupName = group.item_group || group
+		const isGroup = group.is_group
+
+		if (isGroup) {
+			const children = await loadGroupChildren(groupName)
+			if (children.length > 0) {
+				groupBreadcrumb.value = [...groupBreadcrumb.value, { name: groupName, label: groupName }]
+				return
+			}
+		}
+
+		groupBreadcrumb.value = [...groupBreadcrumb.value, { name: groupName, label: groupName }]
+		currentGroupChildren.value = []
+		selectedItemGroup.value = groupName
+
+		if (posProfile.value) {
+			await setSelectedItemGroup(groupName)
+		}
+	}
+
+	async function navigateBack() {
+		if (groupBreadcrumb.value.length === 0) return
+
+		const newBreadcrumb = [...groupBreadcrumb.value]
+		newBreadcrumb.pop()
+		groupBreadcrumb.value = newBreadcrumb
+
+		selectedItemGroup.value = null
+		replaceAllItems([])
+
+		if (newBreadcrumb.length === 0) {
+			await loadGroupChildren(null)
+		} else {
+			const parentGroup = newBreadcrumb[newBreadcrumb.length - 1].name
+			await loadGroupChildren(parentGroup)
+		}
+	}
+
+	async function navigateToBreadcrumb(index) {
+		if (index < 0) {
+			groupBreadcrumb.value = []
+			selectedItemGroup.value = null
+			replaceAllItems([])
+			await loadGroupChildren(null)
+			return
+		}
+
+		const targetGroup = groupBreadcrumb.value[index]
+		groupBreadcrumb.value = groupBreadcrumb.value.slice(0, index + 1)
+		selectedItemGroup.value = null
+		replaceAllItems([])
+		await loadGroupChildren(targetGroup.name)
+	}
+
 	async function setPosProfile(profile, autoLoadItems = true) {
 		// Skip re-initialization if same profile is already loaded and initialized
 		// This prevents redundant API calls when mobile tab switching
@@ -2018,10 +2139,17 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			// Stop any existing sync before loading items for new profile
 			stopBackgroundCacheSync()
 
-			// Load items in background (non-blocking)
-			if (autoLoadItems) {
-				loadAllItems(profile)
+			// Load available price lists for card selection
+			loadPriceLists(profile)
+
+			// If a price list was previously selected, resume group navigation
+			if (selectedPriceList.value) {
+				await loadGroupChildren(null)
+				if (autoLoadItems && currentGroupChildren.value.length === 0) {
+					loadAllItems(profile)
+				}
 			}
+			// If no price list selected, wait for user to pick one
 		} catch (error) {
 			log.error("Error fetching POS Profile data", error)
 
@@ -2116,6 +2244,23 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		// ========================================================================
 		applyStockUpdates,        // Delegates to stockStore.applyUpdates
 		refreshStockFromServer,   // Delegates to stockStore.refreshFromServer
+
+		// ========================================================================
+		// PRICE LIST & GROUP NAVIGATION
+		// ========================================================================
+		selectedPriceList,
+		availablePriceLists,
+		groupBreadcrumb,
+		currentGroupChildren,
+		loadingGroups,
+		navigationStep,
+		loadPriceLists,
+		selectPriceList,
+		changePriceList,
+		loadGroupChildren,
+		navigateToGroup,
+		navigateBack,
+		navigateToBreadcrumb,
 
 		// ========================================================================
 		// STOCK STORE ACCESS
