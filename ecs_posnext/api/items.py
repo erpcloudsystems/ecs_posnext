@@ -1081,6 +1081,31 @@ def _get_bundle_warehouse_availability_bulk(bundle_codes, warehouses):
 	return dict(result)
 
 
+def _get_item_sorting_order(item_group):
+	"""Return ordered item codes from Item Sorting for this group, or None if no record exists."""
+	if not item_group:
+		return None
+	if not frappe.db.exists("Item Sorting", item_group):
+		return None
+	rows = frappe.get_all(
+		"Item Sorting Item",
+		filters={"parent": item_group},
+		fields=["item"],
+		order_by="idx asc",
+	)
+	return [r.item for r in rows] if rows else None
+
+
+def _build_custom_order_clause(item_codes):
+	"""ORDER BY: pinned items first in defined order, rest alphabetically."""
+	escaped = ", ".join(frappe.db.escape(code) for code in item_codes)
+	return (
+		f"CASE WHEN i.name IN ({escaped}) THEN 0 ELSE 1 END ASC, "
+		f"FIELD(i.name, {escaped}) ASC, "
+		f"i.item_name ASC"
+	)
+
+
 @frappe.whitelist()
 def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20, include_variants=0):
 	"""Get items for POS with stock, price, and tax details"""
@@ -1155,9 +1180,9 @@ def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20,
 			score_params = [effective_search_term, prefix_pattern, effective_search_term, effective_search_term, prefix_pattern, prefix_pattern]
 			order_by = f"{relevance} DESC, i.item_name ASC"
 		else:
-			# No search term - simple ordering
 			score_params = []
-			order_by = "i.item_name ASC"
+			custom_order = _get_item_sorting_order(item_group)
+			order_by = _build_custom_order_clause(custom_order) if custom_order else "i.item_name ASC"
 
 		where_clause = " AND ".join(conditions)
 
