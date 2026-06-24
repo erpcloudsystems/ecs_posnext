@@ -272,8 +272,14 @@ export function useInvoice() {
 	// Actions
 	function addItem(item, quantity = 1) {
 		const itemUom = item.uom || item.stock_uom
+		// Per-item sales person makes a separate cart line: the same item/uom
+		// assigned to a different sales person must NOT merge.
+		const itemSalesPerson = item.sales_person || null
 		const existingItem = invoiceItems.value.find(
-			(i) => i.item_code === item.item_code && i.uom === itemUom,
+			(i) =>
+				i.item_code === item.item_code &&
+				i.uom === itemUom &&
+				(i.sales_person || null) === itemSalesPerson,
 		)
 
 		if (existingItem) {
@@ -344,6 +350,9 @@ export function useInvoice() {
 				custom_allow_rate_edit: item.custom_allow_rate_edit || 0,
 				// Exclude from additional discount
 				custom_not_included: item.custom_not_included || 0,
+				// Per-item sales person (Multiple Sales Persons mode)
+				sales_person: item.sales_person || null,
+				sales_person_name: item.sales_person_name || null,
 			}
 			console.log('[DEBUG addItem]', item.item_code, 'source custom_not_included:', item.custom_not_included, '→ cart custom_not_included:', newItem.custom_not_included, '| allowAdditionalDiscount:', allowAdditionalDiscount.value)
 			invoiceItems.value.push(newItem)
@@ -368,15 +377,13 @@ export function useInvoice() {
 	 *                            If provided, only removes the item with matching item_code AND uom.
 	 *                            If null, removes the first item matching item_code.
 	 */
-	function removeItem(itemCode, uom = null) {
-		let itemToRemove
-		if (uom) {
-			itemToRemove = invoiceItems.value.find(
-				(i) => i.item_code === itemCode && i.uom === uom,
-			)
-		} else {
-			itemToRemove = invoiceItems.value.find((i) => i.item_code === itemCode)
-		}
+	function removeItem(itemCode, uom = null, salesPerson = undefined) {
+		const matches = (i) =>
+			i.item_code === itemCode &&
+			(!uom || i.uom === uom) &&
+			(salesPerson === undefined || (i.sales_person || null) === (salesPerson || null))
+
+		const itemToRemove = invoiceItems.value.find(matches)
 
 		if (itemToRemove) {
 			// Update cache incrementally (subtract removed item values)
@@ -395,14 +402,11 @@ export function useInvoice() {
 			}
 		}
 
-		if (uom) {
-			invoiceItems.value = invoiceItems.value.filter(
-				(i) => !(i.item_code === itemCode && i.uom === uom),
-			)
-		} else {
-			invoiceItems.value = invoiceItems.value.filter(
-				(i) => i.item_code !== itemCode,
-			)
+		// Remove only the FIRST matching line (handles same item under
+		// multiple sales persons / uoms without nuking the others)
+		const removeIndex = invoiceItems.value.findIndex(matches)
+		if (removeIndex > -1) {
+			invoiceItems.value.splice(removeIndex, 1)
 		}
 	}
 
@@ -414,15 +418,14 @@ export function useInvoice() {
 	 *                            If provided, only updates the item with matching item_code AND uom.
 	 *                            If null, updates the first item matching item_code.
 	 */
-	function updateItemQuantity(itemCode, quantity, uom = null) {
-		let item
-		if (uom) {
-			item = invoiceItems.value.find(
-				(i) => i.item_code === itemCode && i.uom === uom,
-			)
-		} else {
-			item = invoiceItems.value.find((i) => i.item_code === itemCode)
-		}
+	function updateItemQuantity(itemCode, quantity, uom = null, salesPerson = undefined) {
+		const item = invoiceItems.value.find(
+			(i) =>
+				i.item_code === itemCode &&
+				(!uom || i.uom === uom) &&
+				(salesPerson === undefined ||
+					(i.sales_person || null) === (salesPerson || null)),
+		)
 
 		if (item) {
 			// Store old values before update for incremental cache adjustment
@@ -807,7 +810,42 @@ export function useInvoice() {
 			// Manual rate edit tracking for audit logging
 			is_rate_manually_edited: item.is_rate_manually_edited || 0,
 			original_rate: item.original_rate || null,
+			// Per-item sales person (Multiple Sales Persons mode)
+			custom_sales_person: item.sales_person || null,
 		}))
+	}
+
+	/**
+	 * Derive the invoice-level sales_team (commission split) from per-item
+	 * sales person assignment. Each sales person's allocated_percentage is the
+	 * share of the net total their assigned items represent.
+	 * Returns null when no item carries a sales person.
+	 */
+	function deriveSalesTeamFromItems(items) {
+		const totals = {}
+		let grand = 0
+		for (const item of items) {
+			const amt = computeBackendRate(item) * (item.quantity || item.qty || 1)
+			grand += amt
+			const sp = item.sales_person || null
+			if (sp) totals[sp] = (totals[sp] || 0) + amt
+		}
+		const people = Object.keys(totals)
+		if (people.length === 0 || grand <= 0) return null
+
+		const team = people.map((sp) => ({
+			sales_person: sp,
+			allocated_percentage: roundCurrency((totals[sp] / grand) * 100),
+		}))
+
+		// Fix rounding drift so the allocation sums to exactly 100%
+		const sum = team.reduce((s, m) => s + m.allocated_percentage, 0)
+		if (team.length && sum !== 100) {
+			team[0].allocated_percentage = roundCurrency(
+				team[0].allocated_percentage + (100 - sum),
+			)
+		}
+		return team
 	}
 
 	function addPayment(payment) {
@@ -965,8 +1003,13 @@ export function useInvoice() {
 					invoiceData.delivery_date = deliveryDate
 				}
 
-				// Add sales_team if provided
-				if (rawSalesTeam && rawSalesTeam.length > 0) {
+				// Sales team (commission split). In Multiple Sales Persons mode this
+				// is derived from per-item assignment; otherwise use the manual
+				// selection from the payment dialog.
+				const derivedSalesTeam = deriveSalesTeamFromItems(rawItems)
+				if (derivedSalesTeam) {
+					invoiceData.sales_team = derivedSalesTeam
+				} else if (rawSalesTeam && rawSalesTeam.length > 0) {
 					invoiceData.sales_team = rawSalesTeam.map((member) => ({
 						sales_person: member.sales_person,
 						allocated_percentage: member.allocated_percentage || 0,

@@ -317,8 +317,39 @@
 						</div>
 					</div>
 
+					<!-- Multiple Sales Persons (per-item) — derived commission split, read-only -->
+					<div
+						v-if="salesPersonStore.enabled"
+						class="rounded-lg p-2 mb-1.5 lg:mb-2 bg-purple-50 border border-purple-200"
+					>
+						<div class="flex items-center justify-between mb-1.5">
+							<label class="text-xs font-medium text-purple-700 flex items-center gap-1">
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4 0m4 0a4 4 0 014 4M9 11a4 4 0 100-8 4 4 0 000 8z" />
+								</svg>
+								{{ __("Sales Persons (by item)") }}
+							</label>
+						</div>
+						<div v-if="derivedSalesAllocations.length > 0" class="space-y-1">
+							<div
+								v-for="alloc in derivedSalesAllocations"
+								:key="alloc.sales_person"
+								class="flex items-center justify-between text-xs bg-white border border-purple-200 rounded px-2 py-1"
+							>
+								<span class="font-medium text-gray-900 truncate">{{ alloc.sales_person_name || alloc.sales_person }}</span>
+								<span class="flex items-center gap-2 flex-shrink-0 ms-2">
+									<span class="text-gray-600">{{ formatCurrency(alloc.amount) }}</span>
+									<span class="text-purple-600 font-semibold min-w-[36px] text-end">{{ Math.round(alloc.allocated_percentage) }}%</span>
+								</span>
+							</div>
+						</div>
+						<p v-else class="text-[11px] text-gray-500">
+							{{ __("No items assigned to a sales person yet") }}
+						</p>
+					</div>
+
 					<!-- Sales Person Selection (top of right column) -->
-					<div v-if="settingsStore.enableSalesPersons" :class="[
+					<div v-if="settingsStore.enableSalesPersons && !salesPersonStore.enabled" :class="[
 							'rounded-lg p-2 mb-1.5 lg:mb-2',
 							!isSalesPersonValid ? 'bg-red-50 border-2 border-red-300' : 'bg-purple-50 border border-purple-200'
 						]">
@@ -817,6 +848,7 @@
 
 <script setup>
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import { usePOSSalesPersonStore } from "@/stores/posSalesPerson"
 import {
 	DEFAULT_CURRENCY,
 	formatCurrency as formatCurrencyUtil,
@@ -835,7 +867,14 @@ import { useResponsivePayment } from "@/composables/useResponsivePayment"
 
 const log = logger.create("PaymentDialog")
 const settingsStore = usePOSSettingsStore()
+const salesPersonStore = usePOSSalesPersonStore()
 const { showWarning, showInfo } = useToast()
+
+// Derived commission split for Multiple Sales Persons mode (read-only here:
+// the allocation comes from per-item assignment on the sale screen)
+const derivedSalesAllocations = computed(() =>
+	salesPersonStore.computeAllocations(props.items || []),
+)
 
 const props = defineProps({
 	modelValue: Boolean,
@@ -1324,6 +1363,11 @@ const totalSalesAllocation = computed(() => {
 
 // Computed: Validation - sales person is required when enabled
 const isSalesPersonValid = computed(() => {
+	// Per-item Multiple Sales Persons mode handles assignment on the sale screen,
+	// so the manual selector validation does not apply here.
+	if (salesPersonStore.enabled) {
+		return true
+	}
 	// If sales persons feature is disabled, always valid
 	if (!settingsStore.enableSalesPersons) {
 		return true

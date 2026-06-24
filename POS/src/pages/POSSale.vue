@@ -216,6 +216,42 @@
 							</div>
 						</button>
 						<button
+							v-if="salesPersonStore.enabled"
+							@click="handleTabSwitch('sellers')"
+							:class="[
+								'flex-1 px-3 py-3 text-sm font-semibold transition-[color,background-color,border-color] duration-100 relative touch-manipulation',
+								uiStore.mobileActiveTab === 'sellers'
+									? 'text-purple-600 border-b-3 border-purple-600 bg-purple-50'
+									: 'text-gray-600 hover:text-gray-800 hover:bg-gray-50 active:bg-gray-100',
+							]"
+							:aria-label="__('View sales persons')"
+							:aria-selected="uiStore.mobileActiveTab === 'sellers'"
+							role="tab"
+						>
+							<div class="flex items-center justify-center gap-1.5">
+								<svg
+									class="w-5 h-5"
+									fill="none"
+									stroke="currentColor"
+									viewBox="0 0 24 24"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="2"
+										d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4 0m4 0a4 4 0 014 4M9 11a4 4 0 100-8 4 4 0 000 8z"
+									/>
+								</svg>
+								<span>{{ __("Sellers") }}</span>
+								<span
+									v-if="salesPersonStore.selected.length > 0"
+									class="bg-purple-600 text-white text-[10px] font-bold rounded-full min-w-[20px] h-5 px-1.5 flex items-center justify-center shadow-sm"
+								>
+									{{ salesPersonStore.selected.length }}
+								</span>
+							</div>
+						</button>
+						<button
 							@click="handleTabSwitch('cart')"
 							:class="[
 								'flex-1 px-3 py-3 text-sm font-semibold transition-[color,background-color,border-color] duration-100 relative touch-manipulation',
@@ -275,6 +311,27 @@
 						</div>
 					</keep-alive>
 
+					<!-- Sales Persons Panel (Multiple Sales Persons mode) -->
+					<template v-if="salesPersonStore.enabled">
+						<!-- Static divider before the sales persons panel (desktop) -->
+						<div
+							v-if="uiStore.isDesktop"
+							class="w-px bg-gray-200 flex-shrink-0 hidden lg:block"
+						></div>
+						<keep-alive>
+							<div
+								v-if="uiStore.isDesktop || uiStore.mobileActiveTab === 'sellers'"
+								:class="[
+									'flex flex-col bg-white overflow-hidden',
+									uiStore.isDesktop ? 'flex-shrink-0 w-64 xl:w-72' : 'flex-1',
+								]"
+								style="contain: layout style paint"
+							>
+								<SalesPersonsPanel />
+							</div>
+						</keep-alive>
+					</template>
+
 					<!-- Draggable Divider (Desktop Only) -->
 					<div
 						v-if="uiStore.isDesktop"
@@ -327,7 +384,8 @@
 								:warehouses="profileWarehouses"
 								@update-quantity="cartStore.updateItemQuantity"
 								@remove-item="
-									(itemCode, uom) => cartStore.removeItem(itemCode, uom)
+									(itemCode, uom, salesPerson) =>
+										cartStore.removeItem(itemCode, uom, salesPerson)
 								"
 								@select-customer="handleCustomerSelected"
 								@create-customer="handleCreateCustomer"
@@ -965,6 +1023,7 @@ import InvoiceCart from "@/components/sale/InvoiceCart.vue";
 import InvoiceHistoryDialog from "@/components/sale/InvoiceHistoryDialog.vue";
 import ItemSelectionDialog from "@/components/sale/ItemSelectionDialog.vue";
 import ItemsSelector from "@/components/sale/ItemsSelector.vue";
+import SalesPersonsPanel from "@/components/sale/SalesPersonsPanel.vue";
 import OffersDialog from "@/components/sale/OffersDialog.vue";
 import OfflineInvoicesDialog from "@/components/sale/OfflineInvoicesDialog.vue";
 import PaymentDialog from "@/components/sale/PaymentDialog.vue";
@@ -996,6 +1055,7 @@ import { useItemSearchStore } from "@/stores/itemSearch";
 import { useStockStore } from "@/stores/stock";
 // Pinia Stores
 import { usePOSCartStore } from "@/stores/posCart";
+import { usePOSSalesPersonStore } from "@/stores/posSalesPerson";
 import { usePOSDraftsStore } from "@/stores/posDrafts";
 import { usePOSSettingsStore } from "@/stores/posSettings";
 import { usePOSShiftStore } from "@/stores/posShift";
@@ -1005,6 +1065,7 @@ import { logger } from "@/utils/logger";
 
 // Initialize stores
 const cartStore = usePOSCartStore();
+const salesPersonStore = usePOSSalesPersonStore();
 const shiftStore = usePOSShiftStore();
 const uiStore = usePOSUIStore();
 const offlineStore = usePOSSyncStore();
@@ -1799,7 +1860,12 @@ function handleItemSelected(item, autoAdd = false) {
 }
 
 async function handleEditItem(updatedItem) {
-	await cartStore.updateItemDetails(updatedItem.item_code, updatedItem);
+	await cartStore.updateItemDetails(
+		updatedItem.item_code,
+		updatedItem,
+		updatedItem.uom,
+		updatedItem.sales_person,
+	);
 }
 
 function handleAdditionalDiscountUpdate(discountAmount) {

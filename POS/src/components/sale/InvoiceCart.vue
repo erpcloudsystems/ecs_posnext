@@ -65,6 +65,19 @@
 	<div class="flex flex-col h-full bg-white">
 		<!-- Header with Customer -->
 		<div class="px-2.5 py-2 border-b border-gray-200 bg-gray-50">
+			<!-- Multiple Sales Persons Toggle -->
+			<label
+				class="flex items-center gap-2 mb-2 cursor-pointer select-none"
+			>
+				<input
+					type="checkbox"
+					v-model="multipleSalesPersons"
+					class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+				/>
+				<span class="text-xs font-medium text-gray-700">
+					{{ __("Multiple Sales Persons") }}
+				</span>
+			</label>
 			<!-- Inline Customer Search/Selection -->
 			<div ref="customerSearchContainer" class="relative">
 				<div v-if="customer">
@@ -741,12 +754,31 @@
 			</div>
 
 			<div v-else class="flex flex-col gap-0.5 sm:gap-1">
-				<div
-					v-for="(item, index) in sortedItems"
-					:key="item.item_code + '-' + (item.uom || '')"
-					@click="openEditDialog(item)"
-					class="bg-white border border-gray-200 rounded-md p-1.5 sm:p-2 hover:border-blue-300 hover:shadow-md transition-all duration-200 active:scale-[0.99] cursor-pointer group"
+				<template
+					v-for="(item, index) in displayItems"
+					:key="item.item_code + '-' + (item.uom || '') + '-' + (item.sales_person || '')"
 				>
+					<!-- Sales person group header (Multiple Sales Persons mode) -->
+					<div
+						v-if="salesPersonStore.enabled && isGroupStart(index)"
+						class="flex items-center gap-1.5 px-0.5 pt-1.5 pb-0.5"
+					>
+						<span class="h-px flex-1 bg-purple-200"></span>
+						<span
+							class="text-[10px] font-bold uppercase tracking-wide flex items-center gap-1"
+							:class="item.sales_person ? 'text-purple-600' : 'text-gray-400'"
+						>
+							<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+							</svg>
+							{{ item.sales_person_name || item.sales_person || __("Unassigned") }}
+						</span>
+						<span class="h-px flex-1 bg-purple-200"></span>
+					</div>
+					<div
+						@click="openEditDialog(item)"
+						class="bg-white border border-gray-200 rounded-md p-1.5 sm:p-2 hover:border-blue-300 hover:shadow-md transition-all duration-200 active:scale-[0.99] cursor-pointer group"
+					>
 					<div class="flex gap-1.5 sm:gap-2">
 						<!-- Item Image Thumbnail -->
 						<div
@@ -832,7 +864,7 @@
 								</div>
 								<button
 									type="button"
-									@click.stop="$emit('remove-item', item.item_code, item.uom)"
+									@click.stop="$emit('remove-item', item.item_code, item.uom, item.sales_person)"
 									class="text-gray-400 hover:text-red-600 active:text-red-700 transition-colors flex-shrink-0 p-0.5 -m-0.5 touch-manipulation active:scale-90"
 									:aria-label="__('Remove {0}', [item.item_name])"
 									:title="__('Remove item')"
@@ -1081,6 +1113,7 @@
 						</div>
 					</div>
 				</div>
+				</template>
 			</div>
 		</div>
 
@@ -1243,6 +1276,8 @@
 import { usePOSCartStore } from "@/stores/posCart";
 import { usePOSSettingsStore } from "@/stores/posSettings";
 import { usePOSOffersStore } from "@/stores/posOffers";
+import { usePOSSalesPersonStore } from "@/stores/posSalesPerson";
+import { usePOSUIStore } from "@/stores/posUI";
 import { useCustomerSearchStore } from "@/stores/customerSearch";
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "@/utils/currency";
 import { useFormatters } from "@/composables/useFormatters";
@@ -1266,6 +1301,8 @@ const cartStore = usePOSCartStore(); // Pinia store for cart state management
 const settingsStore = usePOSSettingsStore(); // Pinia store for POS settings
 const offersStore = usePOSOffersStore(); // Pinia store for offers/promotions
 const customerSearchStore = useCustomerSearchStore(); // Pinia store for customer search
+const salesPersonStore = usePOSSalesPersonStore(); // Multiple Sales Persons mode
+const uiStore = usePOSUIStore(); // UI state (mobile tabs etc.)
 const { formatQuantity } = useFormatters(); // Quantity formatting utilities
 
 function handleProceedToPayment() {
@@ -1372,6 +1409,42 @@ const {
  */
 // Customer search state
 const customerSearch = ref(""); // Current search query
+// "Multiple Sales Persons" checkbox — backed by the shared store
+const multipleSalesPersons = computed({
+	get: () => salesPersonStore.enabled,
+	set: (val) => {
+		salesPersonStore.setEnabled(val);
+		if (val) {
+			salesPersonStore.loadSalesPersons(props.posProfile);
+		} else if (uiStore.mobileActiveTab === "sellers") {
+			// The Sellers tab is gone — fall back to the cart view on mobile
+			uiStore.setMobileTab("cart");
+		}
+	},
+});
+
+// Cart items ordered so each sales person's items are contiguous (mode on),
+// with assigned groups first and any unassigned items last.
+const displayItems = computed(() => {
+	if (!salesPersonStore.enabled) return sortedItems.value;
+	const order = salesPersonStore.selected.map((p) => p.sales_person);
+	const rank = (sp) => {
+		if (!sp) return order.length + 1; // unassigned last
+		const i = order.indexOf(sp);
+		return i === -1 ? order.length : i;
+	};
+	return [...sortedItems.value].sort(
+		(a, b) => rank(a.sales_person) - rank(b.sales_person),
+	);
+});
+
+// True when the item at `index` starts a new sales-person group
+function isGroupStart(index) {
+	if (index === 0) return true;
+	const cur = displayItems.value[index]?.sales_person || null;
+	const prev = displayItems.value[index - 1]?.sales_person || null;
+	return cur !== prev;
+}
 const customerSearchContainer = ref(null); // Ref to search container for click-outside detection
 const customerSearchFocused = ref(false); // Track if search input is focused
 // Use Pinia store for allCustomers (shared with CustomerDialog, synced on customer creation)
@@ -1801,7 +1874,7 @@ function incrementQuantity(item) {
 
 	const step = getSmartStep(item.quantity);
 	const newQty = Math.round((item.quantity + step) * 10000) / 10000;
-	emit("update-quantity", item.item_code, newQty, item.uom);
+	emit("update-quantity", item.item_code, newQty, item.uom, item.sales_person);
 }
 
 /**
@@ -1819,9 +1892,9 @@ function decrementQuantity(item) {
 
 	if (newQty <= 0) {
 		// If quantity would be 0 or negative, remove the item
-		emit("remove-item", item.item_code, item.uom);
+		emit("remove-item", item.item_code, item.uom, item.sales_person);
 	} else {
-		emit("update-quantity", item.item_code, newQty, item.uom);
+		emit("update-quantity", item.item_code, newQty, item.uom, item.sales_person);
 	}
 }
 
@@ -1843,10 +1916,10 @@ function updateQuantity(item, value) {
 	if (isNaN(qty)) return;
 
 	// If quantity is zero or negative, remove the item from the cart
-	if (qty <= 0) return emit("remove-item", item.item_code, item.uom);
+	if (qty <= 0) return emit("remove-item", item.item_code, item.uom, item.sales_person);
 
 	// For positive numbers, update quantity immediately (no rounding here while typing)
-	emit("update-quantity", item.item_code, qty, item.uom);
+	emit("update-quantity", item.item_code, qty, item.uom, item.sales_person);
 }
 
 /**
@@ -1861,12 +1934,12 @@ function handleQuantityBlur(item) {
 	// When user leaves the input field, round and validate
 	if (!item.quantity || item.quantity <= 0) {
 		// If quantity is 0 or invalid, remove the item
-		emit("remove-item", item.item_code, item.uom);
+		emit("remove-item", item.item_code, item.uom, item.sales_person);
 	} else {
 		// Round to 4 decimal places for consistency
 		const roundedQty = Math.round(item.quantity * 10000) / 10000;
 		if (roundedQty !== item.quantity) {
-			emit("update-quantity", item.item_code, roundedQty, item.uom);
+			emit("update-quantity", item.item_code, roundedQty, item.uom, item.sales_person);
 		}
 	}
 }
@@ -1895,7 +1968,7 @@ async function selectUom(item, newUom) {
 	}
 
 	const currentUom = item.uom || item.stock_uom;
-	await cartStore.changeItemUOM(item.item_code, newUom, currentUom);
+	await cartStore.changeItemUOM(item.item_code, newUom, currentUom, item.sales_person);
 	openUomDropdown.value = null;
 	emit("update-uom", item.item_code, newUom);
 }
@@ -1925,8 +1998,13 @@ function openEditDialog(item) {
 async function handleUpdateItem(updatedItem) {
 	// Get the original UOM from selectedItem (before any changes)
 	const originalUom = selectedItem.value?.uom || selectedItem.value?.stock_uom;
-	// Use store method to update item, passing original UOM to identify correct item
-	await cartStore.updateItemDetails(updatedItem.item_code, updatedItem, originalUom);
+	// Use store method to update item, passing original UOM + sales person to identify correct line
+	await cartStore.updateItemDetails(
+		updatedItem.item_code,
+		updatedItem,
+		originalUom,
+		selectedItem.value?.sales_person,
+	);
 	// Also emit for parent component compatibility
 	emit("edit-item", updatedItem);
 }

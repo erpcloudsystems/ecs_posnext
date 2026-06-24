@@ -1,6 +1,7 @@
 import { useInvoice } from "@/composables/useInvoice"
 import { usePOSOffersStore } from "@/stores/posOffers"
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import { usePOSSalesPersonStore } from "@/stores/posSalesPerson"
 import { parseError } from "@/utils/errorHandler"
 import {
 	checkStockAvailability,
@@ -115,6 +116,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 
 	const offersStore = usePOSOffersStore()
 	const settingsStore = usePOSSettingsStore()
+	const salesPersonStore = usePOSSalesPersonStore()
 
 	// Additional cart state
 	const pendingItem = ref(null)
@@ -176,6 +178,13 @@ export const usePOSCartStore = defineStore("posCart", () => {
 
 	// Actions
 	function addItem(item, qty = 1, autoAdd = false, currentProfile = null) {
+		// Multiple Sales Persons mode: a sales person must be active first, so
+		// each item can be assigned to whoever is selling it.
+		if (salesPersonStore.enabled && !salesPersonStore.activeSalesPerson) {
+			showWarning(__("Select a sales person first"))
+			return
+		}
+
 		// Check stock availability before adding to cart
 		// Skip validation for batch/serial items - they have their own validation in the dialog
 		// Check for stock items AND Product Bundles (bundles now have calculated stock)
@@ -215,8 +224,21 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			}
 		}
 
+		// In Multiple Sales Persons mode, stamp the active sales person so the
+		// item becomes its own cart line assigned to that person.
+		let itemToAdd = item
+		if (salesPersonStore.enabled && salesPersonStore.activeSalesPerson) {
+			const active = salesPersonStore.getActive()
+			itemToAdd = {
+				...item,
+				sales_person: salesPersonStore.activeSalesPerson,
+				sales_person_name:
+					active?.sales_person_name || salesPersonStore.activeSalesPerson,
+			}
+		}
+
 		// Add item to cart - no toast notification for performance
-		addItemToInvoice(item, qty)
+		addItemToInvoice(itemToAdd, qty)
 	}
 
 	function clearCart() {
@@ -1214,9 +1236,12 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	 * @param {string|null} uom - Optional UOM to match
 	 * @returns {Object|undefined} Cart item or undefined
 	 */
-	function findCartItem(itemCode, uom = null) {
+	function findCartItem(itemCode, uom = null, salesPerson = undefined) {
 		return invoiceItems.value.find((item) =>
-			item.item_code === itemCode && (!uom || item.uom === uom)
+			item.item_code === itemCode &&
+			(!uom || item.uom === uom) &&
+			(salesPerson === undefined ||
+				(item.sales_person || null) === (salesPerson || null))
 		)
 	}
 
@@ -1227,11 +1252,13 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	 * @param {Object} excludeItem - Item to exclude from search
 	 * @returns {Object|undefined} Existing item or undefined
 	 */
-	function findItemWithUom(itemCode, targetUom, excludeItem = null) {
+	function findItemWithUom(itemCode, targetUom, excludeItem = null, salesPerson = undefined) {
 		return invoiceItems.value.find((item) =>
 			item.item_code === itemCode &&
 			item.uom === targetUom &&
-			item !== excludeItem
+			item !== excludeItem &&
+			(salesPerson === undefined ||
+				(item.sales_person || null) === (salesPerson || null))
 		)
 	}
 
@@ -1284,13 +1311,13 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	 * @param {string} newUom - New UOM to change to
 	 * @param {string|null} currentUom - Current UOM (required when same item has multiple UOMs)
 	 */
-	async function changeItemUOM(itemCode, newUom, currentUom = null) {
+	async function changeItemUOM(itemCode, newUom, currentUom = null, salesPerson = undefined) {
 		try {
-			const cartItem = findCartItem(itemCode, currentUom)
+			const cartItem = findCartItem(itemCode, currentUom, salesPerson)
 			if (!cartItem || cartItem.uom === newUom) return
 
-			// Check for existing item to merge with
-			const existingItem = findItemWithUom(itemCode, newUom, cartItem)
+			// Check for existing item to merge with (same sales person only)
+			const existingItem = findItemWithUom(itemCode, newUom, cartItem, salesPerson)
 			if (existingItem) {
 				const totalQty = mergeItems(cartItem, existingItem, cartItem.quantity)
 				showSuccess(__('Merged into {0} (Total: {1})', [newUom, totalQty]))
@@ -1314,16 +1341,16 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	 * @param {Object} updates - Updated details
 	 * @param {string|null} currentUom - Current UOM (required when same item has multiple UOMs)
 	 */
-	async function updateItemDetails(itemCode, updates, currentUom = null) {
+	async function updateItemDetails(itemCode, updates, currentUom = null, salesPerson = undefined) {
 		try {
-			const cartItem = findCartItem(itemCode, currentUom)
+			const cartItem = findCartItem(itemCode, currentUom, salesPerson)
 			if (!cartItem) {
 				throw new Error("Item not found in cart")
 			}
 
-			// Handle UOM change with potential merge
+			// Handle UOM change with potential merge (same sales person only)
 			if (updates.uom && updates.uom !== cartItem.uom) {
-				const existingItem = findItemWithUom(itemCode, updates.uom, cartItem)
+				const existingItem = findItemWithUom(itemCode, updates.uom, cartItem, salesPerson)
 				if (existingItem) {
 					const qtyToMerge = updates.quantity ?? cartItem.quantity
 					const totalQty = mergeItems(cartItem, existingItem, qtyToMerge)
