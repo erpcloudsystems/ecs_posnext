@@ -12,117 +12,109 @@
 				</span>
 			</div>
 
-			<!-- Add sales person -->
-			<div class="relative" ref="dropdownContainer">
+			<!-- Search -->
+			<div class="relative">
 				<input
 					v-model="search"
 					type="text"
-					:placeholder="__('Add sales person...')"
-					@focus="open = true"
-					@blur="handleBlur"
+					:placeholder="__('Search sales person...')"
 					:disabled="store.loading"
 					class="w-full h-9 ps-8 pe-3 text-xs border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent shadow-sm"
 				/>
 				<svg class="w-4 h-4 text-gray-400 absolute start-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
 				</svg>
-
-				<!-- Dropdown -->
-				<div
-					v-if="open && filteredAvailable.length > 0"
-					class="absolute z-50 mt-1 w-full max-h-56 overflow-y-auto border border-purple-200 rounded-xl bg-white shadow-lg"
-				>
-					<button
-						v-for="person in filteredAvailable"
-						:key="person.name"
-						type="button"
-						@mousedown.prevent="addPerson(person)"
-						class="w-full flex items-center justify-between p-2.5 hover:bg-purple-50 cursor-pointer border-b border-gray-100 last:border-b-0 text-xs text-start"
-					>
-						<span class="font-medium text-gray-900 truncate">{{ person.sales_person_name || person.name }}</span>
-						<span v-if="person.commission_rate" class="text-purple-500 text-[10px] flex-shrink-0 ms-2">
-							{{ person.commission_rate }}%
-						</span>
-					</button>
-				</div>
-				<div
-					v-else-if="open && !store.loading"
-					class="absolute z-50 mt-1 w-full border border-purple-200 rounded-xl bg-white shadow-lg"
-				>
-					<div class="text-center py-3 text-xs text-gray-500">
-						{{ store.salesPersons.length === 0 ? __('No sales persons available') : __('All sales persons added') }}
-					</div>
-				</div>
 			</div>
 		</div>
 
-		<!-- Selected sales persons list -->
-		<div class="flex-1 overflow-y-auto p-2 space-y-1.5">
-			<!-- Empty state -->
-			<div v-if="store.selected.length === 0" class="flex flex-col items-center justify-center text-center px-3 py-10">
+		<!-- Grid of sales persons -->
+		<div class="flex-1 overflow-y-auto p-2">
+			<!-- Loading -->
+			<div v-if="store.loading" class="flex items-center justify-center py-10">
+				<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500"></div>
+			</div>
+
+			<!-- Empty -->
+			<div v-else-if="filteredPersons.length === 0" class="flex flex-col items-center justify-center text-center px-3 py-10">
 				<div class="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center mb-2">
 					<svg class="w-6 h-6 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
 					</svg>
 				</div>
-				<p class="text-xs font-semibold text-gray-700">{{ __("No sales persons yet") }}</p>
-				<p class="text-[11px] text-gray-500 mt-0.5">{{ __("Add a sales person, then select items for them") }}</p>
+				<p class="text-xs font-semibold text-gray-700">
+					{{ store.salesPersons.length === 0 ? __("No sales persons available") : __("No matches") }}
+				</p>
+				<p class="text-[11px] text-gray-500 mt-0.5">{{ __("Tap a card to select, then add their items") }}</p>
 			</div>
 
-			<!-- Cards -->
-			<div
-				v-for="person in store.selected"
-				:key="person.sales_person"
-				@click="store.setActive(person.sales_person)"
-				:class="[
-					'rounded-xl border p-2 cursor-pointer transition-all',
-					person.sales_person === store.activeSalesPerson
-						? 'border-purple-500 bg-purple-50 ring-1 ring-purple-300 shadow-sm'
-						: 'border-gray-200 bg-white hover:border-purple-300',
-				]"
-			>
-				<div class="flex items-center gap-2">
-					<!-- Active radio dot -->
+			<!-- Tiles -->
+			<div v-else class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-1.5">
+				<button
+					v-for="person in filteredPersons"
+					:key="person.name"
+					type="button"
+					@click="onTileClick(person)"
+					:class="[
+						'relative flex flex-col items-center text-center rounded-xl border p-2 transition-all touch-manipulation active:scale-[0.97]',
+						isActive(person.name)
+							? 'border-purple-500 bg-purple-50 ring-2 ring-purple-300 shadow-sm'
+							: isSelected(person.name)
+								? 'border-purple-300 bg-purple-50/40'
+								: 'border-gray-200 bg-white hover:border-purple-300',
+					]"
+				>
+					<!-- Remove (selected only) -->
 					<span
-						:class="[
-							'w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center',
-							person.sales_person === store.activeSalesPerson ? 'border-purple-600' : 'border-gray-300',
-						]"
+						v-if="isSelected(person.name)"
+						@click.stop="store.removeSalesPerson(person.name)"
+						class="absolute top-1 end-1 w-5 h-5 flex items-center justify-center text-gray-400 hover:text-red-600 rounded-full hover:bg-red-50"
+						:title="__('Remove from selection')"
 					>
-						<span v-if="person.sales_person === store.activeSalesPerson" class="w-2 h-2 rounded-full bg-purple-600"></span>
+						<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+						</svg>
 					</span>
 
-					<div class="min-w-0 flex-1">
-						<p class="text-xs font-bold text-gray-900 truncate leading-tight">
-							{{ person.sales_person_name || person.sales_person }}
-						</p>
-						<p class="text-[10px] text-gray-500 leading-tight">
-							{{ __("{0} item(s)", [stats[person.sales_person]?.count || 0]) }}
-							<span v-if="stats[person.sales_person]?.amount" class="text-purple-600 font-semibold">
-								· {{ formatCurrency(stats[person.sales_person].amount) }}
-							</span>
-						</p>
+					<!-- Item count badge (selected only) -->
+					<span
+						v-if="isSelected(person.name) && stats[person.name]?.count"
+						class="absolute top-1 start-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[10px] font-bold text-white bg-purple-600 rounded-full"
+					>
+						{{ stats[person.name].count }}
+					</span>
+
+					<!-- Avatar -->
+					<div
+						:class="[
+							'w-10 h-10 rounded-full flex items-center justify-center mb-1 text-xs font-bold flex-shrink-0',
+							isSelected(person.name)
+								? 'bg-gradient-to-br from-purple-500 to-purple-600 text-white'
+								: 'bg-gray-100 text-gray-500',
+						]"
+					>
+						{{ initials(person.sales_person_name || person.name) }}
 					</div>
 
-					<!-- Active badge -->
+					<!-- Name -->
+					<span class="text-[11px] font-semibold text-gray-900 leading-tight line-clamp-2 w-full">
+						{{ person.sales_person_name || person.name }}
+					</span>
+
+					<!-- Active label -->
 					<span
-						v-if="person.sales_person === store.activeSalesPerson"
-						class="text-[9px] font-bold text-white bg-purple-600 rounded-full px-1.5 py-0.5 flex-shrink-0"
+						v-if="isActive(person.name)"
+						class="mt-1 text-[9px] font-bold text-white bg-purple-600 rounded-full px-1.5 py-0.5"
 					>
 						{{ __("ACTIVE") }}
 					</span>
-
-					<button
-						type="button"
-						@click.stop="store.removeSalesPerson(person.sales_person)"
-						class="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 flex-shrink-0"
-						:title="__('Remove sales person')"
+					<!-- Amount (selected, non-active) -->
+					<span
+						v-else-if="isSelected(person.name) && stats[person.name]?.amount"
+						class="mt-1 text-[10px] font-semibold text-purple-600"
 					>
-						<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-						</svg>
-					</button>
-				</div>
+						{{ formatCurrency(stats[person.name].amount) }}
+					</span>
+				</button>
 			</div>
 		</div>
 
@@ -150,17 +142,25 @@ const cartStore = usePOSCartStore()
 const shiftStore = usePOSShiftStore()
 
 const search = ref("")
-const open = ref(false)
-const dropdownContainer = ref(null)
 
-const filteredAvailable = computed(() => {
+// All sales persons (master list), filtered by search term
+const filteredPersons = computed(() => {
 	const term = (search.value || "").toLowerCase()
-	const list = store.availableSalesPersons
-	if (!term) return list.slice(0, 20)
-	return list
-		.filter((p) => (p.sales_person_name || p.name || "").toLowerCase().includes(term))
-		.slice(0, 20)
+	const list = store.salesPersons
+	if (!term) return list
+	return list.filter((p) =>
+		(p.sales_person_name || p.name || "").toLowerCase().includes(term),
+	)
 })
+
+const selectedSet = computed(() => new Set(store.selected.map((p) => p.sales_person)))
+
+function isSelected(id) {
+	return selectedSet.value.has(id)
+}
+function isActive(id) {
+	return store.activeSalesPerson === id
+}
 
 // Per-person item count + amount, derived from cart items
 const stats = computed(() => {
@@ -175,19 +175,24 @@ const stats = computed(() => {
 	return map
 })
 
+function initials(name) {
+	if (!name) return "?"
+	const parts = String(name).trim().split(/\s+/)
+	if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+	return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
 function formatCurrency(value) {
 	return formatCurrencyUtil(value || 0, shiftStore.profileCurrency || DEFAULT_CURRENCY)
 }
 
-function addPerson(person) {
-	store.addSalesPerson(person)
-	search.value = ""
-}
-
-function handleBlur() {
-	setTimeout(() => {
-		open.value = false
-	}, 150)
+// Tap a tile: select+activate if new, otherwise just make it active
+function onTileClick(person) {
+	const id = person.name
+	if (!isSelected(id)) {
+		store.addSalesPerson(person)
+	}
+	store.setActive(id)
 }
 
 onMounted(() => {
