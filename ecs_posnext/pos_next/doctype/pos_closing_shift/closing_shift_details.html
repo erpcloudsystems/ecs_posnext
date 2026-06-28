@@ -84,6 +84,40 @@
 				</div>
 				<!-- Section end -->
 
+				<!-- Daily Payments & Tips section -->
+				{% if total_daily_payments or total_tip or actual_amount %}
+				<div>
+						<h6 class="text-center uppercase" style="color: #8D99A6">{{ _("Daily Payments & Tips") }}</h6>
+						<div class="tax-break-up" style="overflow-x: auto;">
+							<table class="table table-bordered table-hover">
+								<thead>
+								</thead>
+								<tbody>
+									{% if total_daily_payments %}
+									<tr>
+										<td class="text-left font-bold">{{ _('Total Daily Payments') }}</td>
+										<td class='text-right'>{{ frappe.utils.fmt_money(total_daily_payments, currency=company_currency or currency) }}</td>
+									</tr>
+									{% endif %}
+									{% if total_tip %}
+									<tr>
+										<td class="text-left font-bold">{{ _('Total Tip') }}</td>
+										<td class='text-right'>{{ frappe.utils.fmt_money(total_tip, currency=company_currency or currency) }}</td>
+									</tr>
+									{% endif %}
+									{% if actual_amount is not none %}
+									<tr>
+										<td class="text-left font-bold">{{ _('Actual Amount') }}</td>
+										<td class='text-right'>{{ frappe.utils.fmt_money(actual_amount, currency=company_currency or currency) }}</td>
+									</tr>
+									{% endif %}
+							</tbody>
+						</table>
+					</div>
+				</div>
+				{% endif %}
+				<!-- Section end -->
+
 				<!-- Taxes section -->
 				{% if data.taxes %}
 				<div>

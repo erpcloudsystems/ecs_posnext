@@ -312,6 +312,10 @@ const props = defineProps({
 		type: Array,
 		default: () => [],
 	},
+	posOpeningShift: {
+		type: String,
+		default: null,
+	},
 })
 
 const emit = defineEmits(["update:modelValue", "saved"])
@@ -448,6 +452,7 @@ async function handleSave() {
 			amount: form.payment_to_employees ? (form.amount || null) : null,
 			loan_product: form.payment_to_employees ? (form.loan_product || null) : null,
 			general_expenses: form.expenses ? JSON.stringify(form.general_expenses) : null,
+			pos_opening_shift: props.posOpeningShift || null,
 		})
 		showSuccess(__("Daily Payment created successfully"))
 		emit("saved")

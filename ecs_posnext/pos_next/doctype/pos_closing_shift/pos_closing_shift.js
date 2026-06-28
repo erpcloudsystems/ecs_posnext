@@ -31,8 +31,34 @@ frappe.ui.form.on("POS Closing Shift", {
 				() => frm.trigger("set_opening_amounts"),
 				() => frm.trigger("get_pos_invoices"),
 				() => frm.trigger("get_pos_payments"),
+				() => frm.trigger("get_daily_payments_and_tip"),
 			]);
 		}
+	},
+
+	get_daily_payments_and_tip(frm) {
+		frappe.call({
+			method: "ecs_posnext.pos_next.doctype.pos_closing_shift.pos_closing_shift.get_opening_shift_totals",
+			args: { pos_opening_shift: frm.doc.pos_opening_shift },
+			callback(r) {
+				if (r.message) {
+					frm.set_value("total_daily_payments", r.message.total_daily_payments || 0);
+					frm.set_value("total_tip", r.message.total_tip || 0);
+					const visaRow = (frm.doc.payment_reconciliation || []).find(
+						(row) => row.mode_of_payment === "بنك CIB فيزا"
+					);
+					const visaAmount = visaRow
+						? flt(visaRow.expected_amount) - flt(visaRow.opening_amount)
+						: 0;
+					const actualAmount =
+						flt(frm.doc.grand_total) -
+						visaAmount -
+						flt(r.message.total_daily_payments || 0) -
+						flt(r.message.total_tip || 0);
+					frm.set_value("actual_amount", actualAmount);
+				}
+			},
+		});
 	},
 
         set_opening_amounts(frm) {
@@ -206,6 +232,9 @@ function reset_values(frm) {
 	frm.set_value("grand_total", 0);
 	frm.set_value("net_total", 0);
 	frm.set_value("total_quantity", 0);
+	frm.set_value("total_daily_payments", 0);
+	frm.set_value("total_tip", 0);
+	frm.set_value("actual_amount", 0);
 }
 
 function refresh_fields(frm) {
@@ -216,6 +245,9 @@ function refresh_fields(frm) {
 	frm.refresh_field("grand_total");
 	frm.refresh_field("net_total");
 	frm.refresh_field("total_quantity");
+	frm.refresh_field("total_daily_payments");
+	frm.refresh_field("total_tip");
+	frm.refresh_field("actual_amount");
 }
 
 function set_html_data(frm) {

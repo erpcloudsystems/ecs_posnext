@@ -285,6 +285,7 @@
 		v-model="showCreateForm"
 		:branch="branch"
 		:payment-methods="paymentMethods"
+		:pos-opening-shift="posOpeningShift"
 		@saved="onRecordSaved"
 	/>
 </template>
@@ -310,6 +311,10 @@ const props = defineProps({
 	paymentMethods: {
 		type: Array,
 		default: () => [],
+	},
+	posOpeningShift: {
+		type: String,
+		default: null,
 	},
 })
 

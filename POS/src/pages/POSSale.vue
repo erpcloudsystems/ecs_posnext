@@ -686,7 +686,7 @@
 			/>
 
 			<!-- Daily Payment Management -->
-			<DailyPaymentManagement v-model="showDailyPayment" :branch="shiftStore.profileBranch" :payment-methods="shiftStore.profilePaymentMethods" />
+			<DailyPaymentManagement v-model="showDailyPayment" :branch="shiftStore.profileBranch" :payment-methods="shiftStore.profilePaymentMethods" :pos-opening-shift="shiftStore.currentShift?.name" />
 
 			<!-- Invoice Detail Dialog -->
 			<InvoiceDetailDialog

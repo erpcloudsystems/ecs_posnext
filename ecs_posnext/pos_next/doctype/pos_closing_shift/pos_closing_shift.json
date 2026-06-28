@@ -25,6 +25,12 @@
   "payment_reconciliation_details",
   "section_break_11",
   "payment_reconciliation",
+  "section_break_dp_tip",
+  "total_daily_payments",
+  "column_break_dp_tip",
+  "total_tip",
+  "column_break_actual",
+  "actual_amount",
   "section_break_13",
   "grand_total",
   "net_total",
@@ -128,6 +134,43 @@
    "fieldtype": "Table",
    "label": "Payment Reconciliation",
    "options": "POS Closing Shift Detail"
+  },
+  {
+   "fieldname": "section_break_dp_tip",
+   "fieldtype": "Section Break",
+   "label": "Daily Payments & Tips"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "total_daily_payments",
+   "fieldtype": "Currency",
+   "label": "Total Daily Payments",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_dp_tip",
+   "fieldtype": "Column Break"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "total_tip",
+   "fieldtype": "Currency",
+   "label": "Total Tip",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_actual",
+   "fieldtype": "Column Break"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "actual_amount",
+   "fieldtype": "Currency",
+   "label": "Actual Amount",
+   "read_only": 1
   },
   {
    "collapsible": 1,

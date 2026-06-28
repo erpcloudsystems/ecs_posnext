@@ -66,6 +66,7 @@ class POSClosingShift(Document):
                 title=_("Invalid Opening Entry"),
             )
         self.update_payment_reconciliation()
+        self._compute_daily_payments_and_tip()
 
     def update_payment_reconciliation(self):
         # update the difference values in Payment Reconciliation child table
@@ -73,6 +74,29 @@ class POSClosingShift(Document):
         precision = frappe.get_cached_value("System Settings", None, "currency_precision") or 3
         for d in self.payment_reconciliation:
             d.difference = +flt(d.closing_amount, precision) - flt(d.expected_amount, precision)
+
+    def _compute_daily_payments_and_tip(self):
+        totals = _get_opening_shift_totals(self.pos_opening_shift)
+        self.total_daily_payments = totals["total_daily_payments"]
+        self.total_tip = totals["total_tip"]
+        visa_amount = sum(
+            flt(r.expected_amount) - flt(r.opening_amount)
+            for r in self.payment_reconciliation
+            if r.mode_of_payment == "بنك CIB فيزا"
+        )
+        self.actual_amount = (
+            flt(self.grand_total) - visa_amount
+            - flt(self.total_daily_payments) - flt(self.total_tip)
+        )
+        visa_amount = sum(
+            flt(r.expected_amount) - flt(r.opening_amount)
+            for r in self.payment_reconciliation
+            if r.mode_of_payment == "بنك CIB فيزا"
+        )
+        self.actual_amount = (
+            flt(self.grand_total) - visa_amount
+            - flt(self.total_daily_payments) - flt(self.total_tip)
+        )
 
     def on_submit(self):
         opening_entry = frappe.get_doc("POS Opening Shift", self.pos_opening_shift)
@@ -335,6 +359,17 @@ class POSClosingShift(Document):
             if amount
         ]
 
+        totals = _get_opening_shift_totals(self.pos_opening_shift)
+        visa_amount = sum(
+            flt(s.expected_amount) - flt(s.opening_amount)
+            for s in mode_summaries
+            if s.mode_of_payment == "بنك CIB فيزا"
+        )
+        actual_amount = (
+            flt(self.grand_total) - visa_amount
+            - totals["total_daily_payments"] - totals["total_tip"]
+        )
+
         return frappe.render_template(
             "ecs_posnext/pos_next/doctype/pos_closing_shift/closing_shift_details.html",
             {
@@ -344,8 +379,46 @@ class POSClosingShift(Document):
                 "mode_summaries": mode_summaries,
                 "sales_currency_breakdown": sales_currency_breakdown,
                 "net_currency_breakdown": net_currency_breakdown,
+                "total_daily_payments": totals["total_daily_payments"],
+                "total_tip": totals["total_tip"],
+                "actual_amount": actual_amount,
             },
         )
+
+
+def _get_opening_shift_totals(pos_opening_shift):
+    """Return total Daily Payments and total Tip amounts for a POS Opening Shift."""
+    daily_result = frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(amount), 0) AS total
+        FROM `tabDaily Payment`
+        WHERE pos_opening_shift = %s AND docstatus = 1
+        """,
+        (pos_opening_shift,),
+        as_dict=True,
+    )
+    total_daily_payments = flt(daily_result[0].total) if daily_result else 0.0
+
+    tip_result = frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(sii.amount), 0) AS total
+        FROM `tabSales Invoice Item` sii
+        INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
+        WHERE si.posa_pos_opening_shift = %s
+          AND si.docstatus = 1
+          AND sii.item_code = 'Tip'
+        """,
+        (pos_opening_shift,),
+        as_dict=True,
+    )
+    total_tip = flt(tip_result[0].total) if tip_result else 0.0
+
+    return {"total_daily_payments": total_daily_payments, "total_tip": total_tip}
+
+
+@frappe.whitelist()
+def get_opening_shift_totals(pos_opening_shift):
+    return _get_opening_shift_totals(pos_opening_shift)
 
 
 @frappe.whitelist()

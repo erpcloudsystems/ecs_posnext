@@ -131,13 +131,15 @@ def get_daily_payment_detail(name):
 @frappe.whitelist()
 def create_daily_payment(date, branch, employee=None, amount=None, mode_of_payment=None,
 						  payment_to_employees=0, expenses=0, loan_product=None,
-						  general_expenses=None):
+						  general_expenses=None, pos_opening_shift=None):
 	"""Create a new Daily Payment record."""
 	import json
 
 	doc = frappe.new_doc("Daily Payment")
 	doc.date = date
 	doc.branch = branch
+	if pos_opening_shift:
+		doc.pos_opening_shift = pos_opening_shift
 
 	if frappe.parse_json(payment_to_employees) if isinstance(payment_to_employees, str) else payment_to_employees:
 		doc.payment_to_employees = 1
