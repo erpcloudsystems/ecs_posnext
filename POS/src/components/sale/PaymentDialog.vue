@@ -110,13 +110,13 @@
 										-{{ formatCurrency(calculatedAdditionalDiscount) }}
 									</span>
 								</div>
-								<!-- Percentage Select: 0% to 100% in steps of 10 -->
+								<!-- Percentage Select: 5% to 100% in steps of 5 -->
 								<select
 									v-model.number="localAdditionalDiscount"
 									@change="handleAdditionalDiscountChange"
 									class="w-full h-9 px-3 text-sm font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer"
 								>
-									<option v-for="pct in [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]" :key="pct" :value="pct">{{ pct }}%</option>
+									<option v-for="pct in [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]" :key="pct" :value="pct">{{ pct }}%</option>
 								</select>
 							</div>
 							<!-- Subtotal -->
