@@ -1999,6 +1999,10 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			// Set hierarchical item groups (with child_groups) - INSTANT tab display!
 			itemGroups.value = data?.item_groups_hierarchy || []
 			log.info(`Loaded ${itemGroups.value.length} item groups with hierarchy`)
+			log.debug(`Available item groups:`, itemGroups.value.map(g => g.item_group))
+
+			// Note: Default item group selection is now handled by ItemsSelector component watcher
+			// This ensures proper timing and avoids race conditions
 
 			// Cache profile data for offline use (survives component remount)
 			try {

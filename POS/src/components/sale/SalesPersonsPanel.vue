@@ -92,12 +92,12 @@
 								: 'bg-gray-100 text-gray-500',
 						]"
 					>
-						{{ initials(person.sales_person_name || person.name) }}
+						{{ initials(getNickname(person)) }}
 					</div>
 
-					<!-- Name -->
+					<!-- Nickname -->
 					<span class="text-[11px] font-semibold text-gray-900 leading-tight line-clamp-2 w-full">
-						{{ person.sales_person_name || person.name }}
+						{{ getNickname(person) }}
 					</span>
 
 					<!-- Active label -->
@@ -149,7 +149,7 @@ const filteredPersons = computed(() => {
 	const list = store.salesPersons
 	if (!term) return list
 	return list.filter((p) =>
-		(p.sales_person_name || p.name || "").toLowerCase().includes(term),
+		(getNickname(p) || "").toLowerCase().includes(term),
 	)
 })
 
@@ -174,6 +174,18 @@ const stats = computed(() => {
 	}
 	return map
 })
+
+function getNickname(person) {
+	// Try multiple possible field names for the nickname
+	// The custom field might be named differently in the database
+	return (
+		person.custom_nickname ||
+		person.nickname ||
+		person.sales_person_name ||
+		person.name ||
+		"?"
+	)
+}
 
 function initials(name) {
 	if (!name) return "?"

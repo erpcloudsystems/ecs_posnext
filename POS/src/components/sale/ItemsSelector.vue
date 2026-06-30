@@ -905,6 +905,21 @@ watch(
 	{ immediate: true },
 )
 
+// Set default item group to "التشغيل" when item groups are loaded
+watch(
+	itemGroups,
+	(newGroups) => {
+		if (!newGroups || newGroups.length === 0) return
+		if (selectedItemGroup.value) return // Already selected by user or code
+
+		const defaultGroup = newGroups.find(g => g.item_group === "التشغيل")
+		if (defaultGroup && !selectedItemGroup.value) {
+			itemStore.setSelectedItemGroup("التشغيل")
+		}
+	},
+	{ immediate: false },
+)
+
 // Reset to page 1 when filtered items meaningfully change (group switch, search, etc.)
 // Skip reset when the change is from pagination navigation (fetchPage)
 watch(

@@ -344,7 +344,8 @@ def get_sales_persons(pos_profile=None):
 			if frappe.db.has_column("Sales Person", "company") and company:
 				filters["company"] = company
 
-		sales_persons = frappe.get_list(
+		# Fetch Sales Persons - using get_list to get complete records with all custom fields
+		sales_persons_list = frappe.get_list(
 			"Sales Person",
 			filters=filters,
 			fields=["name", "sales_person_name", "commission_rate", "employee"],
@@ -352,7 +353,15 @@ def get_sales_persons(pos_profile=None):
 			limit_page_length=0
 		)
 
-		return sales_persons
+		# Enrich with custom_nickname from full document fetch
+		for sp in sales_persons_list:
+			try:
+				doc = frappe.get_doc("Sales Person", sp.name)
+				sp.custom_nickname = doc.get("custom_nickname", "")
+			except:
+				sp.custom_nickname = ""
+
+		return sales_persons_list
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Get Sales Persons Error")
 		return []

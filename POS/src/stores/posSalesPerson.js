@@ -26,7 +26,7 @@ const log = logger.create("posSalesPerson")
 
 export const usePOSSalesPersonStore = defineStore("posSalesPerson", () => {
 	// State
-	const enabled = ref(false) // "Multiple Sales Persons" checkbox
+	const enabled = ref(true) // "Multiple Sales Persons" checkbox
 	const salesPersons = ref([]) // master list loaded from server
 	const selected = ref([]) // [{ sales_person, sales_person_name, commission_rate }]
 	const activeSalesPerson = ref(null) // sales_person id currently receiving items

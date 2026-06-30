@@ -288,7 +288,28 @@
 						</button>
 					</div>
 
-					<!-- Left: Items Selector (Desktop) / Tab Content (Mobile) -->
+					<!-- Left: Sales Persons Panel (Multiple Sales Persons mode) / Tab Content (Mobile) -->
+					<template v-if="salesPersonStore.enabled">
+						<keep-alive>
+							<div
+								v-if="uiStore.isDesktop || uiStore.mobileActiveTab === 'sellers'"
+								:class="[
+									'flex flex-col bg-white overflow-hidden',
+									uiStore.isDesktop ? 'flex-shrink-0 w-64 xl:w-72' : 'flex-1',
+								]"
+								style="contain: layout style paint"
+							>
+								<SalesPersonsPanel />
+							</div>
+						</keep-alive>
+						<!-- Static divider after the sales persons panel (desktop) -->
+						<div
+							v-if="uiStore.isDesktop"
+							class="w-px bg-gray-200 flex-shrink-0 hidden lg:block"
+						></div>
+					</template>
+
+					<!-- Middle: Items Selector (Desktop) / Tab Content (Mobile) -->
 					<keep-alive>
 						<div
 							v-if="uiStore.isDesktop || uiStore.mobileActiveTab === 'items'"
@@ -310,27 +331,6 @@
 							/>
 						</div>
 					</keep-alive>
-
-					<!-- Sales Persons Panel (Multiple Sales Persons mode) -->
-					<template v-if="salesPersonStore.enabled">
-						<!-- Static divider before the sales persons panel (desktop) -->
-						<div
-							v-if="uiStore.isDesktop"
-							class="w-px bg-gray-200 flex-shrink-0 hidden lg:block"
-						></div>
-						<keep-alive>
-							<div
-								v-if="uiStore.isDesktop || uiStore.mobileActiveTab === 'sellers'"
-								:class="[
-									'flex flex-col bg-white overflow-hidden',
-									uiStore.isDesktop ? 'flex-shrink-0 w-64 xl:w-72' : 'flex-1',
-								]"
-								style="contain: layout style paint"
-							>
-								<SalesPersonsPanel />
-							</div>
-						</keep-alive>
-					</template>
 
 					<!-- Draggable Divider (Desktop Only) -->
 					<div
