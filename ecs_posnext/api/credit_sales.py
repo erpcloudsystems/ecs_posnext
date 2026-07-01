@@ -258,7 +258,7 @@ def redeem_customer_credit(invoice_name, customer_credit_dict):
 	if isinstance(customer_credit_dict, str):
 		customer_credit_dict = json.loads(customer_credit_dict)
 
-	if not invoice_name:
+	if not invoice_name or invoice_name in ["None", "null"]:
 		frappe.throw(_("Invoice name is required"))
 
 	if not customer_credit_dict:
@@ -416,6 +416,8 @@ def _create_credit_allocation_journal_entry(invoice_doc, original_invoice_name, 
 		str: Journal Entry name
 	"""
 	# Get original invoice
+	if not original_invoice_name or original_invoice_name in ["None", "null"]:
+		frappe.throw(_("Original invoice name is required for credit allocation"))
 	original_invoice = frappe.get_doc("Sales Invoice", original_invoice_name)
 
 	# Get cost center

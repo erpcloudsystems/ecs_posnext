@@ -25,6 +25,12 @@ class POSOpeningShift(Document):
 
     def on_submit(self):
         self.set_status(update=True)
+        # Clear branch shift cache
+        branch = frappe.db.get_value("POS Profile", self.pos_profile, "branch")
+        if branch:
+            from ecs_posnext.api.invoices import clear_branch_shift_cache
+
+            clear_branch_shift_cache(branch)
 
     def set_status(self, update=False):
         """Set the status of the opening shift"""

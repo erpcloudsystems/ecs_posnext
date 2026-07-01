@@ -15,6 +15,8 @@
 				:has-open-shift="shiftStore.hasOpenShift"
 				:profile-name="shiftStore.profileName"
 				:user-name="userName"
+				:employee-code="shiftStore.employeeCode"
+				:employee-name="shiftStore.employeeName"
 				:user-image="userImage"
 				:is-offline="offlineStore.isOffline"
 				:is-syncing="offlineStore.isSyncing"
@@ -33,26 +35,7 @@
 				@logout="uiStore.showLogoutDialog = true"
 			>
 				<template #menu-items>
-					<button
-						v-if="shiftStore.hasOpenShift"
-						@click="uiStore.showOpenShiftDialog = true"
-						class="w-full text-start px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 transition-colors"
-					>
-						<svg
-							class="w-5 h-5 text-blue-600"
-							fill="none"
-							stroke="currentColor"
-							viewBox="0 0 24 24"
-						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-							/>
-						</svg>
-						<span>{{ __("View Shift") }}</span>
-					</button>
+					
 					<button
 						@click="uiStore.showDraftDialog = true"
 						class="w-full text-start px-4 py-2.5 text-sm text-gray-700 hover:bg-purple-50 flex items-center gap-3 transition-colors relative"
@@ -144,27 +127,24 @@
 						</svg>
 						<span>{{ __("Return Invoice") }}</span>
 					</button>
-				</template>
-				<template #additional-actions>
 					<button
-						@click="handleCloseShift()"
-						class="w-full text-start px-4 py-2.5 text-sm text-gray-700 hover:bg-orange-50 flex items-center gap-3 transition-colors"
+						v-if="canSeeCashManagement"
+						@click="router.push({ name: 'CashManagement' })"
+						class="w-full text-start px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 transition-colors border-t border-gray-100 mt-1"
 					>
 						<svg
-							class="w-5 h-5 text-orange-600"
+							class="w-5 h-5 text-blue-600"
 							fill="none"
 							stroke="currentColor"
 							viewBox="0 0 24 24"
 						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-							/>
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
 						</svg>
-						<span>{{ __("Close Shift") }}</span>
+						<span>{{ __("Cash Transfer") }}</span>
 					</button>
+				</template>
+				<template #additional-actions>
+					
 				</template>
 			</POSHeader>
 
@@ -175,7 +155,10 @@
 				style="max-height: calc(100vh - 60px - var(--header-height, 60px))"
 			>
 				<!-- Icon-Only Management Slider - Always Visible -->
-				<ManagementSlider @menu-clicked="handleManagementMenuClick" />
+				<ManagementSlider
+					:pending-count="pendingOrdersCount"
+					@menu-clicked="handleManagementMenuClick"
+				/>
 
 				<!-- Main Content Container -->
 				<div
@@ -270,7 +253,18 @@
 								:pos-profile="shiftStore.profileName"
 								:cart-items="cartStore.invoiceItems"
 								:currency="shiftStore.profileCurrency"
+								:class="(cartStore.customer && shiftStore.profileName === 'Call Center') ? 'flex-1 min-h-0' : 'flex-1'"
 								@item-selected="handleItemSelected"
+							/>
+							<!-- Customer Profile Panel -->
+							<CustomerProfile
+								v-if="cartStore.customer && shiftStore.profileName === 'Call Center'"
+								:customer="cartStore.customer"
+								:pos-profile="shiftStore.profileName"
+								:branch="cartStore.selectedBranch"
+								:currency="shiftStore.profileCurrency"
+								class="flex-shrink-0 max-h-[55%]"
+								@reorder="handleReorder"
 							/>
 						</div>
 					</keep-alive>
@@ -325,6 +319,7 @@
 								:currency="shiftStore.profileCurrency"
 								:applied-offers="cartStore.appliedOffers"
 								:warehouses="profileWarehouses"
+								:hide-close-shift="posSettingsStore.hideCloseShift"
 								@update-quantity="cartStore.updateItemQuantity"
 								@remove-item="
 									(itemCode, uom) => cartStore.removeItem(itemCode, uom)
@@ -554,6 +549,15 @@
 				@option-selected="handleOptionSelected"
 			/>
 
+			<ComboSelectionDialog
+				v-model="uiStore.showComboSelectionDialog"
+				:item="cartStore.pendingItem"
+				:pos-profile="shiftStore.profileName"
+				:price-list="itemStore.selectedPriceList"
+				:currency="shiftStore.profileCurrency"
+				@option-selected="handleOptionSelected"
+			/>
+
 			<!-- Invoice History Dialog -->
 			<InvoiceHistoryDialog
 				v-model="uiStore.showHistoryDialog"
@@ -711,7 +715,8 @@
 						<!-- Action Buttons -->
 						<div class="space-y-3 max-w-md mx-auto">
 							<!-- Recommended Action - BLUE -->
-							<button
+							<!-- <button
+								v-if="!posSettingsStore.hideCloseShift"
 								@click="logoutWithCloseShift"
 								:disabled="session.logout.loading"
 								class="w-full flex items-center justify-center px-5 py-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-lg shadow-lg hover:shadow-blue-500/30 transition-[background,box-shadow,opacity,transform] duration-200 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98]"
@@ -730,7 +735,7 @@
 									/>
 								</svg>
 								{{ __("Close Shift & Sign Out") }}
-							</button>
+							</button> -->
 
 							<!-- Alternative Actions -->
 							<div class="grid grid-cols-2 gap-2">
@@ -933,8 +938,7 @@
 				@confirm="confirmClearCache"
 			/>
 
-			<!-- Footer -->
-			<POSFooter />
+
 		</template>
 	</div>
 </template>
@@ -952,7 +956,7 @@ import ShiftClosingDialog from "@/components/ShiftClosingDialog.vue";
 import ShiftOpeningDialog from "@/components/ShiftOpeningDialog.vue";
 import ClearCacheOverlay from "@/components/common/ClearCacheOverlay.vue";
 import LoadingSpinner from "@/components/common/LoadingSpinner.vue";
-import POSFooter from "@/components/common/POSFooter.vue";
+
 import ManagementSlider from "@/components/pos/ManagementSlider.vue";
 import POSHeader from "@/components/pos/POSHeader.vue";
 import BatchSerialDialog from "@/components/sale/BatchSerialDialog.vue";
@@ -963,7 +967,9 @@ import DraftInvoicesDialog from "@/components/sale/DraftInvoicesDialog.vue";
 import InvoiceCart from "@/components/sale/InvoiceCart.vue";
 import InvoiceHistoryDialog from "@/components/sale/InvoiceHistoryDialog.vue";
 import ItemSelectionDialog from "@/components/sale/ItemSelectionDialog.vue";
+import ComboSelectionDialog from "@/components/sale/ComboSelectionDialog.vue";
 import ItemsSelector from "@/components/sale/ItemsSelector.vue";
+import CustomerProfile from "@/components/sale/CustomerProfile.vue";
 import OffersDialog from "@/components/sale/OffersDialog.vue";
 import OfflineInvoicesDialog from "@/components/sale/OfflineInvoicesDialog.vue";
 import PaymentDialog from "@/components/sale/PaymentDialog.vue";
@@ -975,6 +981,7 @@ import InvoiceManagement from "@/components/invoices/InvoiceManagement.vue";
 import DailyPaymentManagement from "@/components/daily_payment/DailyPaymentManagement.vue";
 import InvoiceDetailDialog from "@/components/invoices/InvoiceDetailDialog.vue";
 import { useRealtimeStock } from "@/composables/useRealtimeStock";
+import { useRealtimeOrders } from "@/composables/useRealtimeOrders";
 import { usePOSEvents } from "@/composables/usePOSEvents";
 import { useLocale } from "@/composables/useLocale";
 import { session } from "@/data/session";
@@ -988,6 +995,7 @@ import { qzConnected, connect as qzConnect, disconnect as qzDisconnect } from "@
 import { Button, Dialog, createResource } from "frappe-ui";
 import { call } from "@/utils/apiWrapper";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { useToast } from "@/composables/useToast";
 
 import { useCustomerSearchStore } from "@/stores/customerSearch";
@@ -1000,7 +1008,11 @@ import { usePOSSettingsStore } from "@/stores/posSettings";
 import { usePOSShiftStore } from "@/stores/posShift";
 import { usePOSSyncStore } from "@/stores/posSync";
 import { usePOSUIStore } from "@/stores/posUI";
+import { useBootstrapStore } from "@/stores/bootstrap";
 import { logger } from "@/utils/logger";
+
+// Router
+const router = useRouter();
 
 // Initialize stores
 const cartStore = usePOSCartStore();
@@ -1012,11 +1024,19 @@ const posSettingsStore = usePOSSettingsStore();
 const itemStore = useItemSearchStore();
 const stockStore = useStockStore();
 const customerSearchStore = useCustomerSearchStore();
+const bootstrapStore = useBootstrapStore();
+// Cash Management is only for Branch Managers and System Managers.
+const canSeeCashManagement = computed(
+	() => bootstrapStore.hasRole("Bransh Manager") || bootstrapStore.hasRole("System Manager")
+);
 // Note: settingsStore is an alias to posSettingsStore (same Pinia store singleton)
 const settingsStore = posSettingsStore;
 
 // Real-time stock updates
 const { onStockUpdate } = useRealtimeStock();
+
+// Pending count for sidebar badge — listener is started globally from main.js
+const { pendingCount: pendingOrdersCount } = useRealtimeOrders();
 
 // POS Events system
 const {
@@ -1334,6 +1354,11 @@ onMounted(async () => {
 		_posInitPromise = null;
 
 		updateLayoutBounds();
+
+		if (cartStore.autoCheckoutOnResume) {
+			cartStore.autoCheckoutOnResume = false;
+			uiStore.showPaymentDialog = true;
+		}
 	} catch (error) {
 		_posInitPromise = null;
 		log.error("Error checking shift:", error);
@@ -1364,7 +1389,7 @@ onMounted(async () => {
 		const settingsPromise = posSettingsStore.loadSettings(shiftStore.profileName);
 
 		const backgroundOps = Promise.allSettled([
-			cartStore.setDefaultCustomer(),
+			(cartStore.resumedInvoiceName || cartStore.parentOrderNumber) ? Promise.resolve() : cartStore.setDefaultCustomer(),
 			offlineStore.isOffline
 				? offlineStore.checkOfflineCacheAvailability()
 				: offlineStore.preloadDataForOffline(shiftStore.currentProfile),
@@ -1690,6 +1715,9 @@ function handleShiftClosed() {
 	uiStore.showCloseShiftDialog = false;
 	showSuccess(__("Shift closed successfully"));
 
+	// Reset price list selection (localStorage already cleared by useShift)
+	itemStore.changePriceList();
+
 	// Check if logout should happen after closing shift
 	if (logoutAfterClose.value) {
 		logoutAfterClose.value = false;
@@ -1703,7 +1731,67 @@ function handleShiftClosed() {
 	}
 }
 
+function handleReorder(items) {
+	if (!items || items.length === 0) return
+	let added = 0
+	for (const orderItem of items) {
+		try {
+			// Try to enrich from store if available (for stock qty, image, etc.)
+			const storeItem = itemStore.allItems?.find(i => i.item_code === orderItem.item_code) || {}
+
+			// Build item object from last order data — works without store lookup
+			const itemToAdd = {
+				...storeItem,
+				item_code: orderItem.item_code,
+				item_name: orderItem.item_name,
+				rate: orderItem.rate || orderItem.price_list_rate || 0,
+				price_list_rate: orderItem.price_list_rate || orderItem.rate || 0,
+				uom: orderItem.uom || orderItem.stock_uom || "Unit",
+				stock_uom: orderItem.stock_uom || orderItem.uom || "Unit",
+				conversion_factor: orderItem.conversion_factor || 1,
+				warehouse: orderItem.warehouse || storeItem.warehouse || "",
+				item_group: orderItem.item_group || storeItem.item_group || "",
+				brand: orderItem.brand || storeItem.brand || "",
+				batch_no: orderItem.batch_no || "",
+				serial_no: orderItem.serial_no || "",
+			}
+
+			// Packed items / Product Bundle components from the last order
+			const hasComponents = orderItem.components && orderItem.components.length > 0
+			if (hasComponents) {
+				itemToAdd.components = orderItem.components
+				itemToAdd.is_bundle = 1
+				itemToAdd.enabled_item_bundle = 1
+				// Generate a fresh posa_row_id for this reorder
+				itemToAdd.posa_row_id = `row-reorder-${Date.now()}-${Math.random().toString(36).substr(2, 7)}`
+			}
+
+			// Restore removed ingredients if present
+			if (orderItem.removed_ingredients) {
+				try {
+					const parsed = typeof orderItem.removed_ingredients === 'string'
+						? JSON.parse(orderItem.removed_ingredients)
+						: orderItem.removed_ingredients
+					if (Array.isArray(parsed) && parsed.length > 0) {
+						itemToAdd.removed_ingredients = parsed
+					}
+				} catch (e) { /* ignore parse errors */ }
+			}
+
+			cartStore.addItem(itemToAdd, orderItem.qty || 1, true, shiftStore.currentProfile)
+			added++
+		} catch (err) {
+			console.warn(`[Reorder] Could not add ${orderItem.item_code}:`, err.message)
+		}
+	}
+	if (added > 0) {
+		showSuccess(__("{0} items added from last order", [added]))
+	}
+}
+
 function handleItemSelected(item, autoAdd = false) {
+	console.log('[DEBUG] Clicking item:', item.item_code, 'enabled_item_bundle:', item.enabled_item_bundle, 'Type:', typeof item.enabled_item_bundle);
+
 	// Auto-add mode
 	if (autoAdd) {
 		try {
@@ -1762,6 +1850,14 @@ function handleItemSelected(item, autoAdd = false) {
 			);
 			return;
 		}
+	}
+
+	// Check for combos
+	if (Number(item.enabled_item_bundle) === 1) {
+		console.log('[POS] Opening Combo Selection Dialog for:', item.item_code);
+		cartStore.setPendingItem(item, 1, "combo");
+		uiStore.showComboSelectionDialog = true;
+		return;
 	}
 
 	// Check for variants
@@ -1842,6 +1938,12 @@ function handleProceedToPayment() {
 		return;
 	}
 
+	// For Call Center, Target Branch is MANDATORY
+	// if (shiftStore.profileName === "Call Center" && !cartStore.selectedBranch) {
+	// 	showWarning(__("Please select a Target Branch before proceeding"));
+	// 	return;
+	// }
+
 	const customerValue = cartStore.customer?.name || cartStore.customer;
 	if (!customerValue && !shiftStore.profileCustomer) {
 		showWarning(__("Please select a customer before proceeding"));
@@ -1917,6 +2019,12 @@ async function handlePaymentCompleted(paymentData) {
 		if (paymentData.write_off_amount && paymentData.write_off_amount > 0) {
 			cartStore.setWriteOffAmount(paymentData.write_off_amount);
 		}
+ 
+		// Custom Fields
+		cartStore.setCustomReceiptNumber(paymentData.custom_receipt_number || "");
+		cartStore.setCustomUniqueTalbatNumber(paymentData.custom_unique_talbat_number || "");
+		cartStore.setCustomThirdPartyReferanceNumber(paymentData.custom_third_party_referance_number || "");
+		cartStore.setCustomPaymentType(paymentData.custom_payment_type || "");
 
 		// Delete draft if it exists (since we're submitting/saving invoice)
 		const draftIdToDelete = cartStore.currentDraftId;
@@ -1951,6 +2059,9 @@ async function handlePaymentCompleted(paymentData) {
 			// Reset cart hash after successful payment
 			previousCartHash = "";
 
+			// Reset item selector navigation
+			await itemStore.resetNavigation(shiftStore.profileName === 'Call Center');
+
 			// Delete draft after successful save
 			if (draftIdToDelete) {
 				draftsStore.deleteDraft(draftIdToDelete);
@@ -1973,6 +2084,9 @@ async function handlePaymentCompleted(paymentData) {
 				// Reset cart hash after successful payment
 				previousCartHash = "";
 
+				// Reset item selector navigation
+				await itemStore.resetNavigation(shiftStore.profileName === 'Call Center');
+
 				// Delete draft after successful submission
 				if (draftIdToDelete) {
 					draftsStore.deleteDraft(draftIdToDelete);
@@ -1990,6 +2104,7 @@ async function handlePaymentCompleted(paymentData) {
 					try {
 						await handlePrintInvoice({ name: invoiceName });
 						showSuccess(__("Invoice {0} created and sent to printer", [invoiceName]));
+						window.frappe?.show_alert?.({ message: __("Invoice {0} created", [invoiceName]), indicator: "green" }, 5);
 					} catch (error) {
 						log.error("Auto-print error:", error);
 						showWarning(__("Invoice {0} created but print failed", [invoiceName]));
@@ -1997,6 +2112,7 @@ async function handlePaymentCompleted(paymentData) {
 				} else {
 					uiStore.showSuccess(invoiceName, invoiceTotal, paidAmount);
 					showSuccess(__("Invoice {0} created successfully", [invoiceName]));
+					window.frappe?.show_alert?.({ message: __("Invoice {0} created", [invoiceName]), indicator: "green" }, 5);
 				}
 			}
 		}
@@ -2058,23 +2174,56 @@ async function handleOptionSelected(option) {
 				}
 			}
 
-			if (variant.item_uoms && variant.item_uoms.length > 0) {
-				cartStore.setPendingItem(variant, cartStore.pendingItemQty, "uom");
+			const variantQty = option.quantity || cartStore.pendingItemQty;
+
+			// Prepare the variant item with notes and ingredients
+			const variantItemToAdd = { ...variant };
+			let variantItemNotes = option.notes || "";
+
+			if (option.removed_ingredient_names?.length > 0) {
+				const removedNote = __("No: {0}", [option.removed_ingredient_names.join(", ")]);
+				variantItemNotes = variantItemNotes ? `${variantItemNotes} | ${removedNote}` : removedNote;
+			}
+			variantItemToAdd.notes = variantItemNotes;
+			variantItemToAdd.selected_addons = option.selected_addons;
+			variantItemToAdd.removed_ingredients = option.removed_ingredients;
+			variantItemToAdd.removed_ingredient_names = option.removed_ingredient_names;
+
+			if (variant.item_uoms && variant.item_uoms.length > 1) {
+				cartStore.setPendingItem(variantItemToAdd, variantQty, "uom");
 				return;
 			}
 
 			if (variant.has_batch_no || variant.has_serial_no) {
-				cartStore.setPendingItem(variant, cartStore.pendingItemQty);
+				cartStore.setPendingItem(variantItemToAdd, variantQty);
 				uiStore.showItemSelectionDialog = false;
 				uiStore.showBatchSerialDialog = true;
 			} else {
 				try {
+					// Add the main variant item
 					cartStore.addItem(
-						variant,
-						cartStore.pendingItemQty,
+						variantItemToAdd,
+						variantQty,
 						false,
 						shiftStore.currentProfile
 					);
+					
+					// Add selected addons as separate items if they have a price
+					if (option.selected_addons?.length > 0) {
+						for (const addon of option.selected_addons) {
+							if (addon.price > 0) {
+								cartStore.addItem({
+									item_code: addon.item_code,
+									item_name: addon.item_name,
+									rate: addon.price,
+									price_list_rate: addon.price,
+									uom: addon.uom || "Unit",
+									is_stock_item: addon.is_stock_item
+								}, variantQty, false, shiftStore.currentProfile);
+							}
+						}
+					}
+
 					uiStore.showItemSelectionDialog = false;
 					cartStore.clearPendingItem();
 					showSuccess(__("{0} added to cart", [variant.item_name]));
@@ -2083,32 +2232,77 @@ async function handleOptionSelected(option) {
 				}
 			}
 		} else if (option.type === "uom") {
-			const qty = option.quantity || cartStore.pendingItemQty;
+			const uomQty = option.quantity || cartStore.pendingItemQty;
 			const pricing = await cartStore.resolveUomPricing(
-				cartStore.pendingItem, option.uom, option.conversion_factor, qty
+				cartStore.pendingItem, option.uom, option.conversion_factor, uomQty
 			);
 
-			const itemToAdd = {
+			const uomItemToAdd = {
 				...cartStore.pendingItem,
 				uom: option.uom,
 				conversion_factor: option.conversion_factor,
 				rate: pricing.rate,
 				price_list_rate: pricing.price_list_rate,
+				selected_addons: (option.selected_addons && option.selected_addons.length > 0) ? option.selected_addons : cartStore.pendingItem.selected_addons,
+				removed_ingredients: (option.removed_ingredients && option.removed_ingredients.length > 0) ? option.removed_ingredients : cartStore.pendingItem.removed_ingredients,
+				removed_ingredient_names: (option.removed_ingredient_names && option.removed_ingredient_names.length > 0) ? option.removed_ingredient_names : cartStore.pendingItem.removed_ingredient_names
 			};
 
-			if (itemToAdd.has_batch_no || itemToAdd.has_serial_no) {
-				cartStore.setPendingItem(itemToAdd, qty);
+			let uomItemNotes = option.notes || cartStore.pendingItem.notes || "";
+			if (option.removed_ingredient_names?.length > 0 && !uomItemNotes.includes(__("No: "))) {
+				const removedNote = __("No: {0}", [option.removed_ingredient_names.join(", ")]);
+				uomItemNotes = uomItemNotes ? `${uomItemNotes} | ${removedNote}` : removedNote;
+			}
+			uomItemToAdd.notes = uomItemNotes;
+
+			if (uomItemToAdd.has_batch_no || uomItemToAdd.has_serial_no) {
+				cartStore.setPendingItem(uomItemToAdd, uomQty);
 				uiStore.showItemSelectionDialog = false;
 				uiStore.showBatchSerialDialog = true;
 			} else {
 				try {
-					cartStore.addItem(itemToAdd, qty, false, shiftStore.currentProfile);
+					cartStore.addItem(uomItemToAdd, uomQty, false, shiftStore.currentProfile);
+					
+					// Add selected addons as separate items if they have a price
+					if (uomItemToAdd.selected_addons?.length > 0) {
+						for (const addon of uomItemToAdd.selected_addons) {
+							if (addon.price > 0) {
+								cartStore.addItem({
+									item_code: addon.item_code,
+									item_name: addon.item_name,
+									rate: addon.price,
+									price_list_rate: addon.price,
+									uom: addon.uom || "Unit",
+									is_stock_item: addon.is_stock_item
+								}, uomQty, false, shiftStore.currentProfile);
+							}
+						}
+					}
+
 					uiStore.showItemSelectionDialog = false;
 					cartStore.clearPendingItem();
-					showSuccess(__("{0} ({1}) added to cart", [itemToAdd.item_name, option.uom]));
+					showSuccess(__("{0} ({1}) added to cart", [uomItemToAdd.item_name, option.uom]));
 				} catch (error) {
 					showError(error.message);
 				}
+			}
+		} else if (option.type === "combo") {
+			const comboData = {
+				...cartStore.pendingItem,
+				rate: option.rate,
+				price_list_rate: option.rate,
+				components: option.components,
+				posa_row_id: `${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+				is_combo: true
+			};
+
+			try {
+				cartStore.addItem(comboData, option.quantity, false, shiftStore.currentProfile);
+				uiStore.showComboSelectionDialog = false;
+				cartStore.clearPendingItem();
+				showSuccess(__("{0} added to cart", [comboData.item_name]));
+			} catch (error) {
+				showError(error.message);
 			}
 		}
 	} catch (error) {
@@ -2153,6 +2347,9 @@ async function handleSaveDraft() {
 		cartStore.clearCart();
 		// Reset cart hash when cart is saved as draft and cleared
 		previousCartHash = "";
+
+		// Reset item selector navigation
+		await itemStore.resetNavigation(shiftStore.profileName === 'Call Center');
 	}
 }
 
@@ -2575,6 +2772,14 @@ function handleManagementMenuClick(menuItem) {
 		showStockLookup.value = true;
 	} else if (menuItem === "daily-payment") {
 		showDailyPayment.value = true;
+	} else if (menuItem === "all-orders") {
+		router.push({ name: "AllOrders" });
+	} else if (menuItem === "complete-orders") {
+		router.push({ name: "CompleteOrders" });
+	} else if (menuItem === "need-my-action") {
+		router.push({ name: "NeedMyAction" });
+	} else if (menuItem === "complaints") {
+		router.push({ name: "Complaints" });
 	}
 }
 

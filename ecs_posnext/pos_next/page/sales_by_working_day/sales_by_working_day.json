@@ -1,0 +1,8 @@
+{
+ "doctype": "Page",
+ "name": "sales_by_working_day",
+"module": "POS Next",
+ "title": "Sales by Working Day",
+ "icon": "octicon octicon-graph",
+ "standard": 1
+}

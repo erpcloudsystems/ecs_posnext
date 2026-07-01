@@ -1,0 +1,132 @@
+{
+ "actions": [],
+ "creation": "2026-06-08 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_accounts",
+  "driver_cash_clearing_account",
+  "cash_short_over_account",
+  "default_cash_in_hand_account",
+  "section_defaults",
+  "default_warehouse",
+  "default_order_doctype",
+  "default_payment_mode",
+  "section_behavior",
+  "auto_create_payment_entry",
+  "require_proof_on_delivery",
+  "allow_collection_mismatch"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_accounts",
+   "fieldtype": "Section Break",
+   "label": "Accounts"
+  },
+  {
+   "fieldname": "driver_cash_clearing_account",
+   "fieldtype": "Link",
+   "label": "Driver Cash Clearing Account",
+   "options": "Account",
+   "description": "Intermediary account that holds collected cash until shift handover"
+  },
+  {
+   "fieldname": "cash_short_over_account",
+   "fieldtype": "Link",
+   "label": "Cash Short/Over Account",
+   "options": "Account",
+   "description": "Account for posting cash collection differences"
+  },
+  {
+   "fieldname": "default_cash_in_hand_account",
+   "fieldtype": "Link",
+   "label": "Cash-in-Hand Account",
+   "options": "Account",
+   "description": "Debited on shift handover Journal Entry"
+  },
+  {
+   "fieldname": "section_defaults",
+   "fieldtype": "Section Break",
+   "label": "Defaults"
+  },
+  {
+   "fieldname": "default_warehouse",
+   "fieldtype": "Link",
+   "label": "Default Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "default_order_doctype",
+   "fieldtype": "Select",
+   "label": "Default Order Doctype",
+   "options": "Sales Invoice\nDelivery Note\nSales Order",
+   "default": "Sales Invoice"
+  },
+  {
+   "fieldname": "default_payment_mode",
+   "fieldtype": "Select",
+   "label": "Default Payment Mode",
+   "options": "Cash (COD)\nCard on Delivery\nPrepaid\nWallet",
+   "default": "Cash (COD)"
+  },
+  {
+   "fieldname": "section_behavior",
+   "fieldtype": "Section Break",
+   "label": "Behavior"
+  },
+  {
+   "fieldname": "auto_create_payment_entry",
+   "fieldtype": "Check",
+   "label": "Auto-Create Payment Entry on Close",
+   "default": "1"
+  },
+  {
+   "fieldname": "require_proof_on_delivery",
+   "fieldtype": "Check",
+   "label": "Require Proof on Delivery",
+   "default": "0"
+  },
+  {
+   "fieldname": "allow_collection_mismatch",
+   "fieldtype": "Check",
+   "label": "Allow Collection Mismatch",
+   "default": "1",
+   "description": "If unchecked, shift close is blocked when expected ≠ collected"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-06-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "Dispatch Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Dispatcher",
+   "write": 0
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "Dispatch Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

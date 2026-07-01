@@ -5,7 +5,9 @@
 			class="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded-lg transition-colors"
 		>
 			<div class="text-end mx-1 hidden sm:block">
-				<p class="text-sm font-semibold text-gray-900">{{ userName }}</p>
+				<p class="text-sm font-semibold text-gray-900">
+					{{ employeeCode ? `${employeeCode} | ${employeeName || userName}` : userName }}
+				</p>
 			</div>
 			<Avatar :image="profileImage" :name="userName" :initials="userInitials" size="sm" />
 			<svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -23,7 +25,9 @@
 			<div class="px-4 py-3 border-b border-gray-100 flex items-center">
 				<Avatar :image="profileImage" :name="userName" :initials="userInitials" size="md" />
 				<div class="flex-1 mx-2 min-w-0">
-					<p class="text-sm font-semibold text-gray-900 truncate">{{ userName }}</p>
+					<p class="text-sm font-semibold text-gray-900 truncate">
+						{{ employeeCode ? `${employeeCode} | ${employeeName || userName}` : userName }}
+					</p>
 					<p v-if="profileName" class="text-xs text-gray-500 mt-0.5 truncate">{{ profileName }}</p>
 				</div>
 			</div>
@@ -162,6 +166,14 @@ const props = defineProps({
 	showDivider: {
 		type: Boolean,
 		default: true,
+	},
+	employeeCode: {
+		type: String,
+		default: null,
+	},
+	employeeName: {
+		type: String,
+		default: null,
 	},
 })
 

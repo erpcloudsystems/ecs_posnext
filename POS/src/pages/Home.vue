@@ -90,6 +90,7 @@
 
                   <div class="flex space-x-3">
                     <Button
+                      v-if="!posSettingsStore.hideCloseShift"
                       variant="solid"
                       theme="red"
                       @click="openCloseShiftDialog"
@@ -206,7 +207,7 @@
             {{ __('Cancel') }}
           </Button>
           <Button
-            v-if="hasOpenShift"
+            v-if="hasOpenShift && !posSettingsStore.hideCloseShift"
             theme="blue"
             variant="solid"
             @click="logoutWithCloseShift"
@@ -250,9 +251,11 @@ import ShiftClosingDialog from "../components/ShiftClosingDialog.vue"
 import ShiftOpeningDialog from "../components/ShiftOpeningDialog.vue"
 import { useShift } from "../composables/useShift"
 import { session } from "../data/session"
+import { usePOSSettingsStore } from "../stores/posSettings"
 import TranslatedHTML from "../components/common/TranslatedHTML.vue"
 
 const router = useRouter()
+const posSettingsStore = usePOSSettingsStore()
 
 const {
 	hasOpenShift,

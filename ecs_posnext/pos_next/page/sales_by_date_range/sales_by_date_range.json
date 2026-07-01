@@ -1,0 +1,8 @@
+{
+ "doctype": "Page",
+ "name": "sales_by_date_range",
+ "module": "POS Next",
+ "title": "Sales by Date Range",
+ "icon": "octicon octicon-graph",
+ "standard": 1
+}

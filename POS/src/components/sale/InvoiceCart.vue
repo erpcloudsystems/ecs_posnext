@@ -80,10 +80,10 @@
 									</svg>
 								</div>
 								<div class="min-w-0 flex-1">
-									<p class="text-xs font-semibold text-gray-900 truncate leading-tight">
+									<p class="text-sm font-bold text-gray-900 truncate leading-tight">
 										{{ customer.customer_name || customer.name }}
 									</p>
-									<p v-if="customer.mobile_no" class="text-[10px] text-gray-500 truncate leading-tight">
+									<p v-if="customer.mobile_no" class="text-xs text-gray-500 truncate leading-tight">
 										{{ customer.mobile_no }}
 									</p>
 								</div>
@@ -200,7 +200,7 @@
 								@blur="handleSearchBlur"
 								type="text"
 								:placeholder="__('Search or add customer...')"
-								class="w-full h-10 ps-9 pe-3 text-xs border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-shadow"
+								class="w-full h-11 ps-9 pe-3 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-shadow"
 								:disabled="!customersLoaded"
 								@keydown="handleKeydown"
 								autocomplete="off"
@@ -303,10 +303,10 @@
 								}}</span>
 							</div>
 							<div class="flex-1 min-w-0 pointer-events-none">
-								<p class="text-[11px] font-semibold text-gray-900 truncate">
+								<p class="text-sm font-semibold text-gray-900 truncate">
 									{{ cust.customer_name }}
 								</p>
-								<p v-if="cust.mobile_no" class="text-[9px] text-gray-600">
+								<p v-if="cust.mobile_no" class="text-xs text-gray-600">
 									{{ cust.mobile_no }}
 								</p>
 							</div>
@@ -355,6 +355,167 @@
 					</button>
 				</div>
 			</div>
+		</div>
+
+		<!-- Order Type Selector (Call Center only) -->
+		<div v-if="isCallCenterInvoice && customer" class="px-2.5 py-2 border-b border-gray-200 bg-gray-50">
+			<div class="flex items-center bg-gray-100 rounded-xl p-1 gap-1">
+				<!-- Pickup -->
+				<button
+					v-if="cartStore.resumedInvoiceName ? cartStore.orderType === 'Pickup' : currentPriceList !== 'Talabat'"
+					type="button"
+					@click="cartStore.setOrderType('Pickup')"
+					class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all duration-200 touch-manipulation disabled:opacity-85 disabled:cursor-not-allowed"
+					:class="cartStore.orderType === 'Pickup'
+						? 'bg-white text-blue-600 shadow-sm border border-gray-200/10'
+						: 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'"
+				>
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+					</svg>
+					<span>{{ __("Pickup") }}</span>
+				</button>
+				<!-- Delivery -->
+				<button
+					v-if="cartStore.resumedInvoiceName ? cartStore.orderType === 'Delivery' : currentPriceList !== 'Talabat'"
+					type="button"
+					@click="cartStore.setOrderType('Delivery')"
+					class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all duration-200 touch-manipulation disabled:opacity-85 disabled:cursor-not-allowed"
+					:class="cartStore.orderType === 'Delivery'
+						? 'bg-white text-green-600 shadow-sm border border-gray-200/10'
+						: 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'"
+				>
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
+					</svg>
+					<span>{{ __("Delivery") }}</span>
+				</button>
+				<!-- Talabat -->
+				<button
+					v-if="cartStore.resumedInvoiceName ? cartStore.orderType === 'Talabat' : currentPriceList === 'Talabat'"
+					type="button"
+					@click="cartStore.setOrderType('Talabat')"
+					class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all duration-200 touch-manipulation disabled:opacity-85 disabled:cursor-not-allowed"
+					:class="cartStore.orderType === 'Talabat'
+						? 'bg-white text-orange-600 shadow-sm border border-gray-200/10'
+						: 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'"
+				>
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+					</svg>
+					<span>{{ __("Talabat") }}</span>
+				</button>
+			</div>
+
+			<!-- Delivery Address (shown when Delivery is selected) -->
+			<div v-if="cartStore.orderType === 'Delivery'" class="mt-2">
+				<div
+					v-if="cartStore.customerAddress"
+					@click="!cartStore.resumedInvoiceName && (showAddressSelector = true)"
+					class="p-2.5 rounded-xl border border-blue-100 bg-blue-50/50 hover:bg-blue-50 transition-colors"
+					:class="cartStore.resumedInvoiceName ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'"
+				>
+					<div class="flex items-center gap-2">
+						<div class="w-8 h-8 rounded bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0">
+							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+							</svg>
+						</div>
+						<div class="flex-1 min-w-0">
+							<p class="text-[9px] font-bold text-blue-700 uppercase tracking-tighter mb-0.5">{{ __("Delivery to") }}</p>
+							<p class="text-[10px] font-semibold text-gray-900 truncate">{{ cartStore.customerAddress }}</p>
+						</div>
+					</div>
+				</div>
+				<button
+					v-else
+					type="button"
+					@click="showAddressSelector = true"
+					:disabled="!!cartStore.resumedInvoiceName"
+					class="w-full flex items-center justify-center gap-1.5 p-2 rounded-xl border border-dashed border-gray-300 bg-gray-50 text-gray-600 hover:bg-gray-100 hover:border-gray-400 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+				>
+					<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+					</svg>
+					<span class="text-xs font-bold">{{ __("Select Delivery Address") }}</span>
+				</button>
+			</div>
+
+			<!-- Target Branch (Call Center) -->
+			<div class="mt-2">
+				<div class="flex items-center gap-1 mb-1">
+					<svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+					</svg>
+					<span class="text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+						{{ __("Target Branch") }}
+						<span class="text-red-500 font-bold ml-0.5">*</span>
+					</span>
+				</div>
+				<select
+					:value="cartStore.selectedBranch"
+					@change="handleBranchChange"
+					:disabled="!!cartStore.resumedInvoiceName"
+					class="w-full text-sm border border-gray-200 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 py-2 px-3 transition-colors disabled:opacity-80 disabled:cursor-not-allowed"
+					:class="!cartStore.selectedBranch ? 'border-red-300 ring-1 ring-red-100' : ''"
+				>
+					<option :value="null">{{ __("Select Branch...") }}</option>
+					<option v-for="b in branches" :key="b.name" :value="b.name">{{ b.name }}</option>
+				</select>
+			</div>
+
+			<!-- Territory / Zone (Delivery only) - Searchable -->
+			<div v-if="cartStore.orderType === 'Delivery'" class="mt-2">
+				<div class="flex items-center gap-1 mb-1">
+					<svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+					</svg>
+					<span class="text-xs font-semibold text-gray-700 uppercase tracking-wider">{{ __("Delivery Zone") }}</span>
+				</div>
+				<div class="relative">
+					<input
+						v-model="zoneSearchQuery"
+						type="text"
+						:placeholder="__('Search zone...')"
+						:disabled="!!cartStore.resumedInvoiceName"
+						@focus="showZoneDropdown = true"
+						@blur="onZoneBlur"
+						@input="showZoneDropdown = true"
+						class="w-full text-sm border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 py-2 px-3 disabled:opacity-80 disabled:cursor-not-allowed"
+						:class="!selectedTerritory && cartStore.orderType === 'Delivery' ? 'border-orange-200' : ''"
+						autocomplete="off"
+					/>
+					<div
+						v-if="showZoneDropdown && filteredZones.length > 0"
+						class="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-44 overflow-y-auto"
+					>
+						<button
+							v-for="t in filteredZones"
+							:key="t.name"
+							type="button"
+							@mousedown.prevent="selectZone(t)"
+							class="w-full text-start px-3 py-2 text-sm border-b border-gray-100 last:border-0 transition-colors"
+							:class="selectedTerritory === t.name ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-700 hover:bg-gray-50'"
+						>
+							{{ t.name }}
+						</button>
+					</div>
+					<p v-if="selectedTerritory && !showZoneDropdown" class="text-xs text-blue-700 font-medium mt-0.5 px-1">
+						✓ {{ selectedTerritory }}
+					</p>
+				</div>
+			</div>
+
+			<!-- Address Selector Dialog -->
+			<AddressSelector
+				v-if="customer"
+				v-model="showAddressSelector"
+				:customer="customer.name || customer"
+				:selected-address="cartStore.customerAddress"
+				@select="handleAddressSelect"
+			/>
 		</div>
 
 		<!-- Action Buttons Section -->
@@ -559,40 +720,7 @@
 				<!-- Quick Actions Grid -->
 				<div class="grid grid-cols-2 gap-2 sm:gap-2.5 w-full max-w-lg">
 					<!-- View Shift -->
-					<button
-						type="button"
-						@click="$emit('view-shift')"
-						class="flex flex-col items-center justify-center p-3 sm:p-4 bg-white border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 active:bg-blue-100 transition-colors shadow-sm hover:shadow touch-manipulation group"
-						:title="__('View current shift details')"
-					>
-						<div
-							class="w-9 h-9 sm:w-10 sm:h-10 bg-blue-50 rounded-full flex items-center justify-center mb-2 group-hover:bg-blue-100 transition-colors"
-						>
-							<svg
-								class="w-5 h-5 text-blue-600"
-								fill="none"
-								stroke="currentColor"
-								viewBox="0 0 24 24"
-							>
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="2"
-									d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-								/>
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="2"
-									d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-								/>
-							</svg>
-						</div>
-						<span class="text-[11px] sm:text-xs font-semibold text-gray-700">{{
-							__("View Shift")
-						}}</span>
-					</button>
-
+					
 					<!-- Draft Invoices -->
 					<button
 						type="button"
@@ -681,33 +809,7 @@
 					</button>
 
 					<!-- Close Shift -->
-					<button
-						type="button"
-						@click="$emit('close-shift')"
-						class="flex flex-col items-center justify-center p-3 sm:p-4 bg-white border border-gray-200 rounded-lg hover:border-orange-300 hover:bg-orange-50 active:bg-orange-100 transition-colors shadow-sm hover:shadow touch-manipulation group"
-						:title="__('Close current shift')"
-					>
-						<div
-							class="w-9 h-9 sm:w-10 sm:h-10 bg-orange-50 rounded-full flex items-center justify-center mb-2 group-hover:bg-orange-100 transition-colors"
-						>
-							<svg
-								class="w-5 h-5 text-orange-600"
-								fill="none"
-								stroke="currentColor"
-								viewBox="0 0 24 24"
-							>
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="2"
-									d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-								/>
-							</svg>
-						</div>
-						<span class="text-[11px] sm:text-xs font-semibold text-gray-700">{{
-							__("Close Shift")
-						}}</span>
-					</button>
+					
 
 					<!-- Create Customer -->
 					<button
@@ -788,6 +890,44 @@
 									>
 										{{ item.item_name }}
 									</h4>
+
+									<!-- Exclusions and Notes -->
+									<div v-if="item.removed_ingredient_names?.length > 0 || item.notes" class="mt-1 space-y-0.5">
+										<div v-if="item.removed_ingredient_names?.length > 0" class="flex items-start gap-1">
+											<span class="text-[9px] font-bold text-red-600 uppercase flex-shrink-0">{{ __("No:") }}</span>
+											<span class="text-[9px] text-gray-600 leading-tight">{{ item.removed_ingredient_names.join(", ") }}</span>
+										</div>
+										<div v-if="item.notes" class="flex items-start gap-1">
+											<span class="text-[9px] font-bold text-blue-600 uppercase flex-shrink-0">{{ __("Note:") }}</span>
+											<span class="text-[9px] text-gray-600 leading-tight italic">"{{ item.notes }}"</span>
+										</div>
+										<!-- Main Item Addons -->
+										<div v-if="item.selected_addons?.length > 0" class="mt-0.5 space-y-0.5">
+											<div v-for="addon in item.selected_addons" :key="addon.item_code" class="flex items-start gap-1">
+												<span class="text-[9px] font-bold text-green-600 uppercase flex-shrink-0">{{ __("Add:") }}</span>
+												<span class="text-[9px] text-gray-600 leading-tight">{{ addon.item_name }}</span>
+											</div>
+										</div>
+									</div>
+
+									<!-- Combo Components -->
+									<div v-if="item.components?.length > 0" class="mt-1.5 space-y-1 pl-2 border-l-2 border-gray-200">
+										<div v-for="comp in item.components" :key="comp.item_code" class="text-[10px]">
+											<div class="flex items-center gap-1">
+												<span class="font-bold text-gray-800">{{ comp.quantity }}x</span>
+												<span class="font-medium text-gray-700">{{ comp.item_name }}</span>
+											</div>
+											<!-- Component customizations -->
+											<div v-if="comp.removed_ingredient_names?.length > 0" class="flex items-start gap-1 ml-3">
+												<span class="text-[8px] font-bold text-red-500 uppercase flex-shrink-0">{{ __("No:") }}</span>
+												<span class="text-[8px] text-gray-500 leading-tight">{{ comp.removed_ingredient_names.join(", ") }}</span>
+											</div>
+											<div v-if="comp.selected_addons?.length > 0" class="flex items-start gap-1 ml-3">
+												<span class="text-[8px] font-bold text-green-600 uppercase flex-shrink-0">{{ __("Add:") }}</span>
+												<span class="text-[8px] text-gray-500 leading-tight">{{ comp.selected_addons.map(a => a.item_name).join(", ") }}</span>
+											</div>
+										</div>
+									</div>
 									<!-- Free Item Badge -->
 									<span
 										v-if="item.free_qty && item.free_qty > 0"
@@ -1149,6 +1289,31 @@
 						formatCurrency(taxAmount)
 					}}</span>
 				</div>
+
+				<!-- Delivery Charge Display -->
+				<div
+					v-if="cartStore.deliveryCharge && !cartStore.deliveryCharge.is_dummy"
+					class="flex items-center justify-between text-xs text-gray-600 mt-0.5"
+				>
+					<div class="flex items-center gap-1">
+						<svg class="w-3.5 h-3.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
+						</svg>
+						<span class="font-medium">{{ cartStore.deliveryCharge.label || __("Delivery Charge") }}</span>
+						<button 
+							@click="cartStore.setDeliveryCharge(null)"
+							class="text-red-400 hover:text-red-600 transition-colors ml-1"
+							type="button"
+						>
+							<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+							</svg>
+						</button>
+					</div>
+					<span class="font-bold text-gray-900 text-center min-w-[60px]">{{
+						formatCurrency(cartStore.deliveryCharge.rate)
+					}}</span>
+				</div>
 			</div>
 
 			<!-- Grand Total -->
@@ -1241,9 +1406,11 @@
  * ============================================================================
  */
 import { usePOSCartStore } from "@/stores/posCart";
+import { usePOSShiftStore } from "@/stores/posShift";
 import { usePOSSettingsStore } from "@/stores/posSettings";
 import { usePOSOffersStore } from "@/stores/posOffers";
 import { useCustomerSearchStore } from "@/stores/customerSearch";
+import { useItemSearchStore } from "@/stores/itemSearch";
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "@/utils/currency";
 import { useFormatters } from "@/composables/useFormatters";
 import { useCartSort } from "@/composables/useCartSort";
@@ -1255,7 +1422,11 @@ import { FeatherIcon } from "frappe-ui";
 const log = logger.create("InvoiceCart");
 import { createResource } from "frappe-ui";
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue";
+
+import BatchSerialDialog from "./BatchSerialDialog.vue"
 import EditItemDialog from "./EditItemDialog.vue";
+import AddressSelector from "./AddressSelector.vue";
+import { call } from "@/utils/apiWrapper";
 
 /**
  * ============================================================================
@@ -1263,9 +1434,11 @@ import EditItemDialog from "./EditItemDialog.vue";
  * ============================================================================
  */
 const cartStore = usePOSCartStore(); // Pinia store for cart state management
+const shiftStore = usePOSShiftStore(); // Pinia store for shift/profile state
 const settingsStore = usePOSSettingsStore(); // Pinia store for POS settings
 const offersStore = usePOSOffersStore(); // Pinia store for offers/promotions
 const customerSearchStore = useCustomerSearchStore(); // Pinia store for customer search
+const itemSearchStore = useItemSearchStore(); // Pinia store for item search and catalog
 const { formatQuantity } = useFormatters(); // Quantity formatting utilities
 
 function handleProceedToPayment() {
@@ -1326,6 +1499,10 @@ const props = defineProps({
 		type: Array,
 		default: () => [],
 	},
+	hideCloseShift: {
+		type: Boolean,
+		default: false,
+	},
 });
 
 /**
@@ -1357,6 +1534,8 @@ const emit = defineEmits([
 	// "create-sales-order", // () - Create Sales Order // Removed as per instruction
 ]);
 
+
+
 // Cart sort composable (must be after defineProps)
 const {
 	cartSortBy, cartSortOrder, showCartSortDropdown,
@@ -1364,6 +1543,140 @@ const {
 	CART_SORT_OPTIONS, CART_SORT_ICONS,
 	toggleCartSortDropdown, handleCartSortToggle, getCartSortLabel, getCartSortIconState,
 } = useCartSort(() => props.items);
+
+const currentPriceList = computed(() => {
+	return itemSearchStore.selectedPriceList || cartStore.selectedBranchPriceList || shiftStore.currentProfile?.selling_price_list
+})
+
+const isCallCenterInvoice = computed(() => props.posProfile?.trim() === "Call Center")
+
+async function loadCallCenterData() {
+	if (!isCallCenterInvoice.value) return
+	try {
+		const branchRes = await call("ecs_posnext.api.customers.get_branches")
+		branches.value = branchRes || []
+		const allRes = await call("ecs_posnext.api.customers.get_territories")
+		allTerritories.value = allRes || []
+
+		// If a branch is already selected (e.g. resumed invoice), fetch its territories
+		if (cartStore.selectedBranch) {
+			const res = await call("ecs_posnext.api.customers.get_territories", {
+				branch: cartStore.selectedBranch,
+			})
+			territories.value = res || []
+		}
+	} catch (err) {
+		console.error("Error fetching Call Center data in InvoiceCart:", err)
+	}
+}
+
+async function updateBranchAndData(branchName) {
+	if (!branchName) {
+		cartStore.setBranch(null, null, null, null)
+		return
+	}
+	const branch = branches.value.find((b) => b.name === branchName)
+	if (branch) {
+		cartStore.setBranch(branchName, branch.warehouse, branch.pos_profile, branch.selling_price_list)
+		await itemSearchStore.loadAllItems(props.posProfile, true)
+		try {
+			const res = await call("ecs_posnext.api.customers.get_territories", { branch: branchName })
+			territories.value = res || []
+			if (selectedTerritory.value) {
+				const stillValid = territories.value.find((t) => t.name === selectedTerritory.value)
+				if (!stillValid) {
+					selectedTerritory.value = null
+					zoneSearchQuery.value = ""
+					cartStore.setDeliveryCharge(null)
+				} else {
+					await cartStore.setDeliveryCharge(selectedTerritory.value)
+				}
+			}
+		} catch (err) {
+			console.error("Error fetching territories for branch in InvoiceCart:", err)
+		}
+	}
+}
+
+async function handleBranchChange(e) {
+	await updateBranchAndData(e.target.value)
+}
+
+function handleTerritoryChange() {
+	if (selectedTerritory.value) {
+		cartStore.setDeliveryCharge(selectedTerritory.value)
+	} else {
+		cartStore.setDeliveryCharge(null)
+	}
+}
+
+async function handleAddressSelect(addr) {
+	await cartStore.setCustomerAddress(addr.name, addr.territory)
+	if (addr.territory) {
+		selectedTerritory.value = addr.territory
+		zoneSearchQuery.value = addr.territory
+	}
+	if (isCallCenterInvoice.value) {
+		let branchName = addr.branch
+		if (!branchName && addr.territory) {
+			const territory =
+				allTerritories.value.find((t) => t.name === addr.territory) ||
+				territories.value.find((t) => t.name === addr.territory)
+			branchName = territory?.branch
+		}
+		if (branchName && branchName !== cartStore.selectedBranch) {
+			await updateBranchAndData(branchName)
+			if (addr.territory) {
+				selectedTerritory.value = addr.territory
+				zoneSearchQuery.value = addr.territory
+			}
+		}
+	}
+}
+
+// Call Center state — declared before watches that use them (avoid TDZ with immediate: true)
+const branches = ref([])
+const territories = ref([])
+const allTerritories = ref([])
+const selectedTerritory = ref(null)
+
+// Zone searchable field state
+const zoneSearchQuery = ref("")
+const showZoneDropdown = ref(false)
+
+const filteredZones = computed(() => {
+	if (!zoneSearchQuery.value) return territories.value
+	const q = zoneSearchQuery.value.toLowerCase()
+	return territories.value.filter(t => t.name.toLowerCase().includes(q))
+})
+
+function selectZone(t) {
+	selectedTerritory.value = t.name
+	zoneSearchQuery.value = t.name
+	showZoneDropdown.value = false
+	handleTerritoryChange()
+}
+
+function onZoneBlur() {
+	setTimeout(() => { showZoneDropdown.value = false }, 150)
+}
+
+watch(isCallCenterInvoice, loadCallCenterData, { immediate: true })
+
+// Sync selectedTerritory from store (covers resume + address select)
+watch(
+	() => cartStore.deliveryCharge,
+	(newVal) => {
+		if (newVal?.territory) {
+			selectedTerritory.value = newVal.territory
+			zoneSearchQuery.value = newVal.territory
+		} else if (!newVal) {
+			selectedTerritory.value = null
+			zoneSearchQuery.value = ""
+		}
+	},
+	{ immediate: true },
+)
 
 /**
  * ============================================================================
@@ -1376,10 +1689,12 @@ const customerSearchContainer = ref(null); // Ref to search container for click-
 const customerSearchFocused = ref(false); // Track if search input is focused
 // Use Pinia store for allCustomers (shared with CustomerDialog, synced on customer creation)
 const allCustomers = computed(() => customerSearchStore.allCustomers);
-const customersLoaded = computed(() => customerSearchStore.allCustomers.length > 0);
+const customersLoaded = computed(() => true); // Always ready — search is server-side
 const selectedIndex = ref(-1); // Keyboard navigation index for search results
+
 const availableGiftCards = ref([]); // Available gift cards for current customer
 const previousCustomer = ref(null); // Store previous customer for restore on blur
+const showAddressSelector = ref(false);
 
 // Edit item dialog state
 const showEditDialog = ref(false); // Controls edit dialog visibility
@@ -1446,16 +1761,25 @@ const giftCardsResource = createResource({
  * Reloads gift cards resource when customer is selected (and online).
  * Clears gift cards when customer is removed or offline.
  */
-watch(
-	() => props.customer,
-	(newCustomer) => {
-		if (newCustomer && props.posProfile && !isOffline()) {
+watch(() => props.customer, (newCustomer) => {
+	if (newCustomer) {
+		if (props.posProfile && !isOffline()) {
 			giftCardsResource.reload();
-		} else {
-			availableGiftCards.value = [];
 		}
+	} else {
+		availableGiftCards.value = [];
 	}
-);
+});
+
+// Watch for price list change to sync order type
+watch(currentPriceList, (newList) => {
+	if (cartStore.resumedInvoiceName) return
+	if (newList === 'Talabat') {
+		cartStore.setOrderType('Talabat')
+	} else if (cartStore.orderType === 'Talabat') {
+		cartStore.setOrderType('Pickup')
+	}
+}, { immediate: true });
 
 /**
  * ============================================================================
@@ -1494,38 +1818,27 @@ const customerMap = computed(() => {
 const customerResults = computed(() => {
 	const searchValue = customerSearch.value.trim().toLowerCase();
 
-	// When focused with no/short search term, show frequent customers (top 5)
+	// When focused with no/short search term, show frequent customers (full objects)
 	if (searchValue.length < 2) {
 		if (customerSearchFocused.value) {
-			// Get frequent customer IDs from the store
-			const frequentIds = customerSearchStore.frequentCustomers.slice(0, 5);
-			if (frequentIds.length > 0) {
-				// O(1) lookup using pre-computed map instead of O(n) find
-				const frequentCustomers = [];
-				for (const id of frequentIds) {
-					const cust = customerMap.value.get(id);
-					if (cust) frequentCustomers.push(cust);
-				}
-				return frequentCustomers;
-			}
-			// If no frequent customers, show first 5 from the list
-			return allCustomers.value.slice(0, 5);
+			const frequent = customerSearchStore.frequentCustomers.slice(0, 5);
+			if (frequent.length > 0) return frequent;
+			return customerSearchStore.recentCustomers.slice(0, 5);
 		}
 		return [];
 	}
 
-	// Instant in-memory filter
+	// Server results (populated by searchServer via handleSearchInput debounce)
+	const serverRes = customerSearchStore.serverResults;
+	if (serverRes.length > 0) return serverRes.slice(0, 20);
+
+	// Fallback: search locally in recent+frequent while server responds
 	return allCustomers.value
 		.filter((cust) => {
 			const name = (cust.customer_name || "").toLowerCase();
 			const mobile = (cust.mobile_no || "").toLowerCase();
 			const id = (cust.name || "").toLowerCase();
-
-			return (
-				name.includes(searchValue) ||
-				mobile.includes(searchValue) ||
-				id.includes(searchValue)
-			);
+			return name.includes(searchValue) || mobile.includes(searchValue) || id.includes(searchValue);
 		})
 		.slice(0, 20);
 });
@@ -1583,9 +1896,10 @@ const displaySubtotal = computed(() => {
  * @returns {Number} Grand total amount to display
  */
 const displayGrandTotal = computed(() => {
-	// displaySubtotal + tax - discount + notIncludedTotal
+	// displaySubtotal + tax - discount + notIncludedTotal + deliveryCharge
 	// notIncludedTotal adds back custom_not_included items after discount calculation
-	return displaySubtotal.value + props.taxAmount - props.discountAmount + (props.notIncludedTotal || 0);
+	const deliveryAmt = cartStore.deliveryCharge?.rate || 0;
+	return displaySubtotal.value + props.taxAmount - props.discountAmount + (props.notIncludedTotal || 0) + deliveryAmt;
 });
 
 /**
@@ -1603,8 +1917,14 @@ const displayGrandTotal = computed(() => {
  * Updates the customerSearch ref which triggers computed filtering.
  * @param {Event} event - Input event from search field
  */
+let cartSearchTimeout = null;
 function handleSearchInput(event) {
 	customerSearch.value = event.target.value;
+	const term = event.target.value.trim();
+	if (cartSearchTimeout) clearTimeout(cartSearchTimeout);
+	cartSearchTimeout = setTimeout(() => {
+		customerSearchStore.searchServer(props.posProfile, term.length >= 2 ? term : "");
+	}, 300);
 }
 
 // Track if customer history has been loaded this session
@@ -1678,12 +1998,17 @@ function selectCustomer(cust) {
 	selectedIndex.value = -1;
 	customerSearchFocused.value = false;
 	previousCustomer.value = null;
+
+	// Auto-prompt address if delivery and no address selected
+	if (cartStore.orderType === 'Delivery' && !cartStore.customerAddress) {
+		setTimeout(() => {
+			showAddressSelector.value = true;
+		}, 100);
+	}
 }
 
-/**
- * Remove the selected customer.
- * Clears the customer and focuses the search input.
- */
+
+
 async function removeCustomer() {
 	previousCustomer.value = null;
 	await clearCustomer();

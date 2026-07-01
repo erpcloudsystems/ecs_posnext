@@ -41,6 +41,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		allow_return_without_invoice: 0,
 		allow_free_batch_return: 0,
 		allow_print_draft_invoices: 0,
+		hide_close_shift: 0,
 		// Pricing & Display
 		decimal_precision: "2",
 		// Customer Settings
@@ -161,6 +162,9 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 	)
 	const allowPrintDraftInvoices = computed(() =>
 		Boolean(settings.value.allow_print_draft_invoices),
+	)
+	const hideCloseShift = computed(() =>
+		Boolean(settings.value.hide_close_shift),
 	)
 
 	// Computed - Pricing & Display
@@ -310,6 +314,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 			allow_return_without_invoice: 0,
 			allow_free_batch_return: 0,
 			allow_print_draft_invoices: 0,
+			hide_close_shift: 0,
 			decimal_precision: "2",
 			allow_customer_purchase_order: 0,
 			allow_duplicate_customer_names: 0,
@@ -423,6 +428,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		allowReturnWithoutInvoice,
 		allowFreeBatchReturn,
 		allowPrintDraftInvoices,
+		hideCloseShift,
 
 		// Computed - Pricing & Display
 		decimalPrecision,

@@ -1,0 +1,104 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-11-11 14:11:38.577519",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "parent_item",
+  "item_code",
+  "packed_quantity",
+  "set_no",
+  "combo_qty",
+  "quantity",
+  "default_item",
+  "parent_detail_docname",
+  "qty",
+  "pos_closing_entry",
+  "parent_item_code",
+  "posa_row_id"
+ ],
+ "fields": [
+  {
+   "fieldname": "parent_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Parent Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item Code",
+   "options": "Item"
+  },
+  {
+   "fieldname": "packed_quantity",
+   "fieldtype": "Float",
+   "label": "Packed Quantity"
+  },
+  {
+   "fieldname": "set_no",
+   "fieldtype": "Int",
+   "label": "Set No"
+  },
+  {
+   "fieldname": "combo_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Combo Qty"
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Float",
+   "label": "Quantity"
+  },
+  {
+   "default": "0",
+   "fieldname": "default_item",
+   "fieldtype": "Check",
+   "label": "Default Item"
+  },
+  {
+   "fieldname": "parent_detail_docname",
+   "fieldtype": "Text",
+   "label": "Parent Detail docname"
+  },
+  {
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "label": "qty"
+  },
+  {
+   "fieldname": "pos_closing_entry",
+   "fieldtype": "Link",
+   "label": "pos_closing_entry",
+   "options": "POS Closing Entry"
+  },
+  {
+   "fieldname": "parent_item_code",
+   "fieldtype": "Data",
+   "label": "Parent Item Code"
+  },
+  {
+   "fieldname": "posa_row_id",
+   "fieldtype": "Data",
+   "label": "posa_row_id"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-11-16 15:10:44.680446",
+ "modified_by": "Administrator",
+ "module": "POSAwesome",
+ "name": "Selected Packed Items",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

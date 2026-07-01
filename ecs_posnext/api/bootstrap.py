@@ -63,6 +63,7 @@ def get_initial_data():
 		"site_name": frappe.local.site,
 		"locale": _get_user_language(),
 		"precision": _get_precision_settings(),
+		"user_roles": frappe.get_roles(frappe.session.user),
 		"shift": None,
 		"pos_profile": None,
 		"pos_settings": None,
@@ -250,6 +251,7 @@ def _get_payment_methods(pos_profile_name):
 			.select(
 				POSPaymentMethod.mode_of_payment,
 				POSPaymentMethod.default,
+				ModeOfPayment.custom_required_receipt,
 				POSPaymentMethod.allow_in_returns,
 				Coalesce(ModeOfPayment.type, "Cash").as_("type")
 			)

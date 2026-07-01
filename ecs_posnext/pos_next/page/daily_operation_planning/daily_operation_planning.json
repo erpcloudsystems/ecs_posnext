@@ -1,0 +1,29 @@
+{
+ "content": null,
+ "creation": "2026-02-26 12:00:00",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-05-13 14:00:57.145079",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "daily_operation_planning",
+ "owner": "Administrator",
+ "page_name": "daily_operation_planning",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Stock Manager"
+  },
+  {
+   "role": "Stock User"
+  }
+ ],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "Daily Operation Planning"
+}

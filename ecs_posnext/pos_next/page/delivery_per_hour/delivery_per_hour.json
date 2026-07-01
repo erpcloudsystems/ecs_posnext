@@ -1,0 +1,8 @@
+{
+ "doctype": "Page",
+ "name": "delivery_per_hour",
+ "module": "POS Next",
+ "title": "Delivery per Hour",
+ "icon": "octicon octicon-clock",
+ "standard": 1
+}

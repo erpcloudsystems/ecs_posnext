@@ -1,21 +1,23 @@
 {
-	"name": "POS Next",
-	"short_name": "POS",
-	"start_url": ".",
+	"name": "Mamo",
+	"short_name": "Mamo",
+	"start_url": "/pos",
 	"display": "standalone",
 	"background_color": "#ffffff",
-	"theme_color": "#1d4ed8",
-	"description": "Fast, offline-ready point of sale for Frappe.",
+	"theme_color": "#4F46E5",
+	"description": "Point of Sale system with real-time billing, stock management, and offline support",
 	"icons": [
 		{
-			"src": "/favicon.svg",
-			"sizes": "any",
-			"type": "image/svg+xml"
+			"src": "/assets/ecs_posnext/pos/mamo-logo.jpeg",
+			"sizes": "192x192",
+			"type": "image/jpeg",
+			"purpose": "any"
 		},
 		{
-			"src": "/favicon.png",
-			"sizes": "192x192",
-			"type": "image/png"
+			"src": "/assets/ecs_posnext/pos/mamo-logo.jpeg",
+			"sizes": "512x512",
+			"type": "image/jpeg",
+			"purpose": "any maskable"
 		}
 	]
 }

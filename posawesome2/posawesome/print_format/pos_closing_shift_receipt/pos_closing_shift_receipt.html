@@ -1,0 +1,183 @@
+{%- set currency = frappe.db.get_value("Company", doc.company, "default_currency") or "EGP" -%}
+{%- set cashier_name = frappe.utils.get_fullname(doc.user) or doc.user -%}
+{%- set cashier_code = frappe.db.get_value("Employee", {"user_id": doc.user}, "name") or doc.user -%}
+
+<div class="print-format">
+    <!-- Header -->
+    <div class="header">
+        <h2>{{ _("POS Closing Shift") }}</h2>
+        <p><strong>{{ doc.company }}</strong></p>
+        <p>{{ doc.pos_profile }}</p>
+    </div>
+
+    <!-- Shift Information -->
+    <div class="section">
+        <div class="section-title">{{ _("Shift Information") }}</div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Working Day") }}:</span>
+            <span>{{ frappe.format_value(doc.period_start_date, {"fieldtype": "Date"}) }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Shift Start") }}:</span>
+            <span>{{ frappe.format_value(doc.period_start_date, {"fieldtype": "Datetime"}) }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Shift End") }}:</span>
+            <span>{{ frappe.format_value(doc.period_end_date, {"fieldtype": "Datetime"}) }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Opening Shift") }}:</span>
+            <span>{{ doc.pos_opening_shift }}</span>
+        </div>
+    </div>
+
+    <!-- Cashier Information -->
+    <div class="section">
+        <div class="section-title">{{ _("Cashier Information") }}</div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Cashier") }}:</span>
+            <span>{{ cashier_name }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Cashier Code") }}:</span>
+            <span>{{ cashier_code }}</span>
+        </div>
+    </div>
+
+    <!-- Cash Denominations -->
+    <div class="section">
+        <div class="section-title">{{ _("Cash Denominations (EGP)") }}</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>{{ _("Denomination") }}</th>
+                    <th style="text-align:center">{{ _("Count") }}</th>
+                    <th style="text-align:right">{{ _("Total") }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>200 EGP</td>
+                    <td style="text-align:center">{{ doc.cash_200_egp or 0 }}</td>
+                    <td class="amount">{{ frappe.utils.fmt_money((doc.cash_200_egp or 0) * 200, currency=currency) }}</td>
+                </tr>
+                <tr>
+                    <td>100 EGP</td>
+                    <td style="text-align:center">{{ doc.cash_100_egp or 0 }}</td>
+                    <td class="amount">{{ frappe.utils.fmt_money((doc.cash_100_egp or 0) * 100, currency=currency) }}</td>
+                </tr>
+                <tr>
+                    <td>50 EGP</td>
+                    <td style="text-align:center">{{ doc.cash_50_egp or 0 }}</td>
+                    <td class="amount">{{ frappe.utils.fmt_money((doc.cash_50_egp or 0) * 50, currency=currency) }}</td>
+                </tr>
+                <tr>
+                    <td>20 EGP</td>
+                    <td style="text-align:center">{{ doc.cash_20_egp or 0 }}</td>
+                    <td class="amount">{{ frappe.utils.fmt_money((doc.cash_20_egp or 0) * 20, currency=currency) }}</td>
+                </tr>
+                <tr>
+                    <td>10 EGP</td>
+                    <td style="text-align:center">{{ doc.cash_10_egp or 0 }}</td>
+                    <td class="amount">{{ frappe.utils.fmt_money((doc.cash_10_egp or 0) * 10, currency=currency) }}</td>
+                </tr>
+                <tr>
+                    <td>5 EGP</td>
+                    <td style="text-align:center">{{ doc.cash_5_egp or 0 }}</td>
+                    <td class="amount">{{ frappe.utils.fmt_money((doc.cash_5_egp or 0) * 5, currency=currency) }}</td>
+                </tr>
+                <tr>
+                    <td>1 EGP</td>
+                    <td style="text-align:center">{{ doc.cash_1_egp or 0 }}</td>
+                    <td class="amount">{{ frappe.utils.fmt_money((doc.cash_1_egp or 0) * 1, currency=currency) }}</td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="info-row total-row">
+            <span>{{ _("Total Cash") }}:</span>
+            <span>{{ frappe.utils.fmt_money(doc.total_cash or 0, currency=currency) }}</span>
+        </div>
+    </div>
+
+    <!-- Cash Summary -->
+    {%- set ns = namespace(cash_payment=None) -%}
+    {%- for p in doc.payment_reconciliation -%}
+        {%- set mop_type = frappe.db.get_value("Mode of Payment", p.mode_of_payment, "type") -%}
+        {%- if mop_type == "Cash" -%}
+            {%- set ns.cash_payment = p -%}
+        {%- endif -%}
+    {%- endfor -%}
+    
+    <div class="section">
+        <div class="section-title">{{ _("Cash Summary") }}</div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Expected Cash") }}:</span>
+            <span>{{ frappe.utils.fmt_money(ns.cash_payment.expected_amount if ns.cash_payment else 0, currency=currency) }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Closing Cash") }}:</span>
+            <span>{{ frappe.utils.fmt_money(ns.cash_payment.closing_amount if ns.cash_payment else 0, currency=currency) }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Difference") }}:</span>
+            <span>{{ frappe.utils.fmt_money(ns.cash_payment.difference if ns.cash_payment else 0, currency=currency) }}</span>
+        </div>
+    </div>
+
+    <!-- Sales Totals -->
+    <div class="section">
+        <div class="section-title">{{ _("Sales Totals") }}</div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Grand Total") }}:</span>
+            <span>{{ frappe.utils.fmt_money(doc.grand_total or 0, currency=currency) }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Net Total") }}:</span>
+            <span>{{ frappe.utils.fmt_money(doc.net_total or 0, currency=currency) }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Total Qty") }}:</span>
+            <span>{{ doc.total_quantity or 0 }}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">{{ _("Invoices Count") }}:</span>
+            <span>{{ doc.pos_transactions | length }}</span>
+        </div>
+    </div>
+
+    <!-- Payment Status -->
+    {%- set total_diff = doc.total_diff or 0 -%}
+    {%- if total_diff == 0 -%}
+        {%- set status_class = "status-balanced" -%}
+        {%- set status_message = _("BALANCED - Closing Correct") -%}
+    {%- elif total_diff < 0 -%}
+        {%- set status_class = "status-short" -%}
+        {%- set status_message = _("SHORT by ") ~ frappe.utils.fmt_money(total_diff | abs, currency=currency) -%}
+    {%- else -%}
+        {%- set status_class = "status-over" -%}
+        {%- set status_message = _("OVER by ") ~ frappe.utils.fmt_money(total_diff, currency=currency) -%}
+    {%- endif -%}
+
+    <div class="status-box {{ status_class }}">
+        {{ status_message }}
+    </div>
+
+    <!-- Signatures -->
+    <div class="signature-section">
+        <div class="section-title">{{ _("Signatures") }}</div>
+        <div class="signature-row">
+            <div class="signature-box">
+                <div class="signature-line">{{ _("Cashier Signature") }}</div>
+            </div>
+            <div class="signature-box">
+                <div class="signature-line">{{ _("Supervisor Signature") }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <p>{{ _("Printed on") }}: {{ frappe.utils.now_datetime().strftime("%d-%m-%Y %H:%M:%S") }}</p>
+        <p>{{ _("Closing Shift ID") }}: {{ doc.name }}</p>
+    </div>
+</div>

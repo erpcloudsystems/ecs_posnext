@@ -4,8 +4,9 @@
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
- "field_order": [
+  "field_order": [
   "sales_invoice",
+  "pos_invoice",
   "posting_date",
   "column_break_3",
   "customer",
@@ -19,38 +20,40 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Sales Invoice",
-   "options": "Sales Invoice",
-   "reqd": 1
+   "options": "Sales Invoice"
   },
   {
-   "fetch_from": "pos_invoice.posting_date",
+   "fieldname": "pos_invoice",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "POS Invoice",
+   "options": "POS Invoice"
+  },
+  {
    "fieldname": "posting_date",
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "Date",
-   "reqd": 1
+   "read_only": 1
   },
   {
    "fieldname": "column_break_3",
    "fieldtype": "Column Break"
   },
   {
-   "fetch_from": "pos_invoice.customer",
    "fieldname": "customer",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Customer",
    "options": "Customer",
-   "read_only": 1,
-   "reqd": 1
+   "read_only": 1
   },
   {
-   "fetch_from": "pos_invoice.grand_total",
    "fieldname": "grand_total",
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Amount",
-   "reqd": 1
+   "read_only": 1
   },
   {
    "fieldname": "transaction_currency",

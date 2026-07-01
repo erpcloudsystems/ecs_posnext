@@ -339,6 +339,137 @@ def enrich_invoice_with_payment_history(
     return invoice
 
 
+def _batch_enrich_invoices(invoices: List[Dict], include_metadata: bool = True) -> None:
+    """
+    Batch-enrich multiple invoices with payment history in 3 queries total
+    instead of N+1 per invoice.
+
+    Modifies invoices in-place.
+
+    Args:
+        invoices: List of invoice dicts (must include 'name', 'grand_total', 'outstanding_amount')
+        include_metadata: If False, skips mode_of_payment details
+    """
+    if not invoices:
+        return
+
+    invoice_names = [inv["name"] for inv in invoices]
+    invoice_map = {inv["name"]: inv for inv in invoices}
+
+    # --- 1. Batch fetch ALL Payment Ledger entries for all invoices ---
+    placeholders = ", ".join(["%s"] * len(invoice_names))
+    all_ple = frappe.db.sql(f"""
+        SELECT
+            name, voucher_type, voucher_no, against_voucher_type,
+            against_voucher_no, amount, amount_in_account_currency,
+            posting_date, creation, account, party, party_type
+        FROM `tabPayment Ledger Entry`
+        WHERE (voucher_no IN ({placeholders}) OR against_voucher_no IN ({placeholders}))
+            AND delinked = 0
+        ORDER BY posting_date ASC, creation ASC
+    """, invoice_names + invoice_names, as_dict=True)
+
+    # Group PLE by invoice name
+    ple_by_invoice = {}
+    si_vouchers_all = set()
+    pe_vouchers_all = set()
+
+    for ple in all_ple:
+        # Determine which invoice this PLE belongs to
+        inv_name = None
+        if ple.voucher_no in invoice_map:
+            inv_name = ple.voucher_no
+        elif ple.against_voucher_no in invoice_map:
+            inv_name = ple.against_voucher_no
+
+        if inv_name:
+            ple_by_invoice.setdefault(inv_name, []).append(ple)
+            if ple.amount < 0:
+                if ple.voucher_type == "Sales Invoice":
+                    si_vouchers_all.add(ple.voucher_no)
+                elif ple.voucher_type == "Payment Entry":
+                    pe_vouchers_all.add(ple.voucher_no)
+
+    # --- 2. Batch fetch SI Payments ---
+    si_payments_map = {}
+    if si_vouchers_all and include_metadata:
+        si_payments = frappe.get_all(
+            "Sales Invoice Payment",
+            filters={"parent": ["in", list(si_vouchers_all)]},
+            fields=["parent", "mode_of_payment", "amount", "idx"],
+            order_by="parent, idx asc",
+        )
+        for sip in si_payments:
+            si_payments_map.setdefault(sip.parent, []).append(sip)
+
+    # --- 3. Batch fetch Payment Entries ---
+    pe_map = {}
+    if pe_vouchers_all and include_metadata:
+        payment_entries = frappe.get_all(
+            "Payment Entry",
+            filters={"name": ["in", list(pe_vouchers_all)]},
+            fields=["name", "mode_of_payment", "reference_no", "paid_to", "paid_to_account_type"],
+        )
+        for pe in payment_entries:
+            pe_map[pe.name] = pe
+
+    # --- 4. Process per invoice in memory ---
+    for inv in invoices:
+        inv_name = inv["name"]
+        inv_ple_list = ple_by_invoice.get(inv_name, [])
+
+        payments = []
+        for ple in inv_ple_list:
+            if ple.amount >= 0:
+                continue
+
+            payment_record = {
+                "posting_date": ple.posting_date,
+                "creation": ple.creation,
+                "amount": abs(flt(ple.amount)),
+                "voucher_type": ple.voucher_type,
+                "voucher_no": ple.voucher_no,
+                "source": _determine_payment_source(ple, pe_map),
+                "mode_of_payment": None,
+                "reference": None,
+                "account": ple.account,
+            }
+
+            if include_metadata:
+                if ple.voucher_type == "Sales Invoice":
+                    pos_payments = si_payments_map.get(ple.voucher_no, [])
+                    for pos_pay in pos_payments:
+                        if abs(flt(pos_pay.amount) - abs(ple.amount)) < AMOUNT_TOLERANCE:
+                            payment_record["mode_of_payment"] = pos_pay.mode_of_payment
+                            break
+                    if not payment_record["mode_of_payment"] and pos_payments:
+                        payment_record["mode_of_payment"] = pos_payments[0].mode_of_payment
+                    if not payment_record["mode_of_payment"]:
+                        payment_record["mode_of_payment"] = DEFAULT_PAYMENT_MODE
+
+                elif ple.voucher_type == "Payment Entry":
+                    pe_data = pe_map.get(ple.voucher_no)
+                    if pe_data:
+                        payment_record["mode_of_payment"] = (
+                            pe_data.mode_of_payment or _derive_payment_method(pe_data)
+                        )
+                        payment_record["reference"] = pe_data.name
+                        payment_record["payment_entry"] = pe_data.name
+                    else:
+                        payment_record["mode_of_payment"] = "Unknown"
+
+            payments.append(payment_record)
+
+        total_paid = flt(inv["grand_total"]) - flt(inv["outstanding_amount"])
+
+        inv.update({
+            "payments": payments,
+            "paid_amount": total_paid,
+            "outstanding_amount": flt(inv["outstanding_amount"]),
+            "payment_count": len(payments),
+        })
+
+
 # ==========================================
 # Payment Entry Creation - Proper ERPNext Way
 # ==========================================
@@ -480,7 +611,17 @@ def create_payment_entry(
     if reference_no:
         pe.reference_no = str(reference_no)[:140]  # Limit length
     else:
-        pe.reference_no = f"POS-{invoice_name}"
+        # Try to get the current POS Opening Shift for this user to link the payment to the current shift
+        from ecs_posnext.api.shifts import check_opening_shift
+        try:
+            shift_data = check_opening_shift()
+            if shift_data and shift_data.get("pos_opening_shift"):
+                pe.reference_no = shift_data["pos_opening_shift"].name
+            else:
+                pe.reference_no = f"POS-{invoice_name}"
+        except Exception:
+            # Fallback if shift check fails
+            pe.reference_no = f"POS-{invoice_name}"
 
     pe.reference_date = posting_date
 
@@ -606,10 +747,8 @@ def get_partial_paid_invoices(pos_profile: str, limit: int = DEFAULT_INVOICE_LIM
         limit=limit,
     )
 
-    # Enrich with payment history
-    # Note: This makes additional queries. For summary-only views, use get_partial_payment_summary() instead.
-    for invoice in invoices:
-        enrich_invoice_with_payment_history(invoice, include_metadata=True)
+    # Batch-enrich with payment history (3 queries total instead of N+1)
+    _batch_enrich_invoices(invoices, include_metadata=True)
 
     return invoices
 
@@ -680,9 +819,8 @@ def get_unpaid_invoices(pos_profile: str, limit: int = DEFAULT_INVOICE_LIMIT) ->
         limit=limit,
     )
 
-    # Enrich with payment history
-    for invoice in invoices:
-        enrich_invoice_with_payment_history(invoice, include_metadata=True)
+    # Batch-enrich with payment history (3 queries total instead of N+1)
+    _batch_enrich_invoices(invoices, include_metadata=True)
 
     return invoices
 
@@ -754,7 +892,7 @@ def get_partial_payment_details(invoice_name: str) -> Dict:
 
 
 @frappe.whitelist()
-def add_payment_to_partial_invoice(invoice_name: str, payments) -> Dict:
+def add_payment_to_partial_invoice(invoice_name: str, payments, receipt_number=None, unique_number=None, reference_number=None) -> Dict:
     """
     Add payments to a partially paid invoice via Payment Entry.
 
@@ -771,6 +909,9 @@ def add_payment_to_partial_invoice(invoice_name: str, payments) -> Dict:
             - amount: Payment amount (positive number)
             - account: (optional) Specific payment account
             - reference_no: (optional) Reference number
+        receipt_number: (optional) Custom receipt number
+        unique_number: (optional) Unique Talabat number
+        reference_number: (optional) Third party reference number
         Can also accept JSON string which will be parsed.
 
     Returns:
@@ -818,6 +959,19 @@ def add_payment_to_partial_invoice(invoice_name: str, payments) -> Dict:
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
     except frappe.DoesNotExistError:
         frappe.throw(_("Invoice {0} does not exist").format(invoice_name))
+
+    # Update Invoice fields if provided
+    if receipt_number or unique_number or reference_number:
+        update_data = {}
+        if receipt_number:
+            update_data["custom_receipt_number"] = receipt_number
+        if unique_number:
+            update_data["custom_unique_talbat_number"] = unique_number
+        if reference_number:
+            update_data["custom_third_party_referance_number"] = reference_number
+            
+        if update_data:
+            frappe.db.set_value("Sales Invoice", invoice_name, update_data, update_modified=True)
 
     total_payment_amount = sum(flt(p.get("amount", 0)) for p in payments)
     if total_payment_amount > flt(invoice.outstanding_amount) + AMOUNT_TOLERANCE:

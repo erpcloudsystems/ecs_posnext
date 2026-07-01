@@ -359,6 +359,11 @@
 												:description="__('Enable partial payment for invoices')"
 											/>
 											<CheckboxField
+												v-model="settings.hide_close_shift"
+												:label="__('Hide Close Shift')"
+												:description="__('Hide the Close Shift button from the POS interface. Users will need to sign out without closing their shift, or have it closed by a supervisor.')"
+											/>
+											<CheckboxField
 												v-model="settings.silent_print"
 												:label="__('Silent Print')"
 												:description="__('Send receipts directly to a thermal printer via QZ Tray (no browser dialog)')"
@@ -526,6 +531,7 @@ const settings = ref({
 	allow_return: 0,
 	allow_write_off_change: 0,
 	allow_partial_payment: 0,
+	hide_close_shift: 0,
 	silent_print: 0,
 	allow_negative_stock: 0,
 	tax_inclusive: 0,

@@ -17,8 +17,8 @@ import { call } from '@/utils/apiWrapper'
 
 // Component state
 const footerText = ref('Powered by')
-const linkText = ref('BrainWise')
-const footerLink = ref('https://nexus.brainwise.me')
+const linkText = ref('ERP Cloud Systems')
+const footerLink = ref('https://erpcloud.systems')
 const footerRoot = ref(null)
 const config = ref({})
 const serverValidationEnabled = ref(true)

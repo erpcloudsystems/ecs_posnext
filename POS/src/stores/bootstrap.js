@@ -140,6 +140,16 @@ export const useBootstrapStore = defineStore("bootstrap", () => {
 	}
 
 	/**
+	 * Check if the current user has a given Frappe role.
+	 * Relies on user_roles returned by the bootstrap API.
+	 * @param {string} role
+	 * @returns {boolean}
+	 */
+	function hasRole(role) {
+		return (data.value?.user_roles || []).includes(role)
+	}
+
+	/**
 	 * Reset bootstrap state (useful for logout/login cycles)
 	 */
 	function reset() {
@@ -165,6 +175,7 @@ export const useBootstrapStore = defineStore("bootstrap", () => {
 		getPreloadedPaymentMethods,
 		getPreloadedPrecision,
 		hasBootstrapData,
+		hasRole,
 		reset,
 		getSiteName,
 	}

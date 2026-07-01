@@ -1,0 +1,225 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 0,
+ "autoname": "PSGC-.YYYY.-.#####",
+ "creation": "2025-12-24 12:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "working_day",
+  "shift",
+  "company",
+  "pos_profile",
+  "supervisor",
+  "section_period",
+  "period_start",
+  "period_end",
+  "section_closings",
+  "closings",
+  "section_payments",
+  "payments",
+  "section_unpaid_invoices",
+  "unpaid_invoices",
+  "section_totals",
+  "grand_total",
+  "net_total",
+  "total_quantity",
+  "expected_amount",
+  "closing_amount",
+  "difference",
+  "section_transfer",
+  "custom_mode_of_payment",
+  "custom_transfer_cash",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "working_day",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Working Day",
+   "reqd": 1
+  },
+  {
+   "fieldname": "shift",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Shift",
+   "options": "Morning\nEvening\nWhole Day",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "label": "POS Profile",
+   "options": "POS Profile"
+  },
+  {
+   "fieldname": "supervisor",
+   "fieldtype": "Link",
+   "label": "Supervisor",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_period",
+   "fieldtype": "Section Break",
+   "label": "Period"
+  },
+  {
+   "fieldname": "period_start",
+   "fieldtype": "Datetime",
+   "label": "Period Start",
+   "read_only": 1
+  },
+  {
+   "fieldname": "period_end",
+   "fieldtype": "Datetime",
+   "label": "Period End",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_closings",
+   "fieldtype": "Section Break",
+   "label": "Closings"
+  },
+  {
+   "fieldname": "closings",
+   "fieldtype": "Table",
+   "label": "POS Closings",
+   "options": "POS Shift Group Closing Detail"
+  },
+  {
+   "fieldname": "section_payments",
+   "fieldtype": "Section Break",
+   "label": "Payments"
+  },
+  {
+   "fieldname": "payments",
+   "fieldtype": "Table",
+   "label": "Payments Summary",
+   "options": "POS Shift Group Payment Summary"
+  },
+  {
+   "fieldname": "section_unpaid_invoices",
+   "fieldtype": "Section Break",
+   "label": "Unpaid Invoices"
+  },
+  {
+   "fieldname": "unpaid_invoices",
+   "fieldtype": "Table",
+   "label": "Unpaid Invoices",
+   "options": "POS Shift Group Unpaid Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "net_total",
+   "fieldtype": "Currency",
+   "label": "Net Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_quantity",
+   "fieldtype": "Float",
+   "label": "Total Qty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "expected_amount",
+   "fieldtype": "Currency",
+   "label": "Expected Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closing_amount",
+   "fieldtype": "Currency",
+   "label": "Closing Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "difference",
+   "fieldtype": "Currency",
+   "label": "Difference",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_transfer",
+   "fieldtype": "Section Break",
+   "label": "Cash Transfer"
+  },
+  {
+   "fieldname": "custom_mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Target Mode of Payment (Cash)",
+   "options": "Mode of Payment"
+  },
+  {
+   "fieldname": "custom_transfer_cash",
+   "fieldtype": "Button",
+   "label": "Transfer Cash"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "module": "POS Next",
+ "name": "POS Shift Group Closing",
+ "permissions": [
+  {
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "quick_entry": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

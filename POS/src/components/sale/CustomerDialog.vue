@@ -46,7 +46,7 @@
 				</div>
 				<p v-if="!loading && allCustomers.length > 0" class="text-start text-xs text-gray-500 mt-0">
 					<span v-if="showingRecent" class="text-blue-600 font-medium">⭐ {{ __('Recent & Frequent') }}</span>
-					<span v-else>{{ __('{0} of {1} customers', [customers.length, allCustomers.length]) }}</span>
+					<span v-else>{{ __('{0} results', [customers.length]) }}</span>
 					<span v-if="customers.length > 0" class="text-gray-400 ms-1">{{ __('• Use ↑↓ to navigate, Enter to select') }}</span>
 				</p>
 
@@ -68,11 +68,11 @@
 						<div
 							class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"
 						></div>
-						<p class="mt-2 text-sm text-gray-500">{{ __('Loading customers...') }}</p>
+						<p class="mt-2 text-sm text-gray-500">{{ searchTerm ? __('Searching...') : __('Loading...') }}</p>
 					</div>
 
 					<div
-						v-else-if="allCustomers.length === 0 && !loading"
+						v-else-if="allCustomers.length === 0 && !loading && !searchTerm.trim()"
 						class="text-center py-8"
 					>
 						<svg
@@ -229,10 +229,19 @@ watch(show, (newVal) => {
 	}
 })
 
+let searchTimeout = null
+
 // Handle search input with instant reactivity
 function handleSearchInput(event) {
 	const value = event.target.value
 	customerStore.setSearchTerm(value)
+
+	if (searchTimeout) clearTimeout(searchTimeout)
+	searchTimeout = setTimeout(() => {
+		if (value.trim()) {
+			customerStore.searchServer(props.posProfile, value.trim())
+		}
+	}, 300)
 }
 
 // Keyboard navigation
@@ -270,9 +279,7 @@ onMounted(() => {
 })
 
 function selectCustomer(customer) {
-	// Track selection for recommendations
-	customerStore.trackCustomerSelection(customer.name)
-
+	customerStore.trackCustomerSelection(customer)
 	emit("customer-selected", customer)
 	show.value = false
 }
@@ -286,8 +293,7 @@ async function handleCustomerCreated(customer) {
 		await customerStore.addCustomerToCache(customer)
 	}
 
-	// Track new customer selection
-	customerStore.trackCustomerSelection(customer.name)
+	customerStore.trackCustomerSelection(customer)
 
 	emit("customer-selected", customer)
 	show.value = false

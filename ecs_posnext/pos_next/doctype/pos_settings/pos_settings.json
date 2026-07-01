@@ -41,6 +41,7 @@
   "allow_select_sales_order",
   "create_only_sales_order",
   "column_break_operations",
+  "hide_close_shift",
   "allow_return_without_invoice",
   "return_validity_days",
   "allow_free_batch_return",
@@ -71,7 +72,11 @@
   "barcode_tab",
   "barcode_rules",
   "section_break_cash_transfer",
-  "enable_auto_cash_transfer"
+  "enable_auto_cash_transfer",
+  "section_break_compensation",
+  "compensation_expense_account",
+  "compensation_credit_account",
+  "compensation_fees_account"
  ],
  "fields": [
   {
@@ -327,6 +332,13 @@
   },
   {
    "default": "0",
+   "description": "Hide the Close Shift button in the POS interface",
+   "fieldname": "hide_close_shift",
+   "fieldtype": "Check",
+   "label": "Hide Close Shift"
+  },
+  {
+   "default": "0",
    "description": "Process returns without invoice reference",
    "fieldname": "allow_return_without_invoice",
    "fieldtype": "Check",
@@ -528,11 +540,37 @@
    "fieldname": "enable_auto_cash_transfer",
    "fieldtype": "Check",
    "label": "Enable Auto Cash Transfer"
+  },
+  {
+   "fieldname": "section_break_compensation",
+   "fieldtype": "Section Break",
+   "label": "Customer Compensation Accounts"
+  },
+  {
+   "fieldname": "compensation_expense_account",
+   "fieldtype": "Link",
+   "label": "Compensation Expense Account",
+   "options": "Account",
+   "description": "Debit account charged to the branch when issuing a compensation coupon (e.g. Customer Compensation Expense)"
+  },
+  {
+   "fieldname": "compensation_credit_account",
+   "fieldtype": "Link",
+   "label": "Compensation Credit Account",
+   "options": "Account",
+   "description": "Credit account when issuing a compensation coupon (e.g. Customer Compensation Payable)"
+  },
+  {
+   "fieldname": "compensation_fees_account",
+   "fieldtype": "Link",
+   "label": "Compensation Delivery Fees Account",
+   "options": "Account",
+   "description": "Separate debit account for delivery fees included in a compensation coupon (e.g. Delivery Fees Expense)"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-11 16:52:08.009217",
+ "modified": "2026-06-07 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "POS Next",
  "name": "POS Settings",

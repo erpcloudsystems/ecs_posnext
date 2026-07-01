@@ -65,6 +65,8 @@ class POSClosingShift(Document):
                 _("Selected POS Opening Shift should be open."),
                 title=_("Invalid Opening Entry"),
             )
+        self.calculate_total_cash()
+        self.set_closing_amounts()
         self.update_payment_reconciliation()
 
     def update_payment_reconciliation(self):
@@ -74,6 +76,31 @@ class POSClosingShift(Document):
         for d in self.payment_reconciliation:
             d.difference = +flt(d.closing_amount, precision) - flt(d.expected_amount, precision)
 
+    def calculate_total_cash(self):
+        self.total_cash = (
+            (flt(self.cash_200_egp) or 0) * 200 +
+            (flt(self.cash_100_egp) or 0) * 100 +
+            (flt(self.cash_50_egp) or 0) * 50 +
+            (flt(self.cash_20_egp) or 0) * 20 +
+            (flt(self.cash_10_egp) or 0) * 10 +
+            (flt(self.cash_5_egp) or 0) * 5 +
+            (flt(self.cash_1_egp) or 0) * 1
+        )
+
+    def set_closing_amounts(self):
+        """Set closing amounts: total_cash for cash mode, expected_amount for others."""
+        if not self.payment_reconciliation:
+            return
+
+        cash_mop = _get_cash_mode_of_payment(self.pos_profile)
+
+        for d in self.payment_reconciliation:
+            is_cash = d.mode_of_payment == cash_mop or "cash" in (d.mode_of_payment or "").lower()
+            if is_cash:
+                d.closing_amount = self.total_cash
+            else:
+                d.closing_amount = d.expected_amount
+
     def on_submit(self):
         opening_entry = frappe.get_doc("POS Opening Shift", self.pos_opening_shift)
         opening_entry.pos_closing_shift = self.name
@@ -82,6 +109,14 @@ class POSClosingShift(Document):
         opening_entry.save()
         # link invoices with this closing shift so ERPNext can block edits
         self._set_closing_entry_invoices()
+        employee = frappe.db.get_value(
+                "Employee",
+                {"user_id": frappe.session.user},
+                ["name", "employee_name"],
+                as_dict=True
+            )
+        self.db_set('supervisor_employee', employee.name)
+        self.db_set('supervisor_name', employee.employee_name)
 
     def on_cancel(self):
         if frappe.db.exists("POS Opening Shift", self.pos_opening_shift):
@@ -363,27 +398,36 @@ def get_cashiers(doctype, txt, searchfield, start, page_len, filters):
 @frappe.whitelist()
 def get_pos_invoices(pos_opening_shift, doctype=None):
     if not doctype:
-        pos_profile = frappe.db.get_value("POS Opening Shift", pos_opening_shift, "pos_profile")
-        use_pos_invoice = False
-        doctype = "POS Invoice" if use_pos_invoice else "Sales Invoice"
+        doctype = "Sales Invoice"
+
     submit_printed_invoices(pos_opening_shift, doctype)
-    cond = " and ifnull(consolidated_invoice,'') = ''" if doctype == "POS Invoice" else ""
-    data = frappe.db.sql(
-        f"""
-	select
-		name
-	from
-		`tab{doctype}`
-	where
-		docstatus = 1 and posa_pos_opening_shift = %s{cond}
-	""",
-        (pos_opening_shift),
-        as_dict=1,
+
+    filters = {
+        "posa_pos_opening_shift": pos_opening_shift,
+        "docstatus": 1,
+    }
+    if doctype == "POS Invoice":
+        filters["consolidated_invoice"] = ""
+
+    invoices = frappe.get_all(
+        doctype,
+        filters=filters,
+        fields=["*"],
     )
 
-    data = [frappe.get_doc(doctype, d.name).as_dict() for d in data]
+    for inv in invoices:
+        inv.taxes = frappe.get_all(
+            "Sales Taxes and Charges",
+            filters={"parent": inv.name},
+            fields=["*"],
+        )
+        inv.payments = frappe.get_all(
+            "Sales Invoice Payment",
+            filters={"parent": inv.name},
+            fields=["*"],
+        )
 
-    return data
+    return invoices
 
 
 @frappe.whitelist()
@@ -406,6 +450,11 @@ def get_payments_entries(pos_opening_shift):
             "party",
         ],
     )
+
+
+@frappe.whitelist()
+def get_cash_mode_of_payment_py(pos_profile):
+    return _get_cash_mode_of_payment(pos_profile)
 
 
 def _get_cash_mode_of_payment(pos_profile):
@@ -552,9 +601,42 @@ def make_closing_shift_from_opening(opening_shift):
 
     # Process invoices
     invoices = get_pos_invoices(opening_shift.get("name"), doctype)
+    # Per-payment breakdown split into Cash vs Credit (non-cash) invoice tables.
+    cash_invoice_rows = []
+    credit_invoice_rows = []
+    _mode_cash_cache = {}
+
+    def _is_cash(mode):
+        if not mode:
+            return False
+        if mode == cash_mode:
+            return True
+        if mode not in _mode_cash_cache:
+            _mode_cash_cache[mode] = (
+                frappe.db.get_value("Mode of Payment", mode, "type") == "Cash"
+            )
+        return _mode_cash_cache[mode]
+
     for invoice in invoices:
-        txn = _process_invoice(invoice, invoice_field, company_currency, cash_mode, payments, taxes, summary)
+        current_invoice_field = "pos_invoice" if invoice.get("doctype") == "POS Invoice" else "sales_invoice"
+        txn = _process_invoice(invoice, current_invoice_field, company_currency, cash_mode, payments, taxes, summary)
         pos_transactions.append(txn)
+
+        conversion_rate = invoice.get("conversion_rate")
+        for p in invoice.get("payments", []):
+            amount = get_base_value(p, "amount", "base_amount", conversion_rate)
+            if p.mode_of_payment == cash_mode:
+                amount -= get_base_value(invoice, "change_amount", "base_change_amount", conversion_rate)
+            if not amount:
+                continue
+            row = {
+                "sales_invoice": invoice.name,
+                "customer": invoice.customer,
+                "mode_of_payment": p.mode_of_payment,
+                "amount": amount,
+                "posting_date": invoice.posting_date,
+            }
+            (cash_invoice_rows if _is_cash(p.mode_of_payment) else credit_invoice_rows).append(row)
 
     # Process payment entries
     pos_payments_table = []
@@ -582,6 +664,8 @@ def make_closing_shift_from_opening(opening_shift):
     closing_shift.set("payment_reconciliation", payments)
     closing_shift.set("taxes", taxes)
     closing_shift.set("pos_payments", pos_payments_table)
+    closing_shift.set("custom_cash_invoices", cash_invoice_rows)
+    closing_shift.set("custom_credit_invoices", credit_invoice_rows)
 
     # Build response with display-only fields
     result = closing_shift.as_dict()

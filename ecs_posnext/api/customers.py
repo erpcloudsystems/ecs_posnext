@@ -44,12 +44,23 @@ def get_customers(search_term="", pos_profile=None, limit=20, modified_since=Non
         else:
             # Full fetch: only active customers
             filters["disabled"] = 0
+            
+        or_filters = {}
+        if search_term:
+            or_filters = {
+                "name": ["like", f"%{search_term}%"],
+                "customer_name": ["like", f"%{search_term}%"],
+                "mobile_no": ["like", f"%{search_term}%"],
+                "custom_other_mobile_no": ["like", f"%{search_term}%"],
+                "email_id": ["like", f"%{search_term}%"],
+            }
 
         customer_limit = limit if limit not in (None, 0) else frappe.db.count("Customer", filters)
         result = frappe.get_all(
             "Customer",
             filters=filters,
-            fields=["name", "customer_name", "mobile_no", "email_id", "disabled"],
+            or_filters=or_filters,
+            fields=["name", "customer_name", "mobile_no", "custom_other_mobile_no", "email_id", "disabled"],
             limit=customer_limit,
             order_by="customer_name asc",
         )
@@ -202,3 +213,793 @@ def get_customer_details(customer):
         frappe.throw(_("Customer is required"))
 
     return frappe.get_cached_doc("Customer", customer).as_dict()
+
+@frappe.whitelist()
+def get_customer_addresses(customer):
+    """
+    Get addresses for a customer.
+
+    Args:
+        customer (str): Customer ID
+
+    Returns:
+        list: List of address dictionaries with name, address_display, city, and other details
+    """
+    if not customer:
+        return []
+
+    addresses = frappe.get_all(
+        "Address",
+        filters=[
+            ["Dynamic Link", "link_doctype", "=", "Customer"],
+            ["Dynamic Link", "link_name", "=", customer],
+            ["disabled", "=", 0],
+        ],
+        fields=["name", "address_title", "address_line1", "address_line2", "city", "state", "country", "pincode", "phone", "email_id", "is_primary_address", "is_shipping_address", "territory", "branch", "custom_street", "custom_building_name", "custom_floor", "custom_apartment", "custom_mark"]
+    )
+
+    for addr in addresses:
+        addr["address_display"] = frappe.get_doc("Address", addr.name).get_display()
+
+    return addresses
+
+@frappe.whitelist()
+def get_territories(branch=None):
+    filters = {}
+    if branch:
+        filters["branch"] = branch
+    return frappe.get_all("Territory", filters=filters, fields=["name", "territory_name", "branch"], order_by="territory_name")
+
+@frappe.whitelist()
+def get_parent_territories():
+    """Get territories that have children (parent territories) for city selection."""
+    parent_names = frappe.get_all(
+        "Territory",
+        filters={"parent_territory": ["is", "set"]},
+        fields=["parent_territory"],
+        distinct=True
+    )
+    parents = list(set(t["parent_territory"] for t in parent_names))
+    if not parents:
+        return []
+    return frappe.get_all(
+        "Territory",
+        filters={"name": ["in", parents]},
+        fields=["name", "territory_name"],
+        order_by="territory_name"
+    )
+
+@frappe.whitelist()
+def get_child_territories(parent_territory):
+    """Get child territories of a given parent territory for zone selection."""
+    if not parent_territory:
+        return []
+    return frappe.get_all(
+        "Territory",
+        filters={"parent_territory": parent_territory},
+        fields=["name", "territory_name"],
+        order_by="territory_name"
+    )
+
+@frappe.whitelist()
+def get_branches():
+    """
+    Get list of all branches with their associated POS Profiles, warehouses, and price lists.
+    Returns:
+        list: List of dicts with 'name' (branch name), 'pos_profile', 'warehouse', 'selling_price_list'
+    """
+    return frappe.get_all(
+        "POS Profile",
+        filters={"disabled": 0, "branch": ["is", "set"]},
+        fields=["name as pos_profile", "branch as name", "warehouse", "selling_price_list"],
+        order_by="branch asc"
+    )
+
+@frappe.whitelist()
+def get_delivery_charge_for_territory(territory, pos_profile=None):
+    """
+    Get the delivery charge details for a given territory.
+    
+    Args:
+        territory (str): Territory name
+        pos_profile (str, optional): POS Profile name to get specific rate
+        
+    Returns:
+        dict: {name, rate, label, shipping_account, cost_center} or None
+    """
+    if not territory:
+        return None
+        
+    delivery_charge_name = frappe.db.get_value("Territory", territory, "delivery_charges")
+    if not delivery_charge_name:
+        return None
+        
+    charge_doc = frappe.get_doc("Delivery Charges", delivery_charge_name)
+    if charge_doc.disabled:
+        return None
+        
+    # Verify company if POS Profile is provided
+    if pos_profile:
+        profile_company = frappe.db.get_value("POS Profile", pos_profile, "company")
+        if charge_doc.company != profile_company:
+            return None
+            
+    # Default rate
+    rate = charge_doc.default_rate
+    
+    # Check if there is a specific rate for this POS Profile
+    if pos_profile:
+        for profile_row in charge_doc.profiles:
+            if profile_row.pos_profile == pos_profile:
+                rate = profile_row.rate
+                break
+                
+    return {
+        "name": charge_doc.name,
+        "label": charge_doc.label,
+        "rate": rate,
+        "territory": territory,
+        "shipping_account": charge_doc.shipping_account,
+        "cost_center": charge_doc.cost_center,
+        "company": charge_doc.company
+    }
+
+
+@frappe.whitelist()
+def get_customer_profile(customer, pos_profile=None, branch=None):
+    """
+    Get comprehensive customer profile for POS display.
+    Includes: type (VIP/Blacklist), favorites, last order, notes, coupons.
+
+    Args:
+        customer (str): Customer ID
+        pos_profile (str, optional): POS Profile for filtering
+
+    Returns:
+        dict: Customer profile data
+    """
+    if not customer:
+        frappe.throw(_("Customer is required"))
+
+    cust = frappe.get_cached_doc("Customer", customer)
+
+    # Customer type
+    customer_type = "Regular"
+    if cust.get("custom_vip"):
+        customer_type = "VIP"
+    elif cust.get("custom_black_list") or cust.get("custom_is_blacklist") == "Yes":
+        customer_type = "Blacklist"
+
+    # Actual total orders count from Sales Invoices
+    total_count_result = frappe.db.sql("""
+        SELECT COUNT(*) as cnt FROM `tabSales Invoice`
+        WHERE customer = %s AND docstatus = 1
+    """, customer, as_dict=True)
+    actual_total_orders = int(total_count_result[0].cnt if total_count_result else 0)
+
+    # Branch-specific stats (when branch provided)
+    branch_total_orders = 0
+    last_order_in_branch = None
+    if branch:
+        branch_count = frappe.db.sql("""
+            SELECT COUNT(*) as cnt FROM `tabSales Invoice`
+            WHERE customer = %s AND branch = %s AND docstatus = 1
+        """, (customer, branch), as_dict=True)
+        branch_total_orders = int(branch_count[0].cnt if branch_count else 0)
+
+        last_branch_inv = frappe.get_all(
+            "Sales Invoice",
+            filters={"customer": customer, "branch": branch, "docstatus": 1},
+            fields=["name", "posting_date", "grand_total", "currency", "custom_order_type"],
+            order_by="posting_date desc, creation desc",
+            limit=1
+        )
+        if last_branch_inv:
+            bi = last_branch_inv[0]
+            last_order_in_branch = {
+                "invoice_name": bi.name,
+                "date": str(bi.posting_date),
+                "grand_total": bi.grand_total,
+                "currency": bi.currency,
+                "order_type": bi.custom_order_type,
+            }
+
+    # Last order
+    last_order = None
+    last_invoice = frappe.get_all(
+        "Sales Invoice",
+        filters={"customer": customer, "docstatus": 1},
+        fields=["name", "posting_date", "grand_total", "currency", "custom_order_type", "branch"],
+        order_by="posting_date desc, creation desc",
+        limit=1
+    )
+    if last_invoice:
+        inv = last_invoice[0]
+        # Get items from last order with full details for reorder
+        last_order_items = frappe.get_all(
+            "Sales Invoice Item",
+            filters={"parent": inv.name},
+            fields=["item_code", "item_name", "qty", "rate", "amount", "uom", "stock_uom",
+                     "conversion_factor", "price_list_rate", "warehouse", "batch_no",
+                     "serial_no", "item_group", "brand", "description",
+                     "posa_row_id"],
+            order_by="idx"
+        )
+
+        # Get packed items (Product Bundle components) from the invoice
+        packed_items = frappe.get_all(
+            "Packed Item",
+            filters={"parent": inv.name},
+            fields=["parent_item", "item_code", "item_name", "qty", "uom",
+                     "warehouse", "conversion_factor", "rate", "posa_row_id",
+                     "parent_detail_docname"],
+            order_by="idx"
+        )
+
+        # Group packed items by posa_row_id for matching to parent items
+        packed_by_row = {}
+        for pi in packed_items:
+            row_id = pi.get("posa_row_id") or pi.get("parent_detail_docname") or ""
+            if row_id not in packed_by_row:
+                packed_by_row[row_id] = []
+            packed_by_row[row_id].append({
+                "parent_item": pi.parent_item,
+                "item_code": pi.item_code,
+                "item_name": pi.item_name,
+                "qty": pi.qty,
+                "uom": pi.uom,
+                "warehouse": pi.warehouse,
+                "conversion_factor": pi.conversion_factor or 1,
+                "rate": pi.rate or 0,
+            })
+
+        # Attach packed items (as components) to each parent item
+        from erpnext.stock.doctype.packed_item.packed_item import is_product_bundle
+        for item in last_order_items:
+            row_id = item.get("posa_row_id") or ""
+            if row_id and row_id in packed_by_row:
+                # Reverse the qty multiplication (packed qty was multiplied by parent qty on submit)
+                parent_qty = item.get("qty") or 1
+                components = []
+                for comp in packed_by_row[row_id]:
+                    comp_copy = dict(comp)
+                    # Restore per-unit qty
+                    if parent_qty > 0:
+                        comp_copy["qty"] = comp_copy["qty"] / parent_qty
+                    components.append(comp_copy)
+                item["components"] = components
+            else:
+                # No packed items from invoice — check if item is a Product Bundle
+                # and fetch components from the bundle definition
+                item_code = item.get("item_code")
+                if item_code and is_product_bundle(item_code):
+                    bundle_items = frappe.db.sql("""
+                        SELECT pbi.item_code, pbi.qty, pbi.uom, pbi.description,
+                               i.item_name, i.stock_uom
+                        FROM `tabProduct Bundle Item` pbi
+                        LEFT JOIN `tabItem` i ON i.name = pbi.item_code
+                        WHERE pbi.parent = %s
+                    """, item_code, as_dict=True)
+                    item["components"] = [{
+                        "parent_item": item_code,
+                        "item_code": bi.item_code,
+                        "item_name": bi.item_name or bi.item_code,
+                        "qty": bi.qty or 1,
+                        "uom": bi.uom or bi.stock_uom or "Unit",
+                        "warehouse": item.get("warehouse") or "",
+                        "conversion_factor": 1,
+                        "rate": 0,
+                    } for bi in bundle_items]
+                    item["is_bundle"] = 1
+                else:
+                    item["components"] = []
+
+        last_order = {
+            "invoice_name": inv.name,
+            "date": inv.posting_date,
+            "grand_total": inv.grand_total,
+            "currency": inv.currency,
+            "order_type": inv.custom_order_type,
+            "branch": inv.branch or "",
+            "items": last_order_items,
+            "packed_items": packed_items
+        }
+
+    # Customer notes (from comment)
+    notes = frappe.get_all(
+        "Comment",
+        filters={
+            "reference_doctype": "Customer",
+            "reference_name": customer,
+            "comment_type": "Comment"
+        },
+        fields=["content", "creation", "owner"],
+        order_by="creation desc",
+        limit=5
+    )
+
+    # Active coupons
+    coupons = []
+    try:
+        coupon_codes = frappe.get_all(
+            "Coupon Code",
+            filters={
+                "customer": customer,
+                "used": 0,
+                "valid_from": ["<=", frappe.utils.today()],
+                "valid_upto": [">=", frappe.utils.today()]
+            },
+            fields=["name", "coupon_code", "pricing_rule", "valid_upto"],
+            limit=10
+        )
+        coupons = coupon_codes
+    except Exception:
+        pass
+
+    return {
+        "customer_name": cust.customer_name,
+        "customer_type": customer_type,
+        "is_vip": bool(cust.get("custom_vip")),
+        "is_blacklist": bool(cust.get("custom_black_list")) or cust.get("custom_is_blacklist") == "Yes",
+        "favorite_item": cust.get("custom_favorite_item") or "",
+        "favorite_branch": cust.get("custom_favorite_branch") or "",
+        "last_branch": cust.get("custom_last_branch") or "",
+        "total_orders": actual_total_orders,
+        "last_order_at": str(cust.get("custom_last_order_at") or ""),
+        "last_order": last_order,
+        "branch_total_orders": branch_total_orders,
+        "last_order_in_branch": last_order_in_branch,
+        "notes": notes,
+        "coupons": coupons,
+        "mobile_no": cust.get("mobile_no") or "",
+        "loyalty_program": cust.get("loyalty_program") or "",
+    }
+
+
+@frappe.whitelist()
+def add_customer_note(customer, note):
+    """Add a note/comment to a customer."""
+    if not customer or not note:
+        frappe.throw(_("Customer and note are required"))
+
+    comment = frappe.get_doc({
+        "doctype": "Comment",
+        "comment_type": "Comment",
+        "reference_doctype": "Customer",
+        "reference_name": customer,
+        "content": note
+    })
+    comment.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return {"name": comment.name, "content": comment.content, "creation": str(comment.creation), "owner": comment.owner}
+
+
+@frappe.whitelist()
+def get_complaint_types():
+    """Return available complaint types."""
+    return frappe.get_all("Complaint Type", fields=["name"], order_by="name")
+
+
+@frappe.whitelist()
+def get_all_complaints(limit=100, status=None):
+    """Return all complaints for the Complaints management page."""
+    filters = {}
+    if status:
+        filters["status"] = status
+
+    return frappe.get_all(
+        "Customer Complaint",
+        filters=filters,
+        fields=[
+            "name",
+            "custom_complaint_number",
+            "customer",
+            "customer_name",
+            "custome_phone",
+            "type",
+            "status",
+            "branch",
+            "owner",
+            "complaint_date",
+            "complaint_details",
+            "custom_response_by",
+            "creation",
+        ],
+        order_by="creation desc",
+        limit=frappe.utils.cint(limit),
+    )
+
+
+@frappe.whitelist()
+def get_customer_complaints(customer, limit=20):
+    """Return complaints filed for a specific customer, newest first."""
+    if not customer:
+        return []
+    return frappe.get_all(
+        "Customer Complaint",
+        filters={"customer": customer},
+        fields=[
+            "name",
+            "custom_complaint_number",
+            "status",
+            "complaint_date",
+            "complaint_details",
+            "type",
+            "custom_response_by",
+            "creation",
+        ],
+        order_by="creation desc",
+        limit=frappe.utils.cint(limit),
+    )
+
+
+@frappe.whitelist()
+def create_customer_complaint(customer, complaint_details, complaint_type=None, branch=None, response_by=None):
+    """Create a new Customer Complaint and assign a sequential complaint number."""
+    if not customer or not complaint_details:
+        frappe.throw(_("Customer and complaint details are required"))
+
+    cust = frappe.db.get_value("Customer", customer, ["customer_name", "mobile_no"], as_dict=True)
+    if not cust:
+        frappe.throw(_("Customer {0} not found").format(customer))
+
+    # Sequential complaint number (global, zero-padded to 5 digits)
+    count = frappe.db.count("Customer Complaint")
+    complaint_number = "CC-{:05d}".format(count + 1)
+
+    doc = frappe.get_doc({
+        "doctype": "Customer Complaint",
+        "customer": customer,
+        "customer_name": cust.customer_name,
+        "custome_phone": cust.mobile_no or "",
+        "complaint_details": complaint_details,
+        "type": complaint_type or None,
+        "branch": branch or None,
+        "status": "Open",
+        "custom_complaint_number": complaint_number,
+        "custom_response_by": response_by or None,
+    })
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "name": doc.name,
+        "custom_complaint_number": complaint_number,
+        "customer": doc.customer,
+        "customer_name": doc.customer_name,
+        "custome_phone": doc.custome_phone,
+        "status": doc.status,
+        "complaint_date": str(doc.complaint_date or doc.creation),
+        "complaint_details": doc.complaint_details,
+        "type": doc.type,
+        "custom_response_by": str(doc.custom_response_by) if doc.custom_response_by else None,
+    }
+
+
+@frappe.whitelist()
+def update_complaint_status(complaint_name, status):
+    """Update the status of a complaint."""
+    valid_statuses = ["Open", "In Progress", "Resolved", "Rejected"]
+    if status not in valid_statuses:
+        frappe.throw(_("Invalid status"))
+
+    frappe.db.set_value("Customer Complaint", complaint_name, "status", status)
+    frappe.db.commit()
+    return {"status": status}
+
+
+@frappe.whitelist()
+def get_complaint_detail(complaint_name):
+    """Return full complaint document for the detail drawer."""
+    doc = frappe.get_doc("Customer Complaint", complaint_name)
+    return {
+        "name": doc.name,
+        "custom_complaint_number": doc.get("custom_complaint_number") or "",
+        "customer": doc.customer,
+        "customer_name": doc.customer_name,
+        "custome_phone": doc.custome_phone or "",
+        "type": doc.type or "",
+        "status": doc.status,
+        "complaint_date": str(doc.complaint_date) if doc.complaint_date else None,
+        "complaint_details": doc.complaint_details or "",
+        "custom_response_by": str(doc.custom_response_by) if doc.get("custom_response_by") else None,
+        "assigned_to": doc.assigned_to or "",
+        "resolution_notes": doc.resolution_notes or "",
+        "creation": str(doc.creation),
+        "modified": str(doc.modified),
+        "owner": doc.owner,
+    }
+
+
+@frappe.whitelist()
+def update_complaint(complaint_name, status=None, assigned_to=None,
+                     resolution_notes=None, response_by=None, complaint_type=None):
+    """Update editable fields on a Customer Complaint."""
+    doc = frappe.get_doc("Customer Complaint", complaint_name)
+    changed = False
+
+    if status and status != doc.status:
+        valid = ["Open", "In Progress", "Resolved", "Rejected"]
+        if status not in valid:
+            frappe.throw(_("Invalid status"))
+        doc.status = status
+        changed = True
+
+    if assigned_to is not None:
+        doc.assigned_to = assigned_to or None
+        changed = True
+
+    if resolution_notes is not None:
+        doc.resolution_notes = resolution_notes
+        changed = True
+
+    if response_by is not None:
+        doc.custom_response_by = response_by or None
+        changed = True
+
+    if complaint_type is not None:
+        doc.type = complaint_type or None
+        changed = True
+
+    if changed:
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+    return {
+        "name": doc.name,
+        "status": doc.status,
+        "assigned_to": doc.assigned_to or "",
+        "resolution_notes": doc.resolution_notes or "",
+        "custom_response_by": str(doc.custom_response_by) if doc.get("custom_response_by") else None,
+        "type": doc.type or "",
+    }
+
+
+@frappe.whitelist()
+def get_users_for_assignment():
+    """Return active system users for the assign-to dropdown."""
+    return frappe.get_all(
+        "User",
+        filters={"enabled": 1, "user_type": "System User", "name": ["!=", "Administrator"]},
+        fields=["name", "full_name", "user_image"],
+        order_by="full_name asc",
+        limit=100,
+    )
+
+
+@frappe.whitelist()
+def create_complaint_coupon(customer, discount_type, discount_value,
+                            valid_upto=None, max_uses=1, company=None,
+                            branch=None, complaint_name=None,
+                            include_fees=False, fees_amount=0):
+    """Create a POS Coupon for a customer as complaint compensation."""
+    import random, string
+    from frappe.utils import today, add_days
+
+    if not customer:
+        frappe.throw(_("Customer is required"))
+
+    discount_value = frappe.utils.flt(discount_value)
+    if discount_value <= 0:
+        frappe.throw(_("Discount value must be greater than zero"))
+    if discount_type not in ("Percentage", "Amount"):
+        frappe.throw(_("Invalid discount type"))
+    if discount_type == "Percentage" and discount_value > 100:
+        frappe.throw(_("Percentage cannot exceed 100"))
+
+    cust = frappe.db.get_value(
+        "Customer", customer,
+        ["customer_name", "mobile_no", "email_id"],
+        as_dict=True
+    )
+    if not cust:
+        frappe.throw(_("Customer not found"))
+
+    # Auto-generate a unique coupon code
+    suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    coupon_code = f"COMP-{suffix}"
+    while frappe.db.exists("POS Coupon", {"coupon_code": coupon_code}):
+        suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        coupon_code = f"COMP-{suffix}"
+
+    if not company:
+        company = frappe.defaults.get_defaults().get("company") or \
+                  frappe.db.get_single_value("Global Defaults", "default_company")
+
+    coupon_name = f"Compensation - {cust.customer_name} - {coupon_code}"
+    expiry = valid_upto if valid_upto else add_days(today(), 30)
+
+    fees_amount = frappe.utils.flt(fees_amount) if include_fees and discount_type == "Amount" else 0
+    coupon_amount = discount_value + fees_amount if discount_type == "Amount" else 0
+
+    doc = frappe.get_doc({
+        "doctype": "POS Coupon",
+        "coupon_name": coupon_name,
+        "coupon_type": "Gift Card",
+        "coupon_code": coupon_code,
+        "customer": customer,
+        "customer_name": cust.customer_name,
+        "mobile_no": cust.mobile_no or "",
+        "email_id": cust.email_id or "",
+        "company": company,
+        "discount_type": discount_type,
+        "discount_percentage": discount_value if discount_type == "Percentage" else 0,
+        "discount_amount": coupon_amount if discount_type == "Amount" else 0,
+        "apply_on": "Grand Total",
+        "valid_from": today(),
+        "valid_upto": expiry,
+        "maximum_use": frappe.utils.cint(max_uses) or 1,
+        "one_use": 1 if frappe.utils.cint(max_uses) == 1 else 0,
+        "used": 0,
+    })
+    doc.insert(ignore_permissions=True)
+
+    # Create journal entry to charge the branch for the discount (Amount type only)
+    je_name = None
+    if discount_type == "Amount":
+        je_name = _create_compensation_journal_entry(
+            company=company,
+            branch=branch,
+            discount_amount=discount_value,
+            coupon_code=coupon_code,
+            customer_name=cust.customer_name,
+            complaint_name=complaint_name,
+            fees_amount=fees_amount,
+        )
+
+    frappe.db.commit()
+
+    return {
+        "name": doc.name,
+        "coupon_code": coupon_code,
+        "coupon_name": coupon_name,
+        "discount_type": discount_type,
+        "discount_value": discount_value,
+        "valid_upto": str(expiry),
+        "maximum_use": doc.maximum_use,
+        "journal_entry": je_name,
+    }
+
+
+def _create_compensation_journal_entry(company, branch, discount_amount, coupon_code, customer_name,
+                                       complaint_name=None, fees_amount=0):
+    """
+    Create a Journal Entry that debits the branch for the compensation coupon amount.
+      Dr: Compensation Expense Account  (branch cost center)   — coupon value
+      Dr: Compensation Fees Account     (branch cost center)   — delivery fees (optional)
+      Cr: Compensation Credit Account                          — total
+    Account names are read from POS Settings. Fails silently if not configured.
+    """
+    try:
+        # POS Settings is not a Single doctype — query by branch first, fall back to any enabled record
+        filters = {"branch": branch} if branch else {}
+        pos_settings_list = frappe.get_all(
+            "POS Settings",
+            filters=filters,
+            fields=["compensation_expense_account", "compensation_credit_account", "compensation_fees_account"],
+            limit=1,
+        )
+        if not pos_settings_list and branch:
+            pos_settings_list = frappe.get_all(
+                "POS Settings",
+                fields=["compensation_expense_account", "compensation_credit_account", "compensation_fees_account"],
+                limit=1,
+            )
+
+        pos_cfg = pos_settings_list[0] if pos_settings_list else {}
+        expense_account = pos_cfg.get("compensation_expense_account")
+        credit_account  = pos_cfg.get("compensation_credit_account")
+        fees_account    = pos_cfg.get("compensation_fees_account")
+
+        if not expense_account or not credit_account:
+            frappe.log_error(
+                f"Compensation accounts not configured in POS Settings for branch '{branch}'. "
+                f"Skipping JE for coupon {coupon_code}.",
+                "Compensation JE – Missing Config"
+            )
+            return None
+
+        fees_amount = frappe.utils.flt(fees_amount)
+        if fees_amount and not fees_account:
+            frappe.log_error(
+                f"Delivery fees requested but compensation_fees_account not configured in POS Settings "
+                f"for branch '{branch}'. Fees will be skipped for coupon {coupon_code}.",
+                "Compensation JE – Missing Fees Account"
+            )
+            fees_amount = 0
+
+        # Resolve branch cost center
+        cost_center = None
+        if branch:
+            cost_center = (
+                frappe.db.get_value("Cost Center", {"branch": branch, "company": company}, "name")
+                or frappe.db.get_value("Cost Center", {"cost_center_name": branch, "company": company}, "name")
+            )
+
+        remark = f"تعويض عميل – كوبون: {coupon_code} – {customer_name}"
+        if complaint_name:
+            remark += f" – شكوى: {complaint_name}"
+
+        total_credit = discount_amount + fees_amount
+
+        accounts = [
+            {
+                "account": expense_account,
+                "debit_in_account_currency": discount_amount,
+                "credit_in_account_currency": 0,
+                "cost_center": cost_center,
+            },
+        ]
+        if fees_amount:
+            accounts.append({
+                "account": fees_account,
+                "debit_in_account_currency": fees_amount,
+                "credit_in_account_currency": 0,
+                "cost_center": cost_center,
+            })
+        accounts.append({
+            "account": credit_account,
+            "debit_in_account_currency": 0,
+            "credit_in_account_currency": total_credit,
+        })
+
+        je = frappe.get_doc({
+            "doctype": "Journal Entry",
+            "voucher_type": "Journal Entry",
+            "company": company,
+            "posting_date": frappe.utils.today(),
+            "user_remark": remark,
+            "accounts": accounts,
+        })
+        je.insert(ignore_permissions=True)
+        je.submit()
+        frappe.logger().info(f"Compensation JE {je.name} created for coupon {coupon_code}")
+        return je.name
+
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), f"Compensation JE Error – coupon {coupon_code}")
+        return None
+
+
+@frappe.whitelist()
+def get_daily_complaints_report(report_date=None):
+    """Return complaints summary and list for a given date (default: today)."""
+    from frappe.utils import today, getdate
+
+    target_date = getdate(report_date) if report_date else getdate(today())
+    date_str = str(target_date)
+
+    rows = frappe.db.sql("""
+        SELECT
+            name,
+            custom_complaint_number,
+            customer,
+            customer_name,
+            custome_phone,
+            type,
+            status,
+            complaint_date,
+            complaint_details,
+            custom_response_by
+        FROM `tabCustomer Complaint`
+        WHERE DATE(creation) = %s
+        ORDER BY creation ASC
+    """, (date_str,), as_dict=True)
+
+    # Summary counts by status
+    summary = {"Open": 0, "In Progress": 0, "Resolved": 0, "Rejected": 0, "total": len(rows)}
+    by_type = {}
+
+    for r in rows:
+        r["complaint_date"] = str(r["complaint_date"]) if r["complaint_date"] else None
+        r["custom_response_by"] = str(r["custom_response_by"]) if r["custom_response_by"] else None
+        summary[r["status"]] = summary.get(r["status"], 0) + 1
+        t = r["type"] or _("Unclassified")
+        by_type[t] = by_type.get(t, 0) + 1
+
+    return {
+        "date": date_str,
+        "summary": summary,
+        "by_type": [{"type": k, "count": v} for k, v in sorted(by_type.items(), key=lambda x: -x[1])],
+        "complaints": [dict(r) for r in rows],
+    }

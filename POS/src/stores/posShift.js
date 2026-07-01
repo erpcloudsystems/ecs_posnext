@@ -5,7 +5,7 @@ import { computed, ref } from "vue"
 
 export const usePOSShiftStore = defineStore("posShift", () => {
 	// Use the existing shift composable
-	const { currentProfile, currentShift, hasOpenShift, checkOpeningShift } =
+	const { currentProfile, currentShift, hasOpenShift, checkOpeningShift, employeeCode, employeeName } =
 		useShift()
 
 	// Additional shift state
@@ -115,6 +115,8 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 		writeOffAccount,
 		writeOffCostCenter,
 		writeOffLimit,
+		employeeCode,
+		employeeName,
 
 		// Actions
 		updateShiftDuration,

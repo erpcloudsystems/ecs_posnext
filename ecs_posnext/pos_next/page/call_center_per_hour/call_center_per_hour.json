@@ -1,0 +1,8 @@
+{
+ "doctype": "Page",
+ "name": "call_center_per_hour",
+"module": "POS Next",
+ "title": "Call Center per Hour",
+ "icon": "octicon octicon-clock",
+ "standard": 1
+}

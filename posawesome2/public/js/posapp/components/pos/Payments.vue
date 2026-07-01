@@ -1,0 +1,1810 @@
+<template>
+  <div>
+    <v-card class="payment-shell">
+      <v-progress-linear
+        :active="loading"
+        :indeterminate="loading"
+        absolute
+        top
+        color="info"
+      ></v-progress-linear>
+      <div class="payment-body">
+        <v-row v-if="invoice_doc" class="px-1 py-0">
+          <v-col cols="7" class="payment-field">
+            <v-text-field
+              outlined
+              color="primary"
+              :label="__('Paid Amount')"
+              background-color="white"
+              hide-details
+              :value="formtCurrency(total_payments)"
+              readonly
+              :prefix="currencySymbol(invoice_doc.currency)"
+              dense
+            ></v-text-field>
+          </v-col>
+          <v-col cols="5" class="payment-field">
+            <v-text-field
+              outlined
+              color="primary"
+              :label="__(diff_lable)"
+              background-color="white"
+              hide-details
+              :value="formtCurrency(diff_payment)"
+              readonly
+              :prefix="currencySymbol(invoice_doc.currency)"
+              dense
+            ></v-text-field>
+          </v-col>
+
+          <v-col cols="7" v-if="diff_payment < 0 && !invoice_doc.is_return">
+            <v-text-field
+              outlined
+              color="primary"
+              :label="__('Paid Change')"
+              background-color="white"
+              v-model="paid_change"
+              @input="set_paid_change()"
+              :prefix="currencySymbol(invoice_doc.currency)"
+              :rules="paid_change_rules"
+              dense
+              readonly
+              type="number"
+            ></v-text-field>
+          </v-col>
+
+          <v-col cols="5" v-if="diff_payment < 0 && !invoice_doc.is_return">
+            <v-text-field
+              outlined
+              color="primary"
+              :label="__('Credit Change')"
+              background-color="white"
+              hide-details
+              :value="formtCurrency(credit_change)"
+              readonly
+              :prefix="currencySymbol(invoice_doc.currency)"
+              dense
+            ></v-text-field>
+          </v-col>
+        </v-row>
+        <v-divider></v-divider>
+
+        <div v-if="is_cashback">
+          <v-row
+            class="pyments px-1 py-0"
+            v-for="payment in filteredPayments"
+            :key="payment.name"
+          >
+            <v-col
+              cols="6"
+              v-if="
+                !is_mpesa_c2b_payment(payment) && !payment.custom_hide_from_pos
+              "
+            >
+              <v-text-field
+                dense
+                outlined
+                color="primary"
+                :label="__(payment.mode_of_payment)"
+                background-color="white"
+                hide-details
+                :value="formtCurrency(payment.amount)"
+                @change="
+                  setFormatedCurrency(payment, 'amount', null, true, $event)
+                "
+                :rules="[isNumber]"
+                :prefix="currencySymbol(invoice_doc.currency)"
+                @focus="set_rest_amount(payment.idx)"
+                :readonly="invoice_doc.is_return ? true : false"
+              ></v-text-field>
+            </v-col>
+            <v-col v-if="!is_mpesa_c2b_payment(payment)" :cols="6">
+              <v-btn
+                block
+                class="payment-mode-btn"
+                color="primary"
+                dark
+                @click="set_full_amount(payment.idx)"
+                >{{ payment.mode_of_payment }}</v-btn
+              >
+            </v-col>
+            <v-col v-if="is_mpesa_c2b_payment(payment)" :cols="12" class="pl-3">
+              <v-btn
+                block
+                class="payment-mode-btn success"
+                color="success"
+                dark
+                @click="mpesa_c2b_dialg(payment)"
+              >
+                {{ __(`Get Payments ${payment.mode_of_payment}`) }}
+              </v-btn>
+            </v-col>
+            <v-col
+              v-if="
+                payment.type == 'Phone' &&
+                payment.amount > 0 &&
+                request_payment_field
+              "
+              :cols="3"
+              class="pl-1"
+            >
+              <v-btn
+                block
+                class="payment-mode-btn success"
+                color="success"
+                dark
+                :disabled="payment.amount == 0"
+                @click="
+                  ((phone_dialog = true),
+                  (payment.amount = flt(payment.amount, 0)))
+                "
+              >
+                {{ __("Request") }}
+              </v-btn>
+            </v-col>
+          </v-row>
+        </div>
+
+        <v-row
+          class="pyments px-1 py-0"
+          v-if="
+            invoice_doc &&
+            available_pioints_amount > 0 &&
+            !invoice_doc.is_return
+          "
+        >
+          <v-col cols="7">
+            <v-text-field
+              dense
+              outlined
+              color="primary"
+              :label="__('Redeem Loyalty Points')"
+              background-color="white"
+              hide-details
+              v-model="loyalty_amount"
+              type="number"
+              :prefix="currencySymbol(invoice_doc.currency)"
+            ></v-text-field>
+          </v-col>
+          <v-col cols="5">
+            <v-text-field
+              dense
+              outlined
+              color="primary"
+              :label="__('You can redeem upto')"
+              background-color="white"
+              hide-details
+              :value="formtFloat(available_pioints_amount)"
+              :prefix="currencySymbol(invoice_doc.currency)"
+              disabled
+            ></v-text-field>
+          </v-col>
+        </v-row>
+
+        <v-row
+          class="pyments px-1 py-0"
+          v-if="
+            invoice_doc &&
+            available_customer_credit > 0 &&
+            !invoice_doc.is_return &&
+            redeem_customer_credit
+          "
+        >
+          <v-col cols="7">
+            <v-text-field
+              dense
+              outlined
+              disabled
+              color="primary"
+              :label="__('Redeemed Customer Credit')"
+              background-color="white"
+              hide-details
+              v-model="redeemed_customer_credit"
+              type="number"
+              :prefix="currencySymbol(invoice_doc.currency)"
+            ></v-text-field>
+          </v-col>
+          <v-col cols="5">
+            <v-text-field
+              dense
+              outlined
+              color="primary"
+              :label="__('You can redeem credit upto')"
+              background-color="white"
+              hide-details
+              :value="formtCurrency(available_customer_credit)"
+              :prefix="currencySymbol(invoice_doc.currency)"
+              disabled
+            ></v-text-field>
+          </v-col>
+        </v-row>
+        <v-divider></v-divider>
+
+        <v-row class="px-1 py-0 payment-stats">
+          <v-col cols="6" class="payment-field">
+            <v-text-field
+              dense
+              outlined
+              color="primary"
+              :label="__('Net Total')"
+              background-color="white"
+              hide-details
+              :value="formtCurrency(invoice_doc.net_total)"
+              disabled
+              :prefix="currencySymbol(invoice_doc.currency)"
+            ></v-text-field>
+          </v-col>
+          <v-col cols="6" class="payment-field">
+            <v-text-field
+              dense
+              outlined
+              color="primary"
+              :label="__('Tax and Charges')"
+              background-color="white"
+              hide-details
+              :value="formtCurrency(invoice_doc.total_taxes_and_charges)"
+              disabled
+              :prefix="currencySymbol(invoice_doc.currency)"
+            ></v-text-field>
+          </v-col>
+          <v-col cols="6" class="payment-field">
+            <v-text-field
+              dense
+              outlined
+              color="primary"
+              :label="__('Total Amount')"
+              background-color="white"
+              hide-details
+              :value="formtCurrency(invoice_doc.total)"
+              disabled
+              :prefix="currencySymbol(invoice_doc.currency)"
+            ></v-text-field>
+          </v-col>
+          <v-col cols="6" class="payment-field">
+            <v-text-field
+              dense
+              outlined
+              color="primary"
+              :label="__('Discount Amount')"
+              background-color="white"
+              hide-details
+              :value="formtCurrency(invoice_doc.discount_amount)"
+              disabled
+              :prefix="currencySymbol(invoice_doc.currency)"
+            ></v-text-field>
+          </v-col>
+          <v-col cols="6" class="payment-field">
+            <v-text-field
+              dense
+              outlined
+              color="primary"
+              :label="__('Grand Total')"
+              background-color="white"
+              hide-details
+              :value="formtCurrency(invoice_doc.grand_total)"
+              disabled
+              :prefix="currencySymbol(invoice_doc.currency)"
+            ></v-text-field>
+          </v-col>
+          <v-col
+            v-if="invoice_doc.rounded_total"
+            cols="6"
+            class="payment-field"
+          >
+            <v-text-field
+              dense
+              outlined
+              color="primary"
+              :label="__('Rounded Total')"
+              background-color="white"
+              hide-details
+              :value="formtCurrency(invoice_doc.rounded_total)"
+              disabled
+              :prefix="currencySymbol(invoice_doc.currency)"
+            ></v-text-field>
+          </v-col>
+
+          <v-col cols="6">
+            <v-text-field
+              v-model="receiptNumber"
+              dense
+              outlined
+              color="primary"
+              :label="__('Receipt Number')"
+              background-color="white"
+              hide-details
+              type="number"
+              v-if="show_paymentRecieptNumber"
+              :rules="[(v) => !!v || __('Receipt Number is required')]"
+            ></v-text-field>
+          </v-col>
+
+          <v-col cols="6" v-if="pos_profile.name == 'Call Center'">
+            <v-select
+              v-model="paymentType"
+              :items="paymentTypes"
+              dense
+              outlined
+              color="primary"
+              :label="__('Type of Payment')"
+              background-color="white"
+              hide-details
+              item-text="label"
+              item-value="value"
+            ></v-select>
+          </v-col>
+
+          <v-col
+            cols="6"
+            v-if="pos_profile.posa_allow_sales_order && invoiceType == 'Order'"
+          >
+            <v-menu
+              ref="order_delivery_date"
+              v-model="order_delivery_date"
+              :close-on-content-click="false"
+              transition="scale-transition"
+              dense
+            >
+              <template v-slot:activator="{ on, attrs }">
+                <v-text-field
+                  v-model="invoice_doc.posa_delivery_date"
+                  :label="__('Delivery Date')"
+                  readonly
+                  outlined
+                  dense
+                  background-color="white"
+                  clearable
+                  color="primary"
+                  hide-details
+                  v-bind="attrs"
+                  v-on="on"
+                ></v-text-field>
+              </template>
+              <v-date-picker
+                v-model="invoice_doc.posa_delivery_date"
+                no-title
+                scrollable
+                color="primary"
+                :min="frappe.datetime.now_date()"
+                @input="order_delivery_date = false"
+              >
+              </v-date-picker>
+            </v-menu>
+          </v-col>
+          <v-col cols="12" v-if="invoice_doc.posa_delivery_date">
+            <v-autocomplete
+              v-if="invoice_doc.custom_so_type == 'Delivery'"
+              dense
+              clearable
+              auto-select-first
+              outlined
+              color="primary"
+              :label="__('Address')"
+              v-model="invoice_doc.shipping_address_name"
+              :items="addresses"
+              item-text="address_title"
+              item-value="name"
+              background-color="white"
+              no-data-text="Address not found"
+              hide-details
+              :filter="addressFilter"
+              :disabled="!invoice_doc.posa_delivery_date"
+              append-icon="mdi-plus"
+              @click:append="new_address"
+            >
+              <template v-slot:item="data">
+                <template>
+                  <v-list-item-content>
+                    <v-list-item-title
+                      class="primary--text subtitle-1"
+                      v-html="data.item.address_title"
+                    ></v-list-item-title>
+                    <v-list-item-title
+                      v-html="data.item.address_line1"
+                    ></v-list-item-title>
+                    <v-list-item-subtitle
+                      v-if="data.item.custoaddress_line2mer_name"
+                      v-html="data.item.address_line2"
+                    ></v-list-item-subtitle>
+                    <v-list-item-subtitle
+                      v-if="data.item.city"
+                      v-html="data.item.city"
+                    ></v-list-item-subtitle>
+                    <v-list-item-subtitle
+                      v-if="data.item.state"
+                      v-html="data.item.state"
+                    ></v-list-item-subtitle>
+                    <v-list-item-subtitle
+                      v-if="data.item.country"
+                      v-html="data.item.mobile_no"
+                    ></v-list-item-subtitle>
+                    <v-list-item-subtitle
+                      v-if="data.item.address_type"
+                      v-html="data.item.address_type"
+                    ></v-list-item-subtitle>
+                  </v-list-item-content>
+                </template>
+              </template>
+            </v-autocomplete>
+          </v-col>
+          <v-col
+            cols="6"
+            v-if="sales_person !== 'Mumo' && pos_profile.company == 'Mumo'"
+          >
+            <v-textarea
+              class="pa-0"
+              outlined
+              dense
+              background-color="white"
+              clearable
+              color="primary"
+              auto-grow
+              rows="2"
+              :label="__('Referance Number')"
+              v-model="custom_third_party_referance_number"
+              :value="custom_third_party_referance_number"
+            ></v-textarea>
+          </v-col>
+          <v-col
+            cols="6"
+            v-if="
+              sales_person !== 'Mumo' &&
+              sales_person === 'Talabat' &&
+              pos_profile.company == 'Mumo'
+            "
+          >
+            <v-textarea
+              class="pa-0"
+              outlined
+              dense
+              background-color="white"
+              clearable
+              color="primary"
+              auto-grow
+              rows="2"
+              :label="__('Unique Number')"
+              v-model="custom_unique_third_party_referance_number"
+              :value="custom_unique_custom_third_party_referance_number"
+            ></v-textarea>
+          </v-col>
+          <v-col cols="12" v-if="pos_profile.posa_display_additional_notes">
+            <v-textarea
+              class="pa-0"
+              outlined
+              dense
+              background-color="white"
+              clearable
+              color="primary"
+              auto-grow
+              rows="2"
+              :label="__('Additional Notes')"
+              v-model="invoice_doc.posa_notes"
+              :value="invoice_doc.posa_notes"
+            ></v-textarea>
+          </v-col>
+        </v-row>
+
+        <div v-if="pos_profile.posa_allow_customer_purchase_order">
+          <v-divider></v-divider>
+          <v-row class="px-1 py-0" justify="center" align="start">
+            <v-col cols="6">
+              <v-text-field
+                v-model="invoice_doc.po_no"
+                :label="__('Purchase Order')"
+                outlined
+                dense
+                background-color="white"
+                clearable
+                color="primary"
+                hide-details
+              ></v-text-field>
+            </v-col>
+            <v-col cols="6">
+              <v-menu
+                ref="po_date_menu"
+                v-model="po_date_menu"
+                :close-on-content-click="false"
+                transition="scale-transition"
+              >
+                <template v-slot:activator="{ on, attrs }">
+                  <v-text-field
+                    v-model="invoice_doc.po_date"
+                    :label="__('Purchase Order Date')"
+                    readonly
+                    outlined
+                    dense
+                    hide-details
+                    v-bind="attrs"
+                    v-on="on"
+                    color="primary"
+                  ></v-text-field>
+                </template>
+                <v-date-picker
+                  v-model="invoice_doc.po_date"
+                  no-title
+                  scrollable
+                  color="primary"
+                  @input="po_date_menu = false"
+                >
+                </v-date-picker>
+              </v-menu>
+            </v-col>
+          </v-row>
+        </div>
+        <v-divider></v-divider>
+        <v-row class="px-1 py-0" align="start" no-gutters>
+          <v-col
+            cols="6"
+            v-if="
+              pos_profile.posa_allow_write_off_change &&
+              diff_payment > 0 &&
+              !invoice_doc.is_return
+            "
+          >
+            <v-switch
+              class="my-0 py-0"
+              v-model="is_write_off_change"
+              flat
+              :label="__('Write Off Difference Amount')"
+            ></v-switch>
+          </v-col>
+          <v-col
+            cols="6"
+            v-if="pos_profile.posa_allow_credit_sale && !invoice_doc.is_return"
+          >
+            <v-switch
+              v-model="is_credit_sale"
+              flat
+              :label="__('Is Credit Sale')"
+              class="my-0 py-0"
+            ></v-switch>
+          </v-col>
+          <v-col
+            cols="6"
+            v-if="invoice_doc.is_return && pos_profile.use_cashback"
+          >
+            <v-switch
+              v-model="is_cashback"
+              flat
+              :label="__('Is Cashback')"
+              class="my-0 py-0"
+            ></v-switch>
+          </v-col>
+          <v-col cols="6" v-if="is_credit_sale">
+            <v-menu
+              ref="date_menu"
+              v-model="date_menu"
+              :close-on-content-click="false"
+              transition="scale-transition"
+            >
+              <template v-slot:activator="{ on, attrs }">
+                <v-text-field
+                  v-model="invoice_doc.due_date"
+                  :label="__('Due Date')"
+                  readonly
+                  outlined
+                  dense
+                  hide-details
+                  v-bind="attrs"
+                  v-on="on"
+                  color="primary"
+                ></v-text-field>
+              </template>
+              <v-date-picker
+                v-model="invoice_doc.due_date"
+                no-title
+                scrollable
+                color="primary"
+                :min="frappe.datetime.now_date()"
+                @input="date_menu = false"
+              >
+              </v-date-picker>
+            </v-menu>
+          </v-col>
+          <v-col
+            cols="6"
+            v-if="!invoice_doc.is_return && pos_profile.use_customer_credit"
+          >
+            <v-switch
+              v-model="redeem_customer_credit"
+              flat
+              :label="__('Use Customer Credit')"
+              class="my-0 py-0"
+              @change="get_available_credit($event)"
+            ></v-switch>
+          </v-col>
+        </v-row>
+        <div
+          v-if="
+            invoice_doc &&
+            available_customer_credit > 0 &&
+            !invoice_doc.is_return &&
+            redeem_customer_credit
+          "
+        >
+          <v-row v-for="(row, idx) in customer_credit_dict" :key="idx">
+            <v-col cols="4">
+              <div class="pa-2 py-3">{{ row.credit_origin }}</div>
+            </v-col>
+            <v-col cols="4">
+              <v-text-field
+                dense
+                outlined
+                color="primary"
+                :label="__('Available Credit')"
+                background-color="white"
+                hide-details
+                :value="formtCurrency(row.total_credit)"
+                disabled
+                :prefix="currencySymbol(invoice_doc.currency)"
+              ></v-text-field>
+            </v-col>
+            <v-col cols="4">
+              <v-text-field
+                dense
+                outlined
+                color="primary"
+                :label="__('Redeem Credit')"
+                background-color="white"
+                hide-details
+                type="number"
+                v-model="row.credit_to_redeem"
+                :prefix="currencySymbol(invoice_doc.currency)"
+              ></v-text-field>
+            </v-col>
+          </v-row>
+        </div>
+        <v-divider></v-divider>
+        <v-row class="pb-0 mb-2" align="start">
+          <v-col cols="12">
+            <v-autocomplete
+              dense
+              clearable
+              auto-select-first
+              outlined
+              color="primary"
+              :label="__('Sales Person')"
+              v-model="sales_person"
+              :items="sales_persons"
+              item-text="sales_person_name"
+              item-value="name"
+              background-color="white"
+              :no-data-text="__('Sales Person not found')"
+              hide-details
+              :filter="salesPersonFilter"
+              :disabled="readonly"
+            >
+              <template v-slot:item="data">
+                <template>
+                  <v-list-item-content>
+                    <v-list-item-title
+                      class="primary--text subtitle-1"
+                      v-html="data.item.sales_person_name"
+                    ></v-list-item-title>
+                    <v-list-item-subtitle
+                      v-if="data.item.sales_person_name != data.item.name"
+                      v-html="`ID: ${data.item.name}`"
+                    ></v-list-item-subtitle>
+                  </v-list-item-content>
+                </template>
+              </template>
+            </v-autocomplete>
+          </v-col>
+        </v-row>
+      </div>
+    </v-card>
+
+    <v-card flat class="payment-actions cards mb-0 mt-3 py-0">
+      <v-row align="center" no-gutters>
+        <v-col cols="6" class="pr-1">
+          <v-btn
+            block
+            class="payment-primary"
+            color="primary"
+            @click="submit"
+            :disabled="vaildatPayment"
+            >{{ __("Submit") }}</v-btn
+          >
+        </v-col>
+        <v-col cols="6" class="pl-1">
+          <v-btn
+            block
+            class="payment-primary success"
+            color="success"
+            @click="submit(undefined, false, true)"
+            :disabled="vaildatPayment"
+            >{{ __("Submit & Print") }}</v-btn
+          >
+        </v-col>
+        <v-col cols="12">
+          <v-btn
+            block
+            class="payment-secondary"
+            color="error"
+            @click="back_to_invoice"
+            >{{ __("Cancel Payment") }}</v-btn
+          >
+        </v-col>
+      </v-row>
+    </v-card>
+    <div>
+      <v-dialog v-model="phone_dialog" max-width="400px">
+        <v-card>
+          <v-card-title>
+            <span class="headline primary--text">{{
+              __("Confirm Mobile Number")
+            }}</span>
+          </v-card-title>
+          <v-card-text class="pa-0">
+            <v-container>
+              <v-text-field
+                dense
+                outlined
+                color="primary"
+                :label="__('Mobile Number')"
+                background-color="white"
+                hide-details
+                v-model="invoice_doc.contact_mobile"
+                type="number"
+              ></v-text-field>
+            </v-container>
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer></v-spacer>
+            <v-btn color="error" dark @click="phone_dialog = false">{{
+              __("Close")
+            }}</v-btn>
+            <v-btn color="primary" dark @click="request_payment">{{
+              __("Request")
+            }}</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+    </div>
+  </div>
+</template>
+
+<script>
+import { evntBus } from "../../bus";
+import format from "../../format";
+export default {
+  mixins: [format],
+  data: () => ({
+    loading: false,
+    pos_profile: "",
+    invoice_doc: "",
+    loyalty_amount: 0,
+    is_credit_sale: 0,
+    is_write_off_change: 0,
+    date_menu: false,
+    po_date_menu: false,
+    addresses: [],
+    sales_persons: [],
+    sales_person: "",
+    paid_change: 0,
+    order_delivery_date: false,
+    paid_change_rules: [],
+    is_return: false,
+    is_cashback: true,
+    redeem_customer_credit: false,
+    customer_credit_dict: [],
+    phone_dialog: false,
+    invoiceType: "Invoice",
+    pos_settings: "",
+    customer_info: "",
+    custom_third_party_referance_number: null,
+    custom_unique_third_party_referance_number: null,
+    mpesa_modes: [],
+    receiptNumber: "",
+    paymentType: null,
+    paymentTypes: [
+      { label: __("Cash on delivery"), value: "Cash on delivery" },
+      { label: __("Credit Card"), value: "Credit Card" },
+      { label: __("Cash Talabat"), value: "Cash Talabat" },
+      {
+        label: __("Credit Card on delivery"),
+        value: "Credit Card on delivery",
+      },
+      { label: __("Cash"), value: "Cash" },
+    ],
+    show_paymentRecieptNumber: false,
+    filteredPayments: [], // Add this line
+    selectedSalesPersonName: "",
+  }),
+
+  methods: {
+    back_to_invoice() {
+      evntBus.$emit("show_payment", "false");
+      evntBus.$emit("set_customer_readonly", false);
+    },
+    submit(event, payment_received = false, print = false) {
+      const isDeliveryOrder =
+        (this.invoice_doc?.custom_so_type || "").toLowerCase() === "delivery";
+
+      if (
+        this.receiptNumber == "" &&
+        this.show_paymentRecieptNumber &&
+        this.pos_profile.company == "Mumo"
+      ) {
+        frappe.throw(__("Please Enter Receipt Number"));
+        return;
+      }
+      // Default the payment type for delivery so the cashier is not forced to pick one
+      if (isDeliveryOrder && !this.paymentType) {
+        this.paymentType = "Cash on delivery";
+      }
+      if (
+        !isDeliveryOrder &&
+        this.diff_payment > 0 &&
+        !this.paymentType &&
+        this.pos_profile.company == "Mumo"
+      ) {
+        evntBus.$emit("show_mesage", {
+          text: __("Please Select Payment Type"),
+          color: "error",
+        });
+        frappe.utils.play_sound("error");
+        return;
+      }
+      if (this.diff_payment < 0 && this.pos_profile.company == "Mumo") {
+        evntBus.$emit("show_mesage", {
+          text: __("Please pay less than or equal to the due amount"),
+          color: "error",
+        });
+        frappe.utils.play_sound("error");
+        return;
+      }
+      if (!this.invoice_doc.is_return && this.total_payments < 0) {
+        evntBus.$emit("show_mesage", {
+          text: __("Payments not correct"),
+          color: "error",
+        });
+        frappe.utils.play_sound("error");
+        return;
+      }
+      // validate phone payment
+      let phone_payment_is_valid = true;
+      if (!payment_received) {
+        this.invoice_doc.payments.forEach((payment) => {
+          if (
+            payment.type == "Phone" &&
+            ![0, "0", "", null, undefined].includes(payment.amount)
+          ) {
+            phone_payment_is_valid = false;
+          }
+        });
+        if (!phone_payment_is_valid) {
+          evntBus.$emit("show_mesage", {
+            text: __(
+              "Please request phone payment or use other payment method",
+            ),
+            color: "error",
+          });
+          frappe.utils.play_sound("error");
+          console.error("phone payment not requested");
+          return;
+        }
+      }
+
+      if (
+        !isDeliveryOrder &&
+        !this.pos_profile.posa_allow_partial_payment &&
+        this.total_payments <
+          (this.invoice_doc.rounded_total || this.invoice_doc.grand_total)
+      ) {
+        evntBus.$emit("show_mesage", {
+          text: __("The amount paid is not complete"),
+          color: "error",
+        });
+        frappe.utils.play_sound("error");
+        return;
+      }
+
+      if (
+        !isDeliveryOrder &&
+        this.pos_profile.posa_allow_partial_payment &&
+        !this.pos_profile.posa_allow_credit_sale &&
+        this.total_payments == 0
+      ) {
+        evntBus.$emit("show_mesage", {
+          text: __("Please enter the amount paid"),
+          color: "error",
+        });
+        frappe.utils.play_sound("error");
+        return;
+      }
+
+      if (!this.paid_change) this.paid_change = 0;
+
+      if (this.paid_change > -this.diff_payment) {
+        evntBus.$emit("show_mesage", {
+          text: __("Paid change can not be greater than total change!"),
+          color: "error",
+        });
+        frappe.utils.play_sound("error");
+        return;
+      }
+
+      let total_change = this.flt(
+        this.flt(this.paid_change) + this.flt(-this.credit_change),
+      );
+
+      if (this.is_cashback && total_change != -this.diff_payment) {
+        evntBus.$emit("show_mesage", {
+          text: __("Error in change calculations!"),
+          color: "error",
+        });
+        frappe.utils.play_sound("error");
+        return;
+      }
+
+      let credit_calc_check = this.customer_credit_dict.filter((row) => {
+        if (flt(row.credit_to_redeem))
+          return flt(row.credit_to_redeem) > flt(row.total_credit);
+        else return false;
+      });
+
+      if (credit_calc_check.length > 0) {
+        evntBus.$emit("show_mesage", {
+          text: __("Redeemed credit cannot be greater than its total."),
+          color: "error",
+        });
+        frappe.utils.play_sound("error");
+        return;
+      }
+
+      if (
+        !this.invoice_doc.is_return &&
+        this.redeemed_customer_credit >
+          (this.invoice_doc.rounded_total || this.invoice_doc.grand_total)
+      ) {
+        evntBus.$emit("show_mesage", {
+          text: __("Cannot redeem customer credit more than invoice total"),
+          color: "error",
+        });
+        frappe.utils.play_sound("error");
+        return;
+      }
+      this.invoice_doc.custom_third_party_referance_number =
+        this.custom_third_party_referance_number;
+      this.invoice_doc.custom_unique_talbat_number =
+        this.custom_unique_third_party_referance_number;
+      if (
+        this.invoice_doc.custom_third_party_referance_number == null &&
+        this.sales_person !== "Mumo" &&
+        this.pos_profile.company == "Mumo"
+      ) {
+        evntBus.$emit("show_mesage", {
+          text: __("Please enter Third Party Reference Number"),
+          color: "error",
+        });
+        frappe.utils.play_sound("error");
+        return;
+      }
+      this.submit_invoice(print);
+      this.customer_credit_dict = [];
+      this.redeem_customer_credit = false;
+      this.custom_third_party_referance_number = null;
+      this.is_cashback = true;
+
+      evntBus.$emit("new_invoice", "false");
+      evntBus.$emit("back_to_main_sales", "false");
+
+      this.back_to_invoice();
+    },
+    submit_invoice(print) {
+      let totalPayedAmount = 0;
+
+      this.invoice_doc.payments.forEach((payment) => {
+        payment.amount = flt(payment.amount);
+        totalPayedAmount += payment.amount;
+      });
+      if (this.invoice_doc.is_return && totalPayedAmount == 0) {
+        this.invoice_doc.is_pos = 0;
+      }
+      if (this.customer_credit_dict.length) {
+        this.customer_credit_dict.forEach((row) => {
+          row.credit_to_redeem = flt(row.credit_to_redeem);
+        });
+      }
+
+      this.invoice_doc.custom_receipt_number = this.receiptNumber;
+      this.invoice_doc.custom_payment_type = this.paymentType;
+
+      let data = {};
+      data["total_change"] = !this.invoice_doc.is_return
+        ? -this.diff_payment
+        : 0;
+      data["paid_change"] = !this.invoice_doc.is_return ? this.paid_change : 0;
+      data["credit_change"] = -this.credit_change;
+      data["redeemed_customer_credit"] = this.redeemed_customer_credit;
+      data["customer_credit_dict"] = this.customer_credit_dict;
+      data["is_cashback"] = this.is_cashback;
+      const vm = this;
+      frappe.call({
+        method: "posawesome.posawesome.api.posapp.submit_invoice",
+        args: {
+          data: data,
+          invoice: this.invoice_doc,
+        },
+        async: true,
+        callback: function (r) {
+          if (r.message) {
+            if (print) {
+              vm.load_print_page();
+            }
+            evntBus.$emit("set_last_invoice", vm.invoice_doc.name);
+            evntBus.$emit("show_mesage", {
+              text: __("Invoice {0} is submitted", [r.message.name]),
+              color: "success",
+            });
+            evntBus.$emit("set_picked_list_for_item_bundel_after_submit", []);
+
+            frappe.utils.play_sound("submit");
+            this.addresses = [];
+          }
+        },
+      });
+      evntBus.$emit("invoice_submitted", "true");
+    },
+    async set_full_amount(idx) {
+      this.show_paymentRecieptNumber = false; // reset first
+      for (const payment of this.invoice_doc.payments) {
+        if (payment.mode_of_payment) {
+          const type = await frappe.db.get_value(
+            "Mode of Payment",
+            payment.mode_of_payment,
+            "custom_required_receipt",
+          );
+          if (
+            type &&
+            type.message &&
+            type.message.custom_required_receipt &&
+            payment.idx == idx
+          ) {
+            this.show_paymentRecieptNumber = true;
+            break; // no need to continue loop if one is Bank
+          }
+        }
+      }
+      this.invoice_doc.payments.forEach((payment) => {
+        payment.amount =
+          payment.idx == idx
+            ? this.invoice_doc.rounded_total || this.invoice_doc.grand_total
+            : 0;
+      });
+    },
+    set_rest_amount(idx) {
+      this.invoice_doc.payments.forEach((payment) => {
+        if (
+          payment.idx == idx &&
+          payment.amount == 0 &&
+          this.diff_payment > 0
+        ) {
+          payment.amount = this.diff_payment;
+        }
+      });
+    },
+    clear_all_amounts() {
+      this.invoice_doc.payments.forEach((payment) => {
+        payment.amount = 0;
+      });
+      this.receiptNumber = "";
+    },
+    load_print_page() {
+      const print_format =
+        this.pos_profile.custom_print_format_for_online ||
+        this.pos_profile.print_format;
+      const letter_head = this.pos_profile.letter_head || 0;
+      const url =
+        frappe.urllib.get_base_url() +
+        "/printview?doctype=Sales%20Invoice&name=" +
+        this.invoice_doc.name +
+        "&trigger_print=1" +
+        "&format=" +
+        print_format +
+        "&no_letterhead=" +
+        letter_head;
+      const printWindow = window.open(url, "Print");
+      printWindow.addEventListener(
+        "load",
+        function () {
+          printWindow.print();
+          // printWindow.close();
+          // NOTE : uncomoent this to auto closing printing window
+        },
+        true,
+      );
+    },
+    validate_due_date() {
+      const today = frappe.datetime.now_date();
+      const parse_today = Date.parse(today);
+      const new_date = Date.parse(this.invoice_doc.due_date);
+      if (new_date < parse_today) {
+        setTimeout(() => {
+          this.invoice_doc.due_date = today;
+        }, 0);
+      }
+    },
+    shortPay(e) {
+      if (e.key === "x" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        this.submit();
+      }
+    },
+    set_paid_change() {
+      if (!this.paid_change) this.paid_change = 0;
+
+      this.paid_change_rules = [];
+      let change = -this.diff_payment;
+      if (this.paid_change > change) {
+        this.paid_change_rules = [
+          __("Paid change can not be greater than total change!"),
+        ];
+        this.credit_change = 0;
+      }
+    },
+    get_available_credit(e) {
+      this.clear_all_amounts();
+      if (e) {
+        frappe
+          .call("posawesome.posawesome.api.posapp.get_available_credit", {
+            customer: this.invoice_doc.customer,
+            company: this.pos_profile.company,
+          })
+          .then((r) => {
+            const data = r.message;
+            if (data.length) {
+              const amount =
+                this.invoice_doc.rounded_total || this.invoice_doc.grand_total;
+              let remainAmount = amount;
+
+              data.forEach((row) => {
+                if (remainAmount > 0) {
+                  if (remainAmount >= row.total_credit) {
+                    row.credit_to_redeem = row.total_credit;
+                    remainAmount = remainAmount - row.total_credit;
+                  } else {
+                    row.credit_to_redeem = remainAmount;
+                    remainAmount = 0;
+                  }
+                } else {
+                  row.credit_to_redeem = 0;
+                }
+              });
+              console.log("customer_credit_dict", data);
+              this.customer_credit_dict = data;
+            } else {
+              this.customer_credit_dict = [];
+            }
+          });
+      } else {
+        this.customer_credit_dict = [];
+      }
+    },
+    get_addresses() {
+      const vm = this;
+      if (!vm.invoice_doc) {
+        return;
+      }
+      frappe.call({
+        method: "posawesome.posawesome.api.posapp.get_customer_addresses",
+        args: { customer: vm.invoice_doc.customer },
+        async: true,
+        callback: function (r) {
+          if (!r.exc) {
+            vm.addresses = r.message;
+          } else {
+            vm.addresses = [];
+          }
+        },
+      });
+    },
+    addressFilter(item, queryText, itemText) {
+      const textOne = item.address_title
+        ? item.address_title.toLowerCase()
+        : "";
+      const textTwo = item.address_line1
+        ? item.address_line1.toLowerCase()
+        : "";
+      const textThree = item.address_line2
+        ? item.address_line2.toLowerCase()
+        : "";
+      const textFour = item.city ? item.city.toLowerCase() : "";
+      const textFifth = item.name.toLowerCase();
+      const searchText = queryText.toLowerCase();
+      return (
+        textOne.indexOf(searchText) > -1 ||
+        textTwo.indexOf(searchText) > -1 ||
+        textThree.indexOf(searchText) > -1 ||
+        textFour.indexOf(searchText) > -1 ||
+        textFifth.indexOf(searchText) > -1
+      );
+    },
+    new_address() {
+      evntBus.$emit("open_new_address", this.invoice_doc.customer);
+    },
+    get_sales_person_names() {
+      const vm = this;
+      if (
+        vm.pos_profile.posa_local_storage &&
+        localStorage.sales_persons_storage
+      ) {
+        vm.sales_persons = JSON.parse(
+          localStorage.getItem("sales_persons_storage"),
+        );
+      }
+      frappe.call({
+        method:
+          "posawesome.posawesome.api.posapp.get_sales_person_names_payments",
+        callback: function (r) {
+          if (r.message) {
+            vm.sales_persons = r.message;
+            if (vm.pos_profile.posa_local_storage) {
+              localStorage.setItem("sales_persons_storage", "");
+              localStorage.setItem(
+                "sales_persons_storage",
+                JSON.stringify(r.message),
+              );
+            }
+          }
+        },
+      });
+    },
+    salesPersonFilter(item, queryText, itemText) {
+      const textOne = item.sales_person_name
+        ? item.sales_person_name.toLowerCase()
+        : "";
+      const textTwo = item.name.toLowerCase();
+      const searchText = queryText.toLowerCase();
+
+      return (
+        textOne.indexOf(searchText) > -1 || textTwo.indexOf(searchText) > -1
+      );
+    },
+    request_payment() {
+      this.phone_dialog = false;
+      const vm = this;
+      if (!this.invoice_doc.contact_mobile) {
+        evntBus.$emit("show_mesage", {
+          text: __("Please set customer mobile number"),
+          color: "error",
+        });
+        evntBus.$emit("open_edit_customer");
+        this.back_to_invoice();
+        return;
+      }
+      evntBus.$emit("freeze", {
+        title: __("Waiting for payment..."),
+      });
+      this.invoice_doc.payments.forEach((payment) => {
+        payment.amount = flt(payment.amount);
+      });
+      let formData = { ...this.invoice_doc };
+      formData["total_change"] = -this.diff_payment;
+      formData["paid_change"] = this.paid_change;
+      formData["credit_change"] = -this.credit_change;
+      formData["redeemed_customer_credit"] = this.redeemed_customer_credit;
+      formData["customer_credit_dict"] = this.customer_credit_dict;
+      formData["is_cashback"] = this.is_cashback;
+
+      frappe
+        .call({
+          method: "posawesome.posawesome.api.posapp.update_invoice",
+          args: {
+            data: formData,
+          },
+          async: false,
+          callback: function (r) {
+            if (r.message) {
+              vm.invoice_doc = r.message;
+            }
+          },
+        })
+        .then(() => {
+          frappe
+            .call({
+              method: "posawesome.posawesome.api.posapp.create_payment_request",
+              args: {
+                doc: vm.invoice_doc,
+              },
+            })
+            .fail(() => {
+              evntBus.$emit("unfreeze");
+              evntBus.$emit("show_mesage", {
+                text: __("Payment request failed"),
+                color: "error",
+              });
+            })
+            .then(({ message }) => {
+              const payment_request_name = message.name;
+              setTimeout(() => {
+                frappe.db
+                  .get_value("Payment Request", payment_request_name, [
+                    "status",
+                    "grand_total",
+                  ])
+                  .then(({ message }) => {
+                    if (message.status != "Paid") {
+                      evntBus.$emit("unfreeze");
+                      evntBus.$emit("show_mesage", {
+                        text: __(
+                          "Payment Request took too long to respond. Please try requesting for payment again",
+                        ),
+                        color: "error",
+                      });
+                    } else {
+                      evntBus.$emit("unfreeze");
+                      evntBus.$emit("show_mesage", {
+                        text: __("Payment of {0} received successfully.", [
+                          vm.formtCurrency(
+                            message.grand_total,
+                            vm.invoice_doc.currency,
+                            0,
+                          ),
+                        ]),
+                        color: "success",
+                      });
+                      frappe.db
+                        .get_doc("Sales Invoice", vm.invoice_doc.name)
+                        .then((doc) => {
+                          vm.invoice_doc = doc;
+                          vm.submit(null, true);
+                        });
+                    }
+                  });
+              }, 30000);
+            });
+        });
+    },
+    get_mpesa_modes() {
+      const vm = this;
+      frappe.call({
+        method: "posawesome.posawesome.api.m_pesa.get_mpesa_mode_of_payment",
+        args: { company: vm.pos_profile.company },
+        async: true,
+        callback: function (r) {
+          if (!r.exc) {
+            vm.mpesa_modes = r.message;
+            console.log("mpesa_modes", vm.mpesa_modes);
+          } else {
+            vm.mpesa_modes = [];
+          }
+        },
+      });
+    },
+    is_mpesa_c2b_payment(payment) {
+      if (
+        this.mpesa_modes.includes(payment.mode_of_payment) &&
+        payment.type == "Bank"
+      ) {
+        payment.amount = 0;
+        return true;
+      } else {
+        return false;
+      }
+    },
+    mpesa_c2b_dialg(payment) {
+      const data = {
+        company: this.pos_profile.company,
+        mode_of_payment: payment.mode_of_payment,
+        customer: this.invoice_doc.customer,
+      };
+      evntBus.$emit("open_mpesa_payments", data);
+    },
+    set_mpesa_payment(payment) {
+      this.pos_profile.use_customer_credit = 1;
+      this.redeem_customer_credit = true;
+      const invoiceAmount =
+        this.invoice_doc.rounded_total || this.invoice_doc.grand_total;
+      let amount =
+        payment.unallocated_amount > invoiceAmount
+          ? invoiceAmount
+          : payment.unallocated_amount;
+      if (amount < 0 || !amount) amount = 0;
+      const advance = {
+        type: "Advance",
+        credit_origin: payment.name,
+        total_credit: flt(payment.unallocated_amount),
+        credit_to_redeem: flt(amount),
+      };
+      this.clear_all_amounts();
+      this.customer_credit_dict.push(advance);
+    },
+    async filterPaymentsBySalesPerson() {
+      const vm = this;
+
+      if (!vm.invoice_doc?.payments || !vm.pos_profile?.payments) {
+        vm.filteredPayments = [];
+        return;
+      }
+
+      // Prepare empty filtered list
+      vm.filteredPayments = [];
+
+      for (const payment of vm.invoice_doc.payments) {
+        const paymentMethod = vm.pos_profile.payments.find(
+          (p) => p.mode_of_payment === payment.mode_of_payment,
+        );
+
+        if (!paymentMethod) {
+          vm.filteredPayments.push(payment);
+          continue;
+        }
+
+        // Fetch childtable rows if restriction exists
+        let restrictedSalesPersons = [];
+        if (paymentMethod.custom_hidden_sales_persons) {
+          try {
+            const r = await frappe.call({
+              method: "frappe.client.get",
+              args: {
+                doctype: "Restricted Sales Person",
+                name: paymentMethod.custom_hidden_sales_persons,
+              },
+            });
+
+            if (r.message && r.message.hidden_sales_person) {
+              restrictedSalesPersons = r.message.hidden_sales_person;
+            }
+          } catch (err) {
+            console.error("Error fetching restricted sales persons", err);
+          }
+        }
+
+        if (
+          restrictedSalesPersons.length > 0 &&
+          restrictedSalesPersons.some(
+            (row) => row.sales_person_name === vm.selectedSalesPersonName,
+          )
+        ) {
+          continue; // skip
+        }
+
+        // If no restriction → allow
+        if (!paymentMethod.custom_sales_person) {
+          vm.filteredPayments.push(payment);
+          continue;
+        }
+
+        // If restriction set → allow only if matches
+        if (paymentMethod.custom_sales_person === vm.selectedSalesPersonName) {
+          vm.filteredPayments.push(payment);
+        }
+      }
+    },
+  },
+
+  computed: {
+    total_payments() {
+      let total = parseFloat(this.invoice_doc.loyalty_amount);
+      if (this.invoice_doc && this.invoice_doc.payments) {
+        this.invoice_doc.payments.forEach((payment) => {
+          total += this.flt(payment.amount);
+        });
+      }
+
+      total += this.flt(this.redeemed_customer_credit);
+
+      if (!this.is_cashback) total = 0;
+
+      return this.flt(total, this.currency_precision);
+    },
+    diff_payment() {
+      let diff_payment = this.flt(
+        (this.invoice_doc.rounded_total || this.invoice_doc.grand_total) -
+          this.total_payments,
+        this.currency_precision,
+      );
+      this.paid_change = -diff_payment;
+      return diff_payment;
+    },
+    credit_change() {
+      let change = -this.diff_payment;
+      if (this.paid_change > change) return 0;
+      return this.flt(this.paid_change - change, this.currency_precision);
+    },
+    diff_lable() {
+      let lable = this.diff_payment < 0 ? __("Change") : __("To Be Paid");
+      return lable;
+    },
+    available_pioints_amount() {
+      let amount = 0;
+      if (this.customer_info.loyalty_points) {
+        amount =
+          this.customer_info.loyalty_points *
+          this.customer_info.conversion_factor;
+      }
+      return amount;
+    },
+    available_customer_credit() {
+      let total = 0;
+      this.customer_credit_dict.map((row) => {
+        total += row.total_credit;
+      });
+
+      return total;
+    },
+    redeemed_customer_credit() {
+      let total = 0;
+      this.customer_credit_dict.map((row) => {
+        if (flt(row.credit_to_redeem)) total += flt(row.credit_to_redeem);
+        else row.credit_to_redeem = 0;
+      });
+
+      return total;
+    },
+    vaildatPayment() {
+      if (this.pos_profile.posa_allow_sales_order) {
+        if (
+          this.invoiceType == "Order" &&
+          !this.invoice_doc.posa_delivery_date
+        ) {
+          return true;
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    },
+    request_payment_field() {
+      let res = false;
+      if (!this.pos_settings || this.pos_settings.invoice_fields.length == 0) {
+        res = false;
+      } else {
+        this.pos_settings.invoice_fields.forEach((el) => {
+          if (
+            el.fieldtype == "Button" &&
+            el.fieldname == "request_for_payment"
+          ) {
+            res = true;
+          }
+        });
+      }
+      return res;
+    },
+  },
+
+  mounted: function () {
+    this.$nextTick(function () {
+      evntBus.$on("set_sales_person_in_invoice", (sales_person_name) => {
+        this.selectedSalesPersonName = sales_person_name;
+        this.filterPaymentsBySalesPerson();
+      });
+
+      evntBus.$on("send_invoice_doc_payment", (invoice_doc) => {
+        this.invoice_doc = invoice_doc;
+        if (this.pos_profile && this.pos_profile.name === "Call Center") {
+          this.paymentType = null;
+        }
+        this.custom_unique_third_party_referance_number = null;
+        this.filterPaymentsBySalesPerson();
+
+        // const default_payment = this.invoice_doc.payments.find(
+        //   (payment) => payment.default == 1
+        // );
+        const default_payment = 0;
+        this.is_credit_sale = 0;
+        this.is_write_off_change = 0;
+        if (default_payment && !invoice_doc.is_return) {
+          default_payment.amount = this.flt(
+            invoice_doc.rounded_total || invoice_doc.grand_total,
+            this.currency_precision,
+          );
+        }
+        if (invoice_doc.is_return) {
+          this.is_return = true;
+          invoice_doc.payments.forEach((payment) => {
+            payment.amount = 0;
+            payment.base_amount = 0;
+          });
+        }
+        this.loyalty_amount = 0;
+        this.get_addresses();
+        this.get_sales_person_names();
+      });
+      evntBus.$on("register_pos_profile", (data) => {
+        this.pos_profile = data.pos_profile;
+        if (this.pos_profile.name === "Call Center") {
+          this.paymentType = null;
+        }
+        this.custom_unique_third_party_referance_number = null;
+
+        this.get_mpesa_modes();
+      });
+      evntBus.$on("add_the_new_address", (data) => {
+        this.addresses.push(data);
+        this.$forceUpdate();
+      });
+      evntBus.$on("set_sales_person_in_payment", (data) => {
+        this.sales_person = data;
+      });
+      evntBus.$on("update_invoice_type", (data) => {
+        this.invoiceType = data;
+        if (this.invoice_doc && data != "Order") {
+          this.invoice_doc.posa_delivery_date = null;
+          this.invoice_doc.posa_notes = null;
+          this.invoice_doc.shipping_address_name = null;
+        }
+      });
+    });
+    evntBus.$on("update_customer", (customer) => {
+      if (this.customer != customer) {
+        this.customer_credit_dict = [];
+        this.redeem_customer_credit = false;
+        this.is_cashback = true;
+      }
+    });
+    evntBus.$on("set_pos_settings", (data) => {
+      this.pos_settings = data;
+    });
+    evntBus.$on("set_customer_info_to_edit", (data) => {
+      this.customer_info = data;
+    });
+    evntBus.$on("set_mpesa_payment", (data) => {
+      this.set_mpesa_payment(data);
+    });
+  },
+  created() {
+    document.addEventListener("keydown", this.shortPay.bind(this));
+  },
+  beforeDestroy() {
+    evntBus.$off("send_invoice_doc_payment");
+    evntBus.$off("register_pos_profile");
+    evntBus.$off("add_the_new_address");
+    evntBus.$off("update_invoice_type");
+    evntBus.$off("update_customer");
+    evntBus.$off("set_pos_settings");
+    evntBus.$off("set_customer_info_to_edit");
+    evntBus.$off("update_invoice_coupons");
+    evntBus.$off("set_mpesa_payment");
+  },
+
+  destroyed() {
+    document.removeEventListener("keydown", this.shortPay);
+  },
+
+  watch: {
+    loyalty_amount(value) {
+      if (value > this.available_pioints_amount) {
+        this.invoice_doc.loyalty_amount = 0;
+        this.invoice_doc.redeem_loyalty_points = 0;
+        this.invoice_doc.loyalty_points = 0;
+        evntBus.$emit("show_mesage", {
+          text: __("Loyalty amount cannot be more than {0}", [
+            this.available_pioints_amount,
+          ]),
+          color: "error",
+        });
+      } else {
+        this.invoice_doc.loyalty_amount = this.flt(this.loyalty_amount);
+        this.invoice_doc.redeem_loyalty_points = 1;
+        this.invoice_doc.loyalty_points =
+          this.flt(this.loyalty_amount) / this.customer_info.conversion_factor;
+      }
+    },
+    is_credit_sale(value) {
+      if (value == 1) {
+        this.invoice_doc.payments.forEach((payment) => {
+          payment.amount = 0;
+          payment.base_amount = 0;
+        });
+      }
+    },
+    is_write_off_change(value) {
+      if (value == 1) {
+        this.invoice_doc.write_off_amount = this.diff_payment;
+        this.invoice_doc.write_off_outstanding_amount_automatically = 1;
+      } else {
+        this.invoice_doc.write_off_amount = 0;
+        this.invoice_doc.write_off_outstanding_amount_automatically = 0;
+      }
+    },
+    redeemed_customer_credit(value) {
+      if (value > this.available_customer_credit) {
+        evntBus.$emit("show_mesage", {
+          text: __("You can redeem customer credit up to {0}", [
+            this.available_customer_credit,
+          ]),
+          color: "error",
+        });
+      }
+    },
+    sales_person() {
+      if (this.sales_person) {
+        this.invoice_doc.sales_team = [
+          {
+            sales_person: this.sales_person,
+            allocated_percentage: 100,
+          },
+        ];
+      } else {
+        this.invoice_doc.sales_team = [];
+      }
+    },
+  },
+};
+</script>
+
+<style scoped>
+.payment-shell {
+  background: linear-gradient(135deg, #ffffff 0%, #f4f7fb 100%);
+  border-radius: 24px;
+  box-shadow: 0 28px 56px rgba(23, 34, 59, 0.18);
+  padding: 18px 22px 16px;
+  max-height: calc(100vh - 220px);
+  overflow: hidden;
+}
+
+.payment-body {
+  max-height: calc(100vh - 340px);
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.payment-field ::v-deep .v-input__slot {
+  border-radius: 14px !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(23, 34, 59, 0.08) !important;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.payment-field ::v-deep .v-input__slot:hover {
+  border-color: rgba(44, 200, 194, 0.5) !important;
+  box-shadow: 0 16px 32px rgba(44, 200, 194, 0.14);
+}
+
+.payment-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.payment-body::-webkit-scrollbar-thumb {
+  background: rgba(23, 34, 59, 0.18);
+  border-radius: 3px;
+}
+
+.payment-mode-btn {
+  border-radius: 14px !important;
+  text-transform: none !important;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 10px 14px !important;
+}
+
+.payment-mode-btn.success {
+  background: linear-gradient(135deg, #3bb273, #2ca36b) !important;
+}
+
+.payment-stats {
+  background: rgba(23, 34, 59, 0.04);
+  border-radius: 18px;
+  padding: 12px 14px !important;
+  margin: 8px 0 16px;
+}
+
+.payment-actions {
+  background: transparent !important;
+}
+
+.payment-primary {
+  border-radius: 14px !important;
+  font-weight: 600;
+  padding: 12px 18px !important;
+  text-transform: none !important;
+  box-shadow: 0 18px 40px rgba(23, 34, 59, 0.18);
+}
+
+.payment-primary.success {
+  background: linear-gradient(135deg, #2cc8c2, #25b0a9) !important;
+}
+
+.payment-secondary {
+  border-radius: 14px !important;
+  font-weight: 600;
+  padding: 10px 18px !important;
+  text-transform: none !important;
+}
+</style>

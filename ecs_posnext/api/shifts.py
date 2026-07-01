@@ -11,22 +11,25 @@ from ecs_posnext.api.utilities import get_wallet_payment_modes
 
 
 @frappe.whitelist()
-def get_opening_dialog_data():
+def get_opening_dialog_data(pos_profile=None):
 	"""Get data required for opening shift dialog"""
 	data = {}
 
-	# Get POS Profiles where current user is defined in POS Profile User table
-	pos_profiles_data = frappe.db.sql(
-		"""
-		SELECT DISTINCT p.name, p.company, p.currency, p.warehouse, p.selling_price_list
-		FROM `tabPOS Profile` p
-		INNER JOIN `tabPOS Profile User` u ON u.parent = p.name
-		WHERE p.disabled = 0 AND u.user = %s
-		ORDER BY p.name
-		""",
-		frappe.session.user,
-		as_dict=1,
-	)
+	if pos_profile:
+		pos_profiles_data = [frappe.db.get_value("POS Profile", pos_profile, ["name", "company", "currency", "warehouse", "selling_price_list"], as_dict=1)]
+	else:
+		# Get POS Profiles where current user is defined in POS Profile User table
+		pos_profiles_data = frappe.db.sql(
+			"""
+			SELECT DISTINCT p.name, p.company, p.currency, p.warehouse, p.selling_price_list
+			FROM `tabPOS Profile` p
+			INNER JOIN `tabPOS Profile User` u ON u.parent = p.name
+			WHERE p.disabled = 0 AND u.user = %s
+			ORDER BY p.name
+			""",
+			frappe.session.user,
+			as_dict=1,
+		)
 
 	data["pos_profiles_data"] = pos_profiles_data
 
@@ -85,6 +88,33 @@ def check_opening_shift(user=None):
 	)
 
 	if not open_shifts:
+		# Check for prepared shifts by supervisor (Draft)
+		prepared_shifts = frappe.db.get_all(
+			"POS Opening Shift",
+			filters={
+				"user": user,
+				"docstatus": 0,
+				"is_prepared_by_supervisor": 1,
+			},
+			fields=["name", "pos_profile", "period_start_date"],
+			order_by="period_start_date desc",
+		)
+		if prepared_shifts:
+			shift_data = prepared_shifts[0]
+			data = {}
+			data["pos_opening_shift"] = frappe.get_doc("POS Opening Shift", shift_data["name"])
+			data["pos_profile"] = frappe.get_doc("POS Profile", shift_data["pos_profile"])
+			data["company"] = frappe.get_doc("Company", data["pos_profile"].company)
+			data["server_now"] = str(get_datetime())
+			data["is_prepared"] = True
+
+			employee = frappe.db.get_value("Employee", {"user_id": user}, ["name", "employee_name"], as_dict=1)
+			if employee:
+				data["employee_code"] = employee.name
+				data["employee_name"] = employee.employee_name
+
+			return data
+
 		return None
 
 	# Get the latest open shift
@@ -97,6 +127,12 @@ def check_opening_shift(user=None):
 	# without timezone mismatch (period_start_date is in server timezone)
 	data["server_now"] = str(get_datetime())
 
+	# Get employee info
+	employee = frappe.db.get_value("Employee", {"user_id": user}, ["name", "employee_name"], as_dict=1)
+	if employee:
+		data["employee_code"] = employee.name
+		data["employee_name"] = employee.employee_name
+
 	return data
 
 
@@ -105,23 +141,34 @@ def create_opening_shift(pos_profile, company, balance_details):
 	"""Create a new POS Opening Shift"""
 	balance_details = json.loads(balance_details) if isinstance(balance_details, str) else balance_details
 
-	# Check if user already has an open shift
-	existing_shift = check_opening_shift(frappe.session.user)
-	if existing_shift:
-		frappe.throw(_("You already have an open shift: {0}").format(existing_shift["pos_opening_shift"].name))
+	# Check if user already has an open or prepared shift
+	existing_shift_data = check_opening_shift(frappe.session.user)
+	
+	if existing_shift_data and not existing_shift_data.get("is_prepared"):
+		frappe.throw(_("You already have an open shift: {0}").format(existing_shift_data["pos_opening_shift"].name))
 
-	new_pos_opening = frappe.get_doc(
-		{
-			"doctype": "POS Opening Shift",
-			"period_start_date": get_datetime(),
-			"posting_date": nowdate(),
-			"posting_time": nowtime(),
-			"user": frappe.session.user,
-			"pos_profile": pos_profile,
-			"company": company,
-			"status": "Open",
-		}
-	)
+	if existing_shift_data and existing_shift_data.get("is_prepared"):
+		new_pos_opening = frappe.get_doc("POS Opening Shift", existing_shift_data["pos_opening_shift"].name)
+		# Update profile and company if they changed
+		new_pos_opening.pos_profile = pos_profile
+		new_pos_opening.company = company
+		# Update period start date to now
+		new_pos_opening.period_start_date = get_datetime()
+		new_pos_opening.posting_date = nowdate()
+		new_pos_opening.posting_time = nowtime()
+	else:
+		new_pos_opening = frappe.get_doc(
+			{
+				"doctype": "POS Opening Shift",
+				"period_start_date": get_datetime(),
+				"posting_date": nowdate(),
+				"posting_time": nowtime(),
+				"user": frappe.session.user,
+				"pos_profile": pos_profile,
+				"company": company,
+				"status": "Open",
+			}
+		)
 
 	# Add balance details - map opening_amount to amount
 	formatted_balance_details = []
@@ -132,7 +179,12 @@ def create_opening_shift(pos_profile, company, balance_details):
 		})
 
 	new_pos_opening.set("balance_details", formatted_balance_details)
-	new_pos_opening.insert(ignore_permissions=True)
+	
+	if new_pos_opening.name:
+		new_pos_opening.save(ignore_permissions=True)
+	else:
+		new_pos_opening.insert(ignore_permissions=True)
+		
 	new_pos_opening.submit()
 
 	data = {}
@@ -182,3 +234,96 @@ def submit_closing_shift(closing_shift):
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Submit Closing Shift Error")
 		frappe.throw(_("Error submitting closing shift: {0}").format(str(e)))
+
+@frappe.whitelist()
+def prepare_opening_shift(user, pos_profile, cash_amount):
+	"""Prepare a new POS Opening Shift by Supervisor"""
+	# Check if user already has an open or prepared shift
+	existing_shift = check_opening_shift(user)
+	if existing_shift:
+		if existing_shift.get("is_prepared"):
+			frappe.throw(_("User already has a prepared shift: {0}").format(existing_shift["pos_opening_shift"].name))
+		else:
+			frappe.throw(_("User already has an open shift: {0}").format(existing_shift["pos_opening_shift"].name))
+
+	pos_profile_doc = frappe.get_doc("POS Profile", pos_profile)
+	
+	new_pos_opening = frappe.get_doc(
+		{
+			"doctype": "POS Opening Shift",
+			"period_start_date": get_datetime(),
+			"posting_date": nowdate(),
+			"posting_time": nowtime(),
+			"user": user,
+			"pos_profile": pos_profile,
+			"company": pos_profile_doc.company,
+			"is_prepared_by_supervisor": 1,
+			"status": "Draft",
+		}
+	)
+
+	# Find Cash payment method
+	cash_payment_method = None
+	for method in pos_profile_doc.payments:
+		mode_type = frappe.db.get_value("Mode of Payment", method.mode_of_payment, "type")
+		if mode_type == "Cash" or "Cash" in method.mode_of_payment:
+			cash_payment_method = method.mode_of_payment
+			break
+	
+	if not cash_payment_method and pos_profile_doc.payments:
+		cash_payment_method = pos_profile_doc.payments[0].mode_of_payment
+
+	if cash_payment_method:
+		new_pos_opening.append("balance_details", {
+			"mode_of_payment": cash_payment_method,
+			"amount": cash_amount
+		})
+
+	new_pos_opening.insert(ignore_permissions=True)
+
+	return new_pos_opening.name
+
+@frappe.whitelist()
+def auto_process_payment_with_temp_shift(invoice, pos_profile_name, payment_methods_json):
+	"""Automatically create a shift, process a payment, and close the shift."""
+	from ecs_posnext.api.shifts import create_opening_shift
+	from ecs_posnext.api.payment_entry import create_pos_payment_entry
+	from ecs_posnext.pos_next.doctype.pos_closing_shift.pos_closing_shift import make_closing_shift_from_opening, submit_closing_shift
+
+	pos_profile = frappe.get_doc("POS Profile", pos_profile_name)
+
+	# 1. Create Opening Shift
+	default_pay_method = pos_profile.payments[0].mode_of_payment if pos_profile.payments else "Cash"
+	balance_details = frappe.as_json([{"mode_of_payment": default_pay_method, "opening_amount": 0}])
+	shift_data = create_opening_shift(pos_profile.name, pos_profile.company, balance_details)
+	opening_shift_name = shift_data["pos_opening_shift"]["name"]
+
+	# 2. Process Payment
+	payload = {
+		"selected_invoice": invoice,
+		"pos_profile": pos_profile.as_dict(),
+		"pos_profile_name": pos_profile.name,
+		"pos_opening_shift_name": opening_shift_name,
+		"payment_methods": frappe.parse_json(payment_methods_json),
+		"submit": True
+	}
+	create_pos_payment_entry(frappe.as_json(payload))
+
+	# 3. Create and Submit Closing Shift
+	opening_shift_doc = frappe.get_doc("POS Opening Shift", opening_shift_name)
+	opening_shift_json = frappe.as_json(opening_shift_doc.as_dict())
+	
+	closing_dict = make_closing_shift_from_opening(opening_shift_json)
+	
+	# Auto-fill closing amounts to match expected amounts to avoid difference
+	for row in closing_dict.get("payment_reconciliation", []):
+		row["closing_amount"] = row.get("expected_amount", 0)
+		row["difference"] = 0
+
+	closing_dict["closing_amount"] = closing_dict.get("expected_amount", 0)
+	closing_dict["difference"] = 0
+	
+	closing_shift_json = frappe.as_json(closing_dict)
+	submit_closing_shift(closing_shift_json)
+
+	return "Success"

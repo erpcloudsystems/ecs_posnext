@@ -1,0 +1,257 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-06-08 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "shift",
+  "driver",
+  "user_id",
+  "column_break_top",
+  "status",
+  "assigned_time",
+  "delivered_time",
+  "section_order",
+  "order_doctype",
+  "order_reference",
+  "customer",
+  "column_break_order",
+  "delivery_address",
+  "contact_phone",
+  "section_payment",
+  "payment_mode",
+  "amount_to_collect",
+  "column_break_payment",
+  "amount_collected",
+  "section_proof",
+  "proof_image",
+  "signature",
+  "delivery_notes",
+  "driver_charge_amount",
+  "driver_charge_notes",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "no_copy": 1,
+   "options": "DA-.YYYY.-",
+   "print_hide": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "shift",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "POS Shift",
+   "options": "POS Opening Shift",
+   "reqd": 1
+  },
+  {
+   "fieldname": "driver",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Driver",
+   "options": "Driver",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_top",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Assigned",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Assigned\nPicked Up\nOut for Delivery\nDelivered\nReturned\nFailed"
+  },
+  {
+   "fieldname": "assigned_time",
+   "fieldtype": "Datetime",
+   "label": "Assigned Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "delivered_time",
+   "fieldtype": "Datetime",
+   "label": "Delivered/Closed Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_order",
+   "fieldtype": "Section Break",
+   "label": "Order Details"
+  },
+  {
+   "default": "Sales Invoice",
+   "fieldname": "order_doctype",
+   "fieldtype": "Select",
+   "label": "Order Doctype",
+   "options": "Sales Invoice\nDelivery Note\nSales Order",
+   "reqd": 1
+  },
+  {
+   "fieldname": "order_reference",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Order Reference",
+   "options": "order_doctype",
+   "reqd": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_order",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "delivery_address",
+   "fieldtype": "Small Text",
+   "label": "Delivery Address",
+   "read_only": 1
+  },
+  {
+   "fieldname": "contact_phone",
+   "fieldtype": "Data",
+   "label": "Contact Phone",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_payment",
+   "fieldtype": "Section Break",
+   "label": "Payment"
+  },
+  {
+   "default": "Cash (COD)",
+   "fieldname": "payment_mode",
+   "fieldtype": "Select",
+   "label": "Payment Mode",
+   "options": "Cash (COD)\nCard on Delivery\nPrepaid\nWallet"
+  },
+  {
+   "fieldname": "amount_to_collect",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount to Collect"
+  },
+  {
+   "fieldname": "column_break_payment",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amount_collected",
+   "fieldtype": "Currency",
+   "label": "Amount Collected"
+  },
+  {
+   "fieldname": "section_proof",
+   "fieldtype": "Section Break",
+   "label": "Proof of Delivery"
+  },
+  {
+   "fieldname": "proof_image",
+   "fieldtype": "Attach Image",
+   "label": "Proof Image"
+  },
+  {
+   "fieldname": "signature",
+   "fieldtype": "Signature",
+   "label": "Signature"
+  },
+  {
+   "fieldname": "delivery_notes",
+   "fieldtype": "Small Text",
+   "label": "Delivery Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "driver_charge_amount",
+   "fieldtype": "Currency",
+   "label": "Driver Charge Amount"
+  },
+  {
+   "fieldname": "driver_charge_notes",
+   "fieldtype": "Small Text",
+   "label": "Driver Charge Notes"
+  },
+  {
+   "fieldname": "user_id",
+   "fieldtype": "Link",
+   "label": "User ID",
+   "options": "User"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Delivery Assignment",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  }
+ ],
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-06-08 15:27:55.366808",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "Delivery Assignment",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Dispatcher",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Delivery Driver",
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Dispatch Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "order_reference",
+ "track_changes": 1
+}

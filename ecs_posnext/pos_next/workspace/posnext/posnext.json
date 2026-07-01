@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"cDBfxZcI12\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">POSNext</span>\",\"col\":12}},{\"id\":\"EuDVjJUKSQ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Start POS\",\"col\":3}},{\"id\":\"uXQ4aBaRfk\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"jEFYB2fX3t\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Settings\",\"col\":3}},{\"id\":\"RoWvjX8Ocp\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Profile\",\"col\":3}},{\"id\":\"p4KrSYzInK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Opening Shift\",\"col\":3}},{\"id\":\"VO-VLNdx_2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Closing Shift\",\"col\":3}},{\"id\":\"OYrA05uyCG\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Offer\",\"col\":3}},{\"id\":\"FUd4_fFBgH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Coupon\",\"col\":3}}]",
+ "content": "[{\"id\":\"cDBfxZcI12\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">POSNext</span>\",\"col\":12}},{\"id\":\"QZK44RksGI\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Super Opening\",\"col\":3}},{\"id\":\"p4KrSYzInK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Opening Shift\",\"col\":3}},{\"id\":\"EuDVjJUKSQ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Start POS\",\"col\":3}},{\"id\":\"VO-VLNdx_2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Closing Shift\",\"col\":3}},{\"id\":\"vGT3FkIZS6\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Shift Group Closing\",\"col\":3}},{\"id\":\"RoWvjX8Ocp\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Profile\",\"col\":3}},{\"id\":\"OYrA05uyCG\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Offer\",\"col\":3}},{\"id\":\"FUd4_fFBgH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Coupon\",\"col\":3}},{\"id\":\"y6UCXnEiZx\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item Manger\",\"col\":3}},{\"id\":\"uXQ4aBaRfk\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"293IFk0o6X\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"3fYYYsboAw\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b></b></span><span class=\\\"h1\\\">kitchen stations</span>\",\"col\":12}},{\"id\":\"3NpZYAB4tJ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"kds/station\",\"col\":3}},{\"id\":\"8n5T1-wTNK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Order\",\"col\":3}},{\"id\":\"j8SCRO62Lf\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Station\",\"col\":3}},{\"id\":\"eejgbg4BOC\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Settings\",\"col\":3}},{\"id\":\"Qq3D52KG6d\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Dispatcher \",\"col\":3}},{\"id\":\"YwDw11oI_0\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Screen assembly\",\"col\":3}},{\"id\":\"8Lnc62O4tv\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Sandwiches station\",\"col\":4}}]",
  "creation": "2026-01-28 16:48:36.007405",
  "custom_blocks": [],
  "docstatus": 0,
@@ -16,32 +16,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "POS",
-   "link_count": 1,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Configuration",
-   "link_count": 2,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS Settings",
-   "link_count": 0,
-   "link_to": "POS Settings",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "POS Profile",
    "link_count": 0,
    "link_to": "POS Profile",
@@ -52,80 +26,16 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Shift Management",
-   "link_count": 2,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS Opening Shift",
+   "label": "Item Manager",
    "link_count": 0,
-   "link_to": "POS Opening Shift",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS Closing Shift",
-   "link_count": 0,
-   "link_to": "POS Closing Shift",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Offers & Coupons",
-   "link_count": 2,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS Offer",
-   "link_count": 0,
-   "link_to": "POS Offer",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS Coupon",
-   "link_count": 0,
-   "link_to": "POS Coupon",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Items",
-   "link_count": 1,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Item",
-   "link_count": 0,
-   "link_to": "Item",
-   "link_type": "DocType",
+   "link_to": "item_manager",
+   "link_type": "Page",
    "onboard": 0,
    "type": "Link"
   }
  ],
- "modified": "2026-04-05 15:02:26.578321",
- "modified_by": "mario@erpcloud.systems",
+ "modified": "2026-06-09 15:34:56.289026",
+ "modified_by": "Administrator",
  "module": "POS Next",
  "name": "POSNext",
  "number_cards": [],
@@ -136,9 +46,18 @@
  "roles": [
   {
    "role": "Sales User"
+  },
+  {
+   "role": "Cashier"
+  },
+  {
+   "role": "Call center manager"
+  },
+  {
+   "role": "Call center supervisor"
   }
  ],
- "sequence_id": 28.0,
+ "sequence_id": 1.0,
  "shortcuts": [
   {
    "color": "Grey",
@@ -151,8 +70,74 @@
   {
    "color": "Grey",
    "doc_view": "List",
-   "label": "Pos Settings",
-   "link_to": "POS Settings",
+   "label": "Kds Order",
+   "link_to": "KDS Order",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Sandwiches station",
+   "type": "URL",
+   "url": "https://mumo15.erpnext.cloud/pos/kds/station/Sandwiches"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Pos Shift Group Closing",
+   "link_to": "POS Shift Group Closing",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Screen assembly",
+   "type": "URL",
+   "url": "https://mumo15.erpnext.cloud/pos/kds/assembly?branch"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Dispatcher ",
+   "type": "URL",
+   "url": "https://mumo15.erpnext.cloud/pos/dispatcher"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "kds/station",
+   "type": "URL",
+   "url": "https://mumo15.erpnext.cloud/pos/kds/stations"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Item Manger",
+   "type": "URL",
+   "url": "https://mumo15.erpnext.cloud/pos/product-editor?desk=1"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Pos Super Opening",
+   "link_to": "pos_super_opening",
+   "type": "Page"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Kds Station",
+   "link_to": "KDS Station",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Kds Settings",
+   "link_to": "KDS Settings",
    "stats_filter": "[]",
    "type": "DocType"
   },

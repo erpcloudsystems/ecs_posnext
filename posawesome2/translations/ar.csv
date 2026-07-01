@@ -1,0 +1,278 @@
+source_text,translated_text
+About,حول
+Action Required,يتطلب إجراء
+Add New Address,إضافة عنوان جديد
+Additional Discount,خصم إضافي
+Additional Discount %,نسبة الخصم الإضافي
+Additional Notes,ملاحظات إضافية
+Address,العنوان
+Address Line 1,سطر العنوان 1
+Address Line 2,سطر العنوان 2
+Address Name,اسم العنوان
+Address Not found,العنوان غير موجود
+Address Type,نوع العنوان
+Address not found,العنوان غير موجود
+All Tables Are Busy,جميع الطاولات مشغولة
+Amount,المبلغ
+Apartment No,رقم الشقة
+Are you sure your data is correct?,هل أنت متأكد من صحة بياناتك؟
+Available Credit,الرصيد المتاح
+Available QTY,الكمية المتاحة
+Back,رجوع
+Batch No,رقم الدفعة
+Batch No Expiry Date,تاريخ انتهاء صلاحية الدفعة
+Birthday,تاريخ الميلاد
+Blacklist,القائمة السوداء
+Branch,الفرع
+Branch not found,الفرع غير موجود
+Cancel,إلغاء
+Cancel Current Invoice ?,إلغاء الفاتورة الحالية؟
+Cancel Payment,إلغاء الدفع
+Cannot redeem customer credit more than invoice total,لا يمكن استرداد رصيد العميل أكثر من إجمالي الفاتورة
+Cash,نقداً
+Cash Denominations (EGP),فئات النقد (جنيه مصري)
+Cash Mode of Payment,طريقة دفع نقدي
+Cash Talabat,نقد طلبات
+Cash on delivery,الدفع عند الاستلام
+Change,فكة
+Charge Rate,معدل الرسوم
+Charges not found,الرسوم غير موجودة
+City,المدينة
+Close,إغلاق
+Close Shift,إغلاق الوردية
+Closing Amount,مبلغ الإغلاق
+Complaints,الشكاوى
+Complaint Details,تفاصيل الشكوى
+Confirm Closing,تأكيد الإغلاق
+Confirm Mobile Number,تأكيد رقم الهاتف
+Create,إنشاء
+Create Complaint ?,إنشاء شكوى؟
+Create Customer,إنشاء عميل
+Create POS Opening Shift,إنشاء وردية افتتاح نقطة البيع
+Credit Card,بطاقة ائتمان
+Credit Card on delivary,بطاقة ائتمان عند التسليم
+Credit Change,تغيير الرصيد
+Customer,العميل
+Customer Address created successfully.,تم إنشاء عنوان العميل بنجاح.
+Customer Details,تفاصيل العميل
+Customer Complaints,شكاوى العميل
+Customer Group,مجموعة العميل
+Customer Name,اسم العميل
+Customer creation failed.,فشل إنشاء العميل.
+Customer created successfully.,تم إنشاء العميل بنجاح.
+Customer group is required.,مجموعة العميل مطلوبة.
+Customer name is required.,اسم العميل مطلوب.
+Customer not found,العميل غير موجود
+Customer updated successfully.,تم تحديث العميل بنجاح.
+Date,التاريخ
+Delivery Charges,رسوم التوصيل
+Delivery Charges Rate,معدل رسوم التوصيل
+Delivery Date,تاريخ التسليم
+Details,التفاصيل
+Difference,الفرق
+Discount Amount,مبلغ الخصم
+Driver,السائق
+Driver not found,السائق غير موجود
+Due Date,تاريخ الاستحقاق
+EGP,جنيه
+Edit,تعديل
+Email,البريد الإلكتروني
+Enter Authorization Password,أدخل كلمة مرور التفويض
+Error in change calculations!,خطأ في حساب الفكة!
+Expected Amount,المبلغ المتوقع
+Failed to open shift,فشل فتح الوردية
+Fav Branch,الفرع المفضل
+Fav Item,المنتج المفضل
+Floor,الطابق
+Gender,الجنس
+Grand Total,الإجمالي الكلي
+Group not found,المجموعة غير موجودة
+ID,الرقم التعريفي
+Input too long!,الإدخال طويل جداً!
+Invoice {0} is submitted,تم تقديم الفاتورة {0}
+Is Cashback,استرداد نقدي
+Is Credit Sale,بيع بالآجل
+Keep customer records sharp while staying on the sale.,حافظ على سجلات العملاء دقيقة أثناء البيع.
+Last Visit: {0},آخر زيارة: {0}
+Loyalty Amount can not be more then {0},لا يمكن أن يتجاوز مبلغ نقاط الولاء {0}
+Loyalty Points,نقاط الولاء
+Loyalty amount cannot be more than {0},لا يمكن أن يتجاوز مبلغ نقاط الولاء {0}
+Logout,تسجيل الخروج
+Mark,علامة مميزة
+Menu,القائمة
+Mobile No,رقم الهاتف
+Mobile No Must be 11 digits.,يجب أن يكون رقم الهاتف 11 رقماً.
+Mobile No is required.,رقم الهاتف مطلوب.
+Mobile Number,رقم الهاتف
+Mode of Payment,طريقة الدفع
+NLine,سطر جديد
+Name,الاسم
+Net Total,الإجمالي الصافي
+No,لا
+No details provided,لا توجد تفاصيل
+Not provided,غير متوفر
+OK,موافق
+Opening Amount,مبلغ الافتتاح
+Order Type,نوع الطلب
+Other Mobile No,رقم هاتف آخر
+Outside the configured shift window for this POS Profile.,خارج نافذة الوردية المحددة لملف نقطة البيع هذا.
+POS Shift Closed,تم إغلاق وردية نقطة البيع
+Paid Amount,المبلغ المدفوع
+Paid Change,الفكة المدفوعة
+Paid change can not be greater than total change!,لا يمكن أن تتجاوز الفكة المدفوعة إجمالي الفكة!
+Password,كلمة المرور
+Payment Request took too long to respond. Please try requesting for payment again,استغرق طلب الدفع وقتاً طويلاً. يرجى إعادة المحاولة
+Payment of {0} received successfully.,تم استلام دفعة بمبلغ {0} بنجاح.
+Payment request failed,فشل طلب الدفع
+Payments not correct,المدفوعات غير صحيحة
+Please Select Customer first,يرجى اختيار العميل أولاً
+Please Select Payment Type,يرجى اختيار نوع الدفع
+Please enter Third Party Reference Number,يرجى إدخال رقم مرجع الطرف الثالث
+Please enter the amount paid,يرجى إدخال المبلغ المدفوع
+Please pay less than or equal to the due amount,يرجى الدفع بمبلغ أقل من أو يساوي المبلغ المستحق
+Please request phone payment or use other payment method,يرجى طلب الدفع عبر الهاتف أو استخدام طريقة دفع أخرى
+Please select address type,يرجى اختيار نوع العنوان
+Please set customer mobile number,يرجى تحديد رقم هاتف العميل
+POS Profile,ملف نقطة البيع
+Posting Date,تاريخ الترحيل
+Previous Orders,الطلبات السابقة
+Priority customer,عميل مميز
+Purchase Order,أمر الشراء
+Purchase Order Date,تاريخ أمر الشراء
+QTY,الكمية
+Quantity,الكمية
+Rate,السعر
+Receipt Number,رقم الإيصال
+Receipt Number is required,رقم الإيصال مطلوب
+Redeem Credit,استرداد الرصيد
+Redeemed Customer Credit,رصيد العميل المسترد
+Redeemed credit cannot be greater than its total.,لا يمكن أن يتجاوز الرصيد المسترد إجماليه.
+Referance Number,رقم المرجع
+Referral Code,رمز الإحالة
+Request,طلب
+Restrict access if needed,تقييد الوصول عند الحاجة
+Sales Person,مندوب المبيعات
+Sales Person not found,مندوب المبيعات غير موجود
+Search Items,البحث عن المنتجات
+Search by item code\, serial number\, batch no or barcode,البحث برمز المنتج أو الرقم التسلسلي أو الدفعة أو الباركود
+Shift ended. Please close the shift; selling is blocked until then.,انتهت الوردية. يرجى إغلاق الوردية؛ البيع محظور حتى ذلك الحين.
+Shift Closing,إغلاق الوردية
+State,المحافظة
+Status,الحالة
+Submit,إرسال
+Submit & Print,إرسال وطباعة
+Table No,رقم الطاولة
+TAX ID,الرقم الضريبي
+Tailor this order without changing your flow.,خصص هذا الطلب دون تغيير سير العمل.
+Tax and Charges,الضرائب والرسوم
+Territory,المنطقة
+Territory not found,المنطقة غير موجودة
+The amount paid is not complete,المبلغ المدفوع غير مكتمل
+This Customer is VIP,هذا العميل عميل مميز
+This Customer is in Black List,هذا العميل في القائمة السوداء
+To Be Paid,المبلغ المتبقي
+Total,الإجمالي
+Total Amount,إجمالي المبلغ
+Total Qty,إجمالي الكمية
+Qty, الكمية
+Item,المنتج
+Notes,ملاحظات
+Type,النوع
+Type of Payment,نوع الدفع
+Unique Number,الرقم المميز
+Update Customer,تحديث العميل
+Use Customer Credit,استخدام رصيد العميل
+VIP,عميل مميز
+View Complaints,عرض الشكاوى
+Waiting for payment...,في انتظار الدفع...
+Write Off Difference Amount,شطب مبلغ الفرق
+Yes\, Submit,نعم\, إرسال
+You can redeem credit upto,يمكنك استرداد الرصيد حتى
+You can redeem customer credit up to {0},يمكنك استرداد رصيد العميل حتى {0}
+You can redeem upto,يمكنك الاسترداد حتى
+Your closing is over by {0}.,مبلغ الإغلاق لديك أعلى بـ {0}.
+Your closing is short by {0}.,مبلغ الإغلاق لديك أقل بـ {0}.
+1 EGP Coins,عملات معدنية 1 جنيه
+5 EGP Notes,أوراق نقدية 5 جنيه
+10 EGP Notes,أوراق نقدية 10 جنيه
+20 EGP Notes,أوراق نقدية 20 جنيه
+50 EGP Notes,أوراق نقدية 50 جنيه
+100 EGP Notes,أوراق نقدية 100 جنيه
+200 EGP Notes,أوراق نقدية 200 جنيه
+Cash closing amount ({0}) must match denominations total ({1}),مبلغ إغلاق النقد ({0}) يجب أن يتطابق مع مجموع الفئات ({1})
+Thank you! Your closing is correct.,شكراً! بيانات الإغلاق صحيحة.
+Customize your order,خصص طلبك
+Customize,خصص
+add notes for meal,اضافة ملاحظات للوجبة
+add to order,اضافة إلى الطلب
+CALL CENTER, خدمه العملاء
+Save/New,حفظ/جديد 
+Coupons, كوبونات
+Advanced Payment, دفع متقدم
+Create Complaint, إنشاء شكوى
+Items Selected, المنتجات المختارة
+Held, مرفوض
+POS, نقطة بيع
+Review bundle components before confirming the order.,راجع مكونات الباقة قبل تأكيد الطلب 
+Filter by Date, تصفية حسب التاريخ
+Assign Driver, تعيين سائق
+Actions, عمليات
+Total, إجمالي
+Status, الحالة
+Driver Phone,رقم السائق
+Talabat Number,رقم طلبات
+Order Type,نوع الطلب
+Transaction Date,تاريخ المعاملة 
+Branch,الفرع
+Mobile No,رقم الهاتف
+Customer,العميل
+Order,الطلب
+Confirm Password,تأكيد كلمة المرور
+Enter Your Password,أدخل كلمة المرور
+Confirm,تأكيد
+Password is incorrect. Please try again.,كلمة المرور غير صحيحة. يرجى المحاولة مرة أخرى.
+Sales Order and linked invoices cancelled successfully.,تم إلغاء أمر البيع والفواتير المرتبطة بنجاح.
+Error cancelling order.,خطأ في إلغاء الطلب.
+Failed to update status.,فشل تحديث الحالة.
+No linked Sales Invoice found for this order.,لم يتم العثور على فاتورة مبيعات مرتبطة بهذا الطلب.
+Add To Kitchen,إضافة إلى المطبخ
+Order No.,رقم الطلب
+Talabat No.,رقم طلبات
+Table Number,رقم الطاولة
+Payment Outstanding,مدفوعات معلقة
+Enter Bank Payment Code,أدخل رمز الدفع البنكي
+Bank Payment Code is required,رمز الدفع البنكي مطلوب
+Order #,رقم الطلب
+Phone,الهاتف
+Payment Entry,قيد الدفع
+Invoice,الفاتورة
+Reason for rejection,سبب الرفض
+Reject Payment,رفض الدفع
+Confirm Reject,تأكيد الرفض
+Search Driver,البحث عن سائق
+Spicy,حار
+Regular,عادي
+Select Driver,اختر سائق
+Give Item,المنتج الهدية
+Search by Name,البحث بالاسم
+Search by Mobile,البحث برقم الهاتف
+Done,تم
+Select,اختيار
+Search,بحث
+Add,إضافة
+From Date,من تاريخ
+To Date,إلى تاريخ
+Stock QTY,كمية المخزون
+Stock UOM,وحدة قياس المخزون
+Serial No QTY,كمية الرقم التسلسلي
+Serial No,الرقم التسلسلي
+Batch No. Available QTY,الكمية المتاحة للدفعة
+Items Discounts,خصومات المنتجات
+Price list Rate,سعر قائمة الأسعار
+Offer Applied,تم تطبيق العرض
+Group,المجموعة
+Tax ID,الرقم الضريبي
+Full Name,الاسم الكامل
+Invoice ID,رقم الفاتورة
+Order ID,رقم الطلب
+Coupon,كوبون

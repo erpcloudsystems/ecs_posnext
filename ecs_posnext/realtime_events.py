@@ -185,6 +185,47 @@ def emit_pos_profile_updated_event(doc, method=None):
 		)
 
 
+def emit_order_changed_event(doc, method=None):
+	"""
+	Emit realtime event when a Sales Invoice is created, updated, submitted or cancelled.
+	Used by AllOrders page to auto-refresh and by sidebar pending count badge.
+	"""
+	if not doc.is_pos:
+		return
+
+	try:
+		action = "update"
+		if method == "after_insert":
+			action = "create"
+		elif method == "on_submit":
+			action = "submit"
+		elif method == "on_cancel":
+			action = "cancel"
+
+		event_data = {
+			"invoice_name": doc.name,
+			"action": action,
+			"docstatus": doc.docstatus,
+			"pos_profile": doc.pos_profile,
+			"branch": getattr(doc, "branch", None),
+			"custom_order_type": getattr(doc, "custom_order_type", None),
+			"timestamp": frappe.utils.now(),
+		}
+
+		frappe.publish_realtime(
+			event="pos_order_changed",
+			message=event_data,
+			user=None,
+			after_commit=True,
+		)
+
+	except Exception as e:
+		frappe.log_error(
+			title=_("Real-time Order Changed Event Error"),
+			message=f"Failed to emit order changed event for {doc.name}: {str(e)}",
+		)
+
+
 def emit_customer_event(doc, method=None):
 	"""
 	Emit real-time customer update event.

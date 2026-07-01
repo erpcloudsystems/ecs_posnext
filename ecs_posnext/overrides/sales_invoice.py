@@ -8,7 +8,7 @@ Handles wallet payments that require party information for Receivable accounts.
 """
 
 import frappe
-from frappe.utils import cint, flt
+from frappe.utils import cint, flt, cstr
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
 from erpnext.accounts.utils import get_account_currency
 
@@ -52,7 +52,42 @@ class CustomSalesInvoice(SalesInvoice):
 	party information in the GL entry. This override adds party_type and party
 	for wallet payment methods marked with is_wallet_payment.
 	"""
-
+	def update_packing_list(self):
+		pass
+	
+	def get_item_list(self):
+		il = []
+		# for d in self.get("items"):
+			# if d.qty is None:
+				# frappe.throw(_("Row {0}: Qty is mandatory").format(d.idx))
+			# frappe.throw(f"{il}")
+		for p in self.get("packed_items"):
+			if check_item_maintains_stock(p.item_code):
+				# if p.parent_detail_docname == d.name and p.parent_item == d.item_code:
+					# the packing details table's qty is already multiplied with parent's qty
+					
+				il.append(
+					frappe._dict(
+						{
+							"warehouse": p.warehouse or  self.get("items")[0].warehouse,
+							"item_code": p.item_code,
+							"qty": flt(p.qty),
+							"uom": p.uom,
+							"batch_no": cstr(p.batch_no).strip(),
+							"serial_no": cstr(p.serial_no).strip(),
+							"name": p.name,
+							"target_warehouse": p.target_warehouse,
+							"company": self.company,
+							"voucher_type": self.doctype,
+							"allow_zero_valuation": 1,
+							# "sales_invoice_item": d.get("sales_invoice_item"),
+							# "dn_detail": d.get("dn_detail"),
+							"incoming_rate": p.get("incoming_rate"),
+							"item_row": p,
+						}
+					)
+				)
+		return il
 	def make_pos_gl_entries(self, gl_entries):
 		"""
 		Override to add party information for wallet payment accounts.
@@ -146,3 +181,8 @@ class CustomSalesInvoice(SalesInvoice):
 			party_type, party = "Customer", self.customer
 
 		return party_type, party
+
+
+def check_item_maintains_stock(item_code):
+	maintain_stock = frappe.get_cached_doc("Item", item_code).is_stock_item
+	return bool(maintain_stock)

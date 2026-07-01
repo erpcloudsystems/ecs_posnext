@@ -60,6 +60,9 @@ def process_loyalty_to_wallet(doc, method=None):
 		return
 
 	# Get the loyalty points earned from this invoice
+	if not doc.name or doc.name in ["None", "null"]:
+		return
+
 	loyalty_entry = frappe.db.get_value(
 		"Loyalty Point Entry",
 		{

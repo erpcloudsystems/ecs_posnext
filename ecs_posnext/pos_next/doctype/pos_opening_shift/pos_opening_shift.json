@@ -18,6 +18,7 @@
   "pos_closing_shift",
   "column_break_7",
   "user",
+  "is_prepared_by_supervisor",
   "opening_balance_details_section",
   "balance_details",
   "section_break_9",
@@ -98,6 +99,13 @@
   {
    "fieldname": "opening_balance_details_section",
    "fieldtype": "Section Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_prepared_by_supervisor",
+   "fieldtype": "Check",
+   "label": "Is Prepared by Supervisor",
+   "read_only": 1
   },
   {
    "fieldname": "balance_details",

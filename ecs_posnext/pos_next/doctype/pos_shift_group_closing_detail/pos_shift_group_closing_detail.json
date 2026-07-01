@@ -1,0 +1,95 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2025-12-24 12:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "pos_closing_shift",
+  "cashier",
+  "pos_profile",
+  "period_start_date",
+  "period_end_date",
+  "grand_total",
+  "net_total",
+  "total_quantity",
+  "expected_amount",
+  "closing_amount",
+  "difference"
+ ],
+ "fields": [
+  {
+   "fieldname": "pos_closing_shift",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "POS Closing Shift",
+   "options": "POS Closing Shift",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cashier",
+   "fieldtype": "Link",
+   "label": "Cashier",
+   "options": "User",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "label": "POS Profile",
+   "options": "POS Profile",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "period_start_date",
+   "fieldtype": "Datetime",
+   "label": "Period Start"
+  },
+  {
+   "fieldname": "period_end_date",
+   "fieldtype": "Datetime",
+   "label": "Period End"
+  },
+  {
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "net_total",
+   "fieldtype": "Currency",
+   "label": "Net Total"
+  },
+  {
+   "fieldname": "total_quantity",
+   "fieldtype": "Float",
+   "label": "Total Qty"
+  },
+  {
+   "fieldname": "expected_amount",
+   "fieldtype": "Currency",
+   "label": "Expected Amount",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "closing_amount",
+   "fieldtype": "Currency",
+   "label": "Closing Amount"
+  },
+  {
+   "fieldname": "difference",
+   "fieldtype": "Currency",
+   "label": "Difference"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "module": "POS Next",
+ "name": "POS Shift Group Closing Detail",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

@@ -6,6 +6,7 @@ import { usePOSSettingsStore } from "@/stores/posSettings"
 import { CoalescingMutex } from "@/utils/mutex"
 import { logger } from "@/utils/logger"
 import { roundCurrency } from "@/utils/currency"
+import { usePOSCartStore } from "@/stores/posCart"
 
 const log = logger.create("Invoice")
 
@@ -20,9 +21,12 @@ export function useInvoice() {
 	// Serial Number Store for returning serials when items are removed
 	const serialStore = useSerialNumberStore()
 	const settingsStore = usePOSSettingsStore()
+	const cartStore = usePOSCartStore()
 
 	// Reactive computed from settings store - always in sync
-	const allowAdditionalDiscount = computed(() => settingsStore.allowAdditionalDiscount)
+	const allowAdditionalDiscount = computed(
+		() => settingsStore.allowAdditionalDiscount,
+	)
 
 	// State
 	const invoiceItems = ref([])
@@ -32,12 +36,17 @@ export function useInvoice() {
 	const posProfile = ref(null)
 	const posOpeningShift = ref(null) // POS Opening Shift name
 	const additionalDiscount = ref(0)
+	const customReceiptNumber = ref("")
+	const customUniqueTalbatNumber = ref("")
+	const customThirdPartyReferanceNumber = ref("")
+	const customPaymentType = ref("")
 	const couponCode = ref(null)
 	const taxRules = ref([]) // Tax rules from POS Profile
 	const taxInclusive = ref(false) // Tax inclusive setting from POS Settings
 
 	// Submission state - prevents duplicate submissions
 	const isSubmitting = ref(false)
+	const deliveryCharge = ref(null)
 
 	// Performance: Incrementally maintained aggregates (updated on add/remove/change)
 	// This avoids O(n) array reductions on every reactive change
@@ -133,7 +142,10 @@ export function useInvoice() {
 					price_list_rate: itemDetails.price_list_rate,
 				}
 			} catch (err) {
-				log.warn("Server UOM pricing unavailable, resolving from IndexedDB", err)
+				log.warn(
+					"Server UOM pricing unavailable, resolving from IndexedDB",
+					err,
+				)
 			}
 		}
 
@@ -192,18 +204,28 @@ export function useInvoice() {
 	// Total of custom_not_included items (excluded from subtotal when allowAdditionalDiscount is on)
 	const notIncludedTotal = computed(() => {
 		if (!allowAdditionalDiscount.value) {
-			console.log('[DEBUG notIncludedTotal] allowAdditionalDiscount is FALSE, returning 0')
+			console.log(
+				"[DEBUG notIncludedTotal] allowAdditionalDiscount is FALSE, returning 0",
+			)
 			return 0
 		}
 		let total = 0
 		for (const item of invoiceItems.value) {
-			console.log('[DEBUG notIncludedTotal] item:', item.item_code, 'custom_not_included:', item.custom_not_included, typeof item.custom_not_included)
+			console.log(
+				"[DEBUG notIncludedTotal] item:",
+				item.item_code,
+				"custom_not_included:",
+				item.custom_not_included,
+				typeof item.custom_not_included,
+			)
 			if (!item.custom_not_included) continue
 			const isManuallyEdited = item.is_rate_manually_edited === 1
-			const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const effectiveRate = isManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			total += roundCurrency(item.quantity * roundCurrency(effectiveRate))
 		}
-		console.log('[DEBUG notIncludedTotal] result:', total)
+		console.log("[DEBUG notIncludedTotal] result:", total)
 		return roundCurrency(total)
 	})
 	const subtotal = computed(() => {
@@ -219,7 +241,9 @@ export function useInvoice() {
 		for (const item of invoiceItems.value) {
 			if (item.custom_not_included) continue
 			const isManuallyEdited = item.is_rate_manually_edited === 1
-			const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const effectiveRate = isManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			total += roundCurrency(item.quantity * roundCurrency(effectiveRate))
 		}
 		return roundCurrency(total)
@@ -231,16 +255,23 @@ export function useInvoice() {
 	const grandTotal = computed(() => {
 		const discount =
 			_cachedTotalDiscount.value + (additionalDiscount.value || 0)
+		const deliveryAmt = deliveryCharge.value?.rate || 0
 
 		if (allowAdditionalDiscount.value) {
 			// When allowAdditionalDiscount is on: discount applies only to eligible subtotal,
 			// then add back custom_not_included items after discount
 			const eligibleBase = _cachedSubtotal.value - notIncludedTotal.value
 			if (taxInclusive.value) {
-				return roundCurrency(eligibleBase - discount + notIncludedTotal.value)
+				return roundCurrency(
+					eligibleBase - discount + notIncludedTotal.value + deliveryAmt,
+				)
 			} else {
 				return roundCurrency(
-					eligibleBase + _cachedTotalTax.value - discount + notIncludedTotal.value,
+					eligibleBase +
+						_cachedTotalTax.value -
+						discount +
+						notIncludedTotal.value +
+						deliveryAmt,
 				)
 			}
 		}
@@ -248,12 +279,12 @@ export function useInvoice() {
 		if (taxInclusive.value) {
 			// Tax inclusive: Subtotal already includes tax, so don't add it again
 			// Use roundCurrency to match ERPNext's currency precision (from System Settings)
-			return roundCurrency(_cachedSubtotal.value - discount)
+			return roundCurrency(_cachedSubtotal.value - discount + deliveryAmt)
 		} else {
 			// Tax exclusive: Add tax on top of subtotal
 			// Use roundCurrency to match ERPNext's currency precision (from System Settings)
 			return roundCurrency(
-				_cachedSubtotal.value + _cachedTotalTax.value - discount,
+				_cachedSubtotal.value + _cachedTotalTax.value - discount + deliveryAmt,
 			)
 		}
 	})
@@ -273,7 +304,13 @@ export function useInvoice() {
 	function addItem(item, quantity = 1) {
 		const itemUom = item.uom || item.stock_uom
 		const existingItem = invoiceItems.value.find(
-			(i) => i.item_code === item.item_code && i.uom === itemUom,
+			(i) =>
+				i.item_code === item.item_code &&
+				i.uom === itemUom &&
+				!i.posa_row_id &&
+				!item.posa_row_id &&
+				!i.components &&
+				!item.components,
 		)
 
 		if (existingItem) {
@@ -344,8 +381,27 @@ export function useInvoice() {
 				custom_allow_rate_edit: item.custom_allow_rate_edit || 0,
 				// Exclude from additional discount
 				custom_not_included: item.custom_not_included || 0,
+				is_bundle: item.is_bundle || item.enabled_item_bundle || 0,
+				posa_row_id:
+					item.posa_row_id ||
+					`row-${Date.now()}-${Math.random().toString(36).substr(2, 7)}`,
+				components: item.components || null,
+				ingredients: item.ingredients || null,
+				removed_ingredients: item.removed_ingredients || [],
+				removed_ingredient_names: item.removed_ingredient_names || [],
+				selected_addons: item.selected_addons || [],
+				notes: item.notes || "",
 			}
-			console.log('[DEBUG addItem]', item.item_code, 'source custom_not_included:', item.custom_not_included, '→ cart custom_not_included:', newItem.custom_not_included, '| allowAdditionalDiscount:', allowAdditionalDiscount.value)
+			console.log(
+				"[DEBUG addItem]",
+				item.item_code,
+				"source custom_not_included:",
+				item.custom_not_included,
+				"→ cart custom_not_included:",
+				newItem.custom_not_included,
+				"| allowAdditionalDiscount:",
+				allowAdditionalDiscount.value,
+			)
 			invoiceItems.value.push(newItem)
 			// Recalculate the newly added item to apply taxes
 			recalculateItem(newItem)
@@ -382,7 +438,9 @@ export function useInvoice() {
 			// Update cache incrementally (subtract removed item values)
 			// Use effective rate (manually edited rate or price_list_rate)
 			const isManuallyEdited = itemToRemove.is_rate_manually_edited === 1
-			const effectiveRate = isManuallyEdited ? itemToRemove.rate : (itemToRemove.price_list_rate || itemToRemove.rate)
+			const effectiveRate = isManuallyEdited
+				? itemToRemove.rate
+				: itemToRemove.price_list_rate || itemToRemove.rate
 			_cachedSubtotal.value -= roundCurrency(
 				itemToRemove.quantity * roundCurrency(effectiveRate),
 			)
@@ -428,7 +486,9 @@ export function useInvoice() {
 			// Store old values before update for incremental cache adjustment
 			// Use effective rate (manually edited rate or price_list_rate)
 			const isManuallyEdited = item.is_rate_manually_edited === 1
-			const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const effectiveRate = isManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			const oldAmount = roundCurrency(
 				item.quantity * roundCurrency(effectiveRate),
 			)
@@ -474,7 +534,9 @@ export function useInvoice() {
 			// Store old values before update for incremental cache adjustment
 			// Use effective rate (manually edited rate or price_list_rate)
 			const wasManuallyEdited = item.is_rate_manually_edited === 1
-			const oldEffectiveRate = wasManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const oldEffectiveRate = wasManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			const oldAmount = roundCurrency(
 				item.quantity * roundCurrency(oldEffectiveRate),
 			)
@@ -500,9 +562,12 @@ export function useInvoice() {
 			// Update cache incrementally (new values - old values)
 			// Use the new rate for manually edited items
 			const isNowManuallyEdited = item.is_rate_manually_edited === 1
-			const newEffectiveRate = isNowManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const newEffectiveRate = isNowManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			_cachedSubtotal.value +=
-				roundCurrency(item.quantity * roundCurrency(newEffectiveRate)) - oldAmount
+				roundCurrency(item.quantity * roundCurrency(newEffectiveRate)) -
+				oldAmount
 			_cachedTotalTax.value += (item.tax_amount || 0) - oldTax
 			_cachedTotalDiscount.value += (item.discount_amount || 0) - oldDiscount
 		}
@@ -519,7 +584,9 @@ export function useInvoice() {
 			// Store old values before update for incremental cache adjustment
 			// Use effective rate (manually edited rate or price_list_rate)
 			const isManuallyEdited = item.is_rate_manually_edited === 1
-			const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const effectiveRate = isManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			const oldAmount = roundCurrency(
 				item.quantity * roundCurrency(effectiveRate),
 			)
@@ -666,7 +733,9 @@ export function useInvoice() {
 		for (const item of invoiceItems.value) {
 			// Use manually edited rate if set, otherwise use price_list_rate
 			const isManuallyEdited = item.is_rate_manually_edited === 1
-			const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const effectiveRate = isManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			_cachedSubtotal.value += roundCurrency(
 				item.quantity * roundCurrency(effectiveRate),
 			)
@@ -709,7 +778,9 @@ export function useInvoice() {
 		// Determine the base unit price
 		// If rate was manually edited, use the edited rate; otherwise use price_list_rate
 		const isManuallyEdited = item.is_rate_manually_edited === 1
-		const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+		const effectiveRate = isManuallyEdited
+			? item.rate
+			: item.price_list_rate || item.rate
 		const roundedRate = roundCurrency(effectiveRate)
 		const baseAmount = roundCurrency(item.quantity * roundedRate)
 
@@ -807,7 +878,81 @@ export function useInvoice() {
 			// Manual rate edit tracking for audit logging
 			is_rate_manually_edited: item.is_rate_manually_edited || 0,
 			original_rate: item.original_rate || null,
+			is_bundle: item.is_bundle || item.enabled_item_bundle || 0,
+			posa_row_id:
+				item.posa_row_id ||
+				`row-fmt-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+			posa_notes: item.notes || null,
+			removed_ingredients: item.removed_ingredients
+				? JSON.stringify(item.removed_ingredients)
+				: null,
+			custom_selected_components: item.components
+				? JSON.stringify(item.components)
+				: null,
 		}))
+	}
+
+	function getPackedItemsForSubmission(items) {
+		const packedItems = []
+		items.forEach((item) => {
+			// Combine components (selections) and ingredients (standard bundle items)
+			const components = []
+			if (item.components && Array.isArray(item.components)) {
+				components.push(...item.components)
+			}
+			if (item.ingredients && Array.isArray(item.ingredients)) {
+				// Add ingredients that aren't already represented in components
+				item.ingredients.forEach((ing) => {
+					if (!components.some((c) => c.item_code === ing.item_code)) {
+						components.push(ing)
+					}
+				})
+			}
+
+			const rowId =
+				item.posa_row_id ||
+				`row-gen-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+
+			if (components.length > 0) {
+				// Filter out components that have been marked as removed ingredients
+				const removed = item.removed_ingredients || []
+				const activeComponents = components.filter(
+					(comp) => !removed.includes(comp.item_code),
+				)
+
+				activeComponents.forEach((comp) => {
+					const compQty = comp.quantity || comp.qty || 1
+					// If the component itself has ingredients (nested bundle), add those ingredients
+					if (comp.ingredients && comp.ingredients.length > 0) {
+						comp.ingredients.forEach((ing) => {
+							packedItems.push({
+								parent_item: item.item_code,
+								item_code: ing.item_code,
+								qty: (ing.qty || ing.quantity || 1) * compQty,
+								posa_row_id: rowId,
+								warehouse: ing.warehouse || comp.warehouse || item.warehouse,
+								uom: ing.uom || ing.stock_uom,
+								conversion_factor: 1.0,
+								rate: 0,
+							})
+						})
+					} else {
+						// Regular component
+						packedItems.push({
+							parent_item: item.item_code,
+							item_code: comp.item_code,
+							qty: compQty, // Quantity per bundle unit
+							posa_row_id: rowId,
+							warehouse: comp.warehouse || item.warehouse,
+							uom: comp.uom || comp.stock_uom,
+							conversion_factor: 1.0,
+							rate: 0,
+						})
+					}
+				})
+			}
+		})
+		return packedItems
 	}
 
 	function addPayment(payment) {
@@ -871,7 +1016,10 @@ export function useInvoice() {
 		}
 	}
 
-	async function saveDraft(targetDoctype = "Sales Invoice") {
+	async function saveDraft(
+		targetDoctype = "Sales Invoice",
+		customOrderType = null,
+	) {
 		/**
 		 * Save invoice as draft (Step 1)
 		 * This creates the invoice with docstatus=0
@@ -885,7 +1033,11 @@ export function useInvoice() {
 			pos_profile: posProfile.value,
 			posa_pos_opening_shift: posOpeningShift.value,
 			customer: customer.value?.name || customer.value,
+			custom_order_type: customOrderType,
+			custom_table_number: cartStore.selectedTable || null,
+			custom_number_of_guests: cartStore.numberOfGuests || null,
 			items: formatItemsForSubmission(rawItems),
+			packed_items: getPackedItemsForSubmission(rawItems),
 			payments: rawPayments.map((p) => ({
 				mode_of_payment: p.mode_of_payment,
 				amount: p.amount,
@@ -911,6 +1063,8 @@ export function useInvoice() {
 		targetDoctype = "Sales Invoice",
 		deliveryDate = null,
 		writeOffAmount = 0,
+		customOrderType = null,
+		forceSubmit = false,
 	) {
 		/**
 		 * Two-step submission process with mutex protection:
@@ -938,7 +1092,8 @@ export function useInvoice() {
 			isSubmitting.value = true
 
 			try {
-				// Step 1: Create invoice draft
+				// Single-step submission: send invoice data directly to submit_invoice
+				// The backend handles draft creation + submission in one round trip
 				// Use toRaw() to ensure we get current, non-reactive values (prevents stale cached quantities)
 				const rawItems = toRaw(invoiceItems.value)
 				const rawPayments = toRaw(payments.value)
@@ -946,19 +1101,39 @@ export function useInvoice() {
 
 				const invoiceData = {
 					doctype: targetDoctype,
+					name: cartStore.resumedInvoiceName || undefined,
 					pos_profile: posProfile.value,
 					posa_pos_opening_shift: posOpeningShift.value,
 					customer: customer.value?.name || customer.value,
+					...(cartStore.customerAddress
+						? { customer_address: cartStore.customerAddress }
+						: {}),
 					items: formatItemsForSubmission(rawItems),
+					packed_items: getPackedItemsForSubmission(rawItems),
 					payments: rawPayments.map((p) => ({
 						mode_of_payment: p.mode_of_payment,
 						amount: p.amount,
 						type: p.type,
 					})),
+					custom_receipt_number: customReceiptNumber.value,
+					custom_unique_talbat_number: customUniqueTalbatNumber.value,
+					custom_third_party_referance_number:
+						customThirdPartyReferanceNumber.value,
 					discount_amount: additionalDiscount.value || 0,
 					coupon_code: couponCode.value,
 					is_pos: 1,
 					update_stock: 1, // Critical: Ensures stock is updated
+					custom_order_type: customOrderType || "Pickup",
+					custom_payment_type: customPaymentType.value,
+					posa_delivery_charges: deliveryCharge.value?.name,
+					posa_delivery_charges_rate: deliveryCharge.value?.rate,
+					territory: deliveryCharge.value?.territory,
+					branch: cartStore.selectedBranch || null,
+					custom_table_number: cartStore.selectedTable || null,
+					custom_number_of_guests: cartStore.numberOfGuests || null,
+					...(cartStore.parentOrderNumber
+						? { parent_order_number: cartStore.parentOrderNumber }
+						: {}),
 				}
 
 				if (targetDoctype === "Sales Order" && deliveryDate) {
@@ -973,34 +1148,16 @@ export function useInvoice() {
 					}))
 				}
 
-				const draftInvoice = await updateInvoiceResource.submit({
-					data: invoiceData,
-				})
-
-				let invoiceDoc = draftInvoice
-				if (
-					draftInvoice &&
-					typeof draftInvoice === "object" &&
-					"data" in draftInvoice
-				) {
-					invoiceDoc = draftInvoice.data
-				}
-
-				if (!invoiceDoc || !invoiceDoc.name) {
-					throw new Error(
-						"Failed to create draft invoice - no invoice name returned",
-					)
-				}
-
 				const submitData = {
 					change_amount:
 						remainingAmount.value < 0 ? Math.abs(remainingAmount.value) : 0,
 					write_off_amount: writeOffAmount || 0,
+					force_submit: forceSubmit ? 1 : 0,
 				}
 
 				try {
 					const result = await submitInvoiceResource.submit({
-						invoice: invoiceDoc,
+						invoice: invoiceData,
 						data: submitData,
 					})
 
@@ -1115,6 +1272,10 @@ export function useInvoice() {
 		invoiceItems.value = []
 		payments.value = []
 		additionalDiscount.value = 0
+		customReceiptNumber.value = ""
+		customUniqueTalbatNumber.value = ""
+		customThirdPartyReferanceNumber.value = ""
+		customPaymentType.value = ""
 		couponCode.value = null
 
 		// Reset incremental cache
@@ -1143,6 +1304,7 @@ export function useInvoice() {
 		payments.value = []
 		additionalDiscount.value = 0
 		couponCode.value = null
+		customPaymentType.value = ""
 
 		// Reset incremental cache
 		_cachedSubtotal.value = 0
@@ -1154,16 +1316,23 @@ export function useInvoice() {
 		setDefaultCustomer()
 
 		// Cleanup old draft invoices (older than 1 hour) in background
-		// Skip if offline to avoid network errors
+		// Throttled: runs at most once every 5 minutes to avoid unnecessary server load
 		if (!isOffline()) {
-			try {
-				await cleanupDraftsResource.submit({
-					pos_profile: posProfile.value,
-					max_age_hours: 1,
-				})
-			} catch (error) {
-				// Silent fail - don't block cart clearing
-				console.warn("Failed to cleanup old drafts:", error)
+			const now = Date.now()
+			const CLEANUP_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
+			if (
+				!clearCart._lastCleanup ||
+				now - clearCart._lastCleanup > CLEANUP_COOLDOWN_MS
+			) {
+				clearCart._lastCleanup = now
+				cleanupDraftsResource
+					.submit({
+						pos_profile: posProfile.value,
+						max_age_hours: 1,
+					})
+					.catch((error) => {
+						console.warn("Failed to cleanup old drafts:", error)
+					})
 			}
 		}
 	}
@@ -1217,10 +1386,15 @@ export function useInvoice() {
 		posProfile,
 		posOpeningShift,
 		additionalDiscount,
+		customReceiptNumber,
+		customUniqueTalbatNumber,
+		customThirdPartyReferanceNumber,
+		customPaymentType,
 		couponCode,
 		taxRules,
 		taxInclusive,
 		isSubmitting,
+		deliveryCharge,
 
 		// Computed
 		subtotal,
@@ -1249,6 +1423,18 @@ export function useInvoice() {
 		saveDraft,
 		submitInvoice,
 		resetInvoice,
+		setCustomReceiptNumber: (val) => {
+			customReceiptNumber.value = val
+		},
+		setCustomUniqueTalbatNumber: (val) => {
+			customUniqueTalbatNumber.value = val
+		},
+		setCustomThirdPartyReferanceNumber: (val) => {
+			customThirdPartyReferanceNumber.value = val
+		},
+		setCustomPaymentType: (val) => {
+			customPaymentType.value = val
+		},
 		clearCart,
 		setDefaultCustomer,
 		loadTaxRules,

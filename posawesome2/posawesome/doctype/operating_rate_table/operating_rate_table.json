@@ -1,0 +1,46 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-02-17 11:01:30.562734",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "day",
+  "date",
+  "percent"
+ ],
+ "fields": [
+  {
+   "fieldname": "day",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Day",
+   "options": "\n\u0627\u0644\u0633\u0628\u062a\n\u0627\u0644\u0627\u062d\u062f\n\u0627\u0644\u0627\u062b\u0646\u064a\u0646\n\u0627\u0644\u062b\u0644\u0627\u062b\u0627\u0621\n\u0627\u0644\u0627\u0631\u0628\u0639\u0627\u0621\n\u0627\u0644\u062e\u0645\u064a\u0633\n\u0627\u0644\u062c\u0645\u0639\u0629"
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date"
+  },
+  {
+   "fieldname": "percent",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Percent"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-02-17 11:01:30.562734",
+ "modified_by": "Administrator",
+ "module": "POSAwesome",
+ "name": "Operating Rate Table",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

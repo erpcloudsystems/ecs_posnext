@@ -1,15 +1,37 @@
 <template>
 	<Dialog v-model="show" :options="{ title: isSalesOrder ? __('Complete Sales Order') : __('Complete Payment'), size: dynamicDialogSize }">
 		<template #body-content>
-			<!-- Two Column Layout - auto-sized on mobile, constrained on desktop -->
-			<div
-				:class="[
-					'grid grid-cols-1 lg:grid-cols-5 items-stretch',
-					dynamicGap,
-					isMobileView ? '' : 'overflow-hidden'
-				]"
-				:style="isMobileView ? {} : { maxHeight: dialogContentMaxHeight }"
-			>
+			<div class="relative w-full h-full min-h-0 flex flex-col">
+				<!-- Submission Progress Bar -->
+				<div v-if="isSubmitting || submissionProgress > 0" class="absolute top-0 left-0 w-full h-1.5 bg-gray-100 z-[100] overflow-hidden">
+					<div 
+						class="h-full bg-blue-600 transition-all duration-300 ease-out shadow-[0_0_8px_rgba(37,99,235,0.5)]" 
+						:style="{ width: `${submissionProgress}%` }"
+					></div>
+				</div>
+
+				<!-- Submission Overlay -->
+				<div v-if="isSubmitting" class="absolute inset-0 bg-white/40 backdrop-blur-[1px] z-[90] flex items-center justify-center transition-all duration-300">
+					<div class="bg-white/90 p-4 rounded-2xl shadow-xl border border-gray-100 flex flex-col items-center gap-3 scale-110">
+						<div class="relative w-12 h-12">
+							<svg class="animate-spin w-full h-full text-blue-600" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+						</div>
+						<span class="text-sm font-black text-gray-700 uppercase tracking-widest">{{ __('Processing...') }}</span>
+					</div>
+				</div>
+
+				<!-- Two Column Layout - auto-sized on mobile, constrained on desktop -->
+				<div
+					:class="[
+						'grid grid-cols-1 lg:grid-cols-5 items-stretch relative',
+						dynamicGap,
+						isMobileView ? '' : 'overflow-hidden'
+					]"
+					:style="isMobileView ? {} : { maxHeight: dialogContentMaxHeight }"
+				>
 				<!-- Left Column (2/5): Invoice Summary -->
 				<div
 					:class="[
@@ -19,6 +41,210 @@
 					]"
 					:style="{ maxHeight: isMobileView ? 'none' : dynamicLeftColumnHeight }"
 				>
+					<!-- Order Type Selection -->
+					<div v-if="customer" class="bg-white border border-gray-200 rounded-lg p-2.5 flex flex-col gap-2 flex-shrink-0">
+						<div class="flex items-center bg-gray-100 rounded-xl p-1 gap-1">
+							<!-- === Non-Call Center: Pickup / Dine In === -->
+							<template v-if="!isCallCenterInvoice">
+								<!-- Pickup -->
+								<button
+									type="button"
+									@click="cartStore.setOrderType('Pickup')"
+									class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all duration-200 touch-manipulation"
+									:class="cartStore.orderType === 'Pickup'
+										? 'bg-white text-blue-600 shadow-sm border border-gray-200/10'
+										: 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+									</svg>
+									<span>{{ __("Pickup") }}</span>
+								</button>
+								<!-- Dine In -->
+								<button
+									type="button"
+									@click="handleDineInClick"
+									class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all duration-200 touch-manipulation"
+									:class="cartStore.orderType === 'Dine In'
+										? 'bg-white text-purple-600 shadow-sm border border-gray-200/10'
+										: 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+									</svg>
+									<span>{{ __("Dine In") }}</span>
+								</button>
+							</template>
+							<!-- === Call Center: Pickup / Delivery / Talabat === -->
+							<template v-else>
+								<!-- Pickup -->
+								<button
+									v-if="cartStore.resumedInvoiceName ? cartStore.orderType === 'Pickup' : (currentPriceList !== 'Talabat')"
+									type="button"
+									:disabled="!!cartStore.resumedInvoiceName"
+									@click="cartStore.setOrderType('Pickup')"
+									class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all duration-200 touch-manipulation disabled:opacity-85 disabled:cursor-not-allowed"
+									:class="cartStore.orderType === 'Pickup'
+										? 'bg-white text-blue-600 shadow-sm border border-gray-200/10'
+										: 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+									</svg>
+									<span>{{ __("Pickup") }}</span>
+								</button>
+								<!-- Delivery -->
+								<button
+									v-if="cartStore.resumedInvoiceName ? cartStore.orderType === 'Delivery' : (currentPriceList !== 'Talabat')"
+									type="button"
+									:disabled="!!cartStore.resumedInvoiceName"
+									@click="handleDeliveryClick"
+									class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all duration-200 touch-manipulation disabled:opacity-85 disabled:cursor-not-allowed"
+									:class="cartStore.orderType === 'Delivery'
+										? 'bg-white text-green-600 shadow-sm border border-gray-200/10'
+										: 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
+									</svg>
+									<span>{{ __("Delivery") }}</span>
+								</button>
+								<!-- Talabat -->
+								<button
+									v-if="cartStore.resumedInvoiceName ? cartStore.orderType === 'Talabat' : (currentPriceList === 'Talabat')"
+									type="button"
+									:disabled="!!cartStore.resumedInvoiceName"
+									@click="cartStore.setOrderType('Talabat')"
+									class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all duration-200 touch-manipulation disabled:opacity-85 disabled:cursor-not-allowed"
+									:class="cartStore.orderType === 'Talabat'
+										? 'bg-white text-orange-600 shadow-sm border border-gray-200/10'
+										: 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+									</svg>
+									<span>{{ __("Talabat") }}</span>
+								</button>
+							</template>
+						</div>
+ 
+						<!-- Delivery Address Summary / Trigger -->
+						<div v-if="cartStore.orderType === 'Delivery' && customer" class="mt-1">
+							<div
+								v-if="cartStore.customerAddress"
+								@click="!cartStore.resumedInvoiceName && (showAddressSelector = true)"
+								class="p-2.5 rounded-xl border border-blue-100 bg-blue-50/50 hover:bg-blue-50 transition-colors group"
+								:class="cartStore.resumedInvoiceName ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'"
+							>
+								<div class="flex items-center gap-2">
+									<div class="w-8 h-8 rounded bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0">
+										<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+										</svg>
+									</div>
+									<div class="flex-1 min-w-0">
+										<p class="text-[9px] font-bold text-blue-700 uppercase tracking-tighter mb-0.5">{{ __("Delivery to") }}</p>
+										<p class="text-[10px] font-semibold text-gray-900 truncate">{{ cartStore.customerAddress }}</p>
+									</div>
+								</div>
+							</div>
+							<button
+								v-else
+								type="button"
+								@click="showAddressSelector = true"
+								:disabled="!!cartStore.resumedInvoiceName"
+								class="w-full flex items-center justify-center gap-1.5 p-2 rounded-xl border border-dashed border-gray-300 bg-gray-50 text-gray-600 hover:bg-gray-100 hover:border-gray-400 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+							>
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+								</svg>
+								<span class="text-xs font-bold">{{ __("Select Delivery Address") }}</span>
+							</button>
+						</div>
+ 
+						<!-- Branch Selector (for Call Center) -->
+						<div v-if="isCallCenterInvoice" class="mt-1">
+							<div class="flex items-center gap-1 mb-1">
+								<svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+								</svg>
+								<span class="text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+									{{ __("Target Branch") }}
+									<span class="text-red-500 font-bold ml-0.5">*</span>
+								</span>
+							</div>
+							<select
+								:value="cartStore.selectedBranch"
+								@change="handleBranchChange"
+								:disabled="!!cartStore.resumedInvoiceName"
+								class="w-full text-xs border-gray-200 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500 py-1 transition-colors disabled:opacity-80 disabled:cursor-not-allowed"
+								:class="!cartStore.selectedBranch ? 'border-red-200 ring-1 ring-red-50' : ''"
+							>
+								<option :value="null">{{ __("Select Branch...") }}</option>
+								<option v-for="b in branches" :key="b.name" :value="b.name">
+									{{ b.name }}
+								</option>
+							</select>
+						</div>
+ 
+						<!-- Territory Selector -->
+						<div v-if="cartStore.orderType === 'Delivery'" class="mt-1">
+							<div class="flex items-center gap-1 mb-1">
+								<svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+								</svg>
+								<span class="text-[10px] font-semibold text-gray-700 uppercase tracking-wider">{{ __("Delivery Zone / Territory") }}</span>
+							</div>
+							<select
+								v-model="selectedTerritory"
+								@change="handleTerritoryChange"
+								:disabled="!!cartStore.resumedInvoiceName"
+								class="w-full text-xs border-gray-200 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500 py-1 disabled:opacity-80 disabled:cursor-not-allowed"
+							>
+								<option :value="null">{{ __("Select Territory...") }}</option>
+								<option v-for="t in territories" :key="t.name" :value="t.name">
+									{{ t.name }}
+								</option>
+							</select>
+						</div>
+						
+						<!-- Table Selector -->
+						<div v-if="cartStore.orderType === 'Dine In'" class="mt-1">
+							<div class="flex items-center gap-1 mb-1">
+								<svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+								</svg>
+								<span class="text-[10px] font-semibold text-gray-700 uppercase tracking-wider">
+									{{ __("Table Number") }}
+									<span class="text-red-500 font-bold ml-0.5">*</span>
+								</span>
+							</div>
+							<button
+								type="button"
+								@click="showTableDialog = true"
+								:disabled="!!cartStore.resumedInvoiceName"
+								class="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border"
+								:class="cartStore.selectedTable 
+									? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
+									: 'bg-white border-red-300 text-gray-600 hover:bg-gray-50 ring-1 ring-red-50'"
+							>
+								<span class="truncate">{{ cartStore.selectedTable || __("Select Table...") }}</span>
+								<svg class="w-4 h-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+								</svg>
+							</button>
+						</div>
+					</div>
+ 
+					<AddressSelector
+						v-if="customer"
+						v-model="showAddressSelector"
+						:customer="customer.name || customer"
+						:selected-address="cartStore.customerAddress"
+						@select="handleAddressSelect"
+					/>
 					<!-- Delivery Date for Sales Orders -->
 					<div v-if="isSalesOrder" class="bg-orange-50 border border-orange-200 rounded-lg p-2">
 						<div class="flex items-center gap-2">
@@ -80,6 +306,44 @@
 								<div class="flex items-start justify-between gap-2">
 									<div class="flex-1 min-w-0 text-start">
 										<div class="font-medium text-sm text-gray-900 truncate">{{ item.item_name || item.item_code }}</div>
+
+										<!-- Exclusions and Notes -->
+										<div v-if="item.removed_ingredient_names?.length > 0 || item.notes" class="mt-0.5 space-y-0.5">
+											<div v-if="item.removed_ingredient_names?.length > 0" class="flex items-start gap-1">
+												<span class="text-[9px] font-bold text-red-600 uppercase flex-shrink-0">{{ __("No:") }}</span>
+												<span class="text-[9px] text-gray-500 leading-tight">{{ item.removed_ingredient_names.join(", ") }}</span>
+											</div>
+											<div v-if="item.notes" class="flex items-start gap-1">
+												<span class="text-[9px] font-bold text-blue-600 uppercase flex-shrink-0">{{ __("Note:") }}</span>
+												<span class="text-[9px] text-gray-500 leading-tight italic">"{{ item.notes }}"</span>
+											</div>
+											<!-- Main Item Addons -->
+											<div v-if="item.selected_addons?.length > 0" class="mt-0.5 space-y-0.5">
+												<div v-for="addon in item.selected_addons" :key="addon.item_code" class="flex items-start gap-1">
+													<span class="text-[9px] font-bold text-green-600 uppercase flex-shrink-0">{{ __("Add:") }}</span>
+													<span class="text-[9px] text-gray-500 leading-tight">{{ addon.item_name }}</span>
+												</div>
+											</div>
+										</div>
+
+										<!-- Combo Components -->
+										<div v-if="item.components?.length > 0" class="mt-1 space-y-0.5 pl-2 border-l-2 border-gray-100">
+											<div v-for="comp in item.components" :key="comp.item_code" class="text-[10px]">
+												<div class="flex items-center gap-1">
+													<span class="font-bold text-gray-700">{{ comp.quantity }}x</span>
+													<span class="text-gray-600">{{ comp.item_name }}</span>
+												</div>
+												<!-- Component customizations -->
+												<div v-if="comp.removed_ingredient_names?.length > 0" class="flex items-start gap-1 ml-2">
+													<span class="text-[8px] font-bold text-red-400 uppercase flex-shrink-0">{{ __("No:") }}</span>
+													<span class="text-[8px] text-gray-400 leading-tight">{{ comp.removed_ingredient_names.join(", ") }}</span>
+												</div>
+												<div v-if="comp.selected_addons?.length > 0" class="flex items-start gap-1 ml-2">
+													<span class="text-[8px] font-bold text-green-500 uppercase flex-shrink-0">{{ __("Add:") }}</span>
+													<span class="text-[8px] text-gray-400 leading-tight">{{ comp.selected_addons.map(a => a.item_name).join(", ") }}</span>
+												</div>
+											</div>
+										</div>
 										<div class="text-xs text-gray-500 mt-0.5">
 											{{ formatCurrency(item.rate || item.price_list_rate) }} × {{ item.qty || item.quantity }}
 										</div>
@@ -97,7 +361,7 @@
 						<!-- Amounts Breakdown -->
 						<div class="border-t border-gray-200 bg-gray-50 px-3 py-2 space-y-1">
 							<!-- Additional Discount Row -->
-							<div v-if="settingsStore.allowAdditionalDiscount" class="pb-1.5 mb-1 border-b border-dashed border-orange-200">
+							<div v-if="settingsStore.allowAdditionalDiscount || localAdditionalDiscount > 0" class="pb-1.5 mb-1 border-b border-dashed border-orange-200">
 								<!-- Label with calculated amount -->
 								<div class="flex items-center justify-between gap-2 mb-1.5">
 									<div class="flex items-center gap-1.5 min-w-0">
@@ -114,9 +378,10 @@
 								<select
 									v-model.number="localAdditionalDiscount"
 									@change="handleAdditionalDiscountChange"
-									class="w-full h-9 px-3 text-sm font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer"
+									:disabled="!!cartStore.resumedInvoiceName"
+									class="w-full h-9 px-3 text-sm font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer disabled:bg-gray-50 disabled:text-orange-600/70 disabled:cursor-not-allowed"
 								>
-									<option v-for="pct in [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]" :key="pct" :value="pct">{{ pct }}%</option>
+									<option v-for="pct in getDiscountOptions(localAdditionalDiscount)" :key="pct" :value="pct">{{ pct }}%</option>
 								</select>
 							</div>
 							<!-- Subtotal -->
@@ -133,6 +398,16 @@
 							<div v-if="discountAmount > 0" class="flex items-center justify-between text-sm">
 								<span class="text-gray-600 text-start">{{ __('Discount') }}</span>
 								<span class="font-medium text-red-600 text-end">-{{ formatCurrency(discountAmount) }}</span>
+							</div>
+							<!-- Delivery Fee -->
+							<div v-if="cartStore.orderType === 'Delivery' && cartStore.deliveryCharge?.rate > 0" class="flex items-center justify-between text-sm">
+								<span class="text-gray-600 text-start flex items-center gap-1">
+									<svg class="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
+									</svg>
+									{{ __('Delivery Fee') }}
+								</span>
+								<span class="font-medium text-green-600 text-end">+{{ formatCurrency(cartStore.deliveryCharge.rate) }}</span>
 							</div>
 							<!-- Grand Total -->
 							<div class="flex items-center justify-between pt-2 mt-1 border-t border-gray-300">
@@ -468,8 +743,13 @@
 								@pointercancel="onPaymentMethodCancel"
 								:disabled="isWalletPaymentMethod(method.mode_of_payment) && availableWalletBalance <= 0 && getMethodTotal(method.mode_of_payment) === 0"
 								:class="[
-									'inline-flex items-center rounded-lg border-2 transition-all font-medium select-none touch-none',
-									isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
+									'rounded-lg border-2 transition-all font-medium select-none touch-none',
+									isCashPaymentMethod(method)
+										? 'flex flex-col items-center justify-center w-[200px] h-[200px] text-center'
+										: [
+											'inline-flex items-center',
+											isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
+										],
 									lastSelectedMethod?.mode_of_payment === method.mode_of_payment
 										? isWalletPaymentMethod(method.mode_of_payment)
 											? 'border-amber-500 bg-amber-50 text-amber-700'
@@ -481,8 +761,8 @@
 											: 'border-gray-200 bg-white hover:border-blue-400 hover:bg-blue-50 text-gray-700'
 								]"
 							>
-								<span :class="isSmallMobile ? 'text-xs' : 'text-sm lg:text-lg'">{{ isWalletPaymentMethod(method.mode_of_payment) ? '🎁' : getPaymentIcon(method.type) }}</span>
-								<span class="truncate max-w-[80px] lg:max-w-none">{{ __(method.mode_of_payment) }}</span>
+								<span :class="isCashPaymentMethod(method) ? 'text-4xl mb-2' : (isSmallMobile ? 'text-xs' : 'text-sm lg:text-lg')">{{ isWalletPaymentMethod(method.mode_of_payment) ? '🎁' : getPaymentIcon(method.type) }}</span>
+								<span :class="isCashPaymentMethod(method) ? 'text-base font-bold' : 'truncate max-w-[80px] lg:max-w-none'">{{ __(method.mode_of_payment) }}</span>
 								<!-- Wallet Balance Badge -->
 								<span v-if="isWalletPaymentMethod(method.mode_of_payment) && walletInfo.wallet_enabled"
 									:class="['font-bold rounded', isSmallMobile ? 'text-[8px] px-1 py-0.5' : 'text-[10px] px-1.5 py-0.5', availableWalletBalance > 0 ? 'text-amber-700 bg-amber-100' : 'text-gray-500 bg-gray-200']">
@@ -490,7 +770,7 @@
 								</span>
 								<!-- Payment Amount Badge -->
 								<span v-if="getMethodTotal(method.mode_of_payment) > 0"
-									:class="['font-bold rounded', isSmallMobile ? 'text-[8px] px-0.5 py-0.5' : 'text-xs px-1 py-0.5', isWalletPaymentMethod(method.mode_of_payment) ? 'text-amber-600 bg-amber-200' : 'text-blue-600 bg-blue-100']">
+									:class="['font-bold rounded', isCashPaymentMethod(method) ? 'text-sm px-2 py-1 mt-2' : (isSmallMobile ? 'text-[8px] px-0.5 py-0.5' : 'text-xs px-1 py-0.5'), isWalletPaymentMethod(method.mode_of_payment) ? 'text-amber-600 bg-amber-200' : 'text-blue-600 bg-blue-100']">
 									{{ formatCurrency(getMethodTotal(method.mode_of_payment)) }}
 								</span>
 							</button>
@@ -535,6 +815,155 @@
 						</div>
 					</div>
 
+				<!-- Added Payment Entries List -->
+				<div v-if="paymentEntries.length > 0" class="mt-3 space-y-1">
+					<div class="flex items-center justify-between">
+						<span :class="['font-semibold text-gray-700', isSmallMobile ? 'text-xs' : 'text-sm']">{{ __('Payment Entries') }}</span>
+						<button
+							v-if="paymentEntries.length > 1"
+							@click="clearAll"
+							class="text-xs text-red-500 hover:text-red-700 font-medium"
+						>
+							{{ __('Clear All') }}
+						</button>
+					</div>
+					<div class="rounded-lg border border-gray-200 bg-gray-50 divide-y divide-gray-200">
+						<div v-for="(entry, idx) in paymentEntries" :key="idx"
+							class="flex items-center justify-between px-3"
+							:class="isSmallMobile ? 'py-1.5' : 'py-2'"
+						>
+							<div class="flex items-center gap-2 min-w-0">
+								<span :class="['flex-shrink-0', isSmallMobile ? 'text-xs' : 'text-sm']">
+									{{ getPaymentIcon(entry.type) }}
+								</span>
+								<span :class="['truncate font-medium text-gray-700', isSmallMobile ? 'text-xs' : 'text-sm']">
+									{{ __(entry.mode_of_payment) }}
+								</span>
+							</div>
+							<div class="flex items-center gap-2 flex-shrink-0">
+								<span :class="['font-semibold text-gray-900', isSmallMobile ? 'text-xs' : 'text-sm']">
+									{{ formatCurrency(entry.amount) }}
+								</span>
+								<button
+									@click="removePaymentEntry(idx)"
+									class="p-0.5 rounded hover:bg-red-100 text-gray-400 hover:text-red-500 transition-colors"
+									:title="__('Remove')"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+									</svg>
+								</button>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<!-- Extra Fields Section (Receipt/Talabat) -->
+				<div v-if="needsReceipt || isTalabat" class="mt-3 p-3 bg-white rounded-lg border border-gray-200 space-y-3">
+					<!-- Receipt Number -->
+					<div v-if="needsReceipt" class="space-y-1">
+						<label class="text-xs font-semibold text-gray-600 flex items-center gap-1">
+							{{ __('Receipt Number') }} <span class="text-red-500">*</span>
+						</label>
+						<input
+							v-model="receiptNumber"
+							type="text"
+							:placeholder="__('Enter Receipt Number')"
+							:disabled="!!cartStore.resumedInvoiceName"
+							class="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-500 disabled:cursor-not-allowed"
+						/>
+					</div>
+
+					<!-- Talabat Fields -->
+					<template v-if="isTalabat">
+						<div class="space-y-1">
+							<label class="text-xs font-semibold text-gray-600 uppercase tracking-wider">{{ __('Unique Number') }}</label>
+							<input
+								v-model="uniqueNumber"
+								type="text"
+								:placeholder="__('Enter Unique Number')"
+								:disabled="!!cartStore.resumedInvoiceName"
+								class="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-500 disabled:cursor-not-allowed"
+							/>
+						</div>
+						<div class="space-y-1">
+							<label class="text-xs font-semibold text-gray-600 uppercase tracking-wider flex items-center gap-1">
+								{{ __('Reference Number') }} <span v-if="isTalabat" class="text-red-500">*</span>
+							</label>
+							<input
+								v-model="referenceNumber"
+								type="text"
+								:placeholder="__('Enter Reference Number')"
+								:disabled="!!cartStore.resumedInvoiceName"
+								class="w-full h-9 px-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-500 disabled:cursor-not-allowed"
+							/>
+						</div>
+					</template>
+				</div>
+
+				<!-- Desktop Payment Input Section (hidden on mobile) -->
+				<div class="hidden lg:block mt-3">
+					<!-- Custom Amount Row -->
+					<div v-if="lastSelectedMethod && remainingAmount > 0" class="space-y-2">
+							<div class="flex gap-2">
+								<div class="relative flex-1">
+									<span class="absolute start-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">{{ currencySymbol }}</span>
+									<input
+										v-model="desktopCustomAmount"
+										type="number"
+										inputmode="decimal"
+										:placeholder="isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod) ? __('Exact amount only') : __('Enter amount')"
+										min="0"
+										step="0.01"
+										:disabled="isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod)"
+										@keyup.enter="addDesktopCustomPayment"
+										class="w-full h-11 ps-8 pe-3 text-sm font-semibold border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white border-gray-200"
+									/>
+								</div>
+								<button
+									@click="addDesktopCustomPayment"
+									:disabled="(isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod)) || !desktopCustomAmount || desktopCustomAmount <= 0"
+									class="h-11 px-4 text-sm font-semibold rounded-lg transition-all bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
+								>
+									{{ __('Add') }}
+								</button>
+								<button
+									@click="payFullRemaining"
+									class="h-11 px-4 text-sm font-semibold rounded-lg transition-all bg-green-500 text-white hover:bg-green-600"
+								>
+									{{ formatCurrency(remainingAmount) }}
+								</button>
+							</div>
+							<p class="text-xs text-gray-500">
+								{{ __('Selected') }}: <span class="font-medium text-blue-600">{{ __(lastSelectedMethod.mode_of_payment) }}</span>
+								· {{ __('Long press a method to pay full remaining') }}
+							</p>
+						</div>
+						<!-- No method selected prompt -->
+						<div v-else-if="!lastSelectedMethod && remainingAmount > 0" class="bg-blue-50 rounded-lg p-3 text-center">
+							<p class="text-sm text-blue-600">{{ __('Select a payment method above') }}</p>
+						</div>
+					</div>
+
+					<!-- Expected Payment Type for Call Center Partial/Zero Payments -->
+					<div v-if="isCallCenterInvoice && remainingAmount > 0" :class="isSmallMobile ? 'mt-1 mb-1' : 'mt-2 mb-2'">
+						<label :class="['block font-semibold text-gray-600 mb-1', isSmallMobile ? 'text-[10px]' : 'text-xs']">{{ __('Expected Payment Type') }} <span class="text-red-500">*</span></label>
+						<select
+							v-model="customPaymentType"
+							:disabled="!!cartStore.resumedInvoiceName"
+							:class="[
+								'w-full border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white border-gray-200 disabled:bg-gray-50 disabled:text-gray-500 disabled:cursor-not-allowed',
+								isSmallMobile ? 'text-xs p-1.5 h-7' : 'text-sm p-2 h-9'
+							]"
+						>
+							<option :value="null" disabled>{{ __('Select Payment Type') }}</option>
+							<option value="Cash on delivery">{{ __('Cash on delivery') }}</option>
+							<option value="Credit Card">{{ __('Credit Card') }}</option>
+							<option value="Cash Talabat">{{ __('Cash Talabat') }}</option>
+							<option value="Credit Card on delivary">{{ __('Credit Card on delivary') }}</option>
+							<option value="Cash">{{ __('Cash') }}</option>
+						</select>
+					</div>
 
 					<!-- Mobile Payment Section - Dynamic & Responsive -->
 					<div class="lg:hidden flex flex-col" :class="isSmallMobile ? 'gap-1' : 'gap-1.5'">
@@ -589,48 +1018,9 @@
 
 						<!-- Mobile Action Buttons - Always visible at bottom -->
 						<div :class="['flex-shrink-0', isSmallMobile ? 'space-y-1' : 'space-y-1.5']">
-							<!-- Two buttons side by side when both needed -->
-							<div v-if="lastSelectedMethod && remainingAmount > 0 && allowCreditSale && paymentEntries.length === 0"
-								class="grid grid-cols-2" :class="isSmallMobile ? 'gap-1' : 'gap-1.5'">
-								<!-- Pay Full Amount Button -->
-								<button
-									@click="addCustomPayment(lastSelectedMethod, remainingAmount)"
-									:class="[
-										'font-bold rounded-lg bg-green-500 text-white active:bg-green-600 flex items-center justify-center',
-										mobileButtonSize.height, mobileButtonSize.text, mobileButtonSize.gap
-									]"
-								>
-									<svg :class="mobileButtonSize.icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/>
-									</svg>
-									<span class="truncate">{{ formatCurrency(remainingAmount) }}</span>
-								</button>
-								<!-- Pay on Account Button -->
-								<button
-									@click="addCreditAccountPayment"
-									:disabled="isSubmitting"
-									:class="[
-										'font-semibold rounded-lg flex items-center justify-center',
-										isSubmitting
-											? 'bg-orange-300 text-white cursor-not-allowed'
-											: 'bg-orange-500 text-white active:bg-orange-600',
-										mobileButtonSize.height, mobileButtonSize.text, mobileButtonSize.gap
-									]"
-								>
-									<svg v-if="isSubmitting" :class="mobileButtonSize.icon" class="animate-spin" fill="none" viewBox="0 0 24 24">
-										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-									</svg>
-									<svg v-else :class="mobileButtonSize.icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-									</svg>
-									<span class="truncate">{{ isSubmitting ? __('Processing...') : __('On Account') }}</span>
-								</button>
-							</div>
-
-							<!-- Single Pay button (when no credit sale option) -->
+							<!-- Pay Full / Pay Remaining button -->
 							<button
-								v-else-if="lastSelectedMethod && remainingAmount > 0"
+								v-if="lastSelectedMethod && remainingAmount > 0"
 								@click="addCustomPayment(lastSelectedMethod, remainingAmount)"
 								:disabled="isSubmitting"
 								:class="[
@@ -647,14 +1037,14 @@
 								<span>{{ __('Pay') }} {{ formatCurrency(remainingAmount) }}</span>
 							</button>
 
-							<!-- Complete Payment Button -->
+							<!-- Complete Payment Button (visible when any payment has been added OR method selected) -->
 							<button
-								v-if="(remainingAmount === 0 || (applyWriteOff && canWriteOff)) && totalPaid > 0"
+								v-if="totalPaid > 0 || (lastSelectedMethod && remainingAmount > 0) || roundCurrency(props.grandTotal) <= 0"
 								@click="completePayment"
 								:disabled="isSubmitting || !canComplete"
 								:class="[
 									'w-full font-bold rounded-lg flex items-center justify-center',
-									isSubmitting
+									isSubmitting || !canComplete
 										? 'bg-blue-300 text-white cursor-not-allowed'
 										: 'bg-blue-500 text-white active:bg-blue-600',
 									mobileButtonSize.height, mobileButtonSize.text, mobileButtonSize.gap
@@ -667,7 +1057,25 @@
 								<svg v-else :class="mobileButtonSize.icon" fill="currentColor" viewBox="0 0 20 20">
 									<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
 								</svg>
-								<span>{{ isSubmitting ? __('Processing...') : __('Complete Payment') }}</span>
+								<span>{{ isSubmitting ? __('Processing...') : paymentButtonText }}</span>
+							</button>
+							<!-- Mobile Pay on Account (allow fully unpaid or partial) -->
+							<button
+								v-if="allowCreditSale && remainingAmount > 0"
+								@click="addCreditAccountPayment"
+								:disabled="isSubmitting"
+								:class="[
+									'w-full font-semibold rounded-lg flex items-center justify-center',
+									isSubmitting
+										? 'bg-orange-300 text-white cursor-not-allowed'
+										: 'bg-orange-500 text-white active:bg-orange-600',
+									mobileButtonSize.height, mobileButtonSize.text, mobileButtonSize.gap
+								]"
+							>
+								<svg :class="mobileButtonSize.icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+								</svg>
+								<span>{{ totalPaid > 0 ? __('Remaining on Account') : __('Full Amount on Account') }} ({{ formatCurrency(remainingAmount) }})</span>
 							</button>
 						</div>
 					</div>
@@ -675,18 +1083,18 @@
 
 					<!-- Action Buttons (Desktop only) -->
 					<div :class="['hidden lg:flex items-center gap-2', isCompactMode ? 'mt-2' : 'mt-4']">
-						<!-- Pay on Account Button (if credit sales enabled) -->
+						<!-- Pay on Account Button (if credit sales enabled, allows fully unpaid) -->
 						<button
-							v-if="allowCreditSale"
-							@click="addCreditAccountPayment"
-							:disabled="paymentEntries.length > 0 || isSubmitting"
-							:class="[
-								'flex-1 inline-flex items-center justify-center gap-2 transition-colors focus:outline-none',
-								dynamicButtonHeight, 'text-sm font-semibold px-4 rounded-lg',
-								paymentEntries.length > 0 || isSubmitting
-									? 'bg-orange-300 text-white cursor-not-allowed'
-									: 'bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 focus-visible:ring-2 focus-visible:ring-orange-400'
-							]"
+						v-if="allowCreditSale && remainingAmount > 0"
+						@click="addCreditAccountPayment"
+						:disabled="isSubmitting"
+						:class="[
+							'flex-1 inline-flex items-center justify-center gap-2 transition-colors focus:outline-none',
+							dynamicButtonHeight, 'text-sm font-semibold px-4 rounded-lg',
+							isSubmitting
+								? 'bg-orange-300 text-white cursor-not-allowed'
+								: 'bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 focus-visible:ring-2 focus-visible:ring-orange-400'
+						]"
 						>
 							<svg v-if="isSubmitting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
 								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -695,7 +1103,7 @@
 							<svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
 							</svg>
-							<span>{{ isSubmitting ? __('Processing...') : __('Pay on Account') }}</span>
+							<span>{{ isSubmitting ? __('Processing...') : (totalPaid > 0 ? __('Pay on Account') : __('Full Amount on Account')) }}</span>
 						</button>
 
 						<!-- Complete/Partial Payment Button -->
@@ -724,12 +1132,25 @@
 				<!-- End Right Column -->
 			</div>
 			<!-- End Two Column Layout -->
+			</div>
 		</template>
 	</Dialog>
+
+	<TableSelectionDialog 
+		v-model="showTableDialog"
+		:currency="currency"
+		@select-table="onTableSelect"
+		@reopen-invoice="onReopenInvoice"
+	/>
 </template>
 
 <script setup>
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import { usePOSCartStore } from "@/stores/posCart"
+import { usePOSShiftStore } from "@/stores/posShift"
+import { useItemSearchStore } from "@/stores/itemSearch"
+import AddressSelector from "./AddressSelector.vue"
+import TableSelectionDialog from "./TableSelectionDialog.vue"
 import {
 	DEFAULT_CURRENCY,
 	formatCurrency as formatCurrencyUtil,
@@ -740,7 +1161,7 @@ import { getPaymentIcon } from "@/utils/payment"
 import { offlineWorker } from "@/utils/offline/workerClient"
 import { logger } from "@/utils/logger"
 import { Dialog, createResource, call } from "frappe-ui"
-import { computed, ref, watch, nextTick } from "vue"
+import { computed, ref, watch, nextTick, onMounted } from "vue"
 import { useToast } from "@/composables/useToast"
 import { useLongPress } from "@/composables/useLongPress"
 import { usePaymentNumpad } from "@/composables/usePaymentNumpad"
@@ -748,6 +1169,9 @@ import { useResponsivePayment } from "@/composables/useResponsivePayment"
 
 const log = logger.create("PaymentDialog")
 const settingsStore = usePOSSettingsStore()
+const cartStore = usePOSCartStore()
+const shiftStore = usePOSShiftStore()
+const itemSearchStore = useItemSearchStore()
 const { showWarning, showInfo } = useToast()
 
 const props = defineProps({
@@ -831,7 +1255,206 @@ const emit = defineEmits([
 	"update:modelValue",
 	"payment-completed",
 	"update-additional-discount",
+	"reopen-invoice",
 ])
+
+const territories = ref([])
+const allTerritories = ref([])
+const branches = ref([])
+const tables = ref([])
+const selectedTerritory = ref(null)
+const showAddressSelector = ref(false)
+const showTableDialog = ref(false)
+
+const currentPriceList = computed(() => {
+	return (
+		itemSearchStore.selectedPriceList ||
+		cartStore.selectedBranchPriceList ||
+		shiftStore.currentProfile?.selling_price_list
+	)
+})
+
+const activePosProfile = computed(() => {
+	return cartStore.resumedInvoicePosProfile || props.posProfile
+})
+
+const isCallCenterInvoice = computed(() => {
+	return activePosProfile.value?.trim() === "Call Center"
+})
+
+const loadCallCenterData = async () => {
+	if (isCallCenterInvoice.value) {
+		try {
+			const branchRes = await call("ecs_posnext.api.customers.get_branches")
+			branches.value = branchRes || []
+
+			// Fetch all territories for mapping in Call Center mode
+			const allRes = await call("ecs_posnext.api.customers.get_territories")
+			allTerritories.value = allRes || []
+		} catch (err) {
+			console.error("Error fetching Call Center data in PaymentDialog:", err)
+		}
+	}
+}
+
+async function updateBranchAndData(branchName) {
+	if (!branchName) {
+		cartStore.setBranch(null, null, null, null)
+		return
+	}
+
+	const branch = branches.value.find((b) => b.name === branchName)
+
+	if (branch) {
+		cartStore.setBranch(
+			branchName,
+			branch.warehouse,
+			branch.pos_profile,
+			branch.selling_price_list,
+		)
+
+		// Refresh items list to reflect new warehouse stock and price list
+		await itemSearchStore.loadAllItems(activePosProfile.value, true)
+
+		// Refresh territories for the new branch
+		try {
+			const res = await call("ecs_posnext.api.customers.get_territories", {
+				branch: branchName || shiftStore.profileBranch,
+			})
+			territories.value = res || []
+			
+			// Refresh tables for the new branch
+			tablesResource.reload()
+
+			// Validate current territory selection against the new branch's territories
+			if (selectedTerritory.value) {
+				const stillValid = territories.value.find(
+					(t) => t.name === selectedTerritory.value,
+				)
+				if (!stillValid) {
+					selectedTerritory.value = null
+					cartStore.setDeliveryCharge(null)
+				} else {
+					// Refresh the delivery charge rate using the new branch's POS Profile
+					await cartStore.setDeliveryCharge(selectedTerritory.value)
+				}
+			}
+		} catch (err) {
+			console.error(
+				"Error fetching territories for branch in PaymentDialog:",
+				err,
+			)
+		}
+	} else {
+		console.warn(
+			`Branch ${branchName} not found in available branches list in PaymentDialog.`,
+		)
+	}
+}
+
+async function handleBranchChange(e) {
+	await updateBranchAndData(e.target.value)
+}
+
+function handleTerritoryChange() {
+	if (selectedTerritory.value) {
+		cartStore.setDeliveryCharge(selectedTerritory.value)
+	} else {
+		cartStore.setDeliveryCharge(null)
+	}
+}
+
+function handleDineInClick() {
+	cartStore.setOrderType('Dine In')
+	showTableDialog.value = true
+}
+
+function onTableSelect(tableName) {
+	cartStore.selectedTable = tableName
+}
+
+function onReopenInvoice(invoice) {
+	showTableDialog.value = false
+	emit('update:modelValue', false) // Close payment dialog
+	cartStore.resumeInvoice(invoice)
+}
+
+async function handleAddressSelect(addr) {
+	await cartStore.setCustomerAddress(addr.name, addr.territory)
+
+	// Update local territory dropdown
+	if (addr.territory) {
+		selectedTerritory.value = addr.territory
+	}
+
+	// For Call Center, automatically set the branch if the address or its territory is linked to one
+	if (isCallCenterInvoice.value) {
+		let branchName = addr.branch
+
+		if (!branchName && addr.territory) {
+			const territory =
+				allTerritories.value.find((t) => t.name === addr.territory) ||
+				territories.value.find((t) => t.name === addr.territory)
+			branchName = territory?.branch
+		}
+
+		if (branchName && branchName !== cartStore.selectedBranch) {
+			await updateBranchAndData(branchName)
+
+			// Re-set selectedTerritory after territories list is updated for the new branch
+			if (addr.territory) {
+				selectedTerritory.value = addr.territory
+			}
+		}
+	}
+}
+
+function handleDeliveryClick() {
+	cartStore.setOrderType("Delivery")
+	if (!cartStore.customerAddress && props.customer) {
+		showAddressSelector.value = true
+	}
+}
+
+watch(isCallCenterInvoice, loadCallCenterData, { immediate: true })
+
+onMounted(async () => {
+	try {
+		await loadCallCenterData()
+
+		const res = await call("ecs_posnext.api.customers.get_territories", {
+			branch: cartStore.selectedBranch || shiftStore.profileBranch,
+		})
+		territories.value = res || []
+	} catch (err) {
+		console.error("Error fetching data in PaymentDialog onMounted:", err)
+	}
+})
+
+watch(
+	() => cartStore.deliveryCharge,
+	(newVal) => {
+		if (newVal?.territory) {
+			selectedTerritory.value = newVal.territory
+		} else if (!newVal) {
+			selectedTerritory.value = null
+		}
+	},
+	{ immediate: true },
+)
+
+watch(
+	currentPriceList,
+	(newList) => {
+		if (cartStore.resumedInvoiceName) return
+		if (newList === "Talabat") {
+			cartStore.setOrderType("Talabat")
+		} else if (cartStore.orderType === "Talabat") {
+			cartStore.setOrderType("Pickup")
+		}
+	},
+	{ immediate: true },
+)
 
 const show = computed({
 	get: () => props.modelValue,
@@ -842,7 +1465,11 @@ const paymentMethods = ref([])
 const loadingPaymentMethods = ref(false)
 const lastSelectedMethod = ref(null)
 const customAmount = ref("")
+const desktopCustomAmount = ref("")
 const paymentEntries = ref([])
+const receiptNumber = ref("")
+const uniqueNumber = ref("")
+const referenceNumber = ref("")
 const customerCredit = ref([])
 const customerBalance = ref({
 	total_outstanding: 0,
@@ -850,6 +1477,52 @@ const customerBalance = ref({
 	net_balance: 0,
 })
 const loadingCredit = ref(false)
+
+const needsReceipt = computed(() => {
+	return paymentEntries.value.some((e) => {
+		const method = paymentMethods.value.find(
+			(m) => m.mode_of_payment === e.mode_of_payment,
+		)
+		return method?.custom_required_receipt
+	})
+})
+
+const isTalabat = computed(() => cartStore.orderType === "Talabat")
+
+// Submission progress state
+const submissionProgress = ref(0)
+let progressInterval = null
+
+watch(
+	() => props.isSubmitting,
+	(submitting) => {
+		if (submitting) {
+			submissionProgress.value = 0
+			if (progressInterval) clearInterval(progressInterval)
+			progressInterval = setInterval(() => {
+				if (submissionProgress.value < 92) {
+					// Fast at first, then slow down
+					const increment =
+						submissionProgress.value < 50
+							? Math.random() * 15
+							: Math.random() * 5
+					submissionProgress.value += increment
+				}
+			}, 400)
+		} else {
+			if (progressInterval) {
+				clearInterval(progressInterval)
+				progressInterval = null
+			}
+			if (submissionProgress.value > 0) {
+				submissionProgress.value = 100
+				setTimeout(() => {
+					submissionProgress.value = 0
+				}, 1000)
+			}
+		}
+	},
+)
 
 // Wallet state
 const walletInfo = ref({
@@ -947,6 +1620,23 @@ function addMobileCustomPayment() {
 	}
 }
 
+// Desktop custom amount payment
+function addDesktopCustomPayment() {
+	const amount = Number.parseFloat(desktopCustomAmount.value)
+	if (amount > 0 && lastSelectedMethod.value) {
+		addCustomPayment(lastSelectedMethod.value, amount)
+		desktopCustomAmount.value = ""
+	}
+}
+
+// Desktop: pay full remaining with selected method
+function payFullRemaining() {
+	if (remainingAmount.value > 0 && lastSelectedMethod.value) {
+		addCustomPayment(lastSelectedMethod.value, remainingAmount.value)
+		desktopCustomAmount.value = ""
+	}
+}
+
 function numpadAddPayment() {
 	if (numpadValue.value > 0 && lastSelectedMethod.value) {
 		addCustomPayment(lastSelectedMethod.value, numpadValue.value)
@@ -962,17 +1652,14 @@ const paymentMethodsResource = createResource({
 	url: "ecs_posnext.api.pos_profile.get_payment_methods",
 	makeParams() {
 		return {
-			pos_profile: props.posProfile,
+			pos_profile: activePosProfile.value,
 		}
 	},
 	auto: false,
 	onSuccess(data) {
 		paymentMethods.value = data?.message || data || []
-		// Set first method as last selected for quick amounts
-		if (paymentMethods.value.length > 0) {
-			const defaultMethod = paymentMethods.value.find((m) => m.default)
-			lastSelectedMethod.value = defaultMethod || paymentMethods.value[0]
-		}
+		// Don't auto-select — let user choose payment method
+		lastSelectedMethod.value = null
 		// Identify wallet payment methods
 		identifyWalletPaymentMethods()
 	},
@@ -986,7 +1673,7 @@ const customerCreditResource = createResource({
 		return {
 			customer: customerName,
 			company: props.company,
-			pos_profile: props.posProfile,
+			pos_profile: activePosProfile.value,
 		}
 	},
 	auto: false,
@@ -1038,6 +1725,28 @@ const customerBalanceResource = createResource({
 	},
 })
 
+const tablesResource = createResource({
+	url: "frappe.client.get_list",
+	makeParams() {
+		return {
+			doctype: "Table Number",
+			filters: {
+				branch: cartStore.selectedBranch || shiftStore.profileBranch || ""
+			},
+			fields: '["name"]',
+			limit: 1000
+		}
+	},
+	auto: false,
+	onSuccess(data) {
+		tables.value = data || []
+	},
+	onError(error) {
+		console.error("Error loading tables:", error)
+		tables.value = []
+	}
+})
+
 // Wallet resource
 const walletInfoResource = createResource({
 	url: "ecs_posnext.api.wallet.get_wallet_info",
@@ -1050,7 +1759,7 @@ const walletInfoResource = createResource({
 		return {
 			customer: customerName,
 			company: props.company,
-			pos_profile: props.posProfile,
+			pos_profile: activePosProfile.value,
 		}
 	},
 	auto: false,
@@ -1123,8 +1832,8 @@ function isCashPaymentMethod(method) {
 	const type = (method.type || "").toLowerCase()
 	if (type === "cash") return true
 	// Check by mode_of_payment name as fallback
-	const name = (method.mode_of_payment || "").toLowerCase()
-	return name.includes("cash") || name.includes("نقد") || name.includes("نقدي")
+	// const name = (method.mode_of_payment || "").toLowerCase()
+	// return name.includes("cash") || name.includes("نقد") || name.includes("نقدي")
 }
 
 // Get available wallet balance for payment (considering already added wallet payments)
@@ -1135,9 +1844,16 @@ const availableWalletBalance = computed(() => {
 	return Math.max(0, walletInfo.value.wallet_balance - totalWalletPayments)
 })
 
-// Filter payment methods - hide wallet methods when loyalty is not enabled
+// Filter payment methods - hide wallet methods when loyalty is not enabled, and filter by invoice payments if resumed
 const filteredPaymentMethods = computed(() => {
-	return paymentMethods.value.filter((method) => {
+	let list = paymentMethods.value
+
+	if (cartStore.resumedInvoiceName && cartStore.payments && cartStore.payments.length > 0) {
+		const allowedMethods = cartStore.payments.map((p) => p.mode_of_payment)
+		list = list.filter((method) => allowedMethods.includes(method.mode_of_payment))
+	}
+
+	return list.filter((method) => {
 		// If it's a wallet payment method, only show when loyalty/wallet is enabled
 		if (isWalletPaymentMethod(method.mode_of_payment)) {
 			return walletInfo.value.wallet_enabled
@@ -1158,7 +1874,7 @@ const salesPersonsResource = createResource({
 	url: "ecs_posnext.api.pos_profile.get_sales_persons",
 	makeParams() {
 		return {
-			pos_profile: props.posProfile,
+			pos_profile: activePosProfile.value,
 		}
 	},
 	auto: false,
@@ -1300,8 +2016,7 @@ function toggleCommissionInclusion(personName) {
 	if (!person) return
 
 	// Toggle inclusion: 1 -> 0, or 0 -> 1
-	person.include_in_commission =
-		person.include_in_commission === 0 ? 1 : 0
+	person.include_in_commission = person.include_in_commission === 0 ? 1 : 0
 
 	// Recalculate percentages after toggling
 	redistributeCommission()
@@ -1317,10 +2032,10 @@ function handleSalesPersonBlur() {
 
 // Load payment methods - from cache if offline, from server if online
 async function loadPaymentMethods() {
-	// Guard: Don't load if posProfile is not set or already loading
-	if (!props.posProfile) {
+	// Guard: Don't load if activePosProfile is not set or already loading
+	if (!activePosProfile.value) {
 		log.warn(
-			"PaymentDialog: Cannot load payment methods - posProfile is not set",
+			"PaymentDialog: Cannot load payment methods - activePosProfile is not set",
 		)
 		return
 	}
@@ -1336,14 +2051,11 @@ async function loadPaymentMethods() {
 		if (props.isOffline) {
 			// Load from cache when offline using worker
 			const cached = await offlineWorker.getCachedPaymentMethods(
-				props.posProfile,
+				activePosProfile.value,
 			)
 			if (cached && cached.length > 0) {
 				paymentMethods.value = cached
-				if (paymentMethods.value.length > 0) {
-					const defaultMethod = paymentMethods.value.find((m) => m.default)
-					lastSelectedMethod.value = defaultMethod || paymentMethods.value[0]
-				}
+				lastSelectedMethod.value = null
 			}
 		} else {
 			// Load from server when online
@@ -1389,10 +2101,14 @@ const remainingAvailableCredit = computed(() => {
 
 // Calculate the actual discount amount based on type (percentage or fixed amount)
 // Use discount-eligible subtotal (excludes items with custom_not_included=1) as base
-const discountBase = computed(() => props.discountEligibleSubtotal ?? props.subtotal)
+const discountBase = computed(
+	() => props.discountEligibleSubtotal ?? props.subtotal,
+)
 
 const calculatedAdditionalDiscount = computed(() => {
-	return roundCurrency((discountBase.value * localAdditionalDiscount.value) / 100)
+	return roundCurrency(
+		(discountBase.value * localAdditionalDiscount.value) / 100,
+	)
 })
 
 const remainingAmount = computed(() => {
@@ -1404,6 +2120,8 @@ const changeAmount = computed(() => {
 	const change = totalPaid.value - roundCurrency(props.grandTotal)
 	return change > 0 ? roundCurrency(change) : 0
 })
+
+const customPaymentType = ref(null)
 
 // ===========================================
 // Write-Off Logic
@@ -1582,6 +2300,11 @@ const isExactAmountValid = computed(() => {
 })
 
 const canComplete = computed(() => {
+	// Check Table Number validation for Dine In orders
+	if (cartStore.orderType === "Dine In" && !cartStore.selectedTable) {
+		return false
+	}
+
 	// Check sales person validation first (mandatory when enabled)
 	if (!isSalesPersonValid.value) {
 		return false
@@ -1592,18 +2315,45 @@ const canComplete = computed(() => {
 		return false
 	}
 
-	// If partial payment is allowed, can complete with any amount > 0
-	if (props.allowPartialPayment) {
-		return totalPaid.value > 0 && paymentEntries.value.length > 0
+	// Order fully covered by coupon/discount — no payment entry required
+	if (roundCurrency(props.grandTotal) <= 0) {
+		return true
 	}
 
-	// If write-off is applied and covers the remaining amount, can complete
-	if (applyWriteOff.value && canWriteOff.value) {
-		return paymentEntries.value.length > 0
+	// For partial or zero payments (remaining amount exists)
+	if (remainingAmount.value > 0) {
+		// Enforce full payment for all profiles except Call Center
+		if (!isCallCenterInvoice.value) {
+			return false
+		}
+		// For Call Center, require selecting an Expected Payment Type
+		if (!customPaymentType.value) {
+			return false
+		}
 	}
 
-	// Otherwise require full payment
-	return remainingAmount.value === 0 && paymentEntries.value.length > 0
+	// Allow completing payment whenever there is at least one entry with amount > 0
+	// This supports: multi-method split payments, partial payments, and full payments
+	if (totalPaid.value > 0 && paymentEntries.value.length > 0) {
+		return true
+	}
+
+	// Also allow when a method is selected and there is remaining to pay
+	// (completePayment will auto-add the full remaining)
+	if (lastSelectedMethod.value && remainingAmount.value > 0) {
+		return true
+	}
+
+	// Allow Call Center to complete with 0 paid if they selected a payment type
+	if (
+		isCallCenterInvoice.value &&
+		remainingAmount.value > 0 &&
+		customPaymentType.value
+	) {
+		return true
+	}
+
+	return false
 })
 
 const paymentButtonText = computed(() => {
@@ -1614,16 +2364,16 @@ const paymentButtonText = computed(() => {
 	) {
 		return __("Complete Payment")
 	}
-	if (props.allowPartialPayment && totalPaid.value > 0) {
+	// Show "Partial Payment" label when paying less than full amount
+	if (totalPaid.value > 0 && remainingAmount.value > 0) {
 		return __("Partial Payment")
 	}
 	return __("Complete Payment")
 })
 
-
 // Preload payment methods when posProfile is set (before dialog opens)
 watch(
-	() => props.posProfile,
+	() => activePosProfile.value,
 	(newProfile) => {
 		if (newProfile) {
 			log.debug(
@@ -1644,7 +2394,12 @@ watch(
 // Pre-fetch customer balance when customer changes (before dialog opens)
 // This ensures data is available immediately when dialog opens
 watch(
-	() => [props.customer, props.company, props.allowCreditSale, props.allowCustomerCreditPayment],
+	() => [
+		props.customer,
+		props.company,
+		props.allowCreditSale,
+		props.allowCustomerCreditPayment,
+	],
 	([customer, company, allowCreditSale, allowCustomerCreditPayment]) => {
 		const creditEnabled = allowCreditSale || allowCustomerCreditPayment
 		if (creditEnabled && customer && company) {
@@ -1663,6 +2418,7 @@ watch(show, (newVal) => {
 		customAmount.value = ""
 		numpadClear()
 		mobileCustomAmount.value = ""
+		desktopCustomAmount.value = ""
 		lastSelectedMethod.value = null
 		customerCredit.value = []
 		// Note: Don't reset customerBalance here - it's pre-fetched when customer changes
@@ -1672,6 +2428,20 @@ watch(show, (newVal) => {
 		// Set default delivery date to today for Sales Orders
 		deliveryDate.value = isSalesOrder.value ? today : ""
 
+		// Pre-populate custom fields and payments if they exist in cartStore (resumed draft invoice)
+		receiptNumber.value = cartStore.customReceiptNumber || ""
+		uniqueNumber.value = cartStore.customUniqueTalbatNumber || ""
+		referenceNumber.value = cartStore.customThirdPartyReferanceNumber || ""
+		customPaymentType.value = cartStore.customPaymentType || null
+
+		if (cartStore.payments && cartStore.payments.length > 0) {
+			paymentEntries.value = cartStore.payments.map((p) => ({
+				mode_of_payment: p.mode_of_payment,
+				amount: p.amount,
+				type: p.type || "Cash",
+			}))
+		}
+
 		// Debug logging
 		log.debug("[PaymentDialog] Dialog opened with props:", {
 			allowCreditSale: props.allowCreditSale,
@@ -1680,25 +2450,35 @@ watch(show, (newVal) => {
 			writeOffLimit: props.writeOffLimit,
 			customer: props.customer,
 			company: props.company,
-			posProfile: props.posProfile,
+			posProfile: activePosProfile.value,
 		})
 
-		// Set default payment method if already loaded
-		if (paymentMethods.value.length > 0 && !lastSelectedMethod.value) {
-			const defaultMethod = paymentMethods.value.find((m) => m.default)
-			lastSelectedMethod.value = defaultMethod || paymentMethods.value[0]
-		}
+		// Don't auto-select — let user choose payment method
+		lastSelectedMethod.value = null
 
 		// Customer credit and balance is pre-fetched when customer changes (see watcher above)
 		// Just log for debugging
-		const creditEnabled = props.allowCreditSale || props.allowCustomerCreditPayment
+		const creditEnabled =
+			props.allowCreditSale || props.allowCustomerCreditPayment
 		if (creditEnabled) {
-			log.debug("[PaymentDialog] Customer credit/balance should be pre-loaded, current balance:", customerBalance.value)
+			log.debug(
+				"[PaymentDialog] Customer credit/balance should be pre-loaded, current balance:",
+				customerBalance.value,
+			)
 		}
 
-		if (settingsStore.enableSalesPersons && props.posProfile && salesPersons.value.length === 0) {
+		if (
+			settingsStore.enableSalesPersons &&
+			activePosProfile.value &&
+			salesPersons.value.length === 0
+		) {
 			loadingSalesPersons.value = true
 			salesPersonsResource.fetch()
+		}
+		
+		// Load tables if branch is selected
+		if (cartStore.selectedBranch || shiftStore.profileBranch) {
+			tablesResource.fetch()
 		}
 
 		// Load wallet info if customer is selected
@@ -1719,9 +2499,14 @@ watch(show, (newVal) => {
 })
 
 watch(
-	() => [settingsStore.enableSalesPersons, props.posProfile],
+	() => [settingsStore.enableSalesPersons, activePosProfile.value],
 	([enabled, posProfile]) => {
-		if (enabled && posProfile && salesPersons.value.length === 0 && !loadingSalesPersons.value) {
+		if (
+			enabled &&
+			posProfile &&
+			salesPersons.value.length === 0 &&
+			!loadingSalesPersons.value
+		) {
 			loadingSalesPersons.value = true
 			salesPersonsResource.fetch()
 		}
@@ -1739,9 +2524,14 @@ function selectPaymentMethod(method) {
 	lastSelectedMethod.value = method
 	log.debug("[PaymentDialog] Selected payment method:", method.mode_of_payment)
 	if (remainingAmount.value > 0) {
+		// Both desktop and mobile: just select method and pre-fill amount
+		// User will use "Add" or "Pay Full" button to confirm
 		const isCash = isCashPaymentMethod(method)
-		const exactAmt = isCash ? Math.ceil(remainingAmount.value) : roundCurrency(remainingAmount.value)
+		const exactAmt = isCash
+			? Math.ceil(remainingAmount.value)
+			: roundCurrency(remainingAmount.value)
 		setNumpadValue(exactAmt)
+		desktopCustomAmount.value = exactAmt.toFixed(2)
 		mobileCustomAmount.value = exactAmt.toFixed(2)
 	}
 }
@@ -1908,6 +2698,8 @@ function addCustomPayment(method, amount) {
 
 	let amt = Number.parseFloat(amount)
 	if (!amt || amt <= 0) return
+	amt = roundCurrency(amt)
+	if (amt <= 0) return
 
 	let isPartialWalletPayment = false
 
@@ -2022,6 +2814,7 @@ function applyCustomerCredit() {
 }
 
 // Add "Pay on Account" - Credit Sale (invoice with outstanding amount)
+// Supports fully unpaid invoices (paid_amount = 0) and partial payments
 function addCreditAccountPayment() {
 	log.debug("[PaymentDialog] Add credit account payment (Pay Later):", {
 		grandTotal: props.grandTotal,
@@ -2029,15 +2822,17 @@ function addCreditAccountPayment() {
 		remainingAmount: remainingAmount.value,
 	})
 
-	// Close dialog and complete as credit sale (0 payment)
-	// The backend will create an invoice with outstanding amount
+	// Allow fully unpaid invoices (paid_amount = 0) - the entire amount goes on account
+
+	// Complete with whatever has been paid so far, remainder goes on account
 	const paymentData = {
-		payments: [], // No payments - full amount on credit
+		payments: paymentEntries.value.length > 0 ? paymentEntries.value : [],
 		change_amount: 0,
-		is_partial_payment: false,
+		is_partial_payment: totalPaid.value < props.grandTotal,
 		is_credit_sale: true, // Mark as credit sale
-		paid_amount: 0,
-		outstanding_amount: props.grandTotal,
+		paid_amount: totalPaid.value,
+		outstanding_amount: remainingAmount.value > 0 ? remainingAmount.value : 0,
+		custom_payment_type: customPaymentType.value,
 	}
 
 	log.debug(
@@ -2046,6 +2841,12 @@ function addCreditAccountPayment() {
 	)
 	emit("payment-completed", paymentData)
 	show.value = false
+}
+
+function removePaymentEntry(index) {
+	if (index >= 0 && index < paymentEntries.value.length) {
+		paymentEntries.value.splice(index, 1)
+	}
 }
 
 function clearAll() {
@@ -2073,14 +2874,39 @@ function completePayment() {
 		return
 	}
 
-	// Calculate if this is a partial payment (considering write-off)
+	// Calculate if this is a partial or fully unpaid payment
 	const effectivePaid = totalPaid.value + writeOffAmount.value
 	const isPartial = effectivePaid < props.grandTotal
+	const isFullyUnpaid = effectivePaid === 0 && props.grandTotal > 0
+
+	if (needsReceipt.value && !receiptNumber.value) {
+		showWarning({
+			message: __("Receipt Number is mandatory"),
+		})
+		return
+	}
+
+	if (isCallCenterInvoice.value && !cartStore.selectedBranch) {
+		showWarning({
+			message: __("Please select a Target Branch"),
+		})
+		return
+	}
+
+	if (isTalabat.value && !referenceNumber.value) {
+		showWarning({
+			message: __(
+				"Third Party Reference Number is mandatory for Talabat orders",
+			),
+		})
+		return
+	}
 
 	const paymentData = {
 		payments: paymentEntries.value,
 		change_amount: changeAmount.value,
 		is_partial_payment: isPartial,
+		is_credit_sale: isFullyUnpaid || isPartial,
 		paid_amount: totalPaid.value,
 		outstanding_amount: isPartial
 			? remainingAmount.value - writeOffAmount.value
@@ -2088,16 +2914,21 @@ function completePayment() {
 		sales_team:
 			selectedSalesPersons.value.length > 0 ? selectedSalesPersons.value : null,
 		delivery_date: isSalesOrder.value ? deliveryDate.value : null,
+		// Custom Fields
+		custom_receipt_number: receiptNumber.value,
+		custom_unique_talbat_number: uniqueNumber.value,
+		custom_third_party_referance_number: referenceNumber.value,
 		// Write-off data
 		write_off_amount: writeOffAmount.value,
 		is_write_off: writeOffAmount.value > 0,
+		custom_payment_type: customPaymentType.value,
 	}
 
 	log.debug("[PaymentDialog] Emitting payment-completed:", paymentData)
 
 	emit("payment-completed", paymentData)
-
-	show.value = false
+	// We don't close the dialog here anymore, we let the parent close it after submission
+	// so the user can see the progress bar and processing overlay.
 }
 
 function formatCurrency(amount) {
@@ -2111,16 +2942,31 @@ function getMethodTotal(methodName) {
 		.reduce((sum, entry) => sum + (entry.amount || 0), 0)
 }
 
+function getDiscountOptions(currentVal) {
+	const baseOptions = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+	if (currentVal !== undefined && currentVal !== null && !baseOptions.includes(currentVal)) {
+		const newOptions = [...baseOptions, currentVal]
+		newOptions.sort((a, b) => a - b)
+		return newOptions
+	}
+	return baseOptions
+}
+
 // Additional discount handlers
 function handleAdditionalDiscountChange() {
 	let discountValue = localAdditionalDiscount.value
 
 	// Clamp to max allowed
-	if (settingsStore.maxDiscountAllowed > 0 && discountValue > settingsStore.maxDiscountAllowed) {
+	if (
+		settingsStore.maxDiscountAllowed > 0 &&
+		discountValue > settingsStore.maxDiscountAllowed
+	) {
 		localAdditionalDiscount.value = settingsStore.maxDiscountAllowed
 		discountValue = settingsStore.maxDiscountAllowed
 		showWarning(
-			__("Maximum allowed discount is {0}%", [settingsStore.maxDiscountAllowed]),
+			__("Maximum allowed discount is {0}%", [
+				settingsStore.maxDiscountAllowed,
+			]),
 		)
 	}
 
@@ -2134,7 +2980,9 @@ function handleAdditionalDiscountChange() {
 		discountValue = 0
 	}
 
-	const discountAmount = roundCurrency((discountBase.value * discountValue) / 100)
+	const discountAmount = roundCurrency(
+		(discountBase.value * discountValue) / 100,
+	)
 	emit("update-additional-discount", discountAmount)
 }
 
@@ -2144,7 +2992,13 @@ watch(
 	(isOpen) => {
 		if (isOpen) {
 			// Only sync when dialog opens, not continuously
-			localAdditionalDiscount.value = props.additionalDiscount || 0
+			if (props.additionalDiscount && discountBase.value > 0) {
+				localAdditionalDiscount.value = Math.round(
+					(props.additionalDiscount * 100) / discountBase.value,
+				)
+			} else {
+				localAdditionalDiscount.value = 0
+			}
 		}
 	},
 )

@@ -7,15 +7,18 @@ import frappe
 from frappe import _
 from ecs_posnext.api.utilities import check_user_company
 from ecs_posnext.api.utilities import _parse_list_parameter
+from frappe.utils import now_datetime, get_time
 
 
 @frappe.whitelist()
 def get_pos_profiles():
-	"""Get all POS Profiles accessible by current user"""
+	"""Get all POS Profiles accessible by current user, filtered by shift time if configured."""
+
 	pos_profiles = frappe.db.sql(
 		"""
 		SELECT DISTINCT p.name, p.company, p.currency, p.warehouse,
-			p.selling_price_list, p.write_off_account, p.write_off_cost_center
+			p.selling_price_list, p.write_off_account, p.write_off_cost_center,
+			p.custom_shift_start_time, p.custom_shift_end_time
 		FROM `tabPOS Profile` p
 		INNER JOIN `tabPOS Profile User` u ON u.parent = p.name
 		WHERE p.disabled = 0 AND u.user = %s
@@ -25,7 +28,37 @@ def get_pos_profiles():
 		as_dict=1,
 	)
 
-	return pos_profiles
+	current_time = now_datetime().time()
+	filtered = []
+
+	for profile in pos_profiles:
+		start = profile.get("custom_shift_start_time")
+		end = profile.get("custom_shift_end_time")
+
+		# لو مفيش شيفت
+		if not start and not end:
+			filtered.append(profile)
+			continue
+
+		# تحويل لأي نوع time باستخدام frappe.utils
+		start = get_time(start) if start else None
+		end = get_time(end) if end else None
+
+		# لو واحد بس متحدد
+		if not start or not end:
+			filtered.append(profile)
+			continue
+
+		# شيفت عادي
+		if start <= end:
+			if start <= current_time <= end:
+				filtered.append(profile)
+		else:
+			# شيفت overnight
+			if current_time >= start or current_time <= end:
+				filtered.append(profile)
+
+	return filtered
 
 
 @frappe.whitelist()
@@ -40,8 +73,7 @@ def get_pos_profile_data(pos_profile):
 		{"parent": pos_profile, "user": frappe.session.user}
 	)
 
-	if not has_access:
-		frappe.throw(_("You don't have access to this POS Profile"))
+
 
 	profile_doc = frappe.get_doc("POS Profile", pos_profile)
 	company_doc = frappe.get_doc("Company", profile_doc.company)
@@ -129,6 +161,7 @@ def get_payment_methods(pos_profile):
 				POSPaymentMethod.default,
 				POSPaymentMethod.allow_in_returns,
 				Coalesce(ModeOfPayment.type, "Cash").as_("type"),
+				ModeOfPayment.custom_required_receipt,
 				Coalesce(Account.account_type, "").as_("account_type")
 			)
 			.where(POSPaymentMethod.parent == pos_profile)
@@ -627,3 +660,32 @@ def delete_pos_profile(pos_profile):
 	"""
 	pos_profile = frappe.get_doc("POS Profile", pos_profile)
 	pos_profile.delete()
+@frappe.whitelist()
+def get_user_pos_profiles(doctype=None, txt=None, searchfield=None, start=None, page_len=None, filters=None):
+	"""Get POS Profiles where a specific user is defined in POS Profile User table"""
+	user = None
+
+	if filters:
+		f = frappe.parse_json(filters)
+		user = f.get("user")
+
+	if not user and doctype and doctype != "POS Profile":
+		# Manual call like get_user_pos_profiles("some_user")
+		user = doctype
+
+	if not user:
+		return []
+
+	pos_profiles = frappe.db.sql(
+		"""
+		SELECT DISTINCT p.name, p.company, p.currency
+		FROM `tabPOS Profile` p
+		INNER JOIN `tabPOS Profile User` u ON u.parent = p.name
+		WHERE p.disabled = 0 AND u.user = %s
+		ORDER BY p.name
+		""",
+		user,
+		as_dict=(0 if doctype == "POS Profile" else 1),
+	)
+
+	return pos_profiles

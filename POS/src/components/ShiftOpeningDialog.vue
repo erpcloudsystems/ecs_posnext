@@ -55,6 +55,20 @@
               <Button variant="subtle" @click="step = 1">{{ __('Change Profile') }}</Button>
             </div>
           </div>
+          
+          <div v-if="isPreparedShift" class="mb-4 p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-lg">
+            <div class="flex items-start gap-3">
+              <svg class="w-5 h-5 text-amber-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <p class="text-sm font-bold text-amber-800">{{ __('Prepared by Supervisor') }}</p>
+                <p class="text-xs text-amber-700 mt-1">
+                  {{ __('A shift has been prepared for you. Please verify the opening amounts and click "Open Shift" to confirm.') }}
+                </p>
+              </div>
+            </div>
+          </div>
 
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-3 text-start">
@@ -83,6 +97,7 @@
                     placeholder="0.00"
                     step="0.01"
                     min="0"
+                    :disabled="isPreparedShift"
                   />
                 </div>
               </div>
@@ -92,6 +107,29 @@
               <p class="text-sm">{{ __('No payment methods configured for this POS Profile') }}</p>
             </div>
           </div>
+
+          <!-- Default Order Type -->
+          <!-- <div>
+            <label class="block text-sm font-medium text-gray-700 mb-3 text-start">
+              {{ __('Default Order Type') }}
+            </label>
+            <div class="flex gap-2">
+              <button
+                v-for="type in orderTypes"
+                :key="type.value"
+                @click="selectedOrderType = type.value"
+                :class="[
+                  'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all',
+                  selectedOrderType === type.value
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+                ]"
+              >
+                <span>{{ type.icon }}</span>
+                <span>{{ __(type.label) }}</span>
+              </button>
+            </div>
+          </div> -->
 
           <div v-if="dialogDataResource.error" class="rounded-md bg-red-50 p-4">
             <p class="text-sm text-red-800">{{ dialogDataResource.error }}</p>
@@ -174,7 +212,7 @@
             @click="openShift"
             :loading="createShiftResource.loading"
           >
-            {{ __('Open Shift') }}
+            {{ isPreparedShift ? __('Approve & Open') : __('Open Shift') }}
           </Button>
         </div>
       </div>
@@ -209,7 +247,7 @@ const open = computed({
 	set: (value) => emit("update:modelValue", value),
 })
 
-const { createOpeningShift, getOpeningDialogData, checkOpeningShift } =
+const { createOpeningShift, getOpeningDialogData, checkOpeningShift, isPreparedShift } =
 	useShift()
 const { formatDateTime } = useFormatters()
 
@@ -220,6 +258,13 @@ const existingShift = ref(null)
 const showClosingDialog = ref(false)
 const closingExistingShift = ref(false)
 const restartProfileName = ref(null)
+const selectedOrderType = ref("Pickup")
+
+const orderTypes = [
+	{ value: "Pickup", label: "Pickup", icon: "\uD83D\uDECD\uFE0F" },
+	{ value: "Delivery", label: "Delivery", icon: "\uD83D\uDE9A" },
+	{ value: "Talabat", label: "Talabat", icon: "\uD83D\uDCF1" },
+]
 
 // Get POS Profiles
 const profilesResource = createResource({
@@ -240,9 +285,15 @@ const createShiftResource = createOpeningShift
 const paymentMethods = computed(() => {
 	if (!dialogDataResource.data || !selectedProfile.value) return []
 
-	return (dialogDataResource.data.payments_method || []).filter(
+	let methods = (dialogDataResource.data.payments_method || []).filter(
 		(method) => method.parent === selectedProfile.value.name,
 	)
+
+	if (isPreparedShift.value) {
+		methods = methods.filter((m) => m.type === "Cash" || m.mode_of_payment.toLowerCase().includes("cash"))
+	}
+
+	return methods
 })
 
 // Watch dialog open state
@@ -281,8 +332,22 @@ async function initDialog() {
 		// Check if user already has an open shift
 		const checkResult = await checkOpeningShift.fetch()
 		if (checkResult) {
-			existingShift.value = checkResult
-			step.value = 3
+			if (isPreparedShift.value) {
+				selectedProfile.value = checkResult.pos_profile
+				// Pre-fill opening balances
+				if (checkResult.pos_opening_shift?.balance_details) {
+					checkResult.pos_opening_shift.balance_details.forEach(detail => {
+						openingBalances.value[detail.mode_of_payment] = detail.amount
+					})
+				}
+				await dialogDataResource.fetch({
+					pos_profile: selectedProfile.value.name,
+				})
+				step.value = 2
+			} else {
+				existingShift.value = checkResult
+				step.value = 3
+			}
 		}
 	} catch (error) {
 		console.error("Error initializing shift dialog:", error)
@@ -294,6 +359,7 @@ function resetDialog() {
 	step.value = 1
 	selectedProfile.value = null
 	openingBalances.value = {}
+	selectedOrderType.value = "Pickup"
 	existingShift.value = null
 	profilesResource.reset()
 	dialogDataResource.reset()
@@ -306,7 +372,9 @@ function selectPosProfile(profile) {
 
 async function nextStep() {
 	if (step.value === 1 && selectedProfile.value) {
-		await dialogDataResource.fetch()
+		await dialogDataResource.fetch({
+			pos_profile: selectedProfile.value.name,
+		})
 		step.value = 2
 	}
 }
@@ -329,6 +397,7 @@ async function openShift() {
 			balance_details,
 		})
 
+		localStorage.setItem("pos_default_order_type", selectedOrderType.value)
 		emit("shift-opened")
 		closeDialog("shift-opened")
 	} catch (error) {
@@ -337,6 +406,11 @@ async function openShift() {
 }
 
 function resumeShift() {
+	// Restore order type from cache if available, otherwise keep current
+	const cached = localStorage.getItem("pos_default_order_type")
+	if (!cached) {
+		localStorage.setItem("pos_default_order_type", "Pickup")
+	}
 	emit("shift-opened")
 	closeDialog("resumed")
 }

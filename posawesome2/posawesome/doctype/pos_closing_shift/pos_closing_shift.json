@@ -1,0 +1,366 @@
+{
+ "actions": [],
+ "allow_copy": 1,
+ "autoname": "POSA-CS-.YY.-.#######",
+ "creation": "2020-09-29 02:38:20.917434",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "period_start_date",
+  "period_end_date",
+  "column_break_3",
+  "posting_date",
+  "pos_opening_shift",
+  "section_break_5",
+  "company",
+  "column_break_7",
+  "pos_profile",
+  "user",
+  "section_break_12",
+  "pos_transactions",
+  "section_break_9",
+  "pos_payments",
+  "section_break_if3m1",
+  "payment_reconciliation_details",
+  "section_break_11",
+  "payment_reconciliation",
+  "section_break_cash_denominations",
+  "cash_200_egp",
+  "cash_100_egp",
+  "cash_50_egp",
+  "cash_20_egp",
+  "column_break_cash_denominations",
+  "cash_10_egp",
+  "cash_5_egp",
+  "cash_1_egp",
+  "total_cash",
+  "total_diff",
+  "difference_reason",
+  "section_break_13",
+  "grand_total",
+  "net_total",
+  "total_quantity",
+  "column_break_16",
+  "taxes",
+  "section_break_14",
+  "amended_from",
+  "print_count"
+ ],
+ "fields": [
+  {
+   "fetch_from": "pos_opening_shift.period_start_date",
+   "fieldname": "period_start_date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Period Start Date",
+   "reqd": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "period_end_date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Period End Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Posting Date",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_5",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_7",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "pos_opening_shift.pos_profile",
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "POS Profile",
+   "options": "POS Profile",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fetch_from": "pos_opening_shift.user",
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "Cashier",
+   "options": "User",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_12",
+   "fieldtype": "Section Break",
+   "label": "Linked Invoices",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "pos_transactions",
+   "fieldtype": "Table",
+   "label": "POS Transactions",
+   "options": "Sales Invoice Reference",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "section_break_9",
+   "fieldtype": "Section Break",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.docstatus==1",
+   "fieldname": "payment_reconciliation_details",
+   "fieldtype": "HTML",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "section_break_11",
+   "fieldtype": "Section Break",
+   "label": "Modes of Payment",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "payment_reconciliation",
+   "fieldtype": "Table",
+   "label": "Payment Reconciliation",
+   "options": "POS Closing Shift Detail",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "section_break_cash_denominations",
+   "fieldtype": "Section Break",
+   "label": "Cash Denominations (EGP)"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_200_egp",
+   "fieldtype": "Int",
+   "label": "200 EGP Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_100_egp",
+   "fieldtype": "Int",
+   "label": "100 EGP Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_50_egp",
+   "fieldtype": "Int",
+   "label": "50 EGP Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_20_egp",
+   "fieldtype": "Int",
+   "label": "20 EGP Notes"
+  },
+  {
+   "fieldname": "column_break_cash_denominations",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_10_egp",
+   "fieldtype": "Int",
+   "label": "10 EGP Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_5_egp",
+   "fieldtype": "Int",
+   "label": "5 EGP Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_1_egp",
+   "fieldtype": "Int",
+   "label": "1 EGP Coins"
+  },
+  {
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:doc.docstatus==0",
+   "fieldname": "section_break_13",
+   "fieldtype": "Section Break",
+   "label": "Details",
+   "permlevel": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "net_total",
+   "fieldtype": "Currency",
+   "label": "Net Total",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_quantity",
+   "fieldtype": "Float",
+   "label": "Total Quantity",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_16",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "taxes",
+   "fieldtype": "Table",
+   "label": "Taxes",
+   "options": "POS Closing Shift Taxes",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_14",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "POS Closing Shift",
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "pos_opening_shift",
+   "fieldtype": "Link",
+   "label": "POS Opening Shift",
+   "options": "POS Opening Shift",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "pos_payments",
+   "fieldtype": "Table",
+   "label": "POS Payments",
+   "options": "POS Payment Entry Reference",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "section_break_if3m1",
+   "fieldtype": "Section Break",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "total_cash",
+   "fieldtype": "Currency",
+   "label": "Total Cash",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_diff",
+   "fieldtype": "Currency",
+   "label": "Total Diff",
+   "permlevel": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:doc.total_diff != 0",
+   "fieldname": "difference_reason",
+   "fieldtype": "Small Text",
+   "label": "Difference Reason",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "print_count",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Print Count",
+   "no_copy": 1,
+   "non_negative": 1,
+   "print_hide": 1
+  }
+ ],
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-03-01 10:08:21.227195",
+ "modified_by": "Administrator",
+ "module": "POSAwesome",
+ "name": "POS Closing Shift",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Administrator",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

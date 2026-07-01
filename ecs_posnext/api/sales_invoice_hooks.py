@@ -25,6 +25,28 @@ def validate(doc, method=None):
 	auto_assign_loyalty_program_on_invoice(doc)
 
 
+def _get_cached_pos_settings(pos_profile):
+	"""Get POS Settings with per-request cache to avoid repeated DB queries."""
+	if not pos_profile:
+		return None
+	cache_attr = "_pos_settings_hook_cache"
+	if not hasattr(frappe.local, cache_attr):
+		frappe.local._pos_settings_hook_cache = {}
+	if pos_profile in frappe.local._pos_settings_hook_cache:
+		return frappe.local._pos_settings_hook_cache[pos_profile]
+	try:
+		result = frappe.db.get_value(
+			"POS Settings",
+			{"pos_profile": pos_profile},
+			["tax_inclusive", "enable_loyalty_program", "default_loyalty_program"],
+			as_dict=True
+		)
+		frappe.local._pos_settings_hook_cache[pos_profile] = result
+		return result
+	except Exception:
+		return None
+
+
 def apply_tax_inclusive(doc):
 	"""
 	Mark taxes as inclusive based on POS Profile setting.
@@ -38,17 +60,8 @@ def apply_tax_inclusive(doc):
 	if not doc.pos_profile:
 		return
 
-	try:
-		# Get POS Settings for this profile
-		pos_settings = frappe.db.get_value(
-			"POS Settings",
-			{"pos_profile": doc.pos_profile},
-			["tax_inclusive"],
-			as_dict=True
-		)
-		tax_inclusive = pos_settings.get("tax_inclusive", 0) if pos_settings else 0
-	except Exception:
-		tax_inclusive = 0
+	pos_settings = _get_cached_pos_settings(doc.pos_profile)
+	tax_inclusive = cint(pos_settings.get("tax_inclusive", 0)) if pos_settings else 0
 
 	has_changes = False
 	for tax in doc.get("taxes", []):
@@ -90,13 +103,8 @@ def auto_assign_loyalty_program_on_invoice(doc):
 	if customer_loyalty:
 		return
 
-	# Get POS Settings
-	pos_settings = frappe.db.get_value(
-		"POS Settings",
-		{"pos_profile": doc.pos_profile},
-		["enable_loyalty_program", "default_loyalty_program"],
-		as_dict=True
-	)
+	# Get POS Settings (cached per-request)
+	pos_settings = _get_cached_pos_settings(doc.pos_profile)
 
 	if not pos_settings:
 		return
@@ -146,6 +154,7 @@ def before_cancel(doc, method=None):
 def create_payment_entry_on_submit(doc, method=None):
 	"""
 	Create and submit a Payment Entry for each payment row on POS Sales Invoice submit.
+	Enqueued as a background job to avoid blocking the POS response (~3-5s savings).
 	Skips silently if Payment Entries already exist for this invoice + mode of payment
 	(guards against duplicate execution when multiple apps handle the same hook).
 
@@ -153,22 +162,53 @@ def create_payment_entry_on_submit(doc, method=None):
 		doc: Sales Invoice document
 		method: Hook method name (unused)
 	"""
+	if not doc.is_pos:
+		return
+
+	if not doc.payments:
+		return
+
+	# Collect payment data for background job
+	payments_data = []
+	for payment in doc.payments:
+		if not payment.amount or payment.amount <= 0:
+			continue
+		payments_data.append({
+			"mode_of_payment": payment.mode_of_payment,
+			"amount": payment.amount,
+		})
+
+	if not payments_data:
+		return
+
+	# Enqueue to background job - POS user gets response immediately
+	frappe.enqueue(
+		_create_payment_entries_background,
+		queue="short",
+		timeout=120,
+		invoice_name=doc.name,
+		customer=doc.customer,
+		company=doc.company,
+		debit_to=doc.debit_to,
+		posting_date=str(doc.posting_date),
+		payments_data=payments_data,
+	)
+
+
+def _create_payment_entries_background(
+	invoice_name, customer, company, debit_to, posting_date, payments_data
+):
+	"""Background job: create and submit Payment Entries for a POS invoice."""
 	try:
-		if not doc.is_pos:
-			return
-
-		if not doc.payments:
-			return
-
-		for payment in doc.payments:
-			if not payment.amount or payment.amount <= 0:
-				continue
+		for payment in payments_data:
+			mode_of_payment = payment["mode_of_payment"]
+			amount = payment["amount"]
 
 			# Guard: skip if a Payment Entry already exists for this invoice + mode of payment
 			existing = frappe.db.exists("Payment Entry", {
-				"reference_no": doc.name,
-				"mode_of_payment": payment.mode_of_payment,
-				"party": doc.customer,
+				"reference_no": invoice_name,
+				"mode_of_payment": mode_of_payment,
+				"party": customer,
 				"docstatus": ["!=", 2]
 			})
 			if existing:
@@ -177,7 +217,7 @@ def create_payment_entry_on_submit(doc, method=None):
 			# Resolve the cash/bank account linked to this mode of payment for this company
 			paid_to_account = frappe.db.get_value(
 				"Mode of Payment Account",
-				{"parent": payment.mode_of_payment, "company": doc.company},
+				{"parent": mode_of_payment, "company": company},
 				"default_account"
 			)
 
@@ -185,7 +225,7 @@ def create_payment_entry_on_submit(doc, method=None):
 				frappe.log_error(
 					title="Error : Missing Mode of Payment Account",
 					message="No account found for Mode of Payment {} in company {}".format(
-						payment.mode_of_payment, doc.company
+						mode_of_payment, company
 					)
 				)
 				continue
@@ -193,23 +233,25 @@ def create_payment_entry_on_submit(doc, method=None):
 			pe = frappe.new_doc("Payment Entry")
 			pe.payment_type = "Receive"
 			pe.party_type = "Customer"
-			pe.party = doc.customer
-			pe.company = doc.company
-			pe.posting_date = doc.posting_date
-			pe.mode_of_payment = payment.mode_of_payment
-			pe.paid_from = doc.debit_to
+			pe.party = customer
+			pe.company = company
+			pe.posting_date = posting_date
+			pe.mode_of_payment = mode_of_payment
+			pe.paid_from = debit_to
 			pe.paid_to = paid_to_account
-			pe.paid_amount = payment.amount
-			pe.received_amount = payment.amount
-			pe.reference_no = doc.name
-			pe.reference_date = doc.posting_date
+			pe.paid_amount = amount
+			pe.received_amount = amount
+			pe.reference_no = invoice_name
+			pe.reference_date = posting_date
 
 			pe.insert(ignore_permissions=True)
 			pe.submit()
 
+		frappe.db.commit()
 	except Exception as e:
+		frappe.db.rollback()
 		frappe.log_error(
-			title="Error creating Payment Entry for Sales Invoice {}".format(doc.name),
+			title="Error creating Payment Entry for Sales Invoice {}".format(invoice_name),
 			message="{}\n{}".format(str(e), frappe.get_traceback())
 		)
 

@@ -1,0 +1,157 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-06-08 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "sales_invoice",
+  "branch",
+  "order_no",
+  "custom_number_order",
+  "order_type",
+  "column_break_top",
+  "order_time",
+  "target_minutes",
+  "expected_ready_time",
+  "status",
+  "completed_time",
+  "ready_time",
+  "section_items",
+  "items"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "KDS-.YYYY.MM.DD.-",
+   "set_only_once": 1,
+   "reqd": 1,
+   "no_copy": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "label": "Sales Invoice",
+   "options": "Sales Invoice",
+   "reqd": 1,
+   "in_list_view": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "label": "Branch",
+   "options": "Branch",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "order_no",
+   "fieldtype": "Data",
+   "label": "Order No",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "custom_number_order",
+   "fieldtype": "Data",
+   "label": "Invoice Number",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "order_type",
+   "fieldtype": "Data",
+   "label": "Order Type",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_top",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "order_time",
+   "fieldtype": "Datetime",
+   "label": "Order Time",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "target_minutes",
+   "fieldtype": "Int",
+   "label": "Target Minutes",
+   "read_only": 1
+  },
+  {
+   "fieldname": "expected_ready_time",
+   "fieldtype": "Datetime",
+   "label": "Expected Ready Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nPreparing\nReady\nCompleted\nCancelled",
+   "default": "Pending",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "completed_time",
+   "fieldtype": "Datetime",
+   "label": "Completed Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ready_time",
+   "fieldtype": "Datetime",
+   "label": "Ready Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_items",
+   "fieldtype": "Section Break",
+   "label": "Items"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "KDS Order Item"
+  }
+ ],
+ "links": [],
+ "modified": "2026-06-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "KDS Order",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "write": 1,
+   "role": "System Manager"
+  },
+  {
+   "read": 1,
+   "write": 1,
+   "role": "Kitchen"
+  },
+  {
+   "read": 1,
+   "role": "POSNext Cashier"
+  }
+ ],
+ "sort_field": "order_time",
+ "sort_order": "ASC",
+ "states": [],
+ "title_field": "order_no",
+ "track_changes": 0
+}

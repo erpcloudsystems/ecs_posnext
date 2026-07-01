@@ -1,0 +1,81 @@
+{
+ "actions": [],
+ "autoname": "field:pos_closing_id",
+ "creation": "2025-11-27 00:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "pos_closing_id",
+  "cashier",
+  "expected_cash_amount",
+  "closing_cash_amount",
+  "difference"
+ ],
+ "fields": [
+  {
+   "fieldname": "pos_closing_id",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "POS Closing Shift",
+   "options": "POS Closing Shift",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "cashier",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Cashier",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "expected_cash_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Expected Cash Amount"
+  },
+  {
+   "fieldname": "closing_cash_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Closing Cash Amount"
+  },
+  {
+   "fieldname": "difference",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Difference"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-11-30 11:55:58.157603",
+ "modified_by": "Administrator",
+ "module": "POSAwesome",
+ "name": "POS Closing Summary",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "Sales Manager",
+   "write": 1
+  }
+ ],
+ "quick_entry": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

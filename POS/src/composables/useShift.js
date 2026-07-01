@@ -6,10 +6,13 @@ export const shiftState = ref({
 	pos_profile: null,
 	company: null,
 	isOpen: false,
+	isPrepared: false,
 	/** Initial elapsed ms at the moment shift data was received from server */
 	_initialElapsedMs: 0,
 	/** Local timestamp (Date.now()) when shift data was received */
 	_receivedAt: 0,
+	employee_code: null,
+	employee_name: null,
 })
 
 export function useShift() {
@@ -31,9 +34,12 @@ export function useShift() {
 					pos_opening_shift: data.pos_opening_shift,
 					pos_profile: data.pos_profile,
 					company: data.company,
-					isOpen: true,
+					isOpen: !data.is_prepared,
+					isPrepared: data.is_prepared || false,
 					_initialElapsedMs: initialElapsedMs,
 					_receivedAt: Date.now(),
+					employee_code: data.employee_code || null,
+					employee_name: data.employee_name || null,
 				}
 				// Store in localStorage for offline support
 				localStorage.setItem("pos_shift_data", JSON.stringify({
@@ -47,8 +53,11 @@ export function useShift() {
 					pos_profile: null,
 					company: null,
 					isOpen: false,
+					isPrepared: false,
 					_initialElapsedMs: 0,
 					_receivedAt: 0,
+					employee_code: null,
+					employee_name: null,
 				}
 				localStorage.removeItem("pos_shift_data")
 			}
@@ -67,6 +76,8 @@ export function useShift() {
 						isOpen: true,
 						_initialElapsedMs: data._initialElapsedMs || 0,
 						_receivedAt: data._receivedAt || Date.now(),
+						employee_code: data.employee_code || null,
+						employee_name: data.employee_name || null,
 					}
 				} catch (e) {
 					console.error("Error parsing cached shift data:", e)
@@ -99,6 +110,8 @@ export function useShift() {
 				isOpen: true,
 				_initialElapsedMs: 0,
 				_receivedAt: Date.now(),
+				employee_code: data.employee_code || null,
+				employee_name: data.employee_name || null,
 			}
 			// Store in localStorage
 			localStorage.setItem("pos_shift_data", JSON.stringify({
@@ -135,8 +148,12 @@ export function useShift() {
 				isOpen: false,
 				_initialElapsedMs: 0,
 				_receivedAt: 0,
+				employee_code: null,
+				employee_name: null,
 			}
 			localStorage.removeItem("pos_shift_data")
+			localStorage.removeItem("pos_default_order_type")
+			localStorage.removeItem("pos_selected_price_list")
 		},
 		onError(error) {
 			console.error("Error submitting closing shift:", error)
@@ -145,17 +162,23 @@ export function useShift() {
 
 	// Computed properties
 	const hasOpenShift = computed(() => shiftState.value.isOpen)
+	const isPreparedShift = computed(() => shiftState.value.isPrepared)
 	const currentShift = computed(() => shiftState.value.pos_opening_shift)
 	const currentProfile = computed(() => shiftState.value.pos_profile)
 	const currentCompany = computed(() => shiftState.value.company)
+	const employeeCode = computed(() => shiftState.value.employee_code)
+	const employeeName = computed(() => shiftState.value.employee_name)
 
 	return {
 		// State
 		shiftState,
 		hasOpenShift,
+		isPreparedShift,
 		currentShift,
 		currentProfile,
 		currentCompany,
+		employeeCode,
+		employeeName,
 
 		// Resources
 		checkOpeningShift,

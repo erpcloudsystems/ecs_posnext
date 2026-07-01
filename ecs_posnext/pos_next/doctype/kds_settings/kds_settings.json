@@ -1,0 +1,109 @@
+{
+ "actions": [],
+ "autoname": "field:branch",
+ "creation": "2026-06-08 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "branch",
+  "is_default",
+  "column_break_1",
+  "default_target_minutes",
+  "section_order_types",
+  "warning_threshold_pct",
+  "pickup_target_minutes",
+  "delivery_target_minutes",
+  "dine_in_target_minutes",
+  "talabat_target_minutes"
+ ],
+ "fields": [
+  {
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Branch",
+   "options": "Branch",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "0",
+   "description": "Fallback settings used when no branch-specific record exists",
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Default"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "15",
+   "description": "Target preparation time in minutes for orders at this branch",
+   "fieldname": "default_target_minutes",
+   "fieldtype": "Int",
+   "label": "Target Minutes"
+  },
+  {
+   "default": "70",
+   "description": "Percent of target time elapsed before timer turns amber",
+   "fieldname": "warning_threshold_pct",
+   "fieldtype": "Int",
+   "label": "Warning Threshold %"
+  },
+  {
+   "fieldname": "section_order_types",
+   "fieldtype": "Section Break",
+   "label": "Target Minutes by Order Type"
+  },
+  {
+   "description": "Leave 0 to use default target",
+   "fieldname": "pickup_target_minutes",
+   "fieldtype": "Int",
+   "label": "Pickup (min)"
+  },
+  {
+   "description": "Leave 0 to use default target",
+   "fieldname": "delivery_target_minutes",
+   "fieldtype": "Int",
+   "label": "Delivery (min)"
+  },
+  {
+   "description": "Leave 0 to use default target",
+   "fieldname": "dine_in_target_minutes",
+   "fieldtype": "Int",
+   "label": "Dine In (min)"
+  },
+  {
+   "description": "Leave 0 to use default target",
+   "fieldname": "talabat_target_minutes",
+   "fieldtype": "Int",
+   "label": "Talabat (min)"
+  }
+ ],
+ "links": [],
+ "modified": "2026-06-10 16:29:40.584153",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "KDS Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Kitchen"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "branch",
+ "sort_order": "ASC",
+ "states": [],
+ "title_field": "branch"
+}

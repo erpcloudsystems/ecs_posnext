@@ -26,6 +26,7 @@ export const usePOSUIStore = defineStore("posUI", () => {
 	const { isOpen: showClearCartDialog } = useDialog("clearCart")
 	const { isOpen: showLogoutDialog } = useDialog("logout")
 	const { isOpen: showItemSelectionDialog } = useDialog("itemSelection")
+	const { isOpen: showComboSelectionDialog } = useDialog("comboSelection")
 	const { isOpen: showErrorDialog } = useDialog("invoiceError")
 
 	// Global dialog state
@@ -162,6 +163,7 @@ export const usePOSUIStore = defineStore("posUI", () => {
 		showClearCartDialog.value = false
 		showLogoutDialog.value = false
 		showItemSelectionDialog.value = false
+		showComboSelectionDialog.value = false
 		showErrorDialog.value = false
 		clearError()
 	}
@@ -185,6 +187,7 @@ export const usePOSUIStore = defineStore("posUI", () => {
 		showClearCartDialog,
 		showLogoutDialog,
 		showItemSelectionDialog,
+		showComboSelectionDialog,
 		showErrorDialog,
 		isAnyDialogOpen,
 		errorDialogTitle,

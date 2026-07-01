@@ -1,0 +1,26 @@
+{
+ "content": null,
+ "creation": "2024-05-12 14:00:00",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-06-30 16:36:37.527402",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "pos_super_opening",
+ "owner": "Administrator",
+ "page_name": "pos_super_opening",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Branch supervisor"
+  }
+ ],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "POS Super Opening"
+}

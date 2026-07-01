@@ -101,7 +101,20 @@ fixtures = [
 					"POS Profile-posa_cash_mode_of_payment",
 					"POS Profile-posa_allow_delete",
 					"POS Profile-posa_block_sale_beyond_available_qty",
-					"Mode of Payment-is_wallet_payment"
+					"Mode of Payment-is_wallet_payment",
+					"Sales Invoice-custom_order_type",
+					"POS Profile-custom_shift_start_time",
+					"POS Profile-custom_shift_end_time",
+					"Sales Invoice Item-posa_row_id",
+					"Customer Complaint-custom_complaint_number",
+					"Customer Complaint-custom_response_by",
+					"Driver-dispatch_current_status",
+					"Driver-dispatch_active_shift",
+					"Payment Entry-custom_dispatch_shift",
+					"Item-kds_station",
+					"Sales Invoice Item-custom_selected_components",
+					"Sales Invoice Item-is_bundle",
+					"Sales Invoice Item-removed_ingredients"
 				]
 			]
 		]
@@ -121,7 +134,7 @@ fixtures = [
     {
         "dt": "Role",
         "filters": [
-            ["role_name", "in", ["POSNext Cashier"]]
+            ["role_name", "in", ["POSNext Cashier", "Kitchen"]]
         ]
     },
     {
@@ -179,6 +192,10 @@ before_uninstall = "ecs_posnext.uninstall.before_uninstall"
 # 	"Event": "frappe.desk.doctype.event.event.has_permission",
 # }
 
+permission_query_conditions = {
+	"Delivery Assignment": "ecs_posnext.ecs_posnext.api.dispatcher.get_delivery_assignment_permission_conditions",
+}
+
 # Standard Queries
 # ----------------
 # Custom query for company-aware item filtering
@@ -218,14 +235,20 @@ doc_events = {
 		"before_cancel": "ecs_posnext.api.sales_invoice_hooks.before_cancel",
 		"on_submit": [
 			"ecs_posnext.realtime_events.emit_stock_update_event",
+			"ecs_posnext.realtime_events.emit_order_changed_event",
 			"ecs_posnext.api.wallet.process_loyalty_to_wallet",
-			"ecs_posnext.api.sales_invoice_hooks.create_payment_entry_on_submit"
+			"ecs_posnext.api.sales_invoice_hooks.create_payment_entry_on_submit",
+			"ecs_posnext.ecs_posnext.api.kds.on_sales_invoice_submit"
 		],
 		"on_cancel": [
 			"ecs_posnext.realtime_events.emit_stock_update_event",
+			"ecs_posnext.realtime_events.emit_order_changed_event",
 			"ecs_posnext.api.sales_invoice_hooks.cancel_payment_entries_on_cancel"
 		],
-		"after_insert": "ecs_posnext.realtime_events.emit_invoice_created_event"
+		"after_insert": [
+			"ecs_posnext.realtime_events.emit_invoice_created_event",
+			"ecs_posnext.realtime_events.emit_order_changed_event",
+		],
 	},
 	"POS Profile": {
 		"on_update": "ecs_posnext.realtime_events.emit_pos_profile_updated_event"

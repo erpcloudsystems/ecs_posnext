@@ -167,6 +167,36 @@ def validate_manual_rate_edit(item, pos_profile=None, pos_settings_cache=None):
     return {"valid": True}
 
 
+def recursive_sanitize(data):
+    """Recursively sanitize dictionaries and lists to replace "None", "null", 
+    and "undefined" strings with None for common identifier fields.
+    """
+    if isinstance(data, dict):
+        # Fields that are common candidates for causing DoesNotExistErrors
+        identifier_keys = ["name", "pos_profile", "offline_id", "return_against", "doctype", "customer"]
+        
+        for key in list(data.keys()):
+            val = data[key]
+            
+            # Sanitize identifier fields
+            if key in identifier_keys:
+                if isinstance(val, str) and val.strip() in ["None", "null", "undefined", ""]:
+                    data[key] = None
+                elif val is False:
+                    data[key] = None
+            
+            # Recurse into nested structures
+            if isinstance(val, (dict, list)):
+                recursive_sanitize(val)
+                
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, (dict, list)):
+                recursive_sanitize(item)
+    
+    return data
+
+
 def log_manual_rate_edit(item, invoice_name, user=None):
     """
     Create an audit log entry for manual rate edits.
@@ -284,7 +314,20 @@ def get_payment_account(mode_of_payment, company):
     """
     Get account for mode of payment.
     Tries multiple fallback methods to find a suitable account.
+    Results are cached per-request via frappe.local to avoid repeated DB lookups.
     """
+    # Per-request cache: avoid repeated DB lookups for the same mode_of_payment + company
+    cache_attr = "_payment_account_cache"
+    if not hasattr(frappe.local, cache_attr):
+        frappe.local._payment_account_cache = {}
+    cache_key = (mode_of_payment, company)
+    if cache_key in frappe.local._payment_account_cache:
+        return frappe.local._payment_account_cache[cache_key]
+
+    def _cache_and_return(result):
+        frappe.local._payment_account_cache[cache_key] = result
+        return result
+
     # Try 1: Mode of Payment Account table
     account = frappe.db.get_value(
         "Mode of Payment Account",
@@ -292,7 +335,7 @@ def get_payment_account(mode_of_payment, company):
         "default_account",
     )
     if account:
-        return {"account": account}
+        return _cache_and_return({"account": account})
 
     # Try 2: POS Payment Method from POS Profile
     account = frappe.db.sql(
@@ -310,18 +353,18 @@ def get_payment_account(mode_of_payment, company):
     )
 
     if account and account[0].default_account:
-        return {"account": account[0].default_account}
+        return _cache_and_return({"account": account[0].default_account})
 
     # Try 3: Company default cash account (for cash payments)
     if "cash" in mode_of_payment.lower():
         account = frappe.get_value("Company", company, "default_cash_account")
         if account:
-            return {"account": account}
+            return _cache_and_return({"account": account})
 
     # Try 4: Company default bank account
     account = frappe.get_value("Company", company, "default_bank_account")
     if account:
-        return {"account": account}
+        return _cache_and_return({"account": account})
 
     # Try 5: Any Cash/Bank account for the company
     account = frappe.db.get_value(
@@ -330,7 +373,7 @@ def get_payment_account(mode_of_payment, company):
         "name",
     )
     if account:
-        return {"account": account}
+        return _cache_and_return({"account": account})
 
     # No account found - throw error
     frappe.throw(
@@ -366,13 +409,64 @@ def _get_available_stock(item):
 
 
 def _collect_stock_errors(items):
-    """Return list of items exceeding available stock."""
+    """Return list of items exceeding available stock.
+
+    Uses batch SQL to fetch all non-batch stock in a single query
+    instead of N individual queries.
+    """
     errors = []
+
+    # Separate batch items (need individual API calls) from non-batch items (can batch query)
+    non_batch_items = []
+    batch_items = []
     for d in items:
         if flt(d.get("qty")) < 0:
             continue
+        if not d.get("item_code") or not d.get("warehouse"):
+            continue
+        if d.get("batch_no"):
+            batch_items.append(d)
+        else:
+            non_batch_items.append(d)
 
-        available = _get_available_stock(d)
+    # Batch query: fetch all non-batch stock in a single SQL
+    bin_stock = {}
+    if non_batch_items:
+        # Build unique (item_code, warehouse) pairs
+        pairs = list({(d.get("item_code"), d.get("warehouse")) for d in non_batch_items})
+        if pairs:
+            conditions = " OR ".join(
+                ["(item_code = %s AND warehouse = %s)"] * len(pairs)
+            )
+            flat_params = [v for pair in pairs for v in pair]
+            rows = frappe.db.sql(
+                f"SELECT item_code, warehouse, actual_qty FROM `tabBin` WHERE {conditions}",
+                flat_params,
+                as_dict=True,
+            )
+            for row in rows:
+                bin_stock[(row.item_code, row.warehouse)] = flt(row.actual_qty)
+
+    # Check non-batch items against batch-fetched stock
+    for d in non_batch_items:
+        available = bin_stock.get((d.get("item_code"), d.get("warehouse")), 0)
+        requested = flt(
+            d.get("stock_qty")
+            or (flt(d.get("qty")) * flt(d.get("conversion_factor") or 1))
+        )
+        if requested > available:
+            errors.append(
+                {
+                    "item_code": d.get("item_code"),
+                    "warehouse": d.get("warehouse"),
+                    "requested_qty": requested,
+                    "available_qty": available,
+                }
+            )
+
+    # Check batch items individually (ERPNext API limitation)
+    for d in batch_items:
+        available = get_batch_qty(d.get("batch_no"), d.get("warehouse")) or 0
         requested = flt(
             d.get("stock_qty")
             or (flt(d.get("qty")) * flt(d.get("conversion_factor") or 1))
@@ -609,280 +703,388 @@ def validate_return_items(original_invoice_name, return_items, doctype="Sales In
 # ==========================================
 
 
+def _prepare_invoice_doc(data):
+    """
+    Build and prepare an invoice document from POS data WITHOUT saving.
+
+    Shared logic between update_invoice (draft) and submit_invoice (direct submit).
+    This avoids the double save/reload cycle that was causing ~2-3s of extra latency.
+
+    Returns:
+        tuple: (invoice_doc, pos_profile_doc) - prepared document and cached profile
+    """
+    # Normalize input
+    recursive_sanitize(data)
+    
+    pos_profile = data.get("pos_profile")
+    if pos_profile in ["None", "null", "", False]:
+        pos_profile = None
+
+    doctype = data.get("doctype") or "Sales Invoice"
+    if doctype in ["None", "null", "", False]:
+        doctype = "Sales Invoice"
+    data["doctype"] = doctype
+
+    # Normalize pricing_rules before document creation
+    standardize_pricing_rules(data.get("items"))
+
+    # Create or update invoice
+    name = data.get("name")
+    if not name: # Catch both None and empty strings sanitized by helper
+        name = None
+        data.pop("name", None)
+
+    if name:
+        invoice_doc = frappe.get_doc(doctype, name)
+        # Clear child tables to prevent duplicating lines when updating draft invoice
+        invoice_doc.set("items", [])
+        invoice_doc.set("payments", [])
+        invoice_doc.set("sales_team", [])
+        invoice_doc.update(data)
+    else:
+        invoice_doc = frappe.get_doc(data)
+
+    # Parity with posawesome2: Adjust packed items and handle removed ingredients
+    if hasattr(invoice_doc, "packed_items") and invoice_doc.packed_items:
+        items_to_remove = []
+        for item in invoice_doc.items:
+            if item.get("posa_row_id"):
+                removed_ingredients = []
+                if item.get("removed_ingredients"):
+                    try:
+                        removed_ingredients = json.loads(item.removed_ingredients)
+                        if not isinstance(removed_ingredients, list):
+                            removed_ingredients = []
+                    except (ValueError, TypeError):
+                        removed_ingredients = []
+
+                for p_item in invoice_doc.packed_items:
+                    if p_item.get("posa_row_id") == item.get("posa_row_id"):
+                        if p_item.item_code in removed_ingredients:
+                            items_to_remove.append(p_item)
+                        else:
+                            # Multiply per-unit quantity by parent quantity
+                            p_item.qty = flt(item.qty) * flt(p_item.qty)
+        
+        # Remove the filtered components from packed_items
+        for p_item in items_to_remove:
+            invoice_doc.packed_items.remove(p_item)
+
+    # Recursively expand packed items that are themselves Product Bundles — e.g.
+    # a variant selected inside a combo that has its own recipe/bundle. Its
+    # bundle components are added to the packing list too (and nested bundles
+    # are expanded as well).
+    if hasattr(invoice_doc, "packed_items") and invoice_doc.packed_items:
+        _seen_bundles = set()
+        _queue = list(invoice_doc.packed_items)
+        while _queue:
+            p = _queue.pop(0)
+            bundle_name = frappe.db.get_value(
+                "Product Bundle", {"new_item_code": p.item_code}, "name"
+            )
+            if not bundle_name or bundle_name in _seen_bundles:
+                continue
+            _seen_bundles.add(bundle_name)
+            try:
+                bundle = frappe.get_doc("Product Bundle", bundle_name)
+            except Exception:
+                continue
+            for b in bundle.items:
+                row = invoice_doc.append("packed_items", {
+                    "parent_item": p.get("parent_item") or p.item_code,
+                    "item_code": b.item_code,
+                    "qty": flt(b.qty) * flt(p.qty or 1),
+                    "posa_row_id": p.get("posa_row_id"),
+                    "warehouse": p.get("warehouse"),
+                    "uom": b.uom or frappe.db.get_value("Item", b.item_code, "stock_uom"),
+                    "conversion_factor": 1.0,
+                    "rate": 0,
+                })
+                _queue.append(row)
+
+    pos_profile_doc = None
+    if pos_profile:
+        try:
+            pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
+        except Exception:
+            frappe.throw(_("Unable to load POS Profile {0}").format(pos_profile))
+
+        invoice_doc.pos_profile = pos_profile
+        
+        if pos_profile == "Call Center":
+            current_notes = invoice_doc.get("posa_notes") or ""
+            if "Created from Call Center" not in current_notes:
+                invoice_doc.posa_notes = (current_notes + "\nCreated from Call Center").strip()
+            
+            # Note: Tagging is moved to submit_invoice/update_invoice after save()
+
+        if pos_profile_doc:
+            if pos_profile_doc.company and not invoice_doc.get("company"):
+                invoice_doc.company = pos_profile_doc.company
+            if pos_profile_doc.currency and not invoice_doc.get("currency"):
+                invoice_doc.currency = pos_profile_doc.currency
+
+            # Copy accounting dimensions from POS Profile
+            profile_branch = getattr(pos_profile_doc, "branch", None)
+            selected_branch = data.get("branch") or profile_branch
+            
+            # MANDATORY: If in Call Center mode, a branch MUST be selected manually
+            if pos_profile == "Call Center" and not data.get("branch"):
+                frappe.throw(_("Target Branch is mandatory for Call Center orders."))
+
+            if selected_branch:
+                # Fetch branch warehouse from its POS Profile
+                branch_warehouse = frappe.db.get_value(
+                    "POS Profile", 
+                    {"branch": selected_branch, "disabled": 0}, 
+                    "warehouse"
+                )
+
+                invoice_doc.branch = selected_branch
+                for item in invoice_doc.get("items", []):
+                    item.branch = selected_branch
+                    if branch_warehouse:
+                        item.warehouse = branch_warehouse
+
+                for p_item in invoice_doc.get("packed_items", []):
+                    if branch_warehouse:
+                        p_item.warehouse = branch_warehouse
+                    if not flt(p_item.conversion_factor):
+                        p_item.conversion_factor = 1.0
+
+                # Link to the branch's open shift
+                # Override if in Call Center mode or if branch is explicitly changed from profile default
+                if pos_profile == "Call Center" or selected_branch != profile_branch:
+                    branch_shift = _get_branch_open_shift(selected_branch)
+                    if branch_shift:
+                        invoice_doc.posa_pos_opening_shift = branch_shift
+
+    # Validate return items if this is a return invoice
+    return_against = invoice_doc.get("return_against")
+    if return_against in ["None", "null", "", False]:
+        return_against = None
+        invoice_doc.return_against = None
+
+    if (data.get("is_return") or invoice_doc.get("is_return")) and return_against:
+        validation = validate_return_items(
+            return_against,
+            [d.as_dict() for d in invoice_doc.items],
+            doctype=invoice_doc.doctype,
+        )
+        if not validation.get("valid"):
+            frappe.throw(validation.get("message"))
+    
+    # Handle Delivery Charges
+    delivery_charge_name = data.get("posa_delivery_charges")
+    delivery_charge_rate = flt(data.get("posa_delivery_charges_rate"))
+    passed_territory = data.get("territory")
+    
+    if passed_territory:
+        invoice_doc.territory = passed_territory
+    
+    if delivery_charge_name and delivery_charge_rate:
+        try:
+            charge_doc = frappe.get_doc("Delivery Charges", delivery_charge_name)
+            
+            # Remove any existing delivery charge tax row to avoid duplicates
+            if hasattr(invoice_doc, "taxes"):
+                invoice_doc.taxes = [t for t in invoice_doc.taxes if t.description != delivery_charge_name]
+            
+            invoice_doc.append("taxes", {
+                "charge_type": "Actual",
+                "description": delivery_charge_name,
+                "tax_amount": delivery_charge_rate,
+                "cost_center": charge_doc.cost_center,
+                "account_head": charge_doc.shipping_account,
+                "add_deduct_tax": "Add",
+                "included_in_print_rate": 0
+            })
+            
+            # Recalculate totals
+            invoice_doc.calculate_taxes_and_totals()
+            
+        except Exception as e:
+            frappe.log_error(f"Error applying delivery charge: {str(e)}", "Delivery Charge Error")
+
+    # Ensure customer exists
+    customer_name = invoice_doc.get("customer")
+    if customer_name and not frappe.db.exists("Customer", customer_name):
+        try:
+            cust = frappe.get_doc(
+                {
+                    "doctype": "Customer",
+                    "customer_name": customer_name,
+                    "customer_group": "All Customer Groups",
+                    "territory": "All Territories",
+                    "customer_type": "Individual",
+                }
+            )
+            cust.flags.ignore_permissions = True
+            cust.insert()
+            invoice_doc.customer = cust.name
+            invoice_doc.customer_name = cust.customer_name
+        except Exception as e:
+            frappe.log_error(f"Failed to create customer {customer_name}: {e}")
+
+    # Disable automatic pricing rules (we handle discounts manually from POS)
+    invoice_doc.ignore_pricing_rule = 1
+    invoice_doc.flags.ignore_pricing_rule = True
+
+    # ========================================================================
+    # OPTIMIZATION: Cache POS Settings to avoid repeated DB queries
+    # ========================================================================
+    pos_settings_cache = None
+    if pos_profile:
+        pos_settings_cache = frappe.db.get_value(
+            DOCTYPE_POS_SETTINGS,
+            {"pos_profile": pos_profile},
+            [
+                FIELD_ALLOW_USER_TO_EDIT_RATE,
+                FIELD_MAX_DISCOUNT_ALLOWED,
+                FIELD_ALLOW_NEGATIVE_STOCK
+            ],
+            as_dict=True
+        )
+        pos_profile_rounded = frappe.db.get_value(
+            DOCTYPE_POS_PROFILE,
+            pos_profile,
+            FIELD_DISABLE_ROUNDED_TOTAL
+        )
+        if pos_settings_cache:
+            pos_settings_cache[FIELD_DISABLE_ROUNDED_TOTAL] = pos_profile_rounded
+        else:
+            pos_settings_cache = {FIELD_DISABLE_ROUNDED_TOTAL: pos_profile_rounded}
+
+    # ========================================================================
+    # DISCOUNT CALCULATION - CRITICAL LOGIC
+    # ========================================================================
+    for item in invoice_doc.get("items", []):
+        item_rate = flt(item.rate or 0)
+        discount_pct = flt(item.discount_percentage or 0)
+        frontend_price_list_rate = flt(item.get("price_list_rate") or 0)
+        is_manual_edit = cint(item.get(FIELD_IS_RATE_MANUALLY_EDITED) or 0)
+
+        if is_manual_edit:
+            original_rate = flt(item.get(FIELD_ORIGINAL_RATE) or item.get(FIELD_PRICE_LIST_RATE) or 0)
+            if original_rate > 0:
+                item.price_list_rate = original_rate
+            validation = validate_manual_rate_edit(item, pos_profile, pos_settings_cache)
+            if not validation.get("valid"):
+                frappe.throw(validation.get("message"))
+        else:
+            if frontend_price_list_rate > 0:
+                item.price_list_rate = frontend_price_list_rate
+            elif discount_pct > 0 and discount_pct < 100 and item_rate > 0:
+                item.price_list_rate = calculate_price_list_rate(
+                    item_rate, discount_pct, frontend_price_list_rate
+                )
+            else:
+                item.price_list_rate = item_rate
+            if flt(item.price_list_rate) < item_rate:
+                item.price_list_rate = item_rate
+
+        pricing_rules = item.get("pricing_rules")
+        if pricing_rules:
+            if isinstance(pricing_rules, list):
+                item.pricing_rules = ",".join(str(r) for r in pricing_rules)
+            elif isinstance(pricing_rules, str) and pricing_rules.startswith("["):
+                try:
+                    rules_list = json.loads(pricing_rules)
+                    if isinstance(rules_list, list):
+                        item.pricing_rules = ",".join(str(r) for r in rules_list)
+                except (json.JSONDecodeError, TypeError):
+                    item.pricing_rules = ""
+
+    # Set invoice flags BEFORE calculations
+    if doctype == "Sales Invoice":
+        invoice_doc.is_pos = 1
+        invoice_doc.update_stock = 1
+
+    # ========================================================================
+    # ROUNDING CONFIGURATION
+    # ========================================================================
+    disable_rounded = 1
+    if pos_settings_cache and pos_settings_cache.get(FIELD_DISABLE_ROUNDED_TOTAL) is not None:
+        disable_rounded = cint(pos_settings_cache.get(FIELD_DISABLE_ROUNDED_TOTAL))
+    invoice_doc.disable_rounded_total = disable_rounded
+
+    # Populate missing fields (company, currency, accounts, etc.)
+    invoice_doc.set_missing_values()
+
+    # Calculate totals and apply discounts
+    invoice_doc.calculate_taxes_and_totals()
+    if invoice_doc.grand_total is None:
+        invoice_doc.grand_total = 0.0
+    if invoice_doc.base_grand_total is None:
+        invoice_doc.base_grand_total = 0.0
+
+    # Set accounts for payment methods
+    for payment in invoice_doc.payments:
+        mode_of_payment = payment.get("mode_of_payment")
+        if mode_of_payment and not payment.get("account"):
+            try:
+                account_info = get_payment_account(
+                    mode_of_payment, invoice_doc.company
+                )
+                if account_info:
+                    payment.account = account_info.get("account")
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to get payment account for {mode_of_payment}: {e}",
+                    "Payment Account Lookup"
+                )
+
+    # For return invoices, ensure payments are negative
+    if invoice_doc.get("is_return"):
+        if doctype == "Sales Invoice" and invoice_doc.get("payments"):
+            for payment in invoice_doc.payments:
+                payment.amount = -abs(payment.amount)
+                if payment.base_amount:
+                    payment.base_amount = -abs(payment.base_amount)
+            invoice_doc.paid_amount = flt(sum(p.amount for p in invoice_doc.payments))
+            invoice_doc.base_paid_amount = flt(
+                sum(p.base_amount or 0 for p in invoice_doc.payments)
+            )
+
+    # Validate and track POS Coupon if coupon_code is provided
+    coupon_code = data.get("coupon_code")
+    if coupon_code:
+        if frappe.db.table_exists("POS Coupon"):
+            from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import check_coupon_code
+            coupon_result = check_coupon_code(
+                coupon_code,
+                customer=invoice_doc.customer,
+                company=invoice_doc.company
+            )
+            if not coupon_result or not coupon_result.get("valid"):
+                error_msg = coupon_result.get("msg", "Invalid coupon code") if coupon_result else "Invalid coupon code"
+                frappe.throw(_(error_msg))
+            invoice_doc.coupon_code = coupon_code
+
+    invoice_doc.flags.ignore_permissions = True
+    frappe.flags.ignore_account_permission = True
+
+    return invoice_doc, pos_profile_doc
+
+
 @frappe.whitelist()
 def update_invoice(data):
     """Create or update invoice draft (Step 1)."""
     try:
         data = json.loads(data) if isinstance(data, str) else data
-
-        pos_profile = data.get("pos_profile")
-        doctype = data.get("doctype", "Sales Invoice")
-
-        # Ensure the document type is set
-        data.setdefault("doctype", doctype)
-
-        # Normalize pricing_rules before document creation
-        standardize_pricing_rules(data.get("items"))
-
-        # Create or update invoice
-        if data.get("name"):
-            invoice_doc = frappe.get_doc(doctype, data.get("name"))
-            invoice_doc.update(data)
-        else:
-            invoice_doc = frappe.get_doc(data)
-
-        pos_profile_doc = None
-        if pos_profile:
-            try:
-                pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
-            except Exception:
-                frappe.throw(_("Unable to load POS Profile {0}").format(pos_profile))
-
-            invoice_doc.pos_profile = pos_profile
-
-            if pos_profile_doc:
-                if pos_profile_doc.company and not invoice_doc.get("company"):
-                    invoice_doc.company = pos_profile_doc.company
-                if pos_profile_doc.currency and not invoice_doc.get("currency"):
-                    invoice_doc.currency = pos_profile_doc.currency
-
-                # Copy accounting dimensions from POS Profile
-                if hasattr(pos_profile_doc, "branch") and pos_profile_doc.branch:
-                    invoice_doc.branch = pos_profile_doc.branch
-                    # Also set branch on all items for GL entries
-                    for item in invoice_doc.get("items", []):
-                        item.branch = pos_profile_doc.branch
-
-        company = invoice_doc.get("company") or (
-            pos_profile_doc.company if pos_profile_doc else None
-        )
-
-        if company and invoice_doc.get("payments") and doctype == "Sales Invoice":
-            for payment in invoice_doc.payments:
-                mode_of_payment = payment.get("mode_of_payment")
-                if mode_of_payment and not payment.get("account"):
-                    try:
-                        account_info = get_payment_account(
-                            mode_of_payment, company
-                        )
-                        if account_info:
-                            payment.account = account_info.get("account")
-                    except Exception as e:
-                        frappe.log_error(
-                            f"Failed to get payment account for {mode_of_payment}: {e}",
-                            "Payment Account Lookup"
-                        )
-
-        # Validate return items if this is a return invoice
-        if (data.get("is_return") or invoice_doc.get("is_return")) and invoice_doc.get(
-            "return_against"
-        ):
-            validation = validate_return_items(
-                invoice_doc.return_against,
-                [d.as_dict() for d in invoice_doc.items],
-                doctype=invoice_doc.doctype,
-            )
-            if not validation.get("valid"):
-                frappe.throw(validation.get("message"))
-
-        # Ensure customer exists
-        customer_name = invoice_doc.get("customer")
-        if customer_name and not frappe.db.exists("Customer", customer_name):
-            try:
-                cust = frappe.get_doc(
-                    {
-                        "doctype": "Customer",
-                        "customer_name": customer_name,
-                        "customer_group": "All Customer Groups",
-                        "territory": "All Territories",
-                        "customer_type": "Individual",
-                    }
-                )
-                cust.flags.ignore_permissions = True
-                cust.insert()
-                invoice_doc.customer = cust.name
-                invoice_doc.customer_name = cust.customer_name
-            except Exception as e:
-                frappe.log_error(f"Failed to create customer {customer_name}: {e}")
-
-        # Disable automatic pricing rules (we handle discounts manually from POS)
-        invoice_doc.ignore_pricing_rule = 1
-        invoice_doc.flags.ignore_pricing_rule = True
-
-        # ========================================================================
-        # OPTIMIZATION: Cache POS Settings to avoid repeated DB queries
-        # Fetch all needed settings in a single query at the start
-        # ========================================================================
-        pos_settings_cache = None
-        if pos_profile:
-            pos_settings_cache = frappe.db.get_value(
-                DOCTYPE_POS_SETTINGS,
-                {"pos_profile": pos_profile},
-                [
-                    FIELD_ALLOW_USER_TO_EDIT_RATE,
-                    FIELD_MAX_DISCOUNT_ALLOWED,
-                    FIELD_ALLOW_NEGATIVE_STOCK
-                ],
-                as_dict=True
-            )
-            # disable_rounded_total is on POS Profile, not POS Settings
-            pos_profile_rounded = frappe.db.get_value(
-                DOCTYPE_POS_PROFILE,
-                pos_profile,
-                FIELD_DISABLE_ROUNDED_TOTAL
-            )
-            if pos_settings_cache:
-                pos_settings_cache[FIELD_DISABLE_ROUNDED_TOTAL] = pos_profile_rounded
-            else:
-                pos_settings_cache = {FIELD_DISABLE_ROUNDED_TOTAL: pos_profile_rounded}
-
-        # ========================================================================
-        # DISCOUNT CALCULATION - CRITICAL LOGIC
-        # ========================================================================
-        # Frontend sends: rate (discounted), price_list_rate (original), discount_percentage
-        # Priority: Trust frontend's price_list_rate if provided (avoids rounding errors)
-        # Fallback: Reverse-calculate price_list_rate from rate and discount_percentage
-        #
-        # Formula: rate = price_list_rate * (1 - discount_percentage/100)
-        # Reverse: price_list_rate = rate / (1 - discount_percentage/100)
-        # ========================================================================
-        for item in invoice_doc.get("items", []):
-            item_rate = flt(item.rate or 0)
-            discount_pct = flt(item.discount_percentage or 0)
-            frontend_price_list_rate = flt(item.get("price_list_rate") or 0)
-            is_manual_edit = cint(item.get(FIELD_IS_RATE_MANUALLY_EDITED) or 0)
-
-            if is_manual_edit:
-                # MANUAL RATE EDIT: preserve original price_list_rate for audit
-                original_rate = flt(item.get(FIELD_ORIGINAL_RATE) or item.get(FIELD_PRICE_LIST_RATE) or 0)
-                if original_rate > 0:
-                    item.price_list_rate = original_rate
-
-                # Validate manual rate edit against business rules (uses cached settings)
-                validation = validate_manual_rate_edit(item, pos_profile, pos_settings_cache)
-                if not validation.get("valid"):
-                    frappe.throw(validation.get("message"))
-            else:
-                # NORMAL FLOW: Trust frontend's price_list_rate if provided and valid
-                if frontend_price_list_rate > 0:
-                    item.price_list_rate = frontend_price_list_rate
-                # Fallback: reverse-calculate if discount exists but no price_list_rate
-                elif discount_pct > 0 and discount_pct < 100 and item_rate > 0:
-                    item.price_list_rate = calculate_price_list_rate(
-                        item_rate, discount_pct, frontend_price_list_rate
-                    )
-                else:
-                    # No discount or price_list_rate - use rate as is
-                    item.price_list_rate = item_rate
-
-                # Ensure price_list_rate is never less than rate (data integrity)
-                if flt(item.price_list_rate) < item_rate:
-                    item.price_list_rate = item_rate
-
-            # IMPORTANT: Keep the rate from frontend (do NOT set to 0)
-            # ERPNext will recalculate if needed, but preserving frontend rate
-            # prevents rounding issues and ensures UI matches invoice
-
-            # Convert pricing_rules from list to comma-separated string
-            # ERPNext expects pricing_rules as a string, not a list
-            pricing_rules = item.get("pricing_rules")
-            if pricing_rules:
-                if isinstance(pricing_rules, list):
-                    item.pricing_rules = ",".join(str(r) for r in pricing_rules)
-                elif isinstance(pricing_rules, str) and pricing_rules.startswith("["):
-                    # Handle JSON string representation of list
-                    try:
-                        rules_list = json.loads(pricing_rules)
-                        if isinstance(rules_list, list):
-                            item.pricing_rules = ",".join(str(r) for r in rules_list)
-                    except (json.JSONDecodeError, TypeError):
-                        # Keep original value - malformed JSON will be handled by standardize_pricing_rules
-                        item.pricing_rules = ""
-
-        # Set invoice flags BEFORE calculations
-        if doctype == "Sales Invoice":
-            invoice_doc.is_pos = 1
-            invoice_doc.update_stock = 1
-
-        # ========================================================================
-        # ROUNDING CONFIGURATION
-        # ========================================================================
-        # Load rounding preference from POS Settings (use cached value)
-        # When disabled (0): ERPNext rounds to nearest whole number
-        # When enabled (1): Shows exact amount without rounding
-        # ========================================================================
-        disable_rounded = 1  # Default: disable rounding for POS (show exact amounts)
-
-        if pos_settings_cache and pos_settings_cache.get(FIELD_DISABLE_ROUNDED_TOTAL) is not None:
-            disable_rounded = cint(pos_settings_cache.get(FIELD_DISABLE_ROUNDED_TOTAL))
-
-        invoice_doc.disable_rounded_total = disable_rounded
-
-        # Populate missing fields (company, currency, accounts, etc.)
-        invoice_doc.set_missing_values()
-
-        # Calculate totals and apply discounts (with rounding disabled)
-        invoice_doc.calculate_taxes_and_totals()
-        if invoice_doc.grand_total is None:
-            invoice_doc.grand_total = 0.0
-        if invoice_doc.base_grand_total is None:
-            invoice_doc.base_grand_total = 0.0
-
-        # Set accounts for payment methods before saving
-        for payment in invoice_doc.payments:
-            mode_of_payment = payment.get("mode_of_payment")
-            if mode_of_payment and not payment.get("account"):
-                try:
-                    account_info = get_payment_account(
-                        mode_of_payment, invoice_doc.company
-                    )
-                    if account_info:
-                        payment.account = account_info.get("account")
-                except Exception as e:
-                    frappe.log_error(
-                        f"Failed to get payment account for {mode_of_payment}: {e}",
-                        "Payment Account Lookup"
-                    )
-
-        # For return invoices, ensure payments are negative
-        if invoice_doc.get("is_return"):
-            # Return handling is primarily for Sales Invoice
-            if doctype == "Sales Invoice" and invoice_doc.get("payments"):
-                for payment in invoice_doc.payments:
-                    payment.amount = -abs(payment.amount)
-                    if payment.base_amount:
-                        payment.base_amount = -abs(payment.base_amount)
-
-                invoice_doc.paid_amount = flt(sum(p.amount for p in invoice_doc.payments))
-                invoice_doc.base_paid_amount = flt(
-                    sum(p.base_amount or 0 for p in invoice_doc.payments)
-                )
-
-        # Validate and track POS Coupon if coupon_code is provided
-        coupon_code = data.get("coupon_code")
-        if coupon_code:
-            # Validate POS Coupon exists and is valid
-            if frappe.db.table_exists("POS Coupon"):
-                from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import check_coupon_code
-
-                coupon_result = check_coupon_code(
-                    coupon_code,
-                    customer=invoice_doc.customer,
-                    company=invoice_doc.company
-                )
-
-                if not coupon_result or not coupon_result.get("valid"):
-                    error_msg = coupon_result.get("msg", "Invalid coupon code") if coupon_result else "Invalid coupon code"
-                    frappe.throw(_(error_msg))
-
-                # Store coupon code on invoice for tracking
-                invoice_doc.coupon_code = coupon_code
+        invoice_doc, _pos_profile_doc = _prepare_invoice_doc(data)
 
         # Save as draft
-        invoice_doc.flags.ignore_permissions = True
-        frappe.flags.ignore_account_permission = True
         invoice_doc.docstatus = 0
         invoice_doc.save()
+
+        # Add tag after save
+        if data.get("pos_profile") == "Call Center":
+            invoice_doc.add_tag("Call Center")
+
+        # Update table status to disabled for Dine In orders
+        if invoice_doc.custom_order_type == "Dine In" and invoice_doc.custom_table_number:
+            frappe.db.set_value('Table Number', invoice_doc.custom_table_number, 'status', 'Disabled')
 
         return invoice_doc.as_dict()
     except Exception as e:
@@ -966,7 +1168,7 @@ def _ensure_offline_uniqueness(offline_id, pos_profile=None, customer=None):
             return _reuse_sync_record(sync_record_name)
 
         # Handle Synced status - verify invoice still valid
-        if sync_status == "Synced" and existing_sync.sales_invoice:
+        if sync_status == "Synced" and existing_sync.sales_invoice and existing_sync.sales_invoice not in ["None", "null"]:
             if frappe.db.exists("Sales Invoice", existing_sync.sales_invoice):
                 existing_invoice = frappe.get_doc("Sales Invoice", existing_sync.sales_invoice)
                 if existing_invoice.docstatus == 1:
@@ -1110,13 +1312,32 @@ def check_offline_invoice_synced(offline_id):
 @frappe.whitelist()
 def submit_invoice(invoice=None, data=None):
     """Submit the invoice (Step 2)."""
+
+    # Log incoming data for debugging
+    frappe.log_error(
+        title="POS Submit Invoice Entry",
+        message=f"Raw Invoice: {frappe.as_json(invoice)}\nRaw Data: {frappe.as_json(data)}"
+    )
+
+    # -----------------------------
+    # Helpers
+    # -----------------------------
+    def is_empty_value(value):
+        if value is None:
+            return True
+
+        if isinstance(value, str):
+            return value.strip() in ["", "None", "none", "null", "undefined", "False", "false"]
+
+        return value is False
+
+    # -----------------------------
     # Handle different calling conventions
-    if invoice is None:
+    # -----------------------------
+    if is_empty_value(invoice):
         if data:
-            # Check if data is a JSON string containing both params
             data_parsed = json.loads(data) if isinstance(data, str) else data
 
-            # frappe-ui might send all params nested in data
             if isinstance(data_parsed, dict):
                 if "invoice" in data_parsed:
                     invoice = data_parsed.get("invoice")
@@ -1136,32 +1357,68 @@ def submit_invoice(invoice=None, data=None):
         else:
             frappe.throw(_("Both invoice and data parameters are missing"))
 
+    # -----------------------------
     # Parse JSON strings if needed
+    # -----------------------------
     if isinstance(data, str):
+        data = data.strip()
         data = json.loads(data) if data and data != "{}" else {}
-    if isinstance(invoice, str):
-        invoice = json.loads(invoice)
 
+    if isinstance(invoice, str):
+        invoice = invoice.strip()
+
+        if is_empty_value(invoice):
+            frappe.throw(_("Invalid invoice parameter"))
+
+        try:
+            invoice = json.loads(invoice)
+        except Exception:
+            frappe.throw(_("Invalid invoice JSON: {0}").format(invoice))
+
+    # Log incoming request for debugging
+    frappe.log_error(
+        title="POS Submit Invoice Debug",
+        message=f"Invoice: {frappe.as_json(invoice)}\nData: {frappe.as_json(data)}"
+    )
+
+    # -----------------------------
     # Ensure invoice and data are dicts
+    # -----------------------------
     if not isinstance(invoice, dict):
         frappe.throw(_("Invalid invoice format"))
-        return  # Never reached, but helps type checker
+
     if not isinstance(data, dict):
         data = {}
 
-    pos_profile = invoice.get("pos_profile")
+    # -----------------------------
+    # Deep sanitize all identifiers
+    # -----------------------------
+    recursive_sanitize(invoice)
+    recursive_sanitize(data)
+
+    # ============================================================
+    # IMPORTANT FIX
+    # Remove invalid Sales Invoice name before _prepare_invoice_doc
+    # This prevents: Sales Invoice None not found
+    # ============================================================
+    invoice_name = invoice.get("name")
+
+    if is_empty_value(invoice_name):
+        invoice.pop("name", None)
+
+    # لو doctype جاي غلط
     doctype = invoice.get("doctype", "Sales Invoice")
+    if is_empty_value(doctype):
+        doctype = "Sales Invoice"
+        invoice["doctype"] = "Sales Invoice"
+
+    pos_profile = invoice.get("pos_profile")
 
     # Normalize pricing_rules before processing
     standardize_pricing_rules(invoice.get("items"))
 
     # ========================================================================
     # OFFLINE INVOICE DEDUPLICATION
-    # ========================================================================
-    # Prevents duplicate invoice creation when the same offline invoice is
-    # submitted multiple times (e.g., network retry, multiple tabs).
-    # Uses a reservation pattern: create a "pending" record first, then
-    # update to "synced" after successful submission.
     # ========================================================================
     offline_id = invoice.get("offline_id") or data.get("offline_id")
     sync_record_name = None
@@ -1174,77 +1431,36 @@ def submit_invoice(invoice=None, data=None):
         )
 
         if dedup_result and dedup_result.get("already_synced"):
-            # Invoice was already synced - return the existing invoice details
             return dedup_result.get("invoice_data", {})
 
-        # Store the sync record name for later update
         sync_record_name = dedup_result.get("sync_record_name") if dedup_result else None
 
-    # Track whether invoice was successfully submitted
     invoice_submitted = False
 
     try:
-        invoice_name = invoice.get("name")
+        # Debug before prepare
+        frappe.log_error(
+            title="Before Prepare Invoice Doc",
+            message=(
+                f"invoice.name={repr(invoice.get('name'))}\n"
+                f"invoice.doctype={repr(invoice.get('doctype'))}\n"
+                f"invoice={frappe.as_json(invoice)}"
+            )
+        )
 
-        # Get or create invoice
-        if not invoice_name or not frappe.db.exists(doctype, invoice_name):
-            created = update_invoice(json.dumps(invoice))
-            if not created or not isinstance(created, dict):
-                frappe.throw(_("Failed to create invoice draft"))
-            invoice_name = created.get("name")
-            if not invoice_name:
-                frappe.throw(_("Failed to get invoice name from draft"))
-            invoice_doc = frappe.get_doc(doctype, invoice_name)
-        else:
-            invoice_doc = frappe.get_doc(doctype, invoice_name)
-            invoice_doc.update(invoice)
-
-        # Ensure POS flags are set for Sales Invoice
-        if doctype == "Sales Invoice":
-            invoice_doc.is_pos = 1
-            invoice_doc.update_stock = 1
+        # Build and prepare invoice doc
+        invoice_doc, pos_profile_doc = _prepare_invoice_doc(invoice)
 
         # For return invoices, set update_outstanding_for_self = 0
-        # This ensures the GL entry's against_voucher points to the original invoice,
-        # which properly reduces the original invoice's outstanding amount and
-        # sets its status to "Credit Note Issued"
         if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
             invoice_doc.update_outstanding_for_self = 0
 
-        # Copy accounting dimensions from POS Profile if not already set
-        if pos_profile and not invoice_doc.get("branch"):
-            try:
-                pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
-                if hasattr(pos_profile_doc, "branch") and pos_profile_doc.branch:
-                    invoice_doc.branch = pos_profile_doc.branch
-                    # Also set branch on all items for GL entries
-                    for item in invoice_doc.get("items", []):
-                        if not item.get("branch"):
-                            item.branch = pos_profile_doc.branch
-            except Exception as e:
-                # Branch is optional, log and continue
-                frappe.log_error(
-                    f"Failed to set branch from POS Profile {pos_profile}: {e}",
-                    "POS Profile Branch"
-                )
-
-        # Set accounts for all payment methods before saving
-        if doctype == "Sales Invoice" and hasattr(invoice_doc, "payments"):
-            for payment in invoice_doc.payments:
-                if payment.mode_of_payment:
-                    account_info = get_payment_account(
-                        payment.mode_of_payment, invoice_doc.company
-                    )
-                    if account_info:
-                        payment.account = account_info.get("account")
-
-        # Handle sales team (multiple sales persons)
+        # Handle sales team
         sales_team_data = invoice.get("sales_team") or data.get("sales_team")
+
         if sales_team_data and isinstance(sales_team_data, list):
-            # Clear existing sales team entries
             invoice_doc.sales_team = []
 
-            # Add new sales team entries
             for member in sales_team_data:
                 if member and isinstance(member, dict):
                     invoice_doc.append("sales_team", {
@@ -1252,10 +1468,10 @@ def submit_invoice(invoice=None, data=None):
                         "allocated_percentage": member.get("allocated_percentage", 0),
                     })
 
-        # Handle POS Coupon if coupon_code is provided
+        # Handle POS Coupon
         coupon_code = invoice.get("coupon_code") or data.get("coupon_code")
+
         if coupon_code:
-            # Increment usage counter for POS Coupon
             if frappe.db.table_exists("POS Coupon"):
                 try:
                     from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import increment_coupon_usage
@@ -1269,10 +1485,10 @@ def submit_invoice(invoice=None, data=None):
         # Auto-set batch numbers for returns
         _auto_set_return_batches(invoice_doc)
 
-        # Handle write-off amount if provided
+        # Handle write-off amount
         write_off_amount = flt(data.get("write_off_amount") or invoice.get("write_off_amount") or 0)
+
         if write_off_amount > 0 and doctype == "Sales Invoice":
-            # Get write-off account and cost center from POS Profile
             if pos_profile:
                 try:
                     pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
@@ -1280,66 +1496,130 @@ def submit_invoice(invoice=None, data=None):
                     write_off_cost_center = pos_profile_doc.write_off_cost_center
                     write_off_limit = flt(pos_profile_doc.write_off_limit or 0)
 
-                    # Validate write-off amount is within limit
                     if write_off_limit > 0 and write_off_amount > write_off_limit:
                         frappe.throw(
                             _("Write-off amount {0} exceeds limit {1}").format(
-                                write_off_amount, write_off_limit
+                                write_off_amount,
+                                write_off_limit
                             )
                         )
 
-                    # Set write-off fields on invoice
                     if write_off_account:
                         invoice_doc.write_off_account = write_off_account
                         invoice_doc.write_off_cost_center = write_off_cost_center
                         invoice_doc.write_off_amount = write_off_amount
-                        invoice_doc.base_write_off_amount = write_off_amount  # Assuming same currency
+                        invoice_doc.base_write_off_amount = write_off_amount
+
                 except Exception as e:
                     frappe.log_error(
                         f"Failed to apply write-off from POS Profile {pos_profile}: {e}",
                         "POS Write-Off Error"
                     )
 
-        # Check if POS Settings allows negative stock
-        pos_settings_allow_negative = False
-        if pos_profile:
-            pos_settings_allow_negative = cint(
-                frappe.db.get_value(
-                    "POS Settings",
-                    {"pos_profile": pos_profile},
-                    "allow_negative_stock"
-                ) or 0
+        # Validate stock availability
+        _validate_stock_on_invoice(invoice_doc)
+
+        # Generate custom order sequence number
+        parent_order_number = invoice.get("parent_order_number")
+        if parent_order_number:
+            # Supplement invoice: count existing suffixed invoices for this parent
+            count = frappe.db.sql(
+                """
+                SELECT COUNT(name)
+                FROM `tabSales Invoice`
+                WHERE custom_number_order LIKE %s
+                  AND docstatus != 2
+                """,
+                (f"{parent_order_number}-%",)
+            )[0][0]
+            invoice_doc.custom_number_order = f"{parent_order_number}-{count + 1}"
+
+        elif not invoice_doc.get("custom_number_order") and invoice_doc.get("custom_order_type"):
+            shift_start_str, _ = _get_user_shift_date_range()
+
+            prefix_map = {
+                "Talabat": "T",
+                "Pickup": "P",
+                "Delivery": "D",
+                "Dine In": "DI"
+            }
+
+            order_type = invoice_doc.get("custom_order_type")
+            prefix = prefix_map.get(order_type, str(order_type)[0].upper())
+            pos_profile = invoice_doc.get("pos_profile")
+
+            count = frappe.db.sql(
+                """
+                SELECT COUNT(name)
+                FROM `tabSales Invoice`
+                WHERE pos_profile = %s
+                  AND custom_order_type = %s
+                  AND TIMESTAMP(posting_date, posting_time) >= %s
+                  AND docstatus < 2
+                  AND (custom_number_order IS NULL OR custom_number_order NOT LIKE '%%-%%-%%')
+                """,
+                (pos_profile, order_type, shift_start_str)
+            )[0][0]
+
+            # Read the cycling limit from POS Profile (0 = no cycling)
+            limit = frappe.utils.cint(
+                frappe.db.get_value("POS Profile", pos_profile, "custom_order_number_limit") or 0
             )
 
-        # Validate stock availability only if negative stock is not allowed
-        if not pos_settings_allow_negative:
-            _validate_stock_on_invoice(invoice_doc)
+            if limit and limit > 0:
+                # Cycle: 1 → 2 → ... → limit → 1 → 2 → ...
+                seq = (count % limit) + 1
+            else:
+                seq = count + 1
+
+            invoice_doc.custom_number_order = f"{prefix}-{seq}"
 
         # Save before submit
         invoice_doc.flags.ignore_permissions = True
         frappe.flags.ignore_account_permission = True
+
         invoice_doc.save()
 
-        # Submit invoice
-        invoice_doc.submit()
+        # Add tag after save
+        is_call_center_invoice = "call center" in (invoice_doc.pos_profile or "").lower()
+        if is_call_center_invoice or invoice_doc.pos_profile == "Call Center":
+            invoice_doc.add_tag("Call Center")
+
+        # Submit invoice if NOT a call center POS profile, or if force_submit is requested
+        force_submit = flt(data.get("force_submit") or invoice.get("force_submit") or 0)
+        
+        # Allow Call Center to submit if Payment Type is selected and outstanding > 0
+        call_center_can_submit = is_call_center_invoice and invoice_doc.custom_payment_type and invoice_doc.outstanding_amount > 0
+        
+        if not is_call_center_invoice or force_submit or call_center_can_submit:
+            invoice_doc.submit()
         invoice_submitted = True
+
         # Handle wallet transaction reversal for returns
         if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
             try:
                 from ecs_posnext.pos_next.doctype.wallet_transaction.wallet_transaction import reverse_wallet_transactions_for_return
+
                 reverse_wallet_transactions_for_return(
                     original_invoice=invoice_doc.return_against,
                     return_invoice=invoice_doc.name
                 )
+
             except Exception as wallet_error:
                 frappe.log_error(
                     title="Wallet Reversal on Return Error",
-                    message=f"Return Invoice: {invoice_doc.name}, Error: {str(wallet_error)}\n{frappe.get_traceback()}"
+                    message=(
+                        f"Return Invoice: {invoice_doc.name}, "
+                        f"Error: {str(wallet_error)}\n{frappe.get_traceback()}"
+                    )
                 )
+
                 frappe.msgprint(
                     _("Return submitted but wallet reversal failed. Please check manually."),
-                    alert=True, indicator="orange"
+                    alert=True,
+                    indicator="orange"
                 )
+
         # Complete the offline sync record
         if sync_record_name:
             _complete_offline_sync(sync_record_name, invoice_doc.name)
@@ -1352,28 +1632,39 @@ def submit_invoice(invoice=None, data=None):
             try:
                 from ecs_posnext.api.credit_sales import redeem_customer_credit
                 redeem_customer_credit(invoice_doc.name, customer_credit_dict)
+
             except Exception as credit_error:
                 frappe.log_error(
                     title="Credit Redemption Error",
-                    message=f"Invoice: {invoice_doc.name}, Error: {str(credit_error)}\n{frappe.get_traceback()}"
+                    message=(
+                        f"Invoice: {invoice_doc.name}, "
+                        f"Error: {str(credit_error)}\n{frappe.get_traceback()}"
+                    )
                 )
-                # Don't fail the entire transaction, just log the error
+
                 frappe.msgprint(
                     _("Invoice submitted successfully but credit redemption failed. Please contact administrator."),
                     alert=True,
                     indicator="orange"
                 )
 
-        # Log manual rate edits for audit trail (only after successful submission)
+        # Update table status to disabled for Dine In orders
+        if invoice_doc.custom_order_type == "Dine In" and invoice_doc.custom_table_number:
+            frappe.db.set_value('Table Number', invoice_doc.custom_table_number, 'status', 'Disabled')
+
+        # Log manual rate edits for audit trail
         if doctype == DOCTYPE_SALES_INVOICE:
             incoming_items = invoice.get("items") or []
+
             for item in incoming_items:
                 if cint(item.get(FIELD_IS_RATE_MANUALLY_EDITED)):
                     log_manual_rate_edit({
                         FIELD_ITEM_CODE: item.get(FIELD_ITEM_CODE),
                         "item_name": item.get("item_name"),
                         FIELD_RATE: flt(item.get(FIELD_RATE)),
-                        FIELD_ORIGINAL_RATE: flt(item.get(FIELD_ORIGINAL_RATE) or item.get(FIELD_PRICE_LIST_RATE)),
+                        FIELD_ORIGINAL_RATE: flt(
+                            item.get(FIELD_ORIGINAL_RATE) or item.get(FIELD_PRICE_LIST_RATE)
+                        ),
                         FIELD_IS_RATE_MANUALLY_EDITED: 1
                     }, invoice_doc.name)
 
@@ -1389,22 +1680,28 @@ def submit_invoice(invoice=None, data=None):
             "change_amount": getattr(invoice_doc, "change_amount", 0),
         }
 
-        # Include offline_id in response for client-side tracking
         if offline_id:
             result["offline_id"] = offline_id
 
         return result
 
-    except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "Submit Invoice Error")
+    except frappe.ValidationError as e:
+        frappe.log_error(
+            title="POS Submit Invoice ValidationError",
+            message=f"Error: {str(e)}\nTraceback: {frappe.get_traceback()}"
+        )
+        raise
+
+    except Exception:
+        frappe.log_error(
+            title="Submit Invoice Error",
+            message=frappe.get_traceback()
+        )
         raise
 
     finally:
-        # Cleanup sync record if invoice was not successfully submitted
         if sync_record_name and not invoice_submitted:
             _cleanup_failed_sync(sync_record_name)
-
-
 # ==========================================
 # Invoice History Management
 # ==========================================
@@ -1430,6 +1727,9 @@ def get_invoice(invoice_name):
 	# Check permissions
 	if not frappe.has_permission("Sales Invoice", "read", invoice_name):
 		frappe.throw(_("You don't have permission to view this invoice"))
+
+	if not invoice_name or invoice_name in ["None", "null", "", False]:
+		frappe.throw(_("Invoice name is required"))
 
 	# Get invoice document
 	invoice = frappe.get_doc("Sales Invoice", invoice_name)
@@ -1515,6 +1815,724 @@ def get_invoices(pos_profile, limit=100):
 
 
 # ==========================================
+# All Orders (Sales Invoices across all branches)
+# ==========================================
+
+
+def _get_user_branch_filter_info():
+	"""
+	Returns (branch, is_call_center) for the current user.
+	'Call Center' users can see all branches.
+	Others are restricted to their POS Profile's branch.
+	"""
+	user = frappe.session.user
+
+	# Find the user's currently open POS shift
+	shift = frappe.db.sql("""
+		SELECT pos_profile
+		FROM `tabPOS Opening Shift`
+		WHERE status = 'Open' AND user = %s AND docstatus != 2
+		ORDER BY creation DESC
+		LIMIT 1
+	""", (user,), as_dict=True)
+
+	pos_profile = None
+	if shift:
+		pos_profile = shift[0].pos_profile
+	else:
+		# Fallback to default POS Profile if no open shift
+		# Note: pos_profile might be a custom field on User
+		pos_profile = frappe.db.get_value("User", user, "pos_profile")
+
+	# Administrator bypass ONLY if no profile/shift found
+	if user == "Administrator" and not pos_profile:
+		frappe.logger().debug(f"POS Branch Filter: Administrator bypass (no profile)")
+		return None, True
+
+	if not pos_profile:
+		frappe.logger().debug(f"POS Branch Filter: No profile found for user {user}")
+		return None, False
+
+	branch = frappe.db.get_value("POS Profile", pos_profile, "branch")
+	# Case-insensitive check for Call Center
+	is_call_center = "call center" in (pos_profile or "").lower()
+
+	frappe.logger().debug(f"POS Branch Filter: User={user}, Profile={pos_profile}, Branch={branch}, CallCenter={is_call_center}")
+
+	return branch, is_call_center
+
+
+def _get_user_shift_date_range():
+	"""
+	Get datetime range from the current user's open POS Profile shift.
+
+	Determines the "logical shift window" based on the current time and the
+	shift start/end times from the POS Profile, so the date range always
+	reflects the CURRENT or LAST shift — not a stale period_start_date from an
+	old POS Opening Shift that was never closed.
+
+	Returns (shift_start_datetime, shift_end_datetime) as 'YYYY-MM-DD HH:MM:SS'
+	strings for precise time-based filtering. Falls back to full-day range if
+	no open shift or no shift times configured.
+	"""
+	from frappe.utils import get_time, getdate, now_datetime
+	from datetime import timedelta
+
+	# Find the user's currently open POS shift
+	shift = frappe.db.sql("""
+		SELECT pos_profile, period_start_date
+		FROM `tabPOS Opening Shift`
+		WHERE status = 'Open' AND user = %s AND docstatus != 2
+		ORDER BY creation DESC
+		LIMIT 1
+	""", (frappe.session.user,), as_dict=True)
+
+	today = frappe.utils.today()
+	today_date = getdate(today)
+
+	if not shift:
+		# No open shift — default to full day today
+		return f"{today} 00:00:00", f"{today} 23:59:59"
+
+	pos_profile_name = shift[0].pos_profile
+	profile_data = frappe.db.get_value(
+		"POS Profile",
+		pos_profile_name,
+		["custom_shift_start_time", "custom_shift_end_time"],
+		as_dict=True,
+	)
+
+	start_time = profile_data.get("custom_shift_start_time") if profile_data else None
+	end_time = profile_data.get("custom_shift_end_time") if profile_data else None
+
+	if not start_time or not end_time:
+		return f"{today} 00:00:00", f"{today} 23:59:59"
+
+	start_t = get_time(start_time)
+	end_t = get_time(end_time)
+
+	now = now_datetime()
+	current_time = now.time()
+
+	# Format times as HH:MM:SS
+	start_time_str = start_t.strftime("%H:%M:%S")
+	end_time_str = end_t.strftime("%H:%M:%S")
+
+	if start_t <= end_t:
+		# Same-day shift (e.g. 13:00–18:00)
+		if current_time >= start_t:
+			# Currently in shift or past shift end — show today's shift
+			shift_date = today_date
+		else:
+			# Before shift start today — show yesterday's shift
+			shift_date = today_date - timedelta(days=1)
+
+		return f"{shift_date} {start_time_str}", f"{shift_date} {end_time_str}"
+	else:
+		# Overnight shift (e.g. 13:00–06:00)
+		if current_time >= start_t:
+			# After shift start today — shift runs into tomorrow
+			next_day = today_date + timedelta(days=1)
+			return f"{today_date} {start_time_str}", f"{next_day} {end_time_str}"
+		elif current_time <= end_t:
+			# Early morning — still in yesterday's shift
+			yesterday = today_date - timedelta(days=1)
+			return f"{yesterday} {start_time_str}", f"{today_date} {end_time_str}"
+		else:
+			# Between shifts — show last overnight shift
+			yesterday = today_date - timedelta(days=1)
+			return f"{yesterday} {start_time_str}", f"{today_date} {end_time_str}"
+
+
+def _get_branch_open_shift(branch_name):
+	"""
+	Find the most recently opened 'Open' POS Opening Shift for a specific branch.
+	Uses caching to reduce DB load.
+	"""
+	if not branch_name:
+		return None
+
+	# Try to get from cache first
+	cache_key = f"branch_open_shift:{branch_name}"
+	cached_val = frappe.cache().get_value(cache_key)
+	if cached_val:
+		return cached_val
+
+	# 1. Find all POS Profiles associated with this branch
+	branch_profiles = frappe.get_all(
+		"POS Profile",
+		filters={"branch": branch_name, "disabled": 0},
+		pluck="name"
+	)
+
+	if not branch_profiles:
+		return None
+
+	# 2. Find any open shift for these profiles
+	open_shift = frappe.db.get_value(
+		"POS Opening Shift",
+		{
+			"pos_profile": ["in", branch_profiles],
+			"status": "Open",
+			"docstatus": 1
+		},
+		"name",
+		order_by="period_start_date desc"
+	)
+
+	# Cache for 86400 seconds (1 day)
+	if open_shift in ["None", "null", "", False]:
+		open_shift = None
+
+	if open_shift:
+		frappe.cache().set_value(cache_key, open_shift, expires_in_sec=86400)
+
+	return open_shift
+
+
+@frappe.whitelist()
+def clear_branch_shift_cache(branch_name):
+	"""
+	Clear the cached open shift for a branch.
+	Called when shifts are opened or closed.
+	"""
+	if branch_name:
+		frappe.cache().delete_value(f"branch_open_shift:{branch_name}")
+
+
+@frappe.whitelist()
+def get_all_orders_config():
+	"""
+	Get All Orders page configuration for the current user.
+
+	Checks the 'All Orders Settings' DocType to see if the current user
+	is listed in the user_date_ranges child table.
+
+	Child table field 'days':
+		- 0 = unlimited (user can pick any date range)
+		- N = user can view last N days
+
+	Returns:
+		dict with:
+		- can_select_dates (bool): True if user is in the settings table
+		- days (int): Max past days (0 = unlimited)
+		- date_from (str): Default start date
+		- date_to (str): Default end date
+	"""
+	from frappe.utils import add_days
+
+	user = frappe.session.user
+	can_select = False
+	max_days = 0
+	date_from = None
+	date_to = None
+	shift_start = None
+	shift_end = None
+
+	try:
+		settings = frappe.get_single("All Orders Settings")
+		for row in settings.user_date_ranges or []:
+			if row.user == user:
+				can_select = True
+				max_days = cint(row.days)
+				break
+	except Exception:
+		pass
+
+	if can_select:
+		date_to = frappe.utils.today()
+		if max_days > 0:
+			date_from = add_days(date_to, -max_days)
+		else:
+			# Unlimited — default to last 30 days but user can change freely
+			date_from = add_days(date_to, -30)
+	else:
+		# User not in settings — use shift-based datetime range
+		shift_start, shift_end = _get_user_shift_date_range()
+		# Extract date portions for the date inputs
+		date_from = str(shift_start)[:10]
+		date_to = str(shift_end)[:10]
+
+	# Fill defaults if still empty
+	if not date_from:
+		date_from = frappe.utils.today()
+	if not date_to:
+		date_to = frappe.utils.today()
+
+	# Include order number limit from the current user's POS Profile
+	order_number_limit = 0
+	try:
+		from ecs_posnext.api.shifts import check_opening_shift
+		shift_info = check_opening_shift(frappe.session.user)
+		if shift_info and shift_info.get("pos_profile"):
+			profile_name = shift_info["pos_profile"].get("name") or shift_info["pos_profile"]
+			order_number_limit = cint(
+				frappe.db.get_value("POS Profile", profile_name, "custom_order_number_limit") or 0
+			)
+	except Exception:
+		pass
+
+	return {
+		"can_select_dates": can_select,
+		"days": max_days,
+		"date_from": date_from,
+		"date_to": date_to,
+		"shift_start": shift_start,
+		"shift_end": shift_end,
+		"order_number_limit": order_number_limit,
+	}
+
+
+@frappe.whitelist()
+def update_order_number_limit(pos_profile, limit):
+    """Update custom_order_number_limit on the given POS Profile. System Manager only."""
+    if "System Manager" not in frappe.get_roles(frappe.session.user):
+        frappe.throw(_("Only System Managers can change the Order Number Limit"))
+
+    limit_val = cint(limit)
+    if limit_val < 0:
+        frappe.throw(_("Limit must be 0 (no cycling) or a positive number"))
+
+    if not frappe.db.exists("POS Profile", pos_profile):
+        frappe.throw(_("POS Profile {0} not found").format(pos_profile))
+
+    frappe.db.set_value("POS Profile", pos_profile, "custom_order_number_limit", limit_val)
+    frappe.db.commit()
+    return {"message": _("Order Number Limit updated to {0}").format(limit_val), "limit": limit_val}
+
+
+@frappe.whitelist()
+def get_all_orders(date_from=None, date_to=None, limit=500):
+	"""
+	Get all Sales Invoices across all branches for the All Orders page.
+
+	Enforces date range security: if the current user is NOT in All Orders Settings,
+	the date range is forced to the POS Profile shift range (ignoring client params).
+
+	Args:
+		date_from: Start date (YYYY-MM-DD). Only used if user has date permission.
+		date_to: End date (YYYY-MM-DD). Only used if user has date permission.
+		limit: Maximum number of invoices to return (default 500)
+
+	Returns:
+		List of invoices with basic details and items
+	"""
+	# Check user permission for date selection
+	user = frappe.session.user
+	can_select = False
+
+	try:
+		settings = frappe.get_single("All Orders Settings")
+		for row in settings.user_date_ranges or []:
+			if row.user == user:
+				can_select = True
+				break
+	except Exception:
+		pass
+
+	use_shift_datetime = False
+
+	if can_select:
+		# User is allowed to pick dates — use provided or default to today
+		if not date_from:
+			date_from = nowdate()
+		if not date_to:
+			date_to = nowdate()
+
+		# Enforce max days limit server-side
+		max_days = 0
+		try:
+			settings = frappe.get_single("All Orders Settings")
+			for row in settings.user_date_ranges or []:
+				if row.user == user:
+					max_days = cint(row.days)
+					break
+		except Exception:
+			pass
+
+		if max_days > 0:
+			from frappe.utils import add_days
+			earliest = add_days(nowdate(), -max_days)
+			if str(date_from) < earliest:
+				date_from = earliest
+	else:
+		shift_start, shift_end = _get_user_shift_date_range()
+
+	# Branch Access Control: Call Center sees everything, others see their branch
+	branch, is_call_center = _get_user_branch_filter_info()
+	branch_cond = ""
+	branch_params = {}
+	if not is_call_center:
+		branch_cond = " AND si.branch = %(user_branch)s "
+		branch_params["user_branch"] = branch or "___NONE___"
+
+	# Order-type visibility: only Call Center users/roles can see Talabat &
+	# Delivery orders; everyone else has them hidden.
+	cc_roles = {"CallCenterAgent", "Call center supervisor", "Call center manager", "System Manager"}
+	has_cc_role = bool(cc_roles & set(frappe.get_roles(user)))
+	order_type_cond = ""
+	if not (is_call_center or has_cc_role):
+		order_type_cond = " AND IFNULL(si.custom_order_type, '') NOT IN ('Talabat', 'Delivery') "
+
+	# Build the query based on whether we're using datetime or date filtering
+	if use_shift_datetime:
+		# Shift-based: use TIMESTAMP for precise time filtering
+		invoices = frappe.db.sql("""
+			SELECT
+				si.name,
+				si.customer,
+				si.customer_name,
+				si.posting_date,
+				si.posting_time,
+				si.grand_total,
+				si.net_total,
+				si.paid_amount,
+				si.outstanding_amount,
+				si.status,
+				si.docstatus,
+				si.is_return,
+				si.return_against,
+				si.is_pos,
+				si.pos_profile,
+				si.currency,
+				si.custom_order_type,
+				si.custom_number_order,
+				si.custom_receipt_number,
+				si.custom_third_party_referance_number,
+				si.custom_unique_talbat_number,
+				si.branch,
+				si.driver,
+				si.owner,
+				COALESCE(cust.mobile_no, '') AS mobile_no,
+				COALESCE(cust.custom_other_mobile_no, '') AS other_mobile_no,
+				ko.status AS kds_status
+			FROM
+				`tabSales Invoice` si
+				LEFT JOIN `tabCustomer` cust ON cust.name = si.customer
+				LEFT JOIN `tabKDS Order` ko ON ko.sales_invoice = si.name
+			WHERE
+				TIMESTAMP(si.posting_date, si.posting_time) BETWEEN %(shift_start)s AND %(shift_end)s
+				AND si.docstatus != 2
+				{branch_cond}{order_type_cond}
+			ORDER BY
+				si.posting_date DESC,
+				si.posting_time DESC,
+				si.creation DESC
+			LIMIT %(limit)s
+		""".format(branch_cond=branch_cond, order_type_cond=order_type_cond), {
+			"shift_start": shift_start,
+			"shift_end": shift_end,
+			"limit": cint(limit),
+			**branch_params
+		}, as_dict=True)
+	else:
+		# Date-based: use posting_date for privileged users who pick dates
+		invoices = frappe.db.sql("""
+			SELECT
+				si.name,
+				si.customer,
+				si.customer_name,
+				si.posting_date,
+				si.posting_time,
+				si.grand_total,
+				si.net_total,
+				si.paid_amount,
+				si.outstanding_amount,
+				si.status,
+				si.docstatus,
+				si.is_return,
+				si.return_against,
+				si.is_pos,
+				si.pos_profile,
+				si.currency,
+				si.custom_order_type,
+				si.custom_number_order,
+				si.custom_receipt_number,
+				si.custom_third_party_referance_number,
+				si.custom_unique_talbat_number,
+				si.branch,
+				si.driver,
+				si.owner,
+				COALESCE(cust.mobile_no, '') AS mobile_no,
+				COALESCE(cust.custom_other_mobile_no, '') AS other_mobile_no,
+				ko.status AS kds_status
+			FROM
+				`tabSales Invoice` si
+				LEFT JOIN `tabCustomer` cust ON cust.name = si.customer
+				LEFT JOIN `tabKDS Order` ko ON ko.sales_invoice = si.name
+			WHERE
+				si.posting_date BETWEEN %(date_from)s AND %(date_to)s
+				AND si.docstatus != 2
+				{branch_cond}{order_type_cond}
+			ORDER BY
+				si.posting_date DESC,
+				si.posting_time DESC,
+				si.creation DESC
+			LIMIT %(limit)s
+		""".format(branch_cond=branch_cond, order_type_cond=order_type_cond), {
+			"date_from": date_from,
+			"date_to": date_to,
+			"limit": cint(limit),
+			**branch_params
+		}, as_dict=True)
+
+	# Batch-load items for all invoices
+	if invoices:
+		invoice_names = [inv.name for inv in invoices]
+		placeholders = ", ".join(["%s"] * len(invoice_names))
+		items = frappe.db.sql(f"""
+			SELECT
+				parent,
+				item_code,
+				item_name,
+				qty,
+				rate,
+				amount,
+				uom
+			FROM
+				`tabSales Invoice Item`
+			WHERE
+				parent IN ({placeholders})
+			ORDER BY
+				parent, idx
+		""", tuple(invoice_names), as_dict=True)
+
+		# Group items by invoice
+		items_map = {}
+		for item in items:
+			items_map.setdefault(item.parent, []).append(item)
+
+		# Resolve creator (owner) display names in one batch
+		owner_ids = list({inv.owner for inv in invoices if inv.get("owner")})
+		owner_name_map = {}
+		if owner_ids:
+			for u in frappe.get_all(
+				"User", filters=[["name", "in", owner_ids]], fields=["name", "full_name"]
+			):
+				owner_name_map[u.name] = u.full_name
+
+		for inv in invoices:
+			inv.items = items_map.get(inv.name, [])
+			inv.owner_name = owner_name_map.get(inv.owner) or inv.owner
+
+			# Derive a display status
+			if inv.docstatus == 0:
+				inv.display_status = "Draft"
+			elif inv.is_return:
+				inv.display_status = "Return"
+			elif inv.outstanding_amount > 0:
+				inv.display_status = "Unpaid"
+			elif inv.status == "Paid":
+				inv.display_status = "Paid"
+			else:
+				inv.display_status = inv.status or "Submitted"
+
+	return invoices
+
+
+@frappe.whitelist()
+def get_active_drivers():
+	"""
+	Get all drivers with status 'Active'.
+
+	Returns:
+		List of dicts with name and full_name for each active driver.
+	"""
+	drivers = frappe.get_all(
+		"Driver",
+		filters={"status": "Active"},
+		fields=["name", "full_name"],
+		order_by="full_name asc",
+		limit_page_length=0,
+	)
+	return drivers
+
+
+@frappe.whitelist()
+def assign_driver_to_invoice(invoice_name, driver):
+	"""
+	Assign a driver to a Sales Invoice.
+
+	Args:
+		invoice_name: Sales Invoice name
+		driver: Driver name (ID) to assign
+
+	Returns:
+		dict with success message
+	"""
+	if not invoice_name or not frappe.db.exists("Sales Invoice", invoice_name):
+		frappe.throw(_("Invoice {0} does not exist").format(invoice_name))
+
+	if driver and not frappe.db.exists("Driver", driver):
+		frappe.throw(_("Driver {0} does not exist").format(driver))
+
+	frappe.db.set_value("Sales Invoice", invoice_name, "driver", driver or "")
+	frappe.db.commit()
+
+	# Emit realtime event so other open AllOrders pages refresh
+	try:
+		pos_profile = frappe.db.get_value("Sales Invoice", invoice_name, "pos_profile") or ""
+		frappe.publish_realtime(
+			event="pos_order_changed",
+			message={
+				"invoice_name": invoice_name,
+				"action": "update",
+				"pos_profile": pos_profile,
+				"timestamp": frappe.utils.now(),
+			},
+			user=None,
+			after_commit=True,
+		)
+	except Exception:
+		pass
+
+	driver_name = ""
+	if driver:
+		driver_name = frappe.db.get_value("Driver", driver, "full_name") or driver
+
+	return {"message": _("Driver {0} assigned to {1}").format(driver_name, invoice_name)}
+
+
+@frappe.whitelist()
+def convert_order_type(invoice_name, order_type):
+	allowed = ("Delivery", "Pickup")
+	if order_type not in allowed:
+		frappe.throw(_("Invalid order type: {0}").format(order_type))
+	if not frappe.db.exists("Sales Invoice", invoice_name):
+		frappe.throw(_("Invoice {0} not found").format(invoice_name))
+	frappe.db.set_value("Sales Invoice", invoice_name, "custom_order_type", order_type)
+	frappe.db.commit()
+	try:
+		pos_profile = frappe.db.get_value("Sales Invoice", invoice_name, "pos_profile") or ""
+		frappe.publish_realtime(
+			event="pos_order_changed",
+			message={"invoice_name": invoice_name, "action": "update", "pos_profile": pos_profile},
+			after_commit=True,
+		)
+	except Exception:
+		pass
+	return {"status": "success"}
+
+
+@frappe.whitelist()
+def get_all_order_items(invoice_name):
+	"""
+	Get items for a specific Sales Invoice.
+
+	Args:
+		invoice_name: Sales Invoice name
+
+	Returns:
+		List of items with details
+	"""
+	if not invoice_name or not frappe.db.exists("Sales Invoice", invoice_name):
+		frappe.throw(_("Invoice not found"))
+
+	items = frappe.db.sql("""
+		SELECT
+			item_code,
+			item_name,
+			qty,
+			rate,
+			amount,
+			uom
+		FROM
+			`tabSales Invoice Item`
+		WHERE
+			parent = %(invoice_name)s
+		ORDER BY
+			idx
+	""", {"invoice_name": invoice_name}, as_dict=True)
+
+	return items
+
+
+
+@frappe.whitelist()
+def get_need_my_action_orders():
+	user = frappe.session.user
+	branch, is_call_center = _get_user_branch_filter_info()
+
+	branch_cond = ""
+	branch_params = {}
+	if not is_call_center:
+		branch_cond = " AND si.branch = %(user_branch)s "
+		branch_params["user_branch"] = branch or "___NONE___"
+
+	invoices = frappe.db.sql("""
+		SELECT
+			si.name,
+			si.customer,
+			si.customer_name,
+			si.posting_date,
+			si.posting_time,
+			si.grand_total,
+			si.net_total,
+			si.paid_amount,
+			si.outstanding_amount,
+			si.status,
+			si.docstatus,
+			si.is_return,
+			si.return_against,
+			si.is_pos,
+			si.pos_profile,
+			si.currency,
+			si.custom_order_type,
+			si.custom_number_order,
+			si.custom_receipt_number,
+			si.custom_third_party_referance_number,
+			si.custom_unique_talbat_number,
+			si.branch,
+			si.driver
+		FROM
+			`tabSales Invoice` si
+		WHERE
+			si.docstatus = 0
+			AND (COALESCE(si.custom_is_rejected, 0) = 0)
+			AND (LOWER(si.pos_profile) LIKE '%%call center%%' OR EXISTS(
+				SELECT 1 FROM `tabTag Link` tl WHERE tl.document_type='Sales Invoice' AND tl.document_name=si.name AND tl.tag='Call Center'
+			))
+			{branch_cond}
+		ORDER BY
+			si.posting_date DESC,
+			si.posting_time DESC,
+			si.creation DESC
+	""".format(branch_cond=branch_cond), branch_params, as_dict=True)
+
+	# Batch-load items for all invoices
+	if invoices:
+		invoice_names = [inv.name for inv in invoices]
+		placeholders = ", ".join(["%s"] * len(invoice_names))
+		items = frappe.db.sql(f"""
+			SELECT
+				parent,
+				item_code,
+				item_name,
+				qty,
+				rate,
+				amount,
+				uom,
+				warehouse
+			FROM
+				`tabSales Invoice Item`
+			WHERE
+				parent IN ({placeholders})
+			ORDER BY
+				parent, idx
+		""", tuple(invoice_names), as_dict=True)
+
+		items_map = {}
+		for item in items:
+			items_map.setdefault(item.parent, []).append(item)
+
+		for inv in invoices:
+			inv.items = items_map.get(inv.name, [])
+			inv.display_status = "Draft"
+
+	return invoices
+
+
+# ==========================================
 # Draft Invoice Management
 # ==========================================
 
@@ -1547,6 +2565,24 @@ def get_draft_invoices(pos_opening_shift, doctype="Sales Invoice"):
 
     return data
 
+@frappe.whitelist()
+def get_unpaid_invoice_for_table(table_number):
+    """Get the latest unpaid Sales Invoice for a given table."""
+    invoice_name = frappe.db.get_value(
+        "Sales Invoice",
+        {
+            "custom_table_number": table_number,
+            "docstatus": 1,
+            "custom_order_type": "Dine In",
+            "outstanding_amount": (">", 0)
+        },
+        "name",
+        order_by="modified desc"
+    )
+    if invoice_name:
+        return frappe.get_cached_doc("Sales Invoice", invoice_name).as_dict()
+    return None
+
 
 @frappe.whitelist()
 def delete_invoice(invoice):
@@ -1565,49 +2601,125 @@ def delete_invoice(invoice):
 
 
 @frappe.whitelist()
+def reject_order_payment(invoice_name, reason=None):
+    """Flag a Call Center draft order as rejected without deleting it."""
+    doctype = "Sales Invoice"
+
+    if not frappe.db.exists(doctype, invoice_name):
+        frappe.throw(_("Invoice {0} does not exist").format(invoice_name))
+
+    if frappe.db.get_value(doctype, invoice_name, "docstatus") != 0:
+        frappe.throw(_("Cannot reject a submitted invoice {0}").format(invoice_name))
+
+    frappe.db.set_value(
+        doctype,
+        invoice_name,
+        {
+            "custom_is_rejected": 1,
+            "custom_rejection_reason": reason or "",
+        },
+        update_modified=True,
+    )
+    frappe.db.commit()
+
+    # db.set_value bypasses document hooks, so emit the realtime event manually
+    try:
+        pos_profile = frappe.db.get_value(doctype, invoice_name, "pos_profile") or ""
+        frappe.publish_realtime(
+            event="pos_order_changed",
+            message={
+                "invoice_name": invoice_name,
+                "action": "reject",
+                "docstatus": 0,
+                "pos_profile": pos_profile,
+                "timestamp": frappe.utils.now(),
+            },
+            user=None,
+            after_commit=True,
+        )
+    except Exception:
+        pass
+
+    return {"message": _("Order {0} has been rejected").format(invoice_name)}
+
+
+@frappe.whitelist()
 def cleanup_old_drafts(pos_profile=None, max_age_hours=24):
     """
     Clean up old draft invoices to prevent stock reservation issues.
     Deletes drafts older than max_age_hours (default 24 hours).
+
+    Uses batch SQL delete instead of per-document ORM delete for performance.
+    Draft invoices (docstatus=0) have no GL/stock/payment ledger entries,
+    so direct SQL is safe.
     """
     from datetime import datetime, timedelta
 
-    doctype = "Sales Invoice"
     cutoff_time = datetime.now() - timedelta(hours=int(max_age_hours))
+    cutoff_str = cutoff_time.strftime("%Y-%m-%d %H:%M:%S")
 
-    filters = {
-        "docstatus": 0,  # Draft only
-        "modified": ["<", cutoff_time.strftime("%Y-%m-%d %H:%M:%S")],
-    }
+    # Build WHERE clause
+    conditions = "si.docstatus = 0 AND si.modified < %(cutoff)s"
+    params = {"cutoff": cutoff_str}
 
-    # Optionally filter by POS profile
     if pos_profile:
-        filters["pos_profile"] = pos_profile
+        conditions += " AND si.pos_profile = %(pos_profile)s"
+        params["pos_profile"] = pos_profile
 
-    # Get old drafts
-    old_drafts = frappe.get_all(
-        doctype,
-        filters=filters,
-        fields=["name", "modified"],
-        limit_page_length=100,  # Safety limit
+    # Get draft names (limit 200 per run for safety)
+    draft_names = frappe.db.sql(
+        f"SELECT name FROM `tabSales Invoice` si WHERE {conditions} LIMIT 200",
+        params,
+        pluck="name",
     )
 
-    deleted_count = 0
-    for draft in old_drafts:
-        try:
-            frappe.delete_doc(
-                doctype, draft["name"], force=True, ignore_permissions=True
-            )
-            deleted_count += 1
-        except Exception as e:
-            frappe.log_error(
-                f"Failed to delete draft {draft['name']}: {str(e)}",
-                "Draft Cleanup Error",
-            )
+    if not draft_names:
+        return {"deleted": 0, "message": "No old drafts to clean up"}
+
+    placeholders = ", ".join(["%s"] * len(draft_names))
+
+    # Batch delete child tables
+    child_tables = [
+        "Sales Invoice Item",
+        "Sales Invoice Payment",
+        "Sales Taxes and Charges",
+        "Payment Schedule",
+        "Sales Invoice Timesheet",
+    ]
+    for table in child_tables:
+        frappe.db.sql(
+            f"DELETE FROM `tab{table}` WHERE parent IN ({placeholders}) AND parenttype='Sales Invoice'",
+            draft_names,
+        )
+
+    # Clean up metadata
+    frappe.db.sql(
+        f"DELETE FROM `tabComment` WHERE reference_doctype='Sales Invoice' AND reference_name IN ({placeholders})",
+        draft_names,
+    )
+    frappe.db.sql(
+        f"DELETE FROM `tabVersion` WHERE ref_doctype='Sales Invoice' AND docname IN ({placeholders})",
+        draft_names,
+    )
+
+    # Delete parent records (re-check docstatus=0 for safety)
+    frappe.db.sql(
+        f"DELETE FROM `tabSales Invoice` WHERE name IN ({placeholders}) AND docstatus = 0",
+        draft_names,
+    )
+
+    frappe.db.commit()
+
+    # Bulk clear document cache (cheaper than per-doc clearing for large batches)
+    if len(draft_names) > 10:
+        frappe.cache.delete_keys("Sales Invoice::*")
+    else:
+        for name in draft_names:
+            frappe.clear_document_cache("Sales Invoice", name)
 
     return {
-        "deleted": deleted_count,
-        "message": f"Cleaned up {deleted_count} old draft invoices",
+        "deleted": len(draft_names),
+        "message": f"Cleaned up {len(draft_names)} old draft invoices",
     }
 
 
@@ -1892,6 +3004,9 @@ def get_invoice_for_return(invoice_name):
     ).run(as_dict=True)
 
     returned_qty = {row["key_field"]: flt(row["returned_qty"]) for row in returned_qty_results}
+
+    if not invoice_name or invoice_name in ["None", "null", "", False]:
+        frappe.throw(_("Invoice {0} does not exist").format(invoice_name))
 
     # Get the full invoice document (needed for complete response)
     invoice = frappe.get_doc("Sales Invoice", invoice_name)
@@ -2806,6 +3921,9 @@ def process_return_by_cancel(invoice_name, returned_items, pos_opening_shift=Non
     import json
 
     returned_items = json.loads(returned_items) if isinstance(returned_items, str) else returned_items
+
+    if not invoice_name or invoice_name in ["None", "null", "", False]:
+        frappe.throw(_("Invoice must be submitted to process a return"))
 
     original = frappe.get_doc("Sales Invoice", invoice_name)
     if original.docstatus != 1:

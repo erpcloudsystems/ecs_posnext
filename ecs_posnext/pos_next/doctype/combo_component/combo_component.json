@@ -1,0 +1,165 @@
+{
+ "actions": [],
+ "creation": "2026-03-30 17:59:32.408349",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+  "field_order": [
+  "section_name",
+  "section_type",
+  "is_required",
+  "item_code",
+  "item_name",
+  "column_break_1",
+  "min_qty",
+  "max_qty",
+  "default_selected",
+  "show_bundle_in_pos",
+  "is_standalone",
+  "column_break_2",
+  "extra_price",
+  "extra_prices",
+  "qty",
+  "locked_attributes",
+  "lock_group"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Section Name",
+   "reqd": 1
+  },
+  {
+   "default": "Component",
+   "description": "Type of section: Component (regular combo), Attribute (Size/Type), Package, or Add-On",
+   "fieldname": "section_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Section Type",
+   "options": "Component\nAttribute\nPackage\nAdd-On"
+  },
+  {
+   "default": "0",
+   "description": "If checked, customer must select from this section",
+   "fieldname": "is_required",
+   "fieldtype": "Check",
+   "label": "Required"
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "item_code.item_name",
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Item Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Minimum quantity required from this section",
+   "fieldname": "min_qty",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Min Qty"
+  },
+  {
+   "default": "1",
+   "description": "Maximum quantity allowed from this section",
+   "fieldname": "max_qty",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Max Qty"
+  },
+  {
+   "default": "0",
+   "description": "If checked, this item will be pre-selected in POS",
+   "fieldname": "default_selected",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Default Selected"
+  },
+  {
+   "default": "0",
+   "description": "If checked, Product Bundle will be visible in POS cashier",
+   "fieldname": "show_bundle_in_pos",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Show Bundle in POS"
+  },
+  {
+   "default": "0",
+   "description": "If checked, this variant is added as standalone item (not grouped under template)",
+   "fieldname": "is_standalone",
+   "fieldtype": "Check",
+   "label": "Is Standalone"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Additional price when this item is selected",
+   "fieldname": "extra_price",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Extra Price"
+  },
+  {
+   "description": "JSON array of extra prices per price list: [{price_list: '', price: 0}]",
+   "fieldname": "extra_prices",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "Extra Prices (JSON)"
+  },
+  {
+   "default": "1",
+   "description": "Default quantity for this item",
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "label": "Qty"
+  },
+  {
+   "description": "JSON array of attribute names that must be identical across all selections in a multi-choice group (e.g. [\"النوع\"])",
+   "fieldname": "locked_attributes",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "Locked Attributes (JSON)"
+  },
+  {
+   "description": "Group tag for this variant — variants with the same tag can be mixed; variants with different tags cannot (e.g. ريجيولار / سبايسي)",
+   "fieldname": "lock_group",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Lock Group"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-15 16:11:56.403626",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "Combo Component",
+ "owner": "Administrator",
+ "permissions": [],
+ "quick_entry": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
