@@ -107,7 +107,7 @@ import { printInvoiceCustom } from "@/utils/printInvoice"
 import { useToast } from "@/composables/useToast"
 import { usePOSShiftStore } from "@/stores/posShift"
 import { Button, Dialog } from "frappe-ui"
-import { onMounted, ref, watch } from "vue"
+import { onMounted, onUnmounted, ref, watch } from "vue"
 
 const { showSuccess, showError } = useToast()
 const shiftStore = usePOSShiftStore()
@@ -137,10 +137,20 @@ watch(
 
 watch(show, (val) => {
 	emit("update:modelValue", val)
+	if (!val) {
+		// Dialog closed: drop the cached drafts so a stale or already-submitted
+		// draft can't be rendered or re-loaded before the next fresh loadDrafts().
+		drafts.value = []
+	}
 })
 
 onMounted(() => {
 	loadDrafts()
+})
+
+onUnmounted(() => {
+	// Component destroyed: clear the cached drafts.
+	drafts.value = []
 })
 
 async function loadDrafts() {

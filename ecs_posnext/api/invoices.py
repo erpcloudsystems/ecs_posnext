@@ -738,6 +738,67 @@ def reopen_table(table_name):
 # ==========================================
 
 
+def _lock_table_and_find_open_draft(source, doctype):
+    """Dine-in duplicate guard.
+
+    For a Dine-in Sales Invoice, take a row lock on the physical table(s) and
+    return the name of an existing open (docstatus=0) invoice for the same
+    table, or None if there is none.
+
+    The row lock serialises concurrent ``update_invoice`` / ``submit_invoice``
+    requests for the same table, so two cashiers (or a stale front-end that
+    lost its ``serverDraftName``) can no longer each create a separate invoice
+    for one table. Must be called inside a transaction; the lock is held until
+    the request commits or rolls back.
+
+    Returns None for non-dine-in / non-table orders, which keeps takeaway and
+    delivery orders (no table number) free to have multiple concurrent drafts.
+    """
+    if doctype != "Sales Invoice":
+        return None
+    if (source.get("custom_so_type") or "") != "Dinin":
+        return None
+
+    table_number = (source.get("custom_table_number") or "").strip()
+    if not table_number:
+        return None
+
+    # Serialise on the physical table(s). Lock in a stable (sorted) order so two
+    # multi-table orders sharing tables can't deadlock each other.
+    table_names = sorted({t.strip() for t in table_number.split(",") if t.strip()})
+    for table_name in table_names:
+        if frappe.db.exists("Table Number", table_name):
+            frappe.db.get_value("Table Number", table_name, "name", for_update=True)
+
+    # A table has at most one open draft (matches get_tables_with_draft_info).
+    # Reuse the original (oldest) draft if one already exists.
+    existing = frappe.get_all(
+        "Sales Invoice",
+        filters={"docstatus": 0, "custom_table_number": table_number},
+        pluck="name",
+        order_by="creation asc",
+        limit=1,
+    )
+    return existing[0] if existing else None
+
+
+def _invoice_result(invoice_doc, offline_id=None):
+    """Build the standard submit response payload from a Sales Invoice doc."""
+    result = {
+        "name": invoice_doc.name,
+        "status": invoice_doc.docstatus,
+        "grand_total": invoice_doc.grand_total,
+        "total": invoice_doc.total,
+        "net_total": invoice_doc.net_total,
+        "outstanding_amount": getattr(invoice_doc, "outstanding_amount", 0),
+        "paid_amount": getattr(invoice_doc, "paid_amount", 0),
+        "change_amount": getattr(invoice_doc, "change_amount", 0),
+    }
+    if offline_id:
+        result["offline_id"] = offline_id
+    return result
+
+
 @frappe.whitelist()
 def update_invoice(data):
     """Create or update invoice draft (Step 1)."""
@@ -781,9 +842,18 @@ def update_invoice(data):
         # Normalize pricing_rules before document creation
         standardize_pricing_rules(data.get("items"))
 
-        # Create or update invoice
-        if data.get("name"):
-            invoice_doc = frappe.get_doc(doctype, data.get("name"))
+        # Create or update invoice.
+        # For a dine-in order that arrives without an explicit name, reuse the
+        # table's existing open draft (taking a row lock on the table) instead
+        # of creating a duplicate invoice for the same table.
+        existing_name = data.get("name")
+        if not (existing_name and frappe.db.exists(doctype, existing_name)):
+            existing_name = _lock_table_and_find_open_draft(data, doctype)
+
+        if existing_name and frappe.db.exists(doctype, existing_name):
+            invoice_doc = frappe.get_doc(doctype, existing_name)
+            # Don't let a stale/absent name in the payload clobber the loaded doc.
+            data.pop("name", None)
 
             # Preserve custom_item_status for existing items before update overwrites them
             # Build a map: item_code -> list of statuses (handles duplicate item_codes)
@@ -1396,10 +1466,37 @@ def submit_invoice(invoice=None, data=None):
     invoice_submitted = False
 
     try:
+        # Dine-in duplicate guard: lock the table and find its existing open
+        # draft. This serialises two cashiers submitting the same table and lets
+        # us reuse the original draft when the payload lost its `name`.
+        table_draft_name = _lock_table_and_find_open_draft(invoice, doctype)
+
         invoice_name = invoice.get("name")
 
-        # Get or create invoice
-        if not invoice_name or not frappe.db.exists(doctype, invoice_name):
+        # Resolve which invoice we're actually submitting.
+        if invoice_name and frappe.db.exists(doctype, invoice_name):
+            resolved_name = invoice_name
+        elif table_draft_name:
+            # Payload omitted/lost the draft link — reuse the table's open draft
+            # instead of creating a second invoice for the same table.
+            resolved_name = table_draft_name
+        else:
+            resolved_name = None
+
+        if resolved_name:
+            # Lock the row and re-check status. If it's already submitted (a
+            # duplicate submit / retry), return it as-is — no error, no dupe.
+            current_docstatus = frappe.db.get_value(
+                doctype, resolved_name, "docstatus", for_update=True
+            )
+            if cint(current_docstatus) == 1:
+                return _invoice_result(frappe.get_doc(doctype, resolved_name), offline_id)
+
+            invoice_doc = frappe.get_doc(doctype, resolved_name)
+            # Don't let a stale/absent name in the payload clobber the loaded doc.
+            invoice.pop("name", None)
+            invoice_doc.update(invoice)
+        else:
             created = update_invoice(json.dumps(invoice))
             if not created or not isinstance(created, dict):
                 frappe.throw(_("Failed to create invoice draft"))
@@ -1407,9 +1504,6 @@ def submit_invoice(invoice=None, data=None):
             if not invoice_name:
                 frappe.throw(_("Failed to get invoice name from draft"))
             invoice_doc = frappe.get_doc(doctype, invoice_name)
-        else:
-            invoice_doc = frappe.get_doc(doctype, invoice_name)
-            invoice_doc.update(invoice)
 
         # Ensure update_stock is set for Sales Invoice
         if doctype == "Sales Invoice":
