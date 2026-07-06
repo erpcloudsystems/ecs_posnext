@@ -236,6 +236,84 @@ def get_default_customer(pos_profile):
 		return {"customer": None}
 
 
+def _customer_payload(customer):
+	"""Return {customer, customer_name, customer_group} for a customer name (or empty)."""
+	if not customer:
+		return {"customer": None}
+	name, group = frappe.db.get_value("Customer", customer, ["customer_name", "customer_group"]) or (
+		None,
+		None,
+	)
+	return {"customer": customer, "customer_name": name or customer, "customer_group": group}
+
+
+@frappe.whitelist()
+def resolve_default_customer(pos_profile, price_list=None, item_code=None):
+	"""Resolve the default customer via cascade:
+	1) the item's own default customer (Item.custom_customer_default) — highest priority;
+	   when present the sale should be a Sales Order (returns make_sales_order=1)
+	2) the price list's custom_default_customer (price_list arg, else the profile's selling_price_list)
+	3) POS Profile.customer (final fallback)
+	4) none
+	"""
+	try:
+		# 1) Item-level default customer → take it and flag a Sales Order.
+		if item_code:
+			item_customer = frappe.db.get_value("Item", item_code, "custom_customer_default")
+			if item_customer:
+				payload = _customer_payload(item_customer)
+				payload["make_sales_order"] = 1
+				return payload
+
+		if not pos_profile:
+			return {"customer": None}
+
+		# 2) Active price list's default customer.
+		if not price_list:
+			price_list = frappe.db.get_value("POS Profile", pos_profile, "selling_price_list")
+		if price_list:
+			pl_customer = frappe.db.get_value("Price List", price_list, "custom_default_customer")
+			if pl_customer:
+				return _customer_payload(pl_customer)
+
+		# 3) POS Profile default customer (final fallback).
+		profile_customer = frappe.db.get_value("POS Profile", pos_profile, "customer")
+		if profile_customer:
+			return _customer_payload(profile_customer)
+
+		return {"customer": None}
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "Resolve Default Customer Error")
+		return {"customer": None}
+
+
+@frappe.whitelist()
+def get_price_lists(pos_profile=None):
+	"""Return enabled selling Price Lists (+ each one's default customer) and the POS
+	Profile's default price list, for the in-screen price-list selector."""
+	try:
+		lists = frappe.db.get_all(
+			"Price List",
+			filters={"enabled": 1, "selling": 1},
+			fields=["name", "currency", "custom_default_customer"],
+			order_by="name",
+		)
+		for pl in lists:
+			if pl.get("custom_default_customer"):
+				pl["default_customer_name"] = frappe.db.get_value(
+					"Customer", pl["custom_default_customer"], "customer_name"
+				)
+		default = (
+			frappe.db.get_value("POS Profile", pos_profile, "selling_price_list")
+			if pos_profile
+			else None
+		)
+		return {"default": default, "price_lists": lists}
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "Get Price Lists Error")
+		return {"default": None, "price_lists": []}
+
+
 @frappe.whitelist()
 def update_warehouse(pos_profile, warehouse):
 	"""Update warehouse in POS Profile"""

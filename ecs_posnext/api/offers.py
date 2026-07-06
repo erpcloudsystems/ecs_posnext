@@ -589,3 +589,63 @@ def validate_coupon(coupon_code: str, customer: str, company: str) -> Dict:
 		"valid": True,
 		"coupon": coupon
 	}
+
+
+# ===========================================================================
+# POS Offer engine (ported from posawesome's custom POS Offer doctype)
+# ===========================================================================
+# Unlike get_offers() above (which builds offers from ERPNext Pricing Rules /
+# Promotional Schemes), this serves records from the custom "POS Offer" doctype,
+# with the richer posawesome feature set: day-of-week + time scheduling, customer
+# group targeting, item-code lists, Give Product, replace-cheapest, coupon-based.
+#
+# Eligibility by cart contents / qty / amount / time / day / customer group and
+# the actual application (discount / free product) are handled in the POS frontend
+# (see posOffers store); this endpoint returns the candidate offers + their config.
+
+
+@frappe.whitelist()
+def get_pos_offers(pos_profile):
+	"""Return all active POS Offer records applicable to this profile/company/date.
+
+	Each offer is enriched with:
+	  - ``days``: list of weekday numbers it repeats on (Sun=0 .. Sat=6), empty = every day
+	  - ``applied_items``: the POS Offer Item Code rows (item_code + uom)
+	"""
+	profile = frappe.get_doc("POS Profile", pos_profile)
+	date = nowdate()
+
+	values = {
+		"company": profile.company,
+		"pos_profile": pos_profile,
+		"warehouse": profile.warehouse,
+		"date": date,
+	}
+	offers = frappe.db.sql(
+		"""
+		SELECT *
+		FROM `tabPOS Offer`
+		WHERE
+			disable = 0
+			AND company = %(company)s
+			AND (pos_profile IS NULL OR pos_profile = '' OR pos_profile = %(pos_profile)s)
+			AND (warehouse IS NULL OR warehouse = '' OR warehouse = %(warehouse)s)
+			AND (valid_from IS NULL OR valid_from = '' OR valid_from <= %(date)s)
+			AND (valid_upto IS NULL OR valid_upto = '' OR valid_upto >= %(date)s)
+		""",
+		values=values,
+		as_dict=True,
+	)
+
+	# Weekday checkboxes -> weekday numbers (Python date.weekday(): Mon=0..Sun=6;
+	# here we mirror posawesome's JS getDay(): Sun=0..Sat=6).
+	day_map = [("sun", 0), ("mon", 1), ("tue", 2), ("wed", 3), ("thu", 4), ("fri", 5), ("sat", 6)]
+	for offer in offers:
+		offer["days"] = [num for field, num in day_map if offer.get(field)]
+		offer["applied_items"] = frappe.get_all(
+			"POS Offer Item Code",
+			filters={"parent": offer["name"], "parenttype": "POS Offer"},
+			fields=["item_code", "uom"],
+		)
+
+	return offers

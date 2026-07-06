@@ -1,0 +1,341 @@
+# -*- coding: utf-8 -*-
+# Party reservation closing for the POS.
+#
+# Flow:
+#   - A party is reserved (via the web/booking flow in ecs_vim) as a Sales Order
+#     with pos_status="Open", advance_amount, select_event/select_slot, branch and
+#     delivery_date (= visit/party date). A "deposit" Sales Invoice records the
+#     down payment and is linked to the Sales Order.
+#   - In the POS the cashier picks a Visit Date + Customer, selects the reserved
+#     Sales Order (items auto-load), then closes the party: the deposit invoice is
+#     reversed (return invoice) and the full party invoice is created, so the
+#     customer pays (full - deposit). The Sales Order is then marked "Executed".
+#
+# NOTE: the accounting netting (deposit reversal + advance/credit application on
+# the full invoice) must be validated against the GL with finance before rollout.
+
+import json
+
+import frappe
+from frappe import _
+from frappe.utils import flt
+
+from ecs_posnext.api.invoices import submit_invoice, update_invoice
+
+DEPOSIT_ITEM_CODE = "PARTY-DEPOSIT"
+
+
+def _get_or_create_deposit_item():
+    """Return the dedicated party-deposit service item, creating it once if missing."""
+    if frappe.db.exists("Item", DEPOSIT_ITEM_CODE):
+        return DEPOSIT_ITEM_CODE
+
+    group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
+    item = frappe.get_doc(
+        {
+            "doctype": "Item",
+            "item_code": DEPOSIT_ITEM_CODE,
+            "item_name": "Party Deposit",
+            "item_group": group,
+            "stock_uom": "Nos",
+            "is_stock_item": 0,
+            "is_sales_item": 1,
+            "is_purchase_item": 0,
+            "include_item_in_manufacturing": 0,
+        }
+    )
+    item.flags.ignore_permissions = True
+    item.insert()
+    return DEPOSIT_ITEM_CODE
+
+
+def _default_mode_of_payment(pos_profile_doc):
+    """Pick the default (or first) mode of payment from the POS Profile."""
+    if pos_profile_doc and pos_profile_doc.get("payments"):
+        default = next((p for p in pos_profile_doc.payments if p.get("default")), None)
+        return (default or pos_profile_doc.payments[0]).mode_of_payment
+    return "Cash"
+
+
+def _get_deposit_invoices(sales_order):
+    """Return all (partial) deposit Sales Invoices for a reservation.
+
+    Deposit invoices are identified by the header link `extended_order_no` (set by
+    create_deposit_invoice), which the full closing invoice does NOT set — so this
+    never picks up the full party invoice. A reservation may have several deposit
+    invoices (e.g. 200 now, 400 later). Only submitted, non-return invoices.
+    """
+    if not sales_order:
+        return []
+
+    return frappe.db.get_all(
+        "Sales Invoice",
+        filters={"extended_order_no": sales_order, "is_return": 0, "docstatus": 1},
+        fields=["name", "grand_total"],
+        order_by="creation",
+    )
+
+
+def _net_unreversed_deposit(sales_order):
+    """Sum of deposit invoices that have NOT already been reversed by a credit note.
+
+    Already-reversed deposits (e.g. from an earlier failed close, where the credit
+    note can't be cancelled because it was reported to ZATCA) are excluded so the
+    closing invoice does not double-net them.
+    """
+    total = 0.0
+    for deposit in _get_deposit_invoices(sales_order):
+        already_returned = frappe.db.exists(
+            "Sales Invoice", {"return_against": deposit["name"], "docstatus": 1}
+        )
+        if not already_returned:
+            total += flt(deposit["grand_total"])
+    return total
+
+
+@frappe.whitelist()
+def get_reservation_sales_orders(pos_profile, visit_date=None, customer=None):
+    """List open party-reservation Sales Orders for a visit date and/or customer.
+
+    Port of posawesome's get_sales_order_names, parameterized (no SQL injection).
+    Returns each SO with remaining (un-invoiced) item quantities and the linked
+    deposit invoice so the POS can close it.
+    """
+    filters = {"pos_status": "Open", "docstatus": 1}
+    if visit_date:
+        filters["delivery_date"] = visit_date
+    if customer:
+        filters["customer"] = customer
+
+    sales_orders = frappe.db.get_all(
+        "Sales Order",
+        filters=filters,
+        fields=[
+            "name",
+            "customer",
+            "customer_name",
+            "contact_mobile",
+            "delivery_date",
+            "pos_status",
+            "select_event",
+            "select_slot",
+            "branch",
+            "grand_total",
+            "advance_amount",
+            "custom_advance_paid",
+        ],
+        order_by="name",
+    )
+
+    for row in sales_orders:
+        # Quantities already invoiced against this SO, per item.
+        invoiced = frappe.db.sql(
+            """
+            SELECT item_code, SUM(qty) AS qty, SUM(amount) AS amount
+            FROM `tabSales Invoice Item`
+            WHERE sales_order = %s AND docstatus = 1
+            GROUP BY item_code
+            """,
+            (row["name"],),
+            as_dict=1,
+        )
+        invoiced_map = {i["item_code"]: i for i in invoiced}
+
+        so_doc = frappe.get_doc("Sales Order", row["name"])
+        remaining_items = []
+        description_lines = []
+        for it in so_doc.items:
+            already = invoiced_map.get(it.item_code)
+            remaining_qty = it.qty - (already["qty"] if already else 0)
+            description_lines.append(f"{it.item_name} - ({remaining_qty})")
+            if remaining_qty > 0:
+                remaining_items.append(
+                    {
+                        "item_code": it.item_code,
+                        "item_name": it.item_name,
+                        "qty": remaining_qty,
+                        "rate": it.rate,
+                        "uom": it.uom,
+                        "warehouse": it.warehouse,
+                        "sales_order": row["name"],
+                    }
+                )
+
+        row["items"] = remaining_items
+        row["description"] = "\n".join(description_lines)
+        deposits = _get_deposit_invoices(row["name"])
+        row["deposit_invoices"] = [d["name"] for d in deposits]
+        # Net (unreversed) deposit = what reduces the amount due at close.
+        row["total_deposit"] = _net_unreversed_deposit(row["name"])
+
+    return sales_orders
+
+
+@frappe.whitelist()
+def load_sales_order_into_cart(sales_order, pos_profile=None):
+    """Build a full Sales Invoice from a Sales Order and return cart-ready items/taxes.
+
+    Uses ERPNext's standard make_sales_invoice so pricing, taxes and SO links are
+    populated correctly. The frontend uses this to auto-load the party items.
+    """
+    from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+
+    si = make_sales_invoice(sales_order)
+    si.is_pos = 1
+    if pos_profile:
+        si.pos_profile = pos_profile
+
+    items = [
+        {
+            "item_code": it.item_code,
+            "item_name": it.item_name,
+            "qty": it.qty,
+            "rate": it.rate,
+            "uom": it.uom,
+            "warehouse": it.warehouse,
+            "sales_order": sales_order,
+        }
+        for it in si.items
+    ]
+    taxes = [
+        {
+            "charge_type": t.charge_type,
+            "account_head": t.account_head,
+            "rate": t.rate,
+            "description": t.description,
+            "included_in_print_rate": t.included_in_print_rate,
+        }
+        for t in si.get("taxes", [])
+    ]
+
+    return {
+        "sales_order": sales_order,
+        "customer": si.customer,
+        "customer_name": si.customer_name,
+        "items": items,
+        "taxes": taxes,
+        "total_deposit": _net_unreversed_deposit(sales_order),
+    }
+
+
+@frappe.whitelist()
+def create_deposit_invoice(sales_order, pos_profile=None, amount=None, payments=None):
+    """Create + submit a paid POS deposit (down-payment) Sales Invoice for a reservation.
+
+    The deposit invoice is a single line of the dedicated "Party Deposit" item at the
+    deposit amount, recorded as paid (is_pos) and linked to the Sales Order via
+    `extended_order_no`. It is reversed later when the party is closed.
+
+    Args:
+        sales_order: the reservation Sales Order.
+        pos_profile: active POS Profile (for company, branch, default payment).
+        amount: deposit amount; defaults to the SO's advance_amount.
+        payments: optional list of {mode_of_payment, amount}; defaults to the
+                  profile's default mode of payment for the full amount.
+    """
+    so = frappe.get_doc("Sales Order", sales_order)
+    amount = flt(amount) or flt(so.get("advance_amount"))
+    if amount <= 0:
+        frappe.throw(_("Please specify a deposit amount greater than zero"))
+
+    if isinstance(payments, str):
+        payments = json.loads(payments)
+
+    # Multiple (partial) deposits are allowed per reservation (e.g. 200 now, 400 later),
+    # so we do NOT block when a deposit invoice already exists.
+
+    # A POS Profile is required (submit_invoice always submits as is_pos). When called
+    # from the Sales Order form (no POS context), fall back to an enabled profile.
+    if not pos_profile:
+        pos_profile = frappe.db.get_value(
+            "POS Profile", {"company": so.company, "disabled": 0}, "name"
+        ) or frappe.db.get_value("POS Profile", {"disabled": 0}, "name")
+    if not pos_profile:
+        frappe.throw(_("No POS Profile available to create the deposit invoice"))
+
+    item_code = _get_or_create_deposit_item()
+    pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
+
+    invoice_data = {
+        "doctype": "Sales Invoice",
+        "pos_profile": pos_profile,
+        "customer": so.customer,
+        "is_pos": 1,
+        "update_stock": 0,
+        "extended_order_no": sales_order,
+        "items": [
+            {"item_code": item_code, "qty": 1, "rate": amount, "sales_order": sales_order}
+        ],
+        "payments": payments
+        or [{"mode_of_payment": _default_mode_of_payment(pos_profile_doc), "amount": amount}],
+    }
+
+    draft = update_invoice(invoice_data)
+    invoice_data["name"] = draft.get("name")
+    result = submit_invoice(invoice=invoice_data, data={})
+    frappe.db.commit()
+
+    return {"deposit_invoice": draft.get("name"), "amount": amount, "result": result}
+
+
+@frappe.whitelist()
+def close_party_reservation(sales_order, invoice_data, data=None, pos_profile=None):
+    """Close a reserved party: bill the full party and net out the deposits paid.
+
+    Instead of reversing each deposit invoice and reallocating credit (which is fragile),
+    the full party invoice carries a single NEGATIVE "Party Deposit" line equal to the
+    total deposit already paid. So:
+        net invoice total = full - total_deposit   (the customer pays this now)
+    and the deposit-item revenue cancels out across the deposit invoices (+) and this
+    invoice (-), leaving exactly the party's real revenue. No returns, no credit JEs.
+
+    Args:
+        sales_order: the reserved Sales Order (pos_status="Open").
+        invoice_data: the draft-invoice input (same dict the cart builds) for the full
+                      party invoice; the cashier's payments collect (full - deposit).
+        data: extra submit data (change_amount, write_off_amount, customer_credit_dict).
+        pos_profile: active POS Profile.
+    """
+    invoice_data = json.loads(invoice_data) if isinstance(invoice_data, str) else invoice_data
+    data = json.loads(data) if isinstance(data, str) else (data or {})
+
+    if not frappe.db.exists("Sales Order", sales_order):
+        frappe.throw(_("Sales Order {0} not found").format(sales_order))
+
+    profile = pos_profile or invoice_data.get("pos_profile")
+
+    # Only net deposits that haven't already been reversed (avoids double-netting
+    # when an earlier attempt left an uncancellable credit note).
+    total_deposit = _net_unreversed_deposit(sales_order)
+
+    # Build the full party invoice; link each real line back to the SO.
+    invoice_data["pos_profile"] = profile
+    invoice_data.setdefault("is_pos", 1)
+    for item in invoice_data.get("items", []):
+        item.setdefault("sales_order", sales_order)
+
+    # Net out the deposits already paid with one negative deposit line.
+    if total_deposit > 0:
+        invoice_data.setdefault("items", []).append(
+            {
+                "item_code": _get_or_create_deposit_item(),
+                "item_name": "Party Deposit (paid)",
+                "qty": 1,
+                "rate": -total_deposit,
+                "sales_order": sales_order,
+            }
+        )
+
+    draft = update_invoice(invoice_data)
+    invoice_data["name"] = draft.get("name")
+    full_result = submit_invoice(invoice=invoice_data, data=data)
+
+    # Mark the reservation as executed so it drops out of the open list.
+    frappe.db.set_value("Sales Order", sales_order, "pos_status", "Executed")
+    frappe.db.commit()
+
+    return {
+        "sales_order": sales_order,
+        "total_deposit": total_deposit,
+        "full_invoice": full_result,
+    }

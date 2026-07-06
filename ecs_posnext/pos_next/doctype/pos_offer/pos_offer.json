@@ -50,7 +50,24 @@
   "discount_percentage",
   "loyalty_point_scheme_section",
   "loyalty_program",
-  "loyalty_points"
+  "loyalty_points",
+  "customer_group",
+  "applied_items",
+  "rate_give_item",
+  "schedule_section",
+  "from_time",
+  "column_break_rox6d",
+  "to_time",
+  "repeated_section",
+  "sat",
+  "tue",
+  "fri",
+  "column_break_opms0",
+  "sun",
+  "wed",
+  "column_break_as51d",
+  "mon",
+  "thu"
  ],
  "fields": [
   {
@@ -305,6 +322,97 @@
    "fieldname": "coupon_based",
    "fieldtype": "Check",
    "label": "Coupon Code Based"
+  },
+  {
+   "fieldname": "applied_items",
+   "fieldtype": "Table",
+   "label": "Apply Rule On Item Code",
+   "options": "POS Offer Item Code"
+  },
+  {
+   "fieldname": "customer_group",
+   "fieldtype": "Link",
+   "label": "Customer Group",
+   "options": "Customer Group"
+  },
+  {
+   "fieldname": "rate_give_item",
+   "fieldtype": "Currency",
+   "label": "Rate Give Item"
+  },
+  {
+   "fieldname": "schedule_section",
+   "fieldtype": "Section Break",
+   "label": "Schedule"
+  },
+  {
+   "fieldname": "from_time",
+   "fieldtype": "Time",
+   "label": "From Time"
+  },
+  {
+   "fieldname": "column_break_rox6d",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "to_time",
+   "fieldtype": "Time",
+   "label": "To time"
+  },
+  {
+   "fieldname": "repeated_section",
+   "fieldtype": "Section Break",
+   "label": "Repeated"
+  },
+  {
+   "default": "0",
+   "fieldname": "sat",
+   "fieldtype": "Check",
+   "label": "Sat"
+  },
+  {
+   "default": "0",
+   "fieldname": "tue",
+   "fieldtype": "Check",
+   "label": "Tue"
+  },
+  {
+   "default": "0",
+   "fieldname": "fri",
+   "fieldtype": "Check",
+   "label": "Fri"
+  },
+  {
+   "fieldname": "column_break_opms0",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "sun",
+   "fieldtype": "Check",
+   "label": "Sun"
+  },
+  {
+   "default": "0",
+   "fieldname": "wed",
+   "fieldtype": "Check",
+   "label": "Wed"
+  },
+  {
+   "fieldname": "column_break_as51d",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "mon",
+   "fieldtype": "Check",
+   "label": "Mon"
+  },
+  {
+   "default": "0",
+   "fieldname": "thu",
+   "fieldtype": "Check",
+   "label": "Thu"
   }
  ],
  "index_web_pages_for_search": 1,

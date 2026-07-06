@@ -139,6 +139,64 @@
 								<span :class="['font-bold text-gray-900 text-start', isCompactMode ? 'text-sm' : 'text-base']">{{ __('Grand Total') }}</span>
 								<span :class="['font-bold text-gray-900 text-end', dynamicTextSize.grandTotal]">{{ formatCurrency(grandTotal) }}</span>
 							</div>
+							<!-- Deposit already paid (party reservation) -->
+							<div v-if="reservationDeposit > 0" class="flex items-center justify-between text-sm mt-1">
+								<span class="text-gray-600 text-start">{{ __('Deposit paid') }}</span>
+								<span class="font-medium text-green-600 text-end">-{{ formatCurrency(reservationDeposit) }}</span>
+							</div>
+
+							<!-- Loyalty redemption (points + cashback) -->
+							<div v-if="loyaltyStore.enabled && customer" class="mt-2 pt-2 border-t border-gray-200">
+								<div class="flex items-center justify-between mb-1">
+									<span class="text-[11px] font-semibold text-purple-700">{{ __('Loyalty') }}</span>
+									<span class="text-[10px] text-gray-500">
+										{{ __('Points') }}: {{ formatCurrency(loyaltyStore.availablePointsValue) }} ·
+										{{ __('Cashback') }}: {{ formatCurrency(loyaltyStore.availableCashback) }}
+									</span>
+								</div>
+								<div v-if="!loyaltyStore.hasBalance" class="text-[10px] text-gray-400">
+									{{ __('No loyalty balance for this customer') }}
+								</div>
+								<div class="flex items-center gap-2">
+									<button
+										v-if="loyaltyStore.availablePointsValue > 0"
+										type="button"
+										class="flex-1 text-[11px] font-medium rounded-lg py-1.5 border transition-colors"
+										:class="(cartStore.loyaltyPointsToRedeem > 0)
+											? 'bg-purple-600 text-white border-purple-600'
+											: 'bg-white text-purple-700 border-purple-300 hover:bg-purple-50'"
+										@click="toggleRedeemPoints"
+									>
+										{{ (cartStore.loyaltyPointsToRedeem > 0) ? __('Points applied') : __('Redeem points') }}
+									</button>
+									<button
+										v-if="loyaltyStore.availableCashback > 0"
+										type="button"
+										class="flex-1 text-[11px] font-medium rounded-lg py-1.5 border transition-colors"
+										:class="(cartStore.loyaltyCashbackToUse > 0)
+											? 'bg-purple-600 text-white border-purple-600'
+											: 'bg-white text-purple-700 border-purple-300 hover:bg-purple-50'"
+										@click="toggleRedeemCashback"
+									>
+										{{ (cartStore.loyaltyCashbackToUse > 0) ? __('Cashback applied') : __('Redeem cashback') }}
+									</button>
+								</div>
+							</div>
+
+							<!-- Loyalty applied amount -->
+							<div v-if="loyaltyRedemptionValue > 0" class="flex items-center justify-between text-sm mt-1">
+								<span class="text-gray-600 text-start">{{ __('Loyalty redeemed') }}</span>
+								<span class="font-medium text-purple-600 text-end">-{{ formatCurrency(loyaltyRedemptionValue) }}</span>
+							</div>
+
+							<!-- To Collect (when any reduction applies) -->
+							<div
+								v-if="reservationDeposit > 0 || loyaltyRedemptionValue > 0"
+								class="flex items-center justify-between pt-2 mt-1 border-t border-gray-300"
+							>
+								<span :class="['font-bold text-orange-700 text-start', isCompactMode ? 'text-sm' : 'text-base']">{{ __('To Collect') }}</span>
+								<span :class="['font-bold text-orange-700 text-end', dynamicTextSize.grandTotal]">{{ formatCurrency(payableTotal) }}</span>
+							</div>
 						</div>
 
 						<!-- Payment Status - Two Equal Halves -->
@@ -622,6 +680,38 @@
 						</div>
 					</div>
 
+					<!-- Desktop: custom amount entry (enables split payments) -->
+					<div v-if="lastSelectedMethod && remainingAmount > 0" class="hidden lg:flex items-center gap-2 mt-3">
+						<div class="relative flex-1">
+							<span class="absolute start-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">{{ currencySymbol }}</span>
+							<input
+								v-model="mobileCustomAmount"
+								type="number"
+								inputmode="decimal"
+								min="0"
+								step="0.01"
+								:placeholder="isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod) ? __('Exact amount only') : __('Amount for {0}', [__(lastSelectedMethod.mode_of_payment)])"
+								:disabled="isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod)"
+								class="w-full h-11 ps-7 pe-3 text-sm font-semibold border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed"
+								@keyup.enter="addMobileCustomPayment"
+							/>
+						</div>
+						<button
+							type="button"
+							@click="addMobileCustomPayment"
+							:disabled="(isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod)) || !mobileCustomAmount || mobileCustomAmount <= 0"
+							class="h-11 px-5 text-sm font-semibold rounded-lg transition-colors bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
+						>
+							{{ __('Add') }}
+						</button>
+						<button
+							type="button"
+							@click="addCustomPayment(lastSelectedMethod, remainingAmount)"
+							class="h-11 px-5 text-sm font-semibold rounded-lg transition-colors bg-green-500 text-white hover:bg-green-600"
+						>
+							{{ __('Pay') }} {{ formatCurrency(remainingAmount) }}
+						</button>
+					</div>
 
 					<!-- Mobile Payment Section - Dynamic & Responsive -->
 					<div class="lg:hidden flex flex-col" :class="isSmallMobile ? 'gap-1' : 'gap-1.5'">
@@ -736,7 +826,7 @@
 
 							<!-- Complete Payment Button -->
 							<button
-								v-if="(remainingAmount === 0 || (applyWriteOff && canWriteOff)) && totalPaid > 0"
+								v-if="(remainingAmount === 0 || (applyWriteOff && canWriteOff)) && (totalPaid > 0 || loyaltyRedemptionValue > 0 || reservationDeposit > 0)"
 								@click="completePayment"
 								:disabled="isSubmitting || !canComplete || isCreatingCustomer"
 								:class="[
@@ -813,10 +903,31 @@
 			<!-- End Two Column Layout -->
 		</template>
 	</Dialog>
+
+	<!-- Discount authorization (OTP / password) -->
+	<DiscountOtpDialog
+		v-model="showDiscountOtp"
+		context="discount"
+		:pos-profile="posProfile"
+		:reference="discountDescription"
+		@authorized="onDiscountAuthorized"
+	/>
+
+	<!-- Credit card terminal approval (Span/DigitalPay) -->
+	<CardApprovalDialog
+		v-model="showCardApproval"
+		:pos-profile="posProfile"
+		:card-amounts="cardAmounts"
+		@approved="onCardApproved"
+	/>
 </template>
 
 <script setup>
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import { usePOSCartStore } from "@/stores/posCart"
+import { useLoyaltyStore } from "@/stores/loyalty"
+import DiscountOtpDialog from "./DiscountOtpDialog.vue"
+import CardApprovalDialog from "./CardApprovalDialog.vue"
 import {
 	DEFAULT_CURRENCY,
 	formatCurrency as formatCurrencyUtil,
@@ -835,6 +946,8 @@ import { useResponsivePayment } from "@/composables/useResponsivePayment"
 
 const log = logger.create("PaymentDialog")
 const settingsStore = usePOSSettingsStore()
+const cartStore = usePOSCartStore()
+const loyaltyStore = useLoyaltyStore()
 const { showWarning, showInfo } = useToast()
 
 const props = defineProps({
@@ -924,6 +1037,81 @@ const emit = defineEmits([
 	"update-additional-discount",
 ])
 
+// When closing a party reservation, the deposit already paid reduces the amount
+// the cashier must collect now (full - deposit).
+const reservationDeposit = computed(() => cartStore.reservationDeposit || 0)
+
+// ----- Loyalty redemption (loyalty_engine) -----
+// The currency value of redeemed points + cashback. loyalty_engine posts this as a
+// payment + debits the wallet on submit, so it reduces what the cashier collects now.
+const loyaltyRedemptionValue = computed(() =>
+	roundCurrency(
+		(Number(cartStore.loyaltyPointsToRedeem) || 0) * loyaltyStore.exchangeRate +
+			(Number(cartStore.loyaltyCashbackToUse) || 0),
+	),
+)
+
+// Due before loyalty (grand total minus any reservation deposit).
+const baseDue = computed(() =>
+	roundCurrency(
+		Math.max((props.grandTotal || 0) - reservationDeposit.value, 0),
+	),
+)
+
+// The amount actually payable now (after deposit + loyalty redemption).
+const payableTotal = computed(() =>
+	roundCurrency(Math.max(baseDue.value - loyaltyRedemptionValue.value, 0)),
+)
+
+function clearLoyaltyRedemption() {
+	cartStore.loyaltyPointsToRedeem = 0
+	cartStore.loyaltyCashbackToUse = 0
+}
+
+function toggleRedeemPoints() {
+	if ((cartStore.loyaltyPointsToRedeem || 0) > 0) {
+		cartStore.loyaltyPointsToRedeem = 0
+		return
+	}
+	const rate = loyaltyStore.exchangeRate || 1
+	const cap = roundCurrency(
+		(props.grandTotal || 0) * (loyaltyStore.maxPointsPercent / 100),
+	)
+	const cashbackValue = Number(cartStore.loyaltyCashbackToUse) || 0
+	const room = Math.max(baseDue.value - cashbackValue, 0)
+	const value = Math.min(loyaltyStore.availablePointsValue, cap, room)
+	cartStore.loyaltyPointsToRedeem = value > 0 ? roundCurrency(value / rate) : 0
+}
+
+function toggleRedeemCashback() {
+	if ((cartStore.loyaltyCashbackToUse || 0) > 0) {
+		cartStore.loyaltyCashbackToUse = 0
+		return
+	}
+	const cap = roundCurrency(
+		(props.grandTotal || 0) * (loyaltyStore.maxCashbackPercent / 100),
+	)
+	const pointsValue =
+		(Number(cartStore.loyaltyPointsToRedeem) || 0) * loyaltyStore.exchangeRate
+	const room = Math.max(baseDue.value - pointsValue, 0)
+	const value = Math.min(loyaltyStore.availableCashback, cap, room)
+	cartStore.loyaltyCashbackToUse = value > 0 ? roundCurrency(value) : 0
+}
+
+// Load the customer's wallet whenever the dialog opens OR the customer changes.
+// Immediate so it also runs if the dialog is already open on mount.
+watch(
+	[() => props.modelValue, () => props.customer],
+	([open]) => {
+		if (open) {
+			clearLoyaltyRedemption()
+			const cust = props.customer?.name || props.customer || null
+			loyaltyStore.loadLoyalty(cust)
+		}
+	},
+	{ immediate: true },
+)
+
 const show = computed({
 	get: () => props.modelValue,
 	set: (val) => emit("update:modelValue", val),
@@ -970,7 +1158,10 @@ const isSalesOrder = computed(() => props.targetDoctype === "Sales Order")
 
 // Customer is required when cart has no customer AND POS profile has no default customer
 const customerRequired = computed(() => {
-	const hasCartCustomer = !!(props.customer?.name || (typeof props.customer === "string" && props.customer))
+	const hasCartCustomer = !!(
+		props.customer?.name ||
+		(typeof props.customer === "string" && props.customer)
+	)
 	const hasProfileCustomer = !!props.profileCustomer
 	return !hasCartCustomer && !hasProfileCustomer
 })
@@ -1415,8 +1606,7 @@ function toggleCommissionInclusion(personName) {
 	if (!person) return
 
 	// Toggle inclusion: 1 -> 0, or 0 -> 1
-	person.include_in_commission =
-		person.include_in_commission === 0 ? 1 : 0
+	person.include_in_commission = person.include_in_commission === 0 ? 1 : 0
 
 	// Recalculate percentages after toggling
 	redistributeCommission()
@@ -1482,13 +1672,19 @@ async function _searchCustomersByMobile(query) {
 function handleCustomerNameInput() {
 	selectedCustomer.value = null
 	clearTimeout(_nameSearchTimer)
-	_nameSearchTimer = setTimeout(() => _searchCustomersByName(customerNameQuery.value), 300)
+	_nameSearchTimer = setTimeout(
+		() => _searchCustomersByName(customerNameQuery.value),
+		300,
+	)
 }
 
 function handleCustomerMobileInput() {
 	selectedCustomer.value = null
 	clearTimeout(_mobileSearchTimer)
-	_mobileSearchTimer = setTimeout(() => _searchCustomersByMobile(customerMobileQuery.value), 300)
+	_mobileSearchTimer = setTimeout(
+		() => _searchCustomersByMobile(customerMobileQuery.value),
+		300,
+	)
 }
 
 function selectCustomerFromSearch(cust) {
@@ -1502,11 +1698,15 @@ function selectCustomerFromSearch(cust) {
 }
 
 function handleCustomerNameBlur() {
-	setTimeout(() => { customerNameDropdownOpen.value = false }, 150)
+	setTimeout(() => {
+		customerNameDropdownOpen.value = false
+	}, 150)
 }
 
 function handleCustomerMobileBlur() {
-	setTimeout(() => { customerMobileDropdownOpen.value = false }, 150)
+	setTimeout(() => {
+		customerMobileDropdownOpen.value = false
+	}, 150)
 }
 
 // Load payment methods - from cache if offline, from server if online
@@ -1583,19 +1783,23 @@ const remainingAvailableCredit = computed(() => {
 
 // Calculate the actual discount amount based on type (percentage or fixed amount)
 // Use discount-eligible subtotal (excludes items with custom_not_included=1) as base
-const discountBase = computed(() => props.discountEligibleSubtotal ?? props.subtotal)
+const discountBase = computed(
+	() => props.discountEligibleSubtotal ?? props.subtotal,
+)
 
 const calculatedAdditionalDiscount = computed(() => {
-	return roundCurrency((discountBase.value * localAdditionalDiscount.value) / 100)
+	return roundCurrency(
+		(discountBase.value * localAdditionalDiscount.value) / 100,
+	)
 })
 
 const remainingAmount = computed(() => {
-	const remaining = roundCurrency(props.grandTotal) - totalPaid.value
+	const remaining = payableTotal.value - totalPaid.value
 	return remaining > 0 ? roundCurrency(remaining) : 0
 })
 
 const changeAmount = computed(() => {
-	const change = totalPaid.value - roundCurrency(props.grandTotal)
+	const change = totalPaid.value - payableTotal.value
 	return change > 0 ? roundCurrency(change) : 0
 })
 
@@ -1772,12 +1976,16 @@ const isExactAmountValid = computed(() => {
 	if (hasCashPayment.value && !hasNonCashPayment.value) return true
 
 	// Non-cash or mixed: total paid must not exceed grand total
-	return totalPaid.value <= roundCurrency(props.grandTotal)
+	return totalPaid.value <= payableTotal.value
 })
 
 const canComplete = computed(() => {
 	// Check customer (required when no cart/profile customer and nothing entered)
-	if (customerRequired.value && !customerNameQuery.value.trim() && !selectedCustomer.value) {
+	if (
+		customerRequired.value &&
+		!customerNameQuery.value.trim() &&
+		!selectedCustomer.value
+	) {
 		return false
 	}
 	// Check sales person validation first (mandatory when enabled)
@@ -1800,8 +2008,14 @@ const canComplete = computed(() => {
 		return paymentEntries.value.length > 0
 	}
 
-	// Otherwise require full payment
-	return remainingAmount.value === 0 && paymentEntries.value.length > 0
+	// Otherwise require full payment. The invoice may be fully covered by a loyalty
+	// redemption and/or reservation deposit, in which case no cash entry is needed.
+	const coveredByNonCash =
+		loyaltyRedemptionValue.value > 0 || reservationDeposit.value > 0
+	return (
+		remainingAmount.value === 0 &&
+		(paymentEntries.value.length > 0 || coveredByNonCash)
+	)
 })
 
 const paymentButtonText = computed(() => {
@@ -1817,7 +2031,6 @@ const paymentButtonText = computed(() => {
 	}
 	return __("Complete Payment")
 })
-
 
 // Preload payment methods when posProfile is set (before dialog opens)
 watch(
@@ -1842,7 +2055,12 @@ watch(
 // Pre-fetch customer balance when customer changes (before dialog opens)
 // This ensures data is available immediately when dialog opens
 watch(
-	() => [props.customer, props.company, props.allowCreditSale, props.allowCustomerCreditPayment],
+	() => [
+		props.customer,
+		props.company,
+		props.allowCreditSale,
+		props.allowCustomerCreditPayment,
+	],
 	([customer, company, allowCreditSale, allowCustomerCreditPayment]) => {
 		const creditEnabled = allowCreditSale || allowCustomerCreditPayment
 		if (creditEnabled && customer && company) {
@@ -1873,9 +2091,10 @@ watch(show, (newVal) => {
 		customerNameResults.value = []
 		customerMobileResults.value = []
 		if (props.customer) {
-			const custObj = typeof props.customer === "object"
-				? props.customer
-				: { name: props.customer, customer_name: props.customer }
+			const custObj =
+				typeof props.customer === "object"
+					? props.customer
+					: { name: props.customer, customer_name: props.customer }
 			customerNameQuery.value = custObj.customer_name || custObj.name || ""
 			customerMobileQuery.value = custObj.mobile_no || ""
 			selectedCustomer.value = custObj
@@ -1905,12 +2124,20 @@ watch(show, (newVal) => {
 
 		// Customer credit and balance is pre-fetched when customer changes (see watcher above)
 		// Just log for debugging
-		const creditEnabled = props.allowCreditSale || props.allowCustomerCreditPayment
+		const creditEnabled =
+			props.allowCreditSale || props.allowCustomerCreditPayment
 		if (creditEnabled) {
-			log.debug("[PaymentDialog] Customer credit/balance should be pre-loaded, current balance:", customerBalance.value)
+			log.debug(
+				"[PaymentDialog] Customer credit/balance should be pre-loaded, current balance:",
+				customerBalance.value,
+			)
 		}
 
-		if (settingsStore.enableSalesPersons && props.posProfile && salesPersons.value.length === 0) {
+		if (
+			settingsStore.enableSalesPersons &&
+			props.posProfile &&
+			salesPersons.value.length === 0
+		) {
 			loadingSalesPersons.value = true
 			salesPersonsResource.fetch()
 		}
@@ -1935,7 +2162,12 @@ watch(show, (newVal) => {
 watch(
 	() => [settingsStore.enableSalesPersons, props.posProfile],
 	([enabled, posProfile]) => {
-		if (enabled && posProfile && salesPersons.value.length === 0 && !loadingSalesPersons.value) {
+		if (
+			enabled &&
+			posProfile &&
+			salesPersons.value.length === 0 &&
+			!loadingSalesPersons.value
+		) {
 			loadingSalesPersons.value = true
 			salesPersonsResource.fetch()
 		}
@@ -1954,7 +2186,9 @@ function selectPaymentMethod(method) {
 	log.debug("[PaymentDialog] Selected payment method:", method.mode_of_payment)
 	if (remainingAmount.value > 0) {
 		const isCash = isCashPaymentMethod(method)
-		const exactAmt = isCash ? Math.ceil(remainingAmount.value) : roundCurrency(remainingAmount.value)
+		const exactAmt = isCash
+			? Math.ceil(remainingAmount.value)
+			: roundCurrency(remainingAmount.value)
 		setNumpadValue(exactAmt)
 		mobileCustomAmount.value = exactAmt.toFixed(2)
 	}
@@ -2044,7 +2278,7 @@ function quickAddPayment(method) {
 			})
 			.reduce((sum, entry) => sum + (entry.amount || 0), 0)
 
-		const maxAllowed = roundCurrency(props.grandTotal) - currentNonCashTotal
+		const maxAllowed = payableTotal.value - currentNonCashTotal
 
 		if (maxAllowed <= 0) {
 			showWarning(
@@ -2063,7 +2297,7 @@ function quickAddPayment(method) {
 		hasNonCashPayment.value &&
 		isCashPaymentMethod(method)
 	) {
-		const maxAllowed = roundCurrency(props.grandTotal) - totalPaid.value
+		const maxAllowed = payableTotal.value - totalPaid.value
 		if (maxAllowed <= 0) {
 			showInfo(__("Invoice fully paid. No additional payment needed."))
 			return
@@ -2143,7 +2377,7 @@ function addCustomPayment(method, amount) {
 	if (isExactAmountModeActive.value && !isCashPaymentMethod(method)) {
 		// Calculate the remaining amount after ALL existing payments (cash + non-cash)
 		// Non-cash payments in exact amount mode must equal the remaining balance exactly
-		const maxAllowed = roundCurrency(props.grandTotal - totalPaid.value)
+		const maxAllowed = roundCurrency(payableTotal.value - totalPaid.value)
 
 		if (maxAllowed <= 0) {
 			showWarning(
@@ -2173,10 +2407,10 @@ function addCustomPayment(method, amount) {
 		isCashPaymentMethod(method)
 	) {
 		const newTotal = totalPaid.value + amt
-		if (newTotal > roundCurrency(props.grandTotal)) {
+		if (newTotal > payableTotal.value) {
 			showWarning(
 				__("Mixed payment cannot exceed invoice total. Limit: {0}", [
-					formatCurrency(roundCurrency(props.grandTotal) - totalPaid.value),
+					formatCurrency(payableTotal.value - totalPaid.value),
 				]),
 			)
 			return
@@ -2267,7 +2501,149 @@ function clearAll() {
 	customAmount.value = ""
 }
 
+// ---- Discount authorization (OTP / password) ----
+const showDiscountOtp = ref(false)
+const discountAuthorized = ref(false)
+
+// Authorization is required whenever ANY discount is applied — cart additional
+// discount (percentage OR amount) or any item-level discount — regardless of the
+// max_discount_allowed limit.
+const discountRequiresAuth = computed(() => {
+	if ((Number(localAdditionalDiscount.value) || 0) > 0) return true
+	if ((Number(props.additionalDiscount) || 0) > 0) return true
+	if ((Number(props.discountAmount) || 0) > 0) return true
+	return (props.items || []).some(
+		(i) =>
+			(Number(i.discount_percentage) || 0) > 0 ||
+			(Number(i.discount_amount) || 0) > 0,
+	)
+})
+
+// A short description for the supervisors' Telegram message.
+const discountDescription = computed(() => {
+	if ((Number(localAdditionalDiscount.value) || 0) > 0) {
+		return `${localAdditionalDiscount.value}%`
+	}
+	const amount =
+		Number(props.additionalDiscount) || 0 || Number(props.discountAmount) || 0
+	if (amount > 0) return formatCurrency(amount)
+	const item = (props.items || []).find(
+		(i) =>
+			(Number(i.discount_percentage) || 0) > 0 ||
+			(Number(i.discount_amount) || 0) > 0,
+	)
+	if (item) {
+		return item.discount_percentage
+			? `${item.item_name}: ${item.discount_percentage}%`
+			: `${item.item_name}: ${formatCurrency(item.discount_amount)}`
+	}
+	return ""
+})
+
+// Any change to the discount invalidates a prior authorization.
+watch(
+	[
+		localAdditionalDiscount,
+		() => props.additionalDiscount,
+		() => props.discountAmount,
+		() => props.items,
+	],
+	() => {
+		discountAuthorized.value = false
+	},
+	{ deep: true },
+)
+
+function onDiscountAuthorized() {
+	discountAuthorized.value = true
+	showDiscountOtp.value = false
+	completePayment()
+}
+
+// ---- Credit card (Span/DigitalPay) approval + Tabby ----
+const showCardApproval = ref(false)
+const cardApproved = ref(false)
+// Whether this POS Profile has an active card terminal. Only then is the
+// terminal-approval flow enforced; otherwise card payments complete normally.
+const hasCardTerminal = ref(false)
+
+async function loadCardTerminal() {
+	if (!props.posProfile) {
+		hasCardTerminal.value = false
+		return
+	}
+	try {
+		const res = await call("ecs_posnext.api.payments.has_card_terminal", {
+			pos_profile: props.posProfile,
+		})
+		hasCardTerminal.value = Boolean(res?.message ?? res)
+	} catch (e) {
+		console.error("has_card_terminal failed", e)
+		hasCardTerminal.value = false
+	}
+}
+
+watch(
+	() => [show.value, props.posProfile],
+	([isOpen]) => {
+		if (isOpen) loadCardTerminal()
+	},
+	{ immediate: true },
+)
+
+// Card payment amounts (one terminal transaction each). Matches "Credit Card ..."
+// methods only — NOT "Credit Sales" / "Credit for ..." (on-account credit).
+function isCardMethod(name) {
+	return (name || "").toLowerCase().includes("credit card")
+}
+const cardAmounts = computed(() =>
+	paymentEntries.value
+		.filter((p) => isCardMethod(p.mode_of_payment) && Number(p.amount) > 0)
+		.map((p) => Number(p.amount)),
+)
+
+const isTabbySelected = computed(() =>
+	paymentEntries.value.some((p) => (p.mode_of_payment || "") === "Tabby"),
+)
+
+// Re-require card approval whenever payments change.
+watch(
+	paymentEntries,
+	() => {
+		cardApproved.value = false
+	},
+	{ deep: true },
+)
+
+function onCardApproved(codes) {
+	cartStore.cardApprovalCodes = codes || []
+	cardApproved.value = true
+	showCardApproval.value = false
+	completePayment()
+}
+
 async function completePayment() {
+	// Gate: any applied discount needs OTP/password authorization.
+	if (discountRequiresAuth.value && !discountAuthorized.value) {
+		showDiscountOtp.value = true
+		return
+	}
+
+	// Gate: credit-card payments must be approved on the terminal first — but only
+	// when this POS Profile actually has an active card terminal. Otherwise card
+	// payments complete normally (no approval code).
+	if (
+		hasCardTerminal.value &&
+		cardAmounts.value.length &&
+		!cardApproved.value
+	) {
+		showCardApproval.value = true
+		return
+	}
+
+	// Flag Tabby so the backend keeps the invoice pending + returns a payment link.
+	cartStore.isTabbyPayment = isTabbySelected.value
+
 	log.debug("[PaymentDialog] Complete payment called:", {
 		canComplete: canComplete.value,
 		totalPaid: totalPaid.value,
@@ -2307,7 +2683,9 @@ async function completePayment() {
 			log.debug("[PaymentDialog] New customer created:", newCust)
 		} catch (err) {
 			log.error("[PaymentDialog] Failed to create customer:", err)
-			showWarning(__("Failed to create customer: {0}", [err.message || "Unknown error"]))
+			showWarning(
+				__("Failed to create customer: {0}", [err.message || "Unknown error"]),
+			)
 			isCreatingCustomer.value = false
 			return
 		} finally {
@@ -2317,7 +2695,7 @@ async function completePayment() {
 
 	// Calculate if this is a partial payment (considering write-off)
 	const effectivePaid = totalPaid.value + writeOffAmount.value
-	const isPartial = effectivePaid < props.grandTotal
+	const isPartial = effectivePaid < payableTotal.value
 
 	const paymentData = {
 		payments: paymentEntries.value,
@@ -2359,14 +2737,8 @@ function getMethodTotal(methodName) {
 function handleAdditionalDiscountChange() {
 	let discountValue = localAdditionalDiscount.value
 
-	// Clamp to max allowed
-	if (settingsStore.maxDiscountAllowed > 0 && discountValue > settingsStore.maxDiscountAllowed) {
-		localAdditionalDiscount.value = settingsStore.maxDiscountAllowed
-		discountValue = settingsStore.maxDiscountAllowed
-		showWarning(
-			__("Maximum allowed discount is {0}%", [settingsStore.maxDiscountAllowed]),
-		)
-	}
+	// A discount above the allowed limit is NOT clamped — it is permitted but will
+	// require OTP/password authorization at "Complete Payment" (discount gate).
 
 	if (discountValue > 100) {
 		localAdditionalDiscount.value = 100
@@ -2378,7 +2750,9 @@ function handleAdditionalDiscountChange() {
 		discountValue = 0
 	}
 
-	const discountAmount = roundCurrency((discountBase.value * discountValue) / 100)
+	const discountAmount = roundCurrency(
+		(discountBase.value * discountValue) / 100,
+	)
 	emit("update-additional-discount", discountAmount)
 }
 

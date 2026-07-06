@@ -558,6 +558,23 @@ def _should_block(pos_profile):
     return True
 
 
+def _draft_on_insufficient_stock(pos_profile):
+    """True if this POS Profile is configured to hold sales as a draft (backorder)
+    when stock is insufficient, instead of blocking checkout."""
+    if not pos_profile:
+        return False
+    return bool(
+        cint(
+            frappe.db.get_value(
+                "POS Settings",
+                {"pos_profile": pos_profile},
+                "custom_draft_on_insufficient_stock",
+            )
+            or 0
+        )
+    )
+
+
 def _validate_stock_on_invoice(invoice_doc):
     """Validate stock availability before submission."""
     if invoice_doc.doctype == "Sales Invoice" and not cint(
@@ -778,10 +795,13 @@ def update_invoice(data):
                 if pos_profile_doc.currency and not invoice_doc.get("currency"):
                     invoice_doc.currency = pos_profile_doc.currency
 
-                # Copy accounting dimensions from POS Profile
+                # Copy accounting dimensions from POS Profile.
+                # NOTE: Sales Invoice.branch links to "Dimension Branch" (Property Setter),
+                # while Sales Invoice Item.branch links to the standard "Branch" doctype.
+                if pos_profile_doc.get("dimension_branch"):
+                    invoice_doc.branch = pos_profile_doc.dimension_branch
                 if hasattr(pos_profile_doc, "branch") and pos_profile_doc.branch:
-                    invoice_doc.branch = pos_profile_doc.branch
-                    # Also set branch on all items for GL entries
+                    # Set the (standard Branch) dimension on all items for GL entries
                     for item in invoice_doc.get("items", []):
                         item.branch = pos_profile_doc.branch
 
@@ -1353,9 +1373,11 @@ def submit_invoice(invoice=None, data=None):
         if pos_profile and not invoice_doc.get("branch"):
             try:
                 pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
+                # Sales Invoice.branch links to "Dimension Branch"; items link to "Branch".
+                if pos_profile_doc.get("dimension_branch"):
+                    invoice_doc.branch = pos_profile_doc.dimension_branch
                 if hasattr(pos_profile_doc, "branch") and pos_profile_doc.branch:
-                    invoice_doc.branch = pos_profile_doc.branch
-                    # Also set branch on all items for GL entries
+                    # Set the (standard Branch) dimension on all items for GL entries
                     for item in invoice_doc.get("items", []):
                         if not item.get("branch"):
                             item.branch = pos_profile_doc.branch
@@ -1449,14 +1471,61 @@ def submit_invoice(invoice=None, data=None):
                 ) or 0
             )
 
-        # Validate stock availability only if negative stock is not allowed
+        # Stock handling only if negative stock is not allowed.
         if not pos_settings_allow_negative:
-            _validate_stock_on_invoice(invoice_doc)
+            if _draft_on_insufficient_stock(invoice_doc.pos_profile) and not data.get(
+                "finalize_pending"
+            ):
+                # Backorder mode: if any line is short and blocking applies, HOLD the
+                # sale as a pending-stock draft (payment already collected on the draft)
+                # instead of blocking. It is finalized later from the Pending Stock page.
+                stock_errors = _collect_stock_errors(
+                    [d.as_dict() for d in invoice_doc.items]
+                )
+                if stock_errors and _should_block(invoice_doc.pos_profile):
+                    invoice_doc.posa_pending_stock = 1
+                    invoice_doc.flags.ignore_permissions = True
+                    frappe.flags.ignore_account_permission = True
+                    invoice_doc.save()
+                    _reapply_payment_amounts(
+                        invoice_doc, invoice.get("payments"), doctype
+                    )
+                    frappe.db.commit()
+                    return {
+                        "name": invoice_doc.name,
+                        "docstatus": 0,
+                        "pending_stock": True,
+                        "stock_errors": stock_errors,
+                        "grand_total": invoice_doc.grand_total,
+                    }
+            else:
+                _validate_stock_on_invoice(invoice_doc)
 
         # Save before submit
         invoice_doc.flags.ignore_permissions = True
         frappe.flags.ignore_account_permission = True
         invoice_doc.save()
+
+        # Tabby (Paymob QuickLink): keep the invoice as a pending draft, create the
+        # payment link, SMS it to the customer, and return the link — do NOT submit
+        # yet. The invoice is settled later when the customer pays the link.
+        is_tabby = data.get("is_tabby") or invoice.get("is_tabby")
+        if is_tabby and doctype == "Sales Invoice":
+            try:
+                invoice_doc.db_set("payment_status", "Pending", update_modified=False)
+            except Exception:
+                pass
+            from ecs_posnext.api.payments import create_tabby_link
+
+            link_result = create_tabby_link(invoice_doc.name)
+            return {
+                "name": invoice_doc.name,
+                "status": invoice_doc.docstatus,
+                "is_tabby": True,
+                "payment_url": link_result.get("payment_url"),
+                "sms_sent": link_result.get("sms_sent"),
+                "mobile": link_result.get("mobile"),
+            }
 
         # Re-apply payment amounts after save.
         # ERPNext's set_pos_fields (called inside save → set_missing_values) clears

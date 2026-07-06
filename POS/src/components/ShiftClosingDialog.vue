@@ -426,6 +426,22 @@
             </div>
           </div>
 
+          <!-- Pending Stock guard -->
+          <div v-if="pendingStockCount > 0"
+            class="rounded-lg bg-red-50 border border-red-200 p-3 md:p-4">
+            <div class="flex gap-2 md:gap-3">
+              <svg class="h-4 w-4 md:h-5 md:w-5 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+              </svg>
+              <div class="flex-1">
+                <h4 class="text-xs md:text-sm font-medium text-red-800">{{ __('Pending Stock Invoices') }}</h4>
+                <p class="text-xs md:text-sm text-red-700 mt-1">
+                  {{ __('{0} invoice(s) are held pending stock. Finalize them from the Pending Stock page before closing the shift.', [pendingStockCount]) }}
+                </p>
+              </div>
+            </div>
+          </div>
+
           <!-- Error Display -->
           <div v-if="submitResource.error || (errorMessage && !closingDataResource.error)"
             class="rounded-lg bg-red-50 border border-red-200 p-3 md:p-4">
@@ -499,32 +515,34 @@
 import { Button, Dialog, Input } from "frappe-ui"
 import { storeToRefs } from "pinia"
 import { computed, reactive, ref, watch } from "vue"
+import { call } from "@/utils/apiWrapper"
 import { useFormatters } from "../composables/useFormatters"
 import { useShift } from "../composables/useShift"
 import { usePOSSettingsStore } from "../stores/posSettings"
 import TranslatedHTML from "./common/TranslatedHTML.vue"
 
 const props = defineProps({
-  modelValue: {
-    type: Boolean,
-    required: true,
-  },
-  openingShift: {
-    type: String,
-    required: true,
-    validator: (value) => value && value.length > 0,
-  },
+	modelValue: {
+		type: Boolean,
+		required: true,
+	},
+	openingShift: {
+		type: String,
+		required: true,
+		validator: (value) => value && value.length > 0,
+	},
 })
 
 const emit = defineEmits(["update:modelValue", "shift-closed"])
 
 const open = computed({
-  get: () => props.modelValue,
-  set: (value) => emit("update:modelValue", value),
+	get: () => props.modelValue,
+	set: (value) => emit("update:modelValue", value),
 })
 
 const { getClosingShiftData, submitClosingShift } = useShift()
-const { formatCurrency, formatQuantity, formatDateTime, formatTime } = useFormatters()
+const { formatCurrency, formatQuantity, formatDateTime, formatTime } =
+	useFormatters()
 const posSettingsStore = usePOSSettingsStore()
 const { hideExpectedAmount } = storeToRefs(posSettingsStore)
 
@@ -533,262 +551,289 @@ const closingDataResource = getClosingShiftData
 const submitResource = submitClosingShift
 const showInvoiceDetails = ref(false)
 const showSuccessReport = ref(false) // Track if shift is closed and showing report
-const errorMessage = ref('') // User-friendly error message
+const errorMessage = ref("") // User-friendly error message
+const pendingStockCount = ref(0) // held pending-stock drafts block closing
+
+async function loadPendingStockCount() {
+	try {
+		const res = await call(
+			"ecs_posnext.api.pending_stock.count_pending_stock_invoices",
+			{ pos_opening_shift: props.openingShift },
+		)
+		pendingStockCount.value = Number(res?.message ?? res ?? 0)
+	} catch (e) {
+		console.error("Pending-stock count failed", e)
+		pendingStockCount.value = 0
+	}
+}
 
 // Watch dialog open state
 watch(open, async (isOpen) => {
-  if (isOpen && props.openingShift) {
-    // Refresh POS settings to get latest hideExpectedAmount value
-    await posSettingsStore.reloadSettings()
-    loadClosingData()
-  }
+	if (isOpen && props.openingShift) {
+		// Refresh POS settings to get latest hideExpectedAmount value
+		await posSettingsStore.reloadSettings()
+		loadClosingData()
+		loadPendingStockCount()
+	}
 })
 
 async function loadClosingData() {
-  try {
-    errorMessage.value = '' // Clear any previous errors
+	try {
+		errorMessage.value = "" // Clear any previous errors
 
-    const data = await closingDataResource.submit({
-      opening_shift: props.openingShift,
-    })
+		const data = await closingDataResource.submit({
+			opening_shift: props.openingShift,
+		})
 
-    // Make payment_reconciliation reactive
-    if (data.payment_reconciliation) {
-      data.payment_reconciliation = data.payment_reconciliation.map((payment) =>
-        reactive({
-          ...payment,
-          closing_amount:
-            payment.closing_amount ?? payment.expected_amount ?? 0,
-          difference: 0,
-        }),
-      )
+		// Make payment_reconciliation reactive
+		if (data.payment_reconciliation) {
+			data.payment_reconciliation = data.payment_reconciliation.map((payment) =>
+				reactive({
+					...payment,
+					closing_amount:
+						payment.closing_amount ?? payment.expected_amount ?? 0,
+					difference: 0,
+				}),
+			)
 
-      // Calculate initial differences
-      data.payment_reconciliation.forEach((payment) => {
-        calculateDifference(payment)
-      })
-    }
+			// Calculate initial differences
+			data.payment_reconciliation.forEach((payment) => {
+				calculateDifference(payment)
+			})
+		}
 
-    closingData.value = data
+		closingData.value = data
 
-    // Auto-expand invoice details if there are few invoices
-    if (invoiceCount.value > 0 && invoiceCount.value <= 10) {
-      showInvoiceDetails.value = true
-    }
-  } catch (error) {
-    console.error("Error loading closing data:", error)
-    errorMessage.value = 'Unable to load shift data. Please check your connection and try again.'
-  }
+		// Auto-expand invoice details if there are few invoices
+		if (invoiceCount.value > 0 && invoiceCount.value <= 10) {
+			showInvoiceDetails.value = true
+		}
+	} catch (error) {
+		console.error("Error loading closing data:", error)
+		errorMessage.value =
+			"Unable to load shift data. Please check your connection and try again."
+	}
 }
 
 function calculateDifference(payment) {
-  const closing = Number.parseFloat(payment.closing_amount) || 0
-  const expected = Number.parseFloat(payment.expected_amount) || 0
-  payment.difference = closing - expected
+	const closing = Number.parseFloat(payment.closing_amount) || 0
+	const expected = Number.parseFloat(payment.expected_amount) || 0
+	payment.difference = closing - expected
 }
 
 // New function to handle closing amount updates with proper reactivity
 function updateClosingAmount(payment, value) {
-  payment.closing_amount = value
-  calculateDifference(payment)
+	payment.closing_amount = value
+	calculateDifference(payment)
 }
 
 const canSubmit = computed(() => {
-  if (!closingData.value || !closingData.value.payment_reconciliation)
-    return false
+	if (!closingData.value || !closingData.value.payment_reconciliation)
+		return false
 
-  // Check if all closing amounts are filled
-  return closingData.value.payment_reconciliation.every(
-    (payment) =>
-      payment.closing_amount !== null &&
-      payment.closing_amount !== undefined &&
-      payment.closing_amount !== "",
-  )
+	// Cannot close while pending-stock (backorder) drafts remain.
+	if (pendingStockCount.value > 0) return false
+
+	// Check if all closing amounts are filled
+	return closingData.value.payment_reconciliation.every(
+		(payment) =>
+			payment.closing_amount !== null &&
+			payment.closing_amount !== undefined &&
+			payment.closing_amount !== "",
+	)
 })
 
 async function submitClosing() {
-  if (!closingData.value) return
+	if (!closingData.value) return
 
-  try {
-    errorMessage.value = '' // Clear any previous errors
+	try {
+		errorMessage.value = "" // Clear any previous errors
 
-    // Ensure all differences are calculated
-    if (closingData.value.payment_reconciliation) {
-      closingData.value.payment_reconciliation.forEach((payment) => {
-        calculateDifference(payment)
-      })
-    }
+		// Ensure all differences are calculated
+		if (closingData.value.payment_reconciliation) {
+			closingData.value.payment_reconciliation.forEach((payment) => {
+				calculateDifference(payment)
+			})
+		}
 
-    // Submit to server
-    const result = await submitResource.submit({ closing_shift: closingData.value })
+		// Submit to server
+		const result = await submitResource.submit({
+			closing_shift: closingData.value,
+		})
 
-    // Print closing shift
-    if (result && result.name) {
-      printClosingShift(result.name)
-    }
+		// Print closing shift
+		if (result && result.name) {
+			printClosingShift(result.name)
+		}
 
-    // If hideExpectedAmount is enabled, show success report before closing
-    if (hideExpectedAmount.value) {
-      showSuccessReport.value = true
-      // Auto-expand invoice details in success report
-      if (invoiceCount.value > 0 && invoiceCount.value <= 10) {
-        showInvoiceDetails.value = true
-      }
-    } else {
-      // Normal mode: close immediately
-      emit("shift-closed")
-      closeDialog()
-    }
-  } catch (error) {
-    console.error("Error submitting closing shift:", error)
-    errorMessage.value = 'Failed to close shift. Please verify all amounts and try again.'
-  }
+		// If hideExpectedAmount is enabled, show success report before closing
+		if (hideExpectedAmount.value) {
+			showSuccessReport.value = true
+			// Auto-expand invoice details in success report
+			if (invoiceCount.value > 0 && invoiceCount.value <= 10) {
+				showInvoiceDetails.value = true
+			}
+		} else {
+			// Normal mode: close immediately
+			emit("shift-closed")
+			closeDialog()
+		}
+	} catch (error) {
+		console.error("Error submitting closing shift:", error)
+		errorMessage.value =
+			"Failed to close shift. Please verify all amounts and try again."
+	}
 }
 
 function printClosingShift(name) {
-  const params = new URLSearchParams({
-    doctype: 'POS Closing Shift',
-    name: name,
-    format: 'POS Closing Shift',
-    no_letterhead: 1,
-    _lang: 'en',
-    trigger_print: 1,
-    _t: Date.now(),
-  })
-  window.open(`/printview?${params.toString()}`, '_blank', 'width=800,height=600')
+	const params = new URLSearchParams({
+		doctype: "POS Closing Shift",
+		name: name,
+		format: "POS Closing Shift",
+		no_letterhead: 1,
+		_lang: "en",
+		trigger_print: 1,
+		_t: Date.now(),
+	})
+	window.open(
+		`/printview?${params.toString()}`,
+		"_blank",
+		"width=800,height=600",
+	)
 }
 
 function closeDialog() {
-  // Emit shift-closed event if we're closing from success report
-  if (showSuccessReport.value) {
-    emit("shift-closed")
-  }
+	// Emit shift-closed event if we're closing from success report
+	if (showSuccessReport.value) {
+		emit("shift-closed")
+	}
 
-  open.value = false
-  closingData.value = null
-  showInvoiceDetails.value = false
-  showSuccessReport.value = false // Reset report view
-  errorMessage.value = '' // Clear error messages
+	open.value = false
+	closingData.value = null
+	showInvoiceDetails.value = false
+	showSuccessReport.value = false // Reset report view
+	errorMessage.value = "" // Clear error messages
 }
 
 // UI State Computed Properties
-const shouldShowSummary = computed(() =>
-  !hideExpectedAmount.value || showSuccessReport.value
+const shouldShowSummary = computed(
+	() => !hideExpectedAmount.value || showSuccessReport.value,
 )
 
-const isInEntryMode = computed(() =>
-  hideExpectedAmount.value && !showSuccessReport.value
+const isInEntryMode = computed(
+	() => hideExpectedAmount.value && !showSuccessReport.value,
 )
 
 const reconciliationMessage = computed(() => {
-  if (isInEntryMode.value) {
-    return 'Enter the actual counted amounts for each payment method'
-  }
-  if (showSuccessReport.value && hideExpectedAmount.value) {
-    return 'Shift closed successfully - Review the final reconciliation below'
-  }
-  return 'Count your cash and enter actual amounts below'
+	if (isInEntryMode.value) {
+		return "Enter the actual counted amounts for each payment method"
+	}
+	if (showSuccessReport.value && hideExpectedAmount.value) {
+		return "Shift closed successfully - Review the final reconciliation below"
+	}
+	return "Count your cash and enter actual amounts below"
 })
 
 // Computed properties for real-time recalculation
 const invoiceCount = computed(() => {
-  if (!closingData.value) return 0
-  const transactions = closingData.value.pos_transactions || []
-  return transactions.length
+	if (!closingData.value) return 0
+	const transactions = closingData.value.pos_transactions || []
+	return transactions.length
 })
 
 // Check if there are any return invoices
 const hasReturns = computed(() => {
-  if (!closingData.value) return false
-  return (closingData.value.returns_count || 0) > 0
+	if (!closingData.value) return false
+	return (closingData.value.returns_count || 0) > 0
 })
 
 // Count of sales invoices (non-returns)
 const salesInvoiceCount = computed(() => {
-  if (!closingData.value) return 0
-  const transactions = closingData.value.pos_transactions || []
-  return transactions.filter(t => !t.is_return).length
+	if (!closingData.value) return 0
+	const transactions = closingData.value.pos_transactions || []
+	return transactions.filter((t) => !t.is_return).length
 })
 
 const totalTax = computed(() => {
-  if (!closingData.value || !closingData.value.taxes) return 0
-  return closingData.value.taxes.reduce(
-    (sum, tax) => sum + Number.parseFloat(tax.amount || 0),
-    0,
-  )
+	if (!closingData.value || !closingData.value.taxes) return 0
+	return closingData.value.taxes.reduce(
+		(sum, tax) => sum + Number.parseFloat(tax.amount || 0),
+		0,
+	)
 })
 
 const grossSales = computed(() => {
-  if (!closingData.value) return 0
-  return closingData.value.sales_total ?? closingData.value.grand_total ?? 0
+	if (!closingData.value) return 0
+	return closingData.value.sales_total ?? closingData.value.grand_total ?? 0
 })
 const getTotalExpected = computed(() => {
-  if (!closingData.value || !closingData.value.payment_reconciliation) return 0
-  return closingData.value.payment_reconciliation.reduce(
-    (sum, payment) => sum + Number.parseFloat(payment.expected_amount || 0),
-    0,
-  )
+	if (!closingData.value || !closingData.value.payment_reconciliation) return 0
+	return closingData.value.payment_reconciliation.reduce(
+		(sum, payment) => sum + Number.parseFloat(payment.expected_amount || 0),
+		0,
+	)
 })
 
 const getTotalActual = computed(() => {
-  if (!closingData.value || !closingData.value.payment_reconciliation) return 0
-  return closingData.value.payment_reconciliation.reduce(
-    (sum, payment) => sum + Number.parseFloat(payment.closing_amount || 0),
-    0,
-  )
+	if (!closingData.value || !closingData.value.payment_reconciliation) return 0
+	return closingData.value.payment_reconciliation.reduce(
+		(sum, payment) => sum + Number.parseFloat(payment.closing_amount || 0),
+		0,
+	)
 })
 
 const getTotalDifference = computed(() => {
-  return getTotalActual.value - getTotalExpected.value
+	return getTotalActual.value - getTotalExpected.value
 })
 
 function getSalesForPayment(payment) {
-  return (
-    Number.parseFloat(payment.expected_amount || 0) -
-    Number.parseFloat(payment.opening_amount || 0)
-  )
+	return (
+		Number.parseFloat(payment.expected_amount || 0) -
+		Number.parseFloat(payment.opening_amount || 0)
+	)
 }
 
 function getShiftDuration() {
-  if (!closingData.value || !closingData.value.period_start_date) return __("N/A")
+	if (!closingData.value || !closingData.value.period_start_date)
+		return __("N/A")
 
-  const start = new Date(closingData.value.period_start_date)
-  const end = new Date()
-  const diff = end - start
+	const start = new Date(closingData.value.period_start_date)
+	const end = new Date()
+	const diff = end - start
 
-  const hours = Math.floor(diff / (1000 * 60 * 60))
-  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+	const hours = Math.floor(diff / (1000 * 60 * 60))
+	const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
 
-  if (hours > 0) {
-    return __('{0}h {1}m', [hours, minutes])
-  }
-  return __('{0}m', [minutes])
+	if (hours > 0) {
+		return __("{0}h {1}m", [hours, minutes])
+	}
+	return __("{0}m", [minutes])
 }
 
 function getPaymentIcon(method) {
-  const methodLower = method.toLowerCase()
+	const methodLower = method.toLowerCase()
 
-  if (methodLower.includes("cash")) {
-    return { icon: "💵", color: "bg-green-500" }
-  } else if (
-    methodLower.includes("card") ||
-    methodLower.includes("credit") ||
-    methodLower.includes("debit")
-  ) {
-    return { icon: "💳", color: "bg-blue-500" }
-  } else if (
-    methodLower.includes("mobile") ||
-    methodLower.includes("wallet") ||
-    methodLower.includes("upi") ||
-    methodLower.includes("phone")
-  ) {
-    return { icon: "📱", color: "bg-purple-500" }
-  } else if (methodLower.includes("bank") || methodLower.includes("transfer")) {
-    return { icon: "🏦", color: "bg-indigo-500" }
-  } else if (methodLower.includes("cheque") || methodLower.includes("check")) {
-    return { icon: "📝", color: "bg-yellow-500" }
-  } else {
-    return { icon: "💰", color: "bg-gray-500" }
-  }
+	if (methodLower.includes("cash")) {
+		return { icon: "💵", color: "bg-green-500" }
+	} else if (
+		methodLower.includes("card") ||
+		methodLower.includes("credit") ||
+		methodLower.includes("debit")
+	) {
+		return { icon: "💳", color: "bg-blue-500" }
+	} else if (
+		methodLower.includes("mobile") ||
+		methodLower.includes("wallet") ||
+		methodLower.includes("upi") ||
+		methodLower.includes("phone")
+	) {
+		return { icon: "📱", color: "bg-purple-500" }
+	} else if (methodLower.includes("bank") || methodLower.includes("transfer")) {
+		return { icon: "🏦", color: "bg-indigo-500" }
+	} else if (methodLower.includes("cheque") || methodLower.includes("check")) {
+		return { icon: "📝", color: "bg-yellow-500" }
+	} else {
+		return { icon: "💰", color: "bg-gray-500" }
+	}
 }
 </script>

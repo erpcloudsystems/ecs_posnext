@@ -22,7 +22,9 @@ export function useInvoice() {
 	const settingsStore = usePOSSettingsStore()
 
 	// Reactive computed from settings store - always in sync
-	const allowAdditionalDiscount = computed(() => settingsStore.allowAdditionalDiscount)
+	const allowAdditionalDiscount = computed(
+		() => settingsStore.allowAdditionalDiscount,
+	)
 
 	// State
 	const invoiceItems = ref([])
@@ -35,6 +37,29 @@ export function useInvoice() {
 	const couponCode = ref(null)
 	const taxRules = ref([]) // Tax rules from POS Profile
 	const taxInclusive = ref(false) // Tax inclusive setting from POS Settings
+	// Loyalty redemption (loyalty_engine): points + cashback applied to this invoice.
+	// loyalty_engine reads these custom fields and posts the value as a payment +
+	// debits the wallet on submit.
+	const loyaltyPointsToRedeem = ref(0)
+	const loyaltyCashbackToUse = ref(0)
+	// Active selling price list for the cart (defaults to the POS Profile's price list).
+	const activePriceList = ref(null)
+	// Credit-card approval codes captured from the Span/DigitalPay terminal (one per
+	// card transaction) — persisted on the invoice (custom_approval_code[s]).
+	const cardApprovalCodes = ref([])
+	// When true, the invoice is paid via Tabby (Paymob QuickLink): kept as a pending
+	// draft and a payment link is returned + SMS'd to the customer.
+	const isTabbyPayment = ref(false)
+	// Configurable Product Bundle component choices: { bundle_item_code: [component codes] }.
+	const bundleSelections = ref({})
+
+	function setBundleSelection(bundleItemCode, componentCodes) {
+		if (!bundleItemCode) return
+		bundleSelections.value = {
+			...bundleSelections.value,
+			[bundleItemCode]: componentCodes || [],
+		}
+	}
 
 	// Submission state - prevents duplicate submissions
 	const isSubmitting = ref(false)
@@ -73,6 +98,21 @@ export function useInvoice() {
 				error.resourceError = submitInvoiceResource.error
 			}
 		},
+	})
+
+	// Party-reservation closing: reverses the deposit invoice + submits the full
+	// party invoice in one call (ecs_posnext.api.reservations.close_party_reservation).
+	const closeReservationResource = createResource({
+		url: "ecs_posnext.api.reservations.close_party_reservation",
+		makeParams(params) {
+			return {
+				sales_order: params.sales_order,
+				invoice_data: JSON.stringify(params.invoice_data),
+				data: JSON.stringify(params.data || {}),
+				pos_profile: params.pos_profile,
+			}
+		},
+		auto: false,
 	})
 
 	const validateCartItemsResource = createResource({
@@ -133,7 +173,10 @@ export function useInvoice() {
 					price_list_rate: itemDetails.price_list_rate,
 				}
 			} catch (err) {
-				log.warn("Server UOM pricing unavailable, resolving from IndexedDB", err)
+				log.warn(
+					"Server UOM pricing unavailable, resolving from IndexedDB",
+					err,
+				)
 			}
 		}
 
@@ -166,6 +209,15 @@ export function useInvoice() {
 		auto: false,
 	})
 
+	// Cascade resolver: item default → active price list → POS Profile.customer → none
+	const resolveDefaultCustomerResource = createResource({
+		url: "ecs_posnext.api.pos_profile.resolve_default_customer",
+		makeParams({ pos_profile, price_list, item_code }) {
+			return { pos_profile, price_list, item_code }
+		},
+		auto: false,
+	})
+
 	const cleanupDraftsResource = createResource({
 		url: "ecs_posnext.api.invoices.cleanup_old_drafts",
 		auto: false,
@@ -192,18 +244,28 @@ export function useInvoice() {
 	// Total of custom_not_included items (excluded from subtotal when allowAdditionalDiscount is on)
 	const notIncludedTotal = computed(() => {
 		if (!allowAdditionalDiscount.value) {
-			console.log('[DEBUG notIncludedTotal] allowAdditionalDiscount is FALSE, returning 0')
+			console.log(
+				"[DEBUG notIncludedTotal] allowAdditionalDiscount is FALSE, returning 0",
+			)
 			return 0
 		}
 		let total = 0
 		for (const item of invoiceItems.value) {
-			console.log('[DEBUG notIncludedTotal] item:', item.item_code, 'custom_not_included:', item.custom_not_included, typeof item.custom_not_included)
+			console.log(
+				"[DEBUG notIncludedTotal] item:",
+				item.item_code,
+				"custom_not_included:",
+				item.custom_not_included,
+				typeof item.custom_not_included,
+			)
 			if (!item.custom_not_included) continue
 			const isManuallyEdited = item.is_rate_manually_edited === 1
-			const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const effectiveRate = isManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			total += roundCurrency(item.quantity * roundCurrency(effectiveRate))
 		}
-		console.log('[DEBUG notIncludedTotal] result:', total)
+		console.log("[DEBUG notIncludedTotal] result:", total)
 		return roundCurrency(total)
 	})
 	const subtotal = computed(() => {
@@ -219,7 +281,9 @@ export function useInvoice() {
 		for (const item of invoiceItems.value) {
 			if (item.custom_not_included) continue
 			const isManuallyEdited = item.is_rate_manually_edited === 1
-			const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const effectiveRate = isManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			total += roundCurrency(item.quantity * roundCurrency(effectiveRate))
 		}
 		return roundCurrency(total)
@@ -240,7 +304,10 @@ export function useInvoice() {
 				return roundCurrency(eligibleBase - discount + notIncludedTotal.value)
 			} else {
 				return roundCurrency(
-					eligibleBase + _cachedTotalTax.value - discount + notIncludedTotal.value,
+					eligibleBase +
+						_cachedTotalTax.value -
+						discount +
+						notIncludedTotal.value,
 				)
 			}
 		}
@@ -345,7 +412,16 @@ export function useInvoice() {
 				// Exclude from additional discount
 				custom_not_included: item.custom_not_included || 0,
 			}
-			console.log('[DEBUG addItem]', item.item_code, 'source custom_not_included:', item.custom_not_included, '→ cart custom_not_included:', newItem.custom_not_included, '| allowAdditionalDiscount:', allowAdditionalDiscount.value)
+			console.log(
+				"[DEBUG addItem]",
+				item.item_code,
+				"source custom_not_included:",
+				item.custom_not_included,
+				"→ cart custom_not_included:",
+				newItem.custom_not_included,
+				"| allowAdditionalDiscount:",
+				allowAdditionalDiscount.value,
+			)
 			invoiceItems.value.push(newItem)
 			// Recalculate the newly added item to apply taxes
 			recalculateItem(newItem)
@@ -382,7 +458,9 @@ export function useInvoice() {
 			// Update cache incrementally (subtract removed item values)
 			// Use effective rate (manually edited rate or price_list_rate)
 			const isManuallyEdited = itemToRemove.is_rate_manually_edited === 1
-			const effectiveRate = isManuallyEdited ? itemToRemove.rate : (itemToRemove.price_list_rate || itemToRemove.rate)
+			const effectiveRate = isManuallyEdited
+				? itemToRemove.rate
+				: itemToRemove.price_list_rate || itemToRemove.rate
 			_cachedSubtotal.value -= roundCurrency(
 				itemToRemove.quantity * roundCurrency(effectiveRate),
 			)
@@ -428,7 +506,9 @@ export function useInvoice() {
 			// Store old values before update for incremental cache adjustment
 			// Use effective rate (manually edited rate or price_list_rate)
 			const isManuallyEdited = item.is_rate_manually_edited === 1
-			const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const effectiveRate = isManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			const oldAmount = roundCurrency(
 				item.quantity * roundCurrency(effectiveRate),
 			)
@@ -474,7 +554,9 @@ export function useInvoice() {
 			// Store old values before update for incremental cache adjustment
 			// Use effective rate (manually edited rate or price_list_rate)
 			const wasManuallyEdited = item.is_rate_manually_edited === 1
-			const oldEffectiveRate = wasManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const oldEffectiveRate = wasManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			const oldAmount = roundCurrency(
 				item.quantity * roundCurrency(oldEffectiveRate),
 			)
@@ -500,9 +582,12 @@ export function useInvoice() {
 			// Update cache incrementally (new values - old values)
 			// Use the new rate for manually edited items
 			const isNowManuallyEdited = item.is_rate_manually_edited === 1
-			const newEffectiveRate = isNowManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const newEffectiveRate = isNowManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			_cachedSubtotal.value +=
-				roundCurrency(item.quantity * roundCurrency(newEffectiveRate)) - oldAmount
+				roundCurrency(item.quantity * roundCurrency(newEffectiveRate)) -
+				oldAmount
 			_cachedTotalTax.value += (item.tax_amount || 0) - oldTax
 			_cachedTotalDiscount.value += (item.discount_amount || 0) - oldDiscount
 		}
@@ -519,7 +604,9 @@ export function useInvoice() {
 			// Store old values before update for incremental cache adjustment
 			// Use effective rate (manually edited rate or price_list_rate)
 			const isManuallyEdited = item.is_rate_manually_edited === 1
-			const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const effectiveRate = isManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			const oldAmount = roundCurrency(
 				item.quantity * roundCurrency(effectiveRate),
 			)
@@ -666,7 +753,9 @@ export function useInvoice() {
 		for (const item of invoiceItems.value) {
 			// Use manually edited rate if set, otherwise use price_list_rate
 			const isManuallyEdited = item.is_rate_manually_edited === 1
-			const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+			const effectiveRate = isManuallyEdited
+				? item.rate
+				: item.price_list_rate || item.rate
 			_cachedSubtotal.value += roundCurrency(
 				item.quantity * roundCurrency(effectiveRate),
 			)
@@ -709,7 +798,9 @@ export function useInvoice() {
 		// Determine the base unit price
 		// If rate was manually edited, use the edited rate; otherwise use price_list_rate
 		const isManuallyEdited = item.is_rate_manually_edited === 1
-		const effectiveRate = isManuallyEdited ? item.rate : (item.price_list_rate || item.rate)
+		const effectiveRate = isManuallyEdited
+			? item.rate
+			: item.price_list_rate || item.rate
 		const roundedRate = roundCurrency(effectiveRate)
 		const baseAmount = roundCurrency(item.quantity * roundedRate)
 
@@ -893,6 +984,12 @@ export function useInvoice() {
 			})),
 			discount_amount: additionalDiscount.value || 0,
 			coupon_code: couponCode.value,
+			custom_loyalty_points_to_redeem: loyaltyPointsToRedeem.value || 0,
+			custom_cashback_to_use: loyaltyCashbackToUse.value || 0,
+			selling_price_list: activePriceList.value || undefined,
+			posa_bundle_selections: Object.keys(bundleSelections.value).length
+				? JSON.stringify(bundleSelections.value)
+				: undefined,
 			is_pos: 1,
 			update_stock: 1,
 		}
@@ -957,6 +1054,18 @@ export function useInvoice() {
 					})),
 					discount_amount: additionalDiscount.value || 0,
 					coupon_code: couponCode.value,
+					custom_loyalty_points_to_redeem: loyaltyPointsToRedeem.value || 0,
+					custom_cashback_to_use: loyaltyCashbackToUse.value || 0,
+					selling_price_list: activePriceList.value || undefined,
+					posa_bundle_selections: Object.keys(bundleSelections.value).length
+						? JSON.stringify(bundleSelections.value)
+						: undefined,
+					custom_approval_code: cardApprovalCodes.value.length
+						? cardApprovalCodes.value.join(", ")
+						: undefined,
+					custom_approval_codes: cardApprovalCodes.value.length
+						? cardApprovalCodes.value.map((c) => ({ approval_code: c }))
+						: undefined,
 					is_pos: 1,
 					update_stock: 1, // Critical: Ensures stock is updated
 				}
@@ -996,6 +1105,7 @@ export function useInvoice() {
 					change_amount:
 						remainingAmount.value < 0 ? Math.abs(remainingAmount.value) : 0,
 					write_off_amount: writeOffAmount || 0,
+					is_tabby: isTabbyPayment.value ? 1 : 0,
 				}
 
 				try {
@@ -1074,6 +1184,76 @@ export function useInvoice() {
 	}
 
 	/**
+	 * Close a party reservation: reverse the deposit invoice and submit the full
+	 * party invoice (built from the current cart). Mirrors submitInvoice's payload.
+	 *
+	 * @param {string} salesOrder - the reserved Sales Order being closed
+	 * @param {number} writeOffAmount - optional write-off for small remainders
+	 */
+	async function closeReservation(salesOrder, writeOffAmount = 0) {
+		return await submitMutex.withLock(async () => {
+			if (isSubmitting.value) {
+				log.warn("Submission already in progress, skipping duplicate close")
+				return null
+			}
+			isSubmitting.value = true
+			try {
+				const rawItems = toRaw(invoiceItems.value)
+				const rawPayments = toRaw(payments.value)
+
+				const invoiceData = {
+					doctype: "Sales Invoice",
+					pos_profile: posProfile.value,
+					posa_pos_opening_shift: posOpeningShift.value,
+					customer: customer.value?.name || customer.value,
+					items: formatItemsForSubmission(rawItems),
+					payments: rawPayments.map((p) => ({
+						mode_of_payment: p.mode_of_payment,
+						amount: p.amount,
+						type: p.type,
+					})),
+					discount_amount: additionalDiscount.value || 0,
+					coupon_code: couponCode.value,
+					custom_loyalty_points_to_redeem: loyaltyPointsToRedeem.value || 0,
+					custom_cashback_to_use: loyaltyCashbackToUse.value || 0,
+					selling_price_list: activePriceList.value || undefined,
+					posa_bundle_selections: Object.keys(bundleSelections.value).length
+						? JSON.stringify(bundleSelections.value)
+						: undefined,
+					is_pos: 1,
+					update_stock: 1,
+				}
+
+				const submitData = {
+					change_amount:
+						remainingAmount.value < 0 ? Math.abs(remainingAmount.value) : 0,
+					write_off_amount: writeOffAmount || 0,
+					is_tabby: isTabbyPayment.value ? 1 : 0,
+				}
+
+				const result = await closeReservationResource.submit({
+					sales_order: salesOrder,
+					invoice_data: invoiceData,
+					data: submitData,
+					pos_profile: posProfile.value,
+				})
+
+				if (closeReservationResource.error) {
+					throw new Error(
+						closeReservationResource.error.message ||
+							"Failed to close party reservation",
+					)
+				}
+
+				resetInvoice()
+				return result
+			} finally {
+				isSubmitting.value = false
+			}
+		})
+	}
+
+	/**
 	 * Sets the default customer from POS Profile if available.
 	 * This is called when resetting/clearing the cart to auto-select
 	 * the default customer configured in the POS Profile.
@@ -1108,6 +1288,74 @@ export function useInvoice() {
 	}
 
 	/**
+	 * Auto-fill the default customer (cascade: POS Profile → active price list) ONLY
+	 * when no customer is selected. Never overrides a manually-chosen customer.
+	 * @param {string|null} priceList - active price list (defaults to profile's on backend)
+	 */
+	async function ensureDefaultCustomer(priceList = null, itemCode = null) {
+		if (!posProfile.value) return null
+		try {
+			const result = await resolveDefaultCustomerResource.submit({
+				pos_profile: posProfile.value,
+				price_list: priceList || activePriceList.value || null,
+				item_code: itemCode || null,
+			})
+			const data = result?.message || result
+			// Item-level default customer overrides even a set customer; the profile/price-list
+			// default only fills in when no customer is selected.
+			const itemDriven = !!data?.make_sales_order
+			if (data?.customer && (itemDriven || !customer.value)) {
+				customer.value = {
+					name: data.customer,
+					customer_name: data.customer_name || data.customer,
+					customer_group: data.customer_group,
+				}
+			}
+			return data
+		} catch (error) {
+			// default customer is optional
+			return null
+		}
+	}
+
+	/**
+	 * Re-fetch each cart line's price for the active price list and recalculate.
+	 */
+	async function repriceCart() {
+		if (!invoiceItems.value.length || !posProfile.value) return
+		for (const item of invoiceItems.value) {
+			try {
+				const res = await getItemDetailsResource.submit({
+					item_code: item.item_code,
+					pos_profile: posProfile.value,
+					customer: customer.value?.name || customer.value,
+					qty: item.quantity,
+					uom: item.uom,
+					price_list: activePriceList.value,
+				})
+				const d = res?.message || res
+				const rate = d?.price_list_rate ?? d?.rate
+				if (rate != null) {
+					item.price_list_rate = rate
+					item.rate = rate
+				}
+				recalculateItem(item)
+			} catch (e) {
+				// keep existing rate on failure
+			}
+		}
+		rebuildIncrementalCache()
+	}
+
+	/**
+	 * Set the active selling price list and reprice the cart.
+	 */
+	async function setActivePriceList(priceList) {
+		activePriceList.value = priceList || null
+		await repriceCart()
+	}
+
+	/**
 	 * Resets the invoice to a clean state.
 	 * If a POS Profile is active and has a default customer, it will be pre-selected.
 	 */
@@ -1116,6 +1364,11 @@ export function useInvoice() {
 		payments.value = []
 		additionalDiscount.value = 0
 		couponCode.value = null
+		loyaltyPointsToRedeem.value = 0
+		loyaltyCashbackToUse.value = 0
+		cardApprovalCodes.value = []
+		isTabbyPayment.value = false
+		bundleSelections.value = {}
 
 		// Reset incremental cache
 		_cachedSubtotal.value = 0
@@ -1143,6 +1396,8 @@ export function useInvoice() {
 		payments.value = []
 		additionalDiscount.value = 0
 		couponCode.value = null
+		loyaltyPointsToRedeem.value = 0
+		loyaltyCashbackToUse.value = 0
 
 		// Reset incremental cache
 		_cachedSubtotal.value = 0
@@ -1218,6 +1473,12 @@ export function useInvoice() {
 		posOpeningShift,
 		additionalDiscount,
 		couponCode,
+		loyaltyPointsToRedeem,
+		loyaltyCashbackToUse,
+		cardApprovalCodes,
+		isTabbyPayment,
+		bundleSelections,
+		setBundleSelection,
 		taxRules,
 		taxInclusive,
 		isSubmitting,
@@ -1248,6 +1509,10 @@ export function useInvoice() {
 		validateStock,
 		saveDraft,
 		submitInvoice,
+		closeReservation,
+		ensureDefaultCustomer,
+		activePriceList,
+		setActivePriceList,
 		resetInvoice,
 		clearCart,
 		setDefaultCustomer,

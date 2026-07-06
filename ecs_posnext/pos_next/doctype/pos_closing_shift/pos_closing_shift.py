@@ -65,6 +65,25 @@ class POSClosingShift(Document):
                 _("Selected POS Opening Shift should be open."),
                 title=_("Invalid Opening Entry"),
             )
+
+        # Block closing while there are held pending-stock (backorder) drafts for this
+        # shift — they must be finalized (restocked + submitted) first.
+        pending = frappe.db.count(
+            "Sales Invoice",
+            {
+                "posa_pos_opening_shift": self.pos_opening_shift,
+                "docstatus": 0,
+                "posa_pending_stock": 1,
+            },
+        )
+        if pending:
+            frappe.throw(
+                _(
+                    "Cannot close shift: {0} invoice(s) are pending stock. Finalize them from the Pending Stock page first."
+                ).format(pending),
+                title=_("Pending Stock Invoices"),
+            )
+
         self.update_payment_reconciliation()
 
     def update_payment_reconciliation(self):

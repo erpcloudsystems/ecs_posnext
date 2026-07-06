@@ -21,8 +21,18 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 	const searchIndex = ref(new Map())
 	const resultCache = ref(new Map())
 
+	// Server-side search results (online) or indexed cache results (offline). This is
+	// the primary result set — no longer a scan over the full in-memory customer list.
+	const serverResults = ref([])
+	const searching = ref(false)
+	const lastPosProfile = ref(null)
+	// Full recent-customer objects (so empty-search can show them without loading all).
+	const recentObjects = ref([])
+	let searchDebounce = null
+
 	// Sync state
 	const CUSTOMERS_SYNC_KEY = "pos_customers_last_sync"
+	const RECENT_OBJECTS_KEY = "pos_recent_customer_objects"
 	let serverDataFresh = false
 
 	// Ultra-fast search helper - optimized for speed
@@ -71,91 +81,30 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 		return 0 // No match
 	}
 
-	// Getters - ULTRA OPTIMIZED for zero delay
+	// Getters
+	// Results come from the server (online) or the indexed IndexedDB cache (offline),
+	// fetched in runSearch(); we no longer scan the full in-memory customer list.
 	const filteredCustomers = computed(() => {
 		const term = searchTerm.value.trim()
 
-		// Show recent/frequent customers when no search term (CACHED)
+		// Empty search: show recent customers first, then the browse page.
 		if (!term) {
-			const cacheKey = "empty"
-			let cached = resultCache.value.get(cacheKey)
-
-			if (!cached) {
-				// Build index maps once for O(1) lookup
-				const recentSet = new Set(recentSearches.value)
-				const frequentSet = new Set(frequentCustomers.value)
-
-				// Separate into buckets
-				const recent = []
-				const frequent = []
-				const other = []
-
-				for (const c of allCustomers.value) {
-					if (recentSet.has(c.name)) recent.push(c)
-					else if (frequentSet.has(c.name)) frequent.push(c)
-					else other.push(c)
-				}
-
-				cached = [...recent, ...frequent, ...other].slice(0, 50)
-				resultCache.value.set(cacheKey, cached)
+			const seen = new Set()
+			const merged = []
+			for (const c of [...recentObjects.value, ...serverResults.value]) {
+				if (!c || seen.has(c.name)) continue
+				seen.add(c.name)
+				merged.push(c)
 			}
-
-			return cached
+			return merged.slice(0, 50)
 		}
 
-		// Check result cache first
-		const cacheKey = term.toLowerCase()
-		const cachedResult = resultCache.value.get(cacheKey)
-		if (cachedResult) {
-			return cachedResult
-		}
-
-		// Ultra-fast search with early exit
-		const results = []
-		const maxResults = 50
-		let scanned = 0
-
-		// First pass: Get exact and high-scoring matches ONLY
-		for (const cust of allCustomers.value) {
-			scanned++
-			const score = quickMatch(term, cust)
-
-			if (score >= 240) {
-				// High priority matches
-				results.push({ customer: cust, score })
-				if (results.length >= maxResults) break // Exit immediately when we have enough
-			}
-		}
-
-		// Second pass: Fill remaining slots with lower scores if needed
-		if (results.length < maxResults) {
-			const highResultNames = new Set(results.map((r) => r.customer.name))
-			for (let i = 0; i < allCustomers.value.length; i++) {
-				const cust = allCustomers.value[i]
-				if (highResultNames.has(cust.name)) continue
-				const score = quickMatch(term, cust)
-
-				if (score > 0 && score < 240) {
-					results.push({ customer: cust, score })
-					if (results.length >= maxResults) break
-				}
-			}
-		}
-
-		// Sort ONLY what we found (much faster than sorting everything)
-		results.sort((a, b) => b.score - a.score)
-		const final = results.map((r) => r.customer)
-
-		// Cache this result for instant retrieval
-		resultCache.value.set(cacheKey, final)
-
-		// Limit cache size to prevent memory bloat
-		if (resultCache.value.size > 100) {
-			const firstKey = resultCache.value.keys().next().value
-			resultCache.value.delete(firstKey)
-		}
-
-		return final
+		// Term search: rank the fetched matches by relevance (quickMatch scoring).
+		return [...serverResults.value]
+			.map((cust) => ({ cust, score: quickMatch(term, cust) }))
+			.sort((a, b) => b.score - a.score)
+			.map((r) => r.cust)
+			.slice(0, 50)
 	})
 
 	// Recommendations based on search patterns
@@ -169,7 +118,7 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 		if (/^\d+$/.test(term)) {
 			recs.push({
 				type: "phone",
-				text: __('Search by phone: {0}', [term]),
+				text: __("Search by phone: {0}", [term]),
 				icon: "📱",
 			})
 		}
@@ -178,19 +127,19 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 		if (term.includes("@")) {
 			recs.push({
 				type: "email",
-				text: __('Search by email: {0}', [term]),
+				text: __("Search by email: {0}", [term]),
 				icon: "✉️",
 			})
 		}
 
 		// Suggest creating new customer if no exact matches
-		const exactMatch = allCustomers.value.some(
+		const exactMatch = serverResults.value.some(
 			(c) => c.customer_name?.toLowerCase() === term,
 		)
 		if (!exactMatch && filteredCustomers.value.length < 5) {
 			recs.push({
 				type: "create",
-				text: __('Create new customer: {0}', [term]),
+				text: __("Create new customer: {0}", [term]),
 				icon: "➕",
 			})
 		}
@@ -199,88 +148,83 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 	})
 
 	// Actions
-	async function loadAllCustomers(posProfile, forceReload = false) {
-		if (!posProfile) {
-			return
+	// Fetch matches for a term: server when online, indexed IndexedDB cache offline.
+	async function searchCustomersServer(term) {
+		const trimmed = (term || "").trim()
+		if (!isOffline()) {
+			const response = await call("ecs_posnext.api.customers.get_customers", {
+				pos_profile: lastPosProfile.value,
+				search_term: trimmed,
+				limit: 50,
+			})
+			const rows = response?.message || response || []
+			return rows.filter((c) => !c.disabled)
 		}
+		// Offline: indexed prefix search over the cached customers (bounded).
+		const rows = await offlineWorker.searchCachedCustomers(trimmed, 50)
+		return (rows || []).filter((c) => !c.disabled)
+	}
 
-		// Skip if we already have fresh server data this session
-		if (!forceReload && serverDataFresh && allCustomers.value.length > 0) {
-			return
-		}
+	// Debounced search driver — updates serverResults for the current term.
+	function runSearch(term) {
+		if (searchDebounce) clearTimeout(searchDebounce)
+		searchDebounce = setTimeout(async () => {
+			searching.value = true
+			try {
+				serverResults.value = await searchCustomersServer(term)
+			} catch (error) {
+				log.error("Customer search failed:", error)
+				serverResults.value = []
+			} finally {
+				searching.value = false
+			}
+		}, 250)
+	}
 
-		loading.value = true
+	// Keep the IndexedDB cache fresh for OFFLINE use — runs in the background and must
+	// NOT block the dialog. Uses modified_since delta so subsequent syncs are small.
+	async function syncCustomerCache(posProfile, forceReload = false) {
+		if (!posProfile || isOffline()) return
+		if (!forceReload && serverDataFresh) return
 		try {
-			// Step 1: Load from IndexedDB cache (instant display)
-			const cachedCustomers = await offlineWorker.searchCachedCustomers(
-				"",
-				0,
-			)
-
-			if (cachedCustomers && cachedCustomers.length > 0) {
-				allCustomers.value = cachedCustomers
-				log.debug(`Loaded ${cachedCustomers.length} customers from cache`)
+			const lastSync = forceReload
+				? null
+				: localStorage.getItem(CUSTOMERS_SYNC_KEY)
+			const response = await call("ecs_posnext.api.customers.get_customers", {
+				pos_profile: posProfile,
+				search_term: "",
+				limit: 0,
+				modified_since: lastSync,
+			})
+			const delta = response?.message || response || []
+			if (delta.length > 0) {
+				const active = delta.filter((c) => !c.disabled)
+				const disabled = delta.filter((c) => c.disabled)
+				if (active.length) await offlineWorker.cacheCustomers(active)
+				if (disabled.length)
+					await offlineWorker.deleteCustomers(disabled.map((c) => c.name))
+				log.debug(
+					`Background cache sync: ${active.length} active, ${disabled.length} disabled`,
+				)
 			}
-
-			// Step 2: If online, fetch delta from server
-			if (!isOffline()) {
-				const lastSync = forceReload ? null : localStorage.getItem(CUSTOMERS_SYNC_KEY)
-
-				const response = await call("ecs_posnext.api.customers.get_customers", {
-					pos_profile: posProfile,
-					search_term: "",
-					start: 0,
-					limit: 0,
-					modified_since: lastSync,
-				})
-				const delta = response?.message || response || []
-
-				if (delta.length > 0) {
-					const active = delta.filter((c) => !c.disabled)
-					const disabled = delta.filter((c) => c.disabled)
-
-					// Merge active customers into memory
-					const existingMap = new Map(allCustomers.value.map((c) => [c.name, c]))
-					for (const c of active) {
-						existingMap.set(c.name, c)
-					}
-					// Remove disabled customers from memory
-					for (const c of disabled) {
-						existingMap.delete(c.name)
-					}
-					allCustomers.value = Array.from(existingMap.values())
-
-					// Persist active to IndexedDB
-					if (active.length) {
-						await offlineWorker.cacheCustomers(active)
-					}
-					// Remove disabled from IndexedDB
-					if (disabled.length) {
-						await offlineWorker.deleteCustomers(disabled.map((c) => c.name))
-					}
-
-					log.debug(`Synced ${active.length} active, removed ${disabled.length} disabled customers`)
-				}
-
-				serverDataFresh = true
-				localStorage.setItem(CUSTOMERS_SYNC_KEY, new Date().toISOString())
-			} else if (allCustomers.value.length === 0) {
-				// Offline and cache is empty
-				log.warn("Offline mode: No cached customers available")
-				allCustomers.value = []
-			}
-
-			// Clear caches when new data is loaded
-			searchIndex.value.clear()
-			resultCache.value.clear()
+			serverDataFresh = true
+			localStorage.setItem(CUSTOMERS_SYNC_KEY, new Date().toISOString())
 		} catch (error) {
-			log.error("Error loading customers:", error)
-			if (allCustomers.value.length === 0) {
-				allCustomers.value = []
-			}
-		} finally {
-			loading.value = false
+			log.warn("Background customer cache sync failed:", error)
 		}
+	}
+
+	// Called when the customer dialog opens. Fast: shows results immediately (server /
+	// indexed cache) and refreshes the offline cache in the background (non-blocking).
+	async function loadAllCustomers(posProfile, forceReload = false) {
+		if (!posProfile) return
+		lastPosProfile.value = posProfile
+
+		// Instant: populate the browse/search results for the current term.
+		runSearch(searchTerm.value)
+
+		// Background (do NOT await): keep the offline cache fresh.
+		syncCustomerCache(posProfile, forceReload)
 	}
 
 	async function addCustomerToCache(customer) {
@@ -337,12 +281,13 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 	function setSearchTerm(term) {
 		searchTerm.value = term
 		selectedIndex.value = -1
+		runSearch(term)
 	}
 
 	function clearSearch() {
 		searchTerm.value = ""
 		selectedIndex.value = -1
-		// Don't clear resultCache on empty search - it's beneficial
+		runSearch("")
 	}
 
 	function setSelectedIndex(index) {
@@ -353,7 +298,11 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 		selectedIndex.value = -1
 	}
 
-	function trackCustomerSelection(customerId) {
+	function trackCustomerSelection(customer) {
+		// Accept either a full customer object or a bare id (back-compat).
+		const customerId = typeof customer === "string" ? customer : customer?.name
+		if (!customerId) return
+
 		// Add to recent searches (max 10)
 		recentSearches.value = [
 			customerId,
@@ -371,6 +320,20 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 			20,
 		)
 
+		// Keep full recent objects so the empty-search list can show them without
+		// loading the entire customer table.
+		if (typeof customer === "object" && customer?.name) {
+			recentObjects.value = [
+				{
+					name: customer.name,
+					customer_name: customer.customer_name,
+					mobile_no: customer.mobile_no,
+					email_id: customer.email_id,
+				},
+				...recentObjects.value.filter((c) => c.name !== customer.name),
+			].slice(0, 10)
+		}
+
 		// Persist to localStorage
 		try {
 			localStorage.setItem(
@@ -381,6 +344,10 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 				"pos_frequent_customers",
 				JSON.stringify(frequentCustomers.value),
 			)
+			localStorage.setItem(
+				RECENT_OBJECTS_KEY,
+				JSON.stringify(recentObjects.value),
+			)
 		} catch (e) {
 			log.warn("Failed to persist customer history:", e)
 		}
@@ -390,9 +357,11 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 		try {
 			const recent = localStorage.getItem("pos_recent_customers")
 			const frequent = localStorage.getItem("pos_frequent_customers")
+			const recentObjs = localStorage.getItem(RECENT_OBJECTS_KEY)
 
 			if (recent) recentSearches.value = JSON.parse(recent)
 			if (frequent) frequentCustomers.value = JSON.parse(frequent)
+			if (recentObjs) recentObjects.value = JSON.parse(recentObjs)
 		} catch (e) {
 			log.warn("Failed to load customer history:", e)
 		}
@@ -403,6 +372,7 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 		allCustomers,
 		searchTerm,
 		loading,
+		searching,
 		selectedIndex,
 		recentSearches,
 		frequentCustomers,

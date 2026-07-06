@@ -9,6 +9,7 @@
 					class="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-md flex-shrink-0 hover:from-blue-600 hover:to-blue-700 active:scale-95 transition-all"
 					:aria-label="'POS Next'"
 					:title="__('POS Next')"
+					@click="goToApp"
 				>
 					<svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
 						<path d="M20 7h-4V4c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2v3H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2zM10 4h4v3h-4V4zm10 16H4V9h16v11z"/>
@@ -297,6 +298,10 @@ const emit = defineEmits([
 function handleClearCacheClick() {
 	showCacheTooltip.value = false
 	emit('clear-cache')
+}
+
+function goToApp() {
+	window.location.href = "/app"
 }
 
 function handleBlur(event) {

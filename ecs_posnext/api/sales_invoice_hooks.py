@@ -23,6 +23,58 @@ def validate(doc, method=None):
 	"""
 	apply_tax_inclusive(doc)
 	auto_assign_loyalty_program_on_invoice(doc)
+	apply_bundle_selections(doc)
+
+
+def apply_bundle_selections(doc):
+	"""Honor per-bundle component choices made at the POS.
+
+	ERPNext's make_packing_list() (run during core validate, before this hook) resets
+	and rebuilds packed_items from the FULL Product Bundle. For configurable bundles the
+	cashier may have chosen only a SUBSET of components; posa_bundle_selections holds
+	{bundle_item_code: [chosen component item_codes]}. Here we drop the packed_items
+	rows whose (parent_item, item_code) component was not chosen. Bundles with no entry
+	are left untouched (full bundle / default behavior).
+	"""
+	if not doc.get("packed_items"):
+		return
+
+	import json
+
+	selections = {}
+	raw = doc.get("posa_bundle_selections")
+	if raw:
+		try:
+			parsed = json.loads(raw) if isinstance(raw, str) else raw
+			if isinstance(parsed, dict):
+				selections = parsed
+		except Exception:
+			selections = {}
+
+	# Drop packed rows whose component was NOT chosen (only for bundles with an
+	# explicit selection list; bundles without an entry keep all their components).
+	kept = []
+	for row in doc.packed_items:
+		chosen = selections.get(row.parent_item)
+		if chosen is None or row.item_code in chosen:
+			kept.append(row)
+	doc.packed_items = kept
+
+	# Mirror the packed components into the "Selected Packed Items" table(s) so they
+	# are visible on the Sales Invoice (parity with posawesome's seleceted_packed_items).
+	selected_rows = [
+		{
+			"parent_item": r.parent_item,
+			"item_code": r.item_code,
+			"qty": r.qty,
+			"quantity": r.qty,
+			"packed_quantity": r.qty,
+		}
+		for r in kept
+	]
+	for fieldname in ("seleceted_packed_items", "custom_selected_packed_items"):
+		if doc.meta.has_field(fieldname):
+			doc.set(fieldname, selected_rows)
 
 
 def apply_tax_inclusive(doc):

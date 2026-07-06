@@ -12,7 +12,7 @@
 				</div>
 
 				<!-- Empty State -->
-				<div v-else-if="eligibleOffers.length === 0" class="py-12 text-center">
+				<div v-else-if="eligibleOffers.length === 0 && posEligibleOffers.length === 0" class="py-12 text-center">
 					<div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-gray-100">
 						<svg class="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
@@ -186,6 +186,32 @@
 					</div>
 				</div>
 			</div>
+
+			<!-- POS Offers (custom POS Offer engine — posawesome-style promotions) -->
+			<div v-if="posEligibleOffers.length" class="border-t pt-3 mt-1">
+				<h4 class="text-xs font-semibold text-gray-500 uppercase mb-2">{{ __('Special Offers') }}</h4>
+				<div class="flex flex-col gap-2">
+					<div
+						v-for="offer in posEligibleOffers"
+						:key="offer.name"
+						class="flex items-center justify-between rounded-lg border px-3 py-2"
+						:class="isPosOfferApplied(offer) ? 'border-green-300 bg-green-50' : 'border-gray-200'"
+					>
+						<div class="flex flex-col">
+							<span class="text-sm font-medium text-gray-800">{{ offer.title || offer.name }}</span>
+							<span class="text-[11px] text-gray-500">{{ offer.offer }}<span v-if="offer.discount_percentage"> · {{ offer.discount_percentage }}%</span></span>
+						</div>
+						<Button
+							:variant="isPosOfferApplied(offer) ? 'subtle' : 'solid'"
+							:theme="isPosOfferApplied(offer) ? 'gray' : 'green'"
+							size="sm"
+							@click="togglePosOffer(offer)"
+						>
+							{{ isPosOfferApplied(offer) ? __('Remove') : __('Apply') }}
+						</Button>
+					</div>
+				</div>
+			</div>
 			</div>
 		</template>
 		<template #actions>
@@ -199,13 +225,22 @@
 </template>
 
 <script setup>
+import { usePOSCartStore } from "@/stores/posCart"
 import { usePOSOffersStore } from "@/stores/posOffers"
-import { DEFAULT_CURRENCY, DEFAULT_LOCALE, formatCurrency as formatCurrencyUtil } from "@/utils/currency"
+import { usePOSOfferEngineStore } from "@/stores/posOfferEngine"
+import {
+	DEFAULT_CURRENCY,
+	DEFAULT_LOCALE,
+	formatCurrency as formatCurrencyUtil,
+} from "@/utils/currency"
 import { Button, Dialog } from "frappe-ui"
 import { computed, ref, watch } from "vue"
 
 // Use Pinia stores
 const offersStore = usePOSOffersStore()
+// POS Offer engine (custom POS Offer doctype — posawesome-style promotions).
+const offerEngine = usePOSOfferEngineStore()
+const cartStore = usePOSCartStore()
 
 const props = defineProps({
 	modelValue: Boolean,
@@ -245,11 +280,36 @@ const loading = computed(() => {
 	return !offersStore.hasFetched && eligibleOffers.value.length === 0
 })
 
+// ---- POS Offer engine (custom POS Offer doctype) ----
+function refreshPosOffers() {
+	offerEngine.updateSnapshot({
+		items: props.items || [],
+		total: props.subtotal,
+		subtotal: props.subtotal,
+		customerGroup: cartStore.customer?.customer_group || null,
+		employee: !!cartStore.customer?.mobile_no,
+	})
+}
+const posEligibleOffers = computed(() => offerEngine.eligibleOffers)
+const isPosOfferApplied = (offer) => offerEngine.isApplied(offer)
+function togglePosOffer(offer) {
+	if (offerEngine.isApplied(offer)) {
+		offerEngine.removePosOffer(offer)
+	} else {
+		offerEngine.applyPosOffer(offer)
+	}
+}
+
 watch(
 	() => props.modelValue,
 	(val) => {
 		show.value = val
-		// No need to load offers - they're already in the store
+		if (val) {
+			if (props.posProfile && !offerEngine.hasFetched) {
+				offerEngine.loadPosOffers(props.posProfile)
+			}
+			refreshPosOffers()
+		}
 	},
 )
 

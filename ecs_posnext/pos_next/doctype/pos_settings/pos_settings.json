@@ -68,6 +68,7 @@
   "section_break_misc",
   "input_qty",
   "allow_negative_stock",
+  "custom_draft_on_insufficient_stock",
   "barcode_tab",
   "barcode_rules",
   "section_break_cash_transfer",
@@ -505,6 +506,13 @@
    "fieldname": "allow_negative_stock",
    "fieldtype": "Check",
    "label": "Allow Negative Stock"
+  },
+  {
+   "default": "0",
+   "description": "When stock is insufficient, hold the sale as a Draft (backorder) instead of blocking. Payment is taken now; finalize from the Pending Stock page once restocked. Shift cannot be closed while pending-stock drafts remain.",
+   "fieldname": "custom_draft_on_insufficient_stock",
+   "fieldtype": "Check",
+   "label": "Draft on Insufficient Stock"
   },
   {
    "fieldname": "barcode_tab",

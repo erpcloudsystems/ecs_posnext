@@ -34,7 +34,7 @@
 									class="w-6 h-auto rounded-sm"
 									@error="handleFlagError"
 								/>
-								<span class="flex-1 text-start">{{ selectedCountryCode || "+20" }}</span>
+								<span class="flex-1 text-start">{{ selectedCountryCode || "+966" }}</span>
 								<svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
 								</svg>
@@ -219,7 +219,7 @@ const emit = defineEmits(["update:modelValue", "customer-created", "customer-upd
 
 const hasPermission = ref(true)
 const checkingPermission = ref(false)
-const selectedCountryCode = ref("")
+const selectedCountryCode = ref("+966")
 const phoneNumber = ref("")
 const showCountryDropdown = ref(false)
 const countrySearchQuery = ref("")
@@ -288,7 +288,7 @@ const handleClickOutside = (event) => {
 
 const setCountryFromName = (countryName) => {
 	if (!countryName) {
-		selectedCountryCode.value = "+20"
+		selectedCountryCode.value = "+966"
 		return
 	}
 
@@ -298,7 +298,7 @@ const setCountryFromName = (countryName) => {
 		log.info(`Set country code to ${isd} for ${countryName}`)
 	} else {
 		log.warn(`Country "${countryName}" not found`)
-		selectedCountryCode.value = "+20"
+		selectedCountryCode.value = "+966"
 	}
 }
 
@@ -408,7 +408,7 @@ const posProfileResource = createResource({
 	onSuccess: (data) => setCountryFromName(data?.country || "Egypt"),
 	onError: (err) => {
 		log.error("Error loading POS Profile", err)
-		selectedCountryCode.value = "+20"
+		selectedCountryCode.value = "+966"
 	},
 })
 
@@ -429,7 +429,7 @@ const loadDialogData = async () => {
 	if (props.posProfile) {
 		await posProfileResource.reload()
 	} else {
-		selectedCountryCode.value = "+20"
+		selectedCountryCode.value = "+966"
 	}
 }
 
@@ -464,7 +464,7 @@ const resetForm = () => {
 		customer_group: "أفراد",
 		territory: "All Territories",
 	})
-	selectedCountryCode.value = ""
+	selectedCountryCode.value = "+966"
 	phoneNumber.value = ""
 }
 

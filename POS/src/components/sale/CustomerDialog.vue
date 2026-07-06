@@ -37,6 +37,10 @@
 						autocomplete="off"
 						:aria-label="__('Search customers')"
 					/>
+					<!-- Searching spinner -->
+					<div v-if="searching" class="absolute inset-y-0 end-7 flex items-center">
+						<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+					</div>
 					<!-- Clear Button -->
 					<button v-if="searchTerm" @click="customerStore.clearSearch()" class="absolute inset-y-0 end-0 text-gray-400 hover:text-gray-600">
 						<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -44,10 +48,10 @@
 						</svg>
 					</button>
 				</div>
-				<p v-if="!loading && allCustomers.length > 0" class="text-start text-xs text-gray-500 mt-0">
+				<p v-if="customers.length > 0" class="text-start text-xs text-gray-500 mt-0">
 					<span v-if="showingRecent" class="text-blue-600 font-medium">⭐ {{ __('Recent & Frequent') }}</span>
-					<span v-else>{{ __('{0} of {1} customers', [customers.length, allCustomers.length]) }}</span>
-					<span v-if="customers.length > 0" class="text-gray-400 ms-1">{{ __('• Use ↑↓ to navigate, Enter to select') }}</span>
+					<span v-else>{{ __('{0} customers', [customers.length]) }}</span>
+					<span class="text-gray-400 ms-1">{{ __('• Use ↑↓ to navigate, Enter to select') }}</span>
 				</p>
 
 				<!-- Smart Recommendations -->
@@ -64,15 +68,15 @@
 
 				<!-- Customers List - Optimized rendering -->
 				<div class="max-h-96 overflow-y-auto" style="will-change: scroll-position;">
-					<div v-if="loading" class="text-center py-8">
+					<div v-if="searching && customers.length === 0" class="text-center py-8">
 						<div
 							class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"
 						></div>
-						<p class="mt-2 text-sm text-gray-500">{{ __('Loading customers...') }}</p>
+						<p class="mt-2 text-sm text-gray-500">{{ __('Searching...') }}</p>
 					</div>
 
 					<div
-						v-else-if="allCustomers.length === 0 && !loading"
+						v-else-if="!searching && customers.length === 0 && !searchTerm.trim()"
 						class="text-center py-8"
 					>
 						<svg
@@ -88,14 +92,14 @@
 								d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
 							/>
 						</svg>
-						<p class="mt-2 text-sm text-gray-500">{{ __('No customers available') }}</p>
+						<p class="mt-2 text-sm text-gray-500">{{ __('Type to search customers') }}</p>
 						<p class="text-xs text-gray-400 mt-1">
-							{{ __('Create your first customer to get started') }}
+							{{ __('Search by name, mobile, or email') }}
 						</p>
 					</div>
 
 					<div
-						v-else-if="customers.length === 0 && searchTerm.trim().length > 0"
+						v-else-if="!searching && customers.length === 0 && searchTerm.trim().length > 0"
 						class="text-center py-8"
 					>
 						<svg
@@ -197,10 +201,9 @@ const emit = defineEmits(["update:modelValue", "customer-selected"])
 const customerStore = useCustomerSearchStore()
 const {
 	filteredCustomers,
-	loading,
+	searching,
 	selectedIndex,
 	searchTerm,
-	allCustomers,
 	recommendations,
 } = storeToRefs(customerStore)
 
@@ -270,8 +273,8 @@ onMounted(() => {
 })
 
 function selectCustomer(customer) {
-	// Track selection for recommendations
-	customerStore.trackCustomerSelection(customer.name)
+	// Track selection for recommendations (pass the full object for recent display)
+	customerStore.trackCustomerSelection(customer)
 
 	emit("customer-selected", customer)
 	show.value = false
@@ -287,7 +290,7 @@ async function handleCustomerCreated(customer) {
 	}
 
 	// Track new customer selection
-	customerStore.trackCustomerSelection(customer.name)
+	customerStore.trackCustomerSelection(customer)
 
 	emit("customer-selected", customer)
 	show.value = false

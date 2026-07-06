@@ -27,6 +27,7 @@ ITEM_RESULT_FIELDS = [
 	"custom_company",
 	"custom_allow_rate_edit",
 	"custom_not_included",
+	"custom_customer_default",
 	"disabled",
 ]
 
@@ -458,6 +459,43 @@ def get_item_stock(item_code, warehouse):
 
 
 @frappe.whitelist()
+def check_product_bundle(item_code):
+	"""If item_code is a Product Bundle, return its components for the POS bundle
+	dialog; otherwise return []. Ported from posawesome's checkIsProdBundle.
+
+	Each row: item_code, qty, uom, description, default_item_in_pos, item_name,
+	image, stock_uom, parent_item.
+	"""
+	if not item_code:
+		return []
+
+	bundle_name = frappe.db.get_value(
+		"Product Bundle", {"new_item_code": item_code, "disabled": 0}, "name"
+	)
+	if not bundle_name:
+		return []
+
+	bundle = frappe.get_cached_doc("Product Bundle", bundle_name)
+	rows = []
+	for row in bundle.items:
+		item = frappe.get_cached_doc("Item", row.item_code)
+		rows.append(
+			{
+				"item_code": row.item_code,
+				"qty": flt(row.qty),
+				"uom": row.uom,
+				"description": row.description,
+				"default_item_in_pos": int(getattr(row, "default_item_in_pos", 0) or 0),
+				"item_name": item.item_name,
+				"image": item.image,
+				"stock_uom": item.stock_uom,
+				"parent_item": item_code,
+			}
+		)
+	return rows
+
+
+@frappe.whitelist()
 def get_batch_serial_details(item_code, warehouse):
 	"""Get batch/serial number details"""
 	try:
@@ -711,6 +749,39 @@ def _get_item_group_with_descendants(item_group):
 	)
 
 	return [item_group] + list(descendants)
+
+
+def _get_direct_child_groups(parent):
+	"""Get the direct (immediate) child item groups of a given parent group."""
+	if not parent:
+		return []
+
+	ItemGroup = DocType("Item Group")
+	return (
+		frappe.qb.from_(ItemGroup)
+		.select(ItemGroup.name)
+		.where(ItemGroup.parent_item_group == parent)
+		.orderby(ItemGroup.name)
+		.run(pluck="name")
+	)
+
+
+def _build_item_group_node(group_name):
+	"""Build a nested tree node for an item group, with direct children for drill-down."""
+	descendants = _get_item_group_with_descendants(group_name)
+	is_group = len(descendants) > 1
+	children = []
+	if is_group:
+		for child in _get_direct_child_groups(group_name):
+			children.append(_build_item_group_node(child))
+	return {
+		"item_group": group_name,
+		"is_group": is_group,
+		# Flattened descendants kept for backward-compat with existing callers
+		"child_groups": descendants[1:] if is_group else [],
+		# Direct children for the drill-down navigator
+		"children": children,
+	}
 
 
 def _build_item_base_conditions(pos_profile_doc, item_group=None, exclude_variants=True, hide_unavailable=False, warehouse=None):
@@ -1701,8 +1772,12 @@ def get_items_count(pos_profile, item_group=None, include_variants=0):
 
 
 @frappe.whitelist()
-def get_item_details(item_code, pos_profile, customer=None, qty=1, uom=None):  # noqa: ARG001 - customer reserved for future use
-	"""Get detailed item info including price, tax, stock"""
+def get_item_details(item_code, pos_profile, customer=None, qty=1, uom=None, price_list=None):  # noqa: ARG001 - customer reserved for future use
+	"""Get detailed item info including price, tax, stock.
+
+	`price_list` optionally overrides the POS Profile's selling price list (used when
+	the cashier switches the active price list and the cart needs repricing).
+	"""
 	try:
 		# Parse pos_profile if it's a JSON string
 		if isinstance(pos_profile, str):
@@ -1742,7 +1817,7 @@ def get_item_details(item_code, pos_profile, customer=None, qty=1, uom=None):  #
 		return get_item_detail(
 			item=json.dumps(item),
 			warehouse=pos_profile_doc.warehouse,
-			price_list=pos_profile_doc.selling_price_list,
+			price_list=price_list or pos_profile_doc.selling_price_list,
 			company=pos_profile_doc.company,
 		)
 	except Exception as e:
@@ -1752,8 +1827,13 @@ def get_item_details(item_code, pos_profile, customer=None, qty=1, uom=None):  #
 
 @frappe.whitelist()
 def get_item_groups(pos_profile):
-	"""Get item groups configured in POS Profile with hierarchy info for filtering."""
-	cache_key = f"pos_item_groups:{pos_profile}"
+	"""Get item groups configured in POS Profile as a nested tree for the drill-down navigator.
+
+	Each node: {item_group, is_group, child_groups (flattened descendants, back-compat),
+	children (direct child nodes for drill-down)}.
+	"""
+	# v2: nested tree shape (was a flat list); bumped to avoid serving stale cached payloads.
+	cache_key = f"pos_item_groups_v2:{pos_profile}"
 	cached = frappe.cache().get_value(cache_key)
 	if cached:
 		return cached
@@ -1772,7 +1852,7 @@ def get_item_groups(pos_profile):
 		)
 
 		if not configured_groups:
-			result = (
+			leaves = (
 				frappe.qb.from_(ItemGroup)
 				.select(ItemGroup.name.as_("item_group"))
 				.where(ItemGroup.is_group == 0)
@@ -1780,17 +1860,24 @@ def get_item_groups(pos_profile):
 				.limit(50)
 				.run(as_dict=True)
 			)
+			result = [
+				{"item_group": row["item_group"], "is_group": False, "child_groups": [], "children": []}
+				for row in leaves
+			]
 			frappe.cache().set_value(cache_key, result, expires_in_sec=300)
 			return result
 
-		result = []
+		# Only keep configured groups that are not nested under another configured group,
+		# so each subtree appears once at the correct depth in the drill-down.
+		configured_set = set(configured_groups)
+		nested = set()
 		for group_name in configured_groups:
-			descendants = _get_item_group_with_descendants(group_name)
-			result.append({
-				"item_group": group_name,
-				"is_group": len(descendants) > 1,
-				"child_groups": descendants[1:] if len(descendants) > 1 else [],
-			})
+			for descendant in _get_item_group_with_descendants(group_name)[1:]:
+				if descendant in configured_set:
+					nested.add(descendant)
+
+		top_level = [g for g in configured_groups if g not in nested]
+		result = [_build_item_group_node(group_name) for group_name in top_level]
 
 		frappe.cache().set_value(cache_key, result, expires_in_sec=300)
 		return result

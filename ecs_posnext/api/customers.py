@@ -42,13 +42,29 @@ def get_customers(search_term="", pos_profile=None, limit=20, modified_since=Non
             # Delta sync: include disabled customers so frontend can purge them
             filters["modified"] = [">=", modified_since]
         else:
-            # Full fetch: only active customers
+            # Full fetch / search: only active customers
             filters["disabled"] = 0
 
-        customer_limit = limit if limit not in (None, 0) else frappe.db.count("Customer", filters)
+        # Server-side search: match name / mobile / id (OR), always bounded.
+        or_filters = None
+        if search_term:
+            term = f"%{search_term.strip()}%"
+            or_filters = [
+                ["customer_name", "like", term],
+                ["mobile_no", "like", term],
+                ["name", "like", term],
+            ]
+            # Search must stay bounded even if caller passed limit=0.
+            customer_limit = limit if limit not in (None, 0) else 50
+        else:
+            customer_limit = (
+                limit if limit not in (None, 0) else frappe.db.count("Customer", filters)
+            )
+
         result = frappe.get_all(
             "Customer",
             filters=filters,
+            or_filters=or_filters,
             fields=["name", "customer_name", "mobile_no", "email_id", "disabled"],
             limit=customer_limit,
             order_by="customer_name asc",

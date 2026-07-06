@@ -755,6 +755,15 @@
 			</div>
 		</template>
 	</Dialog>
+
+	<!-- Return authorization (OTP / password) -->
+	<DiscountOtpDialog
+		v-model="showReturnOtp"
+		context="return"
+		:pos-profile="posProfile"
+		:reference="originalInvoice?.name"
+		@authorized="onReturnAuthorized"
+	/>
 </template>
 
 <script setup>
@@ -770,6 +779,7 @@ import {
 import { getInvoiceStatusColor } from "@/utils/invoice"
 import { Button, Dialog, FeatherIcon, createResource } from "frappe-ui"
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue"
+import DiscountOtpDialog from "./DiscountOtpDialog.vue"
 
 const { showSuccess, showError, showWarning } = useToast()
 const { isOffline } = useOffline()
@@ -1047,10 +1057,7 @@ const cancelAndRecreateResource = createResource({
 	},
 	onError(error) {
 		isSubmitting.value = false
-		const errorMsg = extractErrorMessage(
-			error,
-			__("Failed to process return"),
-		)
+		const errorMsg = extractErrorMessage(error, __("Failed to process return"))
 		submitError.value = errorMsg
 		openErrorDialog(errorMsg)
 	},
@@ -1105,7 +1112,7 @@ const createReturnResource = createResource({
 				: refundPayments.value.map((payment) => ({
 						mode_of_payment: payment.mode_of_payment,
 						amount: -Math.abs(payment.amount),
-				  })),
+					})),
 			remarks:
 				returnReason.value ||
 				__("Return against {0}", [originalInvoice.value.name]),
@@ -1522,6 +1529,7 @@ function handleValidityResponse(validity) {
  */
 function openReturnModal(invoice) {
 	submitError.value = ""
+	returnAuthorized.value = false
 	fetchInvoiceResource.fetch({
 		invoice_name: invoice.name,
 		pos_opening_shift: props.posOpeningShift,
@@ -1627,6 +1635,19 @@ function decrementReturnQuantity(item) {
 	}
 }
 
+// ---- Return authorization (OTP / password) ----
+const showReturnOtp = ref(false)
+const returnAuthorized = ref(false)
+const pendingReturnAction = ref(null)
+
+function onReturnAuthorized() {
+	returnAuthorized.value = true
+	showReturnOtp.value = false
+	const action = pendingReturnAction.value
+	pendingReturnAction.value = null
+	if (action) action()
+}
+
 async function handleCreateReturn() {
 	if (!canCreateReturn.value || isSubmitting.value) return
 	if (!hasOpenShift.value) {
@@ -1637,6 +1658,13 @@ async function handleCreateReturn() {
 	}
 
 	if (!validateSelectedItems()) {
+		return
+	}
+
+	// Gate: a return needs OTP/password authorization first.
+	if (!returnAuthorized.value) {
+		pendingReturnAction.value = handleCreateReturn
+		showReturnOtp.value = true
 		return
 	}
 
@@ -1672,6 +1700,13 @@ async function handleCancelAndRecreate() {
 	}
 
 	if (!validateSelectedItems()) {
+		return
+	}
+
+	// Gate: a return needs OTP/password authorization first.
+	if (!returnAuthorized.value) {
+		pendingReturnAction.value = handleCancelAndRecreate
+		showReturnOtp.value = true
 		return
 	}
 
@@ -1725,7 +1760,10 @@ function resetForm() {
 }
 
 // Date formatter instance (reused for performance)
-const dateFormatter = new Intl.DateTimeFormat(DEFAULT_LOCALE, DATE_FORMAT_OPTIONS)
+const dateFormatter = new Intl.DateTimeFormat(
+	DEFAULT_LOCALE,
+	DATE_FORMAT_OPTIONS,
+)
 
 function formatDate(dateStr) {
 	if (!dateStr) return ""

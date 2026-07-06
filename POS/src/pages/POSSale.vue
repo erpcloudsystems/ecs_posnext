@@ -462,6 +462,14 @@
 			@update-additional-discount="handleAdditionalDiscountUpdate"
 		/>
 
+			<!-- Tabby payment link (QR + copy + SMS) -->
+			<TabbyLinkDialog
+				v-model="showTabbyLink"
+				:payment-url="tabbyLink"
+				:sms-sent="tabbySmsSent"
+				:mobile="tabbyMobile"
+			/>
+
 			<!-- Customer Selection Dialog -->
 			<CustomerDialog
 				v-model="uiStore.showCustomerDialog"
@@ -629,6 +637,32 @@
 
 			<!-- Daily Payment Management -->
 			<DailyPaymentManagement v-model="showDailyPayment" :branch="shiftStore.profileBranch" :payment-methods="shiftStore.profilePaymentMethods" />
+
+			<!-- Ticket Redeem & Renewal -->
+			<TicketRedeemDialog
+				v-model="showTicketRedeem"
+				:pos-profile="shiftStore.profileName"
+				:currency="shiftStore.profileCurrency"
+				:company="shiftStore.profileCompany"
+				:branch="shiftStore.profileBranch"
+				:customer="cartStore.customer"
+				:payment-methods="shiftStore.profilePaymentMethods"
+			/>
+
+			<!-- Pending Stock (backorders) -->
+			<PendingStockDialog
+				v-model="showPendingStock"
+				:pos-profile="shiftStore.profileName"
+				:pos-opening-shift="cartStore.posOpeningShift"
+			/>
+
+			<!-- Product Bundle component selection -->
+			<BundleDialog
+				v-model="showBundleDialog"
+				:bundle-name="pendingBundleItem?.item_name || pendingBundleItem?.item_code"
+				:components="bundleComponents"
+				@confirm="handleBundleConfirmed"
+			/>
 
 			<!-- Invoice Detail Dialog -->
 			<InvoiceDetailDialog
@@ -944,8 +978,8 @@
 // Module-scoped init guard — prevents redundant heavy initialization
 // when component remounts due to translationVersion changes.
 // Tracks the profile name so a shift change correctly re-initializes.
-let _initializedProfile = null
-let _posInitPromise = null
+const _initializedProfile = null
+const _posInitPromise = null
 </script>
 
 <script setup>
@@ -968,12 +1002,16 @@ import ItemsSelector from "@/components/sale/ItemsSelector.vue";
 import OffersDialog from "@/components/sale/OffersDialog.vue";
 import OfflineInvoicesDialog from "@/components/sale/OfflineInvoicesDialog.vue";
 import PaymentDialog from "@/components/sale/PaymentDialog.vue";
+import TabbyLinkDialog from "@/components/sale/TabbyLinkDialog.vue";
 import PromotionManagement from "@/components/sale/PromotionManagement.vue";
 import ReturnInvoiceDialog from "@/components/sale/ReturnInvoiceDialog.vue";
 import WarehouseAvailabilityDialog from "@/components/sale/WarehouseAvailabilityDialog.vue";
 import POSSettings from "@/components/settings/POSSettings.vue";
 import InvoiceManagement from "@/components/invoices/InvoiceManagement.vue";
 import DailyPaymentManagement from "@/components/daily_payment/DailyPaymentManagement.vue";
+import TicketRedeemDialog from "@/components/sale/TicketRedeemDialog.vue";
+import PendingStockDialog from "@/components/sale/PendingStockDialog.vue";
+import BundleDialog from "@/components/sale/BundleDialog.vue";
 import InvoiceDetailDialog from "@/components/invoices/InvoiceDetailDialog.vue";
 import { useRealtimeStock } from "@/composables/useRealtimeStock";
 import { usePOSEvents } from "@/composables/usePOSEvents";
@@ -998,6 +1036,7 @@ import { useStockStore } from "@/stores/stock";
 import { usePOSCartStore } from "@/stores/posCart";
 import { usePOSDraftsStore } from "@/stores/posDrafts";
 import { usePOSSettingsStore } from "@/stores/posSettings";
+import { usePOSOfferEngineStore } from "@/stores/posOfferEngine";
 import { usePOSShiftStore } from "@/stores/posShift";
 import { usePOSSyncStore } from "@/stores/posSync";
 import { usePOSUIStore } from "@/stores/posUI";
@@ -1013,6 +1052,7 @@ const posSettingsStore = usePOSSettingsStore();
 const itemStore = useItemSearchStore();
 const stockStore = useStockStore();
 const customerSearchStore = useCustomerSearchStore();
+const offerEngine = usePOSOfferEngineStore();
 // Note: settingsStore is an alias to posSettingsStore (same Pinia store singleton)
 const settingsStore = posSettingsStore;
 
@@ -1051,6 +1091,12 @@ const editCustomer = ref(null); // Customer being edited (null for create mode)
 const showClearCacheDialog = ref(false);
 const clearCacheOverlayRef = ref(null);
 
+// Tabby payment link dialog
+const showTabbyLink = ref(false);
+const tabbyLink = ref("");
+const tabbySmsSent = ref(false);
+const tabbyMobile = ref("");
+
 // Debounce timer for offer reapplication
 const offerReapplyTimer = ref(null);
 
@@ -1083,6 +1129,11 @@ const showInvoiceManagement = ref(false);
 
 // Daily Payment Management dialog
 const showDailyPayment = ref(false);
+const showTicketRedeem = ref(false);
+const showPendingStock = ref(false);
+const showBundleDialog = ref(false);
+const pendingBundleItem = ref(null);
+const bundleComponents = ref([]);
 
 // Invoice Detail dialog
 const showInvoiceDetail = ref(false);
@@ -1121,9 +1172,38 @@ watch(
 	(newProfile) => {
 		if (newProfile) {
 			warehousesResource.reload();
+			// Load custom POS Offers (posawesome-style) for this profile.
+			offerEngine.clear();
+			offerEngine.loadPosOffers(newProfile);
 		}
 	},
 	{ immediate: true }
+);
+
+// Keep the POS Offer engine snapshot in sync with the cart and auto-apply
+// eligible "auto" offers. Loop-safe: applied offers are skipped (isApplied guard).
+let posOfferTimer = null;
+watch(
+	() => [computeCartHash(), cartStore.customer],
+	() => {
+		if (posOfferTimer) clearTimeout(posOfferTimer);
+		posOfferTimer = setTimeout(() => {
+			if (cartStore.invoiceItems.length === 0) {
+				offerEngine.appliedPosOffers = [];
+				return;
+			}
+			offerEngine.updateSnapshot({
+				items: cartStore.invoiceItems,
+				total: cartStore.grandTotal,
+				subtotal: cartStore.subtotal,
+				customerGroup: cartStore.customer?.customer_group || null,
+				// posawesome "employee" gate: truthy when the customer has a mobile.
+				employee: !!cartStore.customer?.mobile_no,
+			});
+			offerEngine.applyAutoOffers();
+		}, 400);
+	},
+	{ deep: true }
 );
 
 // Computed for warehouses - returns all warehouses for the company
@@ -1704,7 +1784,7 @@ function handleShiftClosed() {
 	}
 }
 
-function handleItemSelected(item, autoAdd = false) {
+async function handleItemSelected(item, autoAdd = false) {
 	// Auto-add mode
 	if (autoAdd) {
 		try {
@@ -1786,6 +1866,24 @@ function handleItemSelected(item, autoAdd = false) {
 		return;
 	}
 
+	// Product Bundle: let the cashier choose which components to include.
+	if (item.is_bundle) {
+		try {
+			const res = await call("ecs_posnext.api.items.check_product_bundle", {
+				item_code: item.item_code,
+			});
+			const components = res?.message || res || [];
+			if (components.length) {
+				pendingBundleItem.value = item;
+				bundleComponents.value = components;
+				showBundleDialog.value = true;
+				return;
+			}
+		} catch (error) {
+			log.error("Product bundle check failed:", error);
+		}
+	}
+
 	// Add to cart
 	try {
 		cartStore.addItem(item, 1, false, shiftStore.currentProfile);
@@ -1796,6 +1894,24 @@ function handleItemSelected(item, autoAdd = false) {
 			__("Item: {0}", [item.item_code])
 		);
 	}
+}
+
+function handleBundleConfirmed(selectedItemCodes) {
+	const item = pendingBundleItem.value;
+	showBundleDialog.value = false;
+	if (!item) return;
+	cartStore.setBundleSelection(item.item_code, selectedItemCodes);
+	try {
+		cartStore.addItem(item, 1, false, shiftStore.currentProfile);
+	} catch (error) {
+		uiStore.showError(
+			__("Insufficient Stock"),
+			error.message,
+			__("Item: {0}", [item.item_code])
+		);
+	}
+	pendingBundleItem.value = null;
+	bundleComponents.value = [];
 }
 
 async function handleEditItem(updatedItem) {
@@ -1959,6 +2075,48 @@ async function handlePaymentCompleted(paymentData) {
 			const result = await cartStore.submitInvoice();
 
 			if (result) {
+				// Tabby: invoice kept pending; show the payment link (QR + copy) and
+				// note the SMS. No stock/print (nothing was submitted).
+				const tabbyData = result.is_tabby
+					? result
+					: result.message?.is_tabby
+						? result.message
+						: null;
+				if (tabbyData) {
+					uiStore.showPaymentDialog = false;
+					tabbyLink.value = tabbyData.payment_url || "";
+					tabbySmsSent.value = !!tabbyData.sms_sent;
+					tabbyMobile.value = tabbyData.mobile || "";
+					showTabbyLink.value = true;
+					cartStore.clearCart();
+					previousCartHash = "";
+					if (draftIdToDelete) {
+						draftsStore.deleteDraft(draftIdToDelete);
+					}
+					showSuccess(__("Tabby payment link created"));
+					return;
+				}
+
+				// Insufficient stock: the sale was HELD as a draft (backorder). Payment
+				// was recorded on the draft; finalize later from the Pending Stock page.
+				const pending = result.pending_stock
+					? result
+					: result.message?.pending_stock
+						? result.message
+						: null;
+				if (pending) {
+					uiStore.showPaymentDialog = false;
+					cartStore.clearCart();
+					previousCartHash = "";
+					if (draftIdToDelete) {
+						draftsStore.deleteDraft(draftIdToDelete);
+					}
+					showWarning(
+						__("Saved as draft — insufficient stock. Finalize it from Pending Stock once restocked.")
+					);
+					return;
+				}
+
 				const invoiceName = result.name || result.message?.name || __("Unknown");
 				const invoiceTotal = result.grand_total || result.total || 0;
 				const paidAmount = paymentData.paid_amount || invoiceTotal;
@@ -2570,6 +2728,10 @@ function handleManagementMenuClick(menuItem) {
 		showStockLookup.value = true;
 	} else if (menuItem === "daily-payment") {
 		showDailyPayment.value = true;
+	} else if (menuItem === "ticket-redeem") {
+		showTicketRedeem.value = true;
+	} else if (menuItem === "pending-stock") {
+		showPendingStock.value = true;
 	}
 }
 
