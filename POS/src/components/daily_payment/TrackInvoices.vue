@@ -69,22 +69,6 @@
 							{{ loading ? __('Loading...') : __('Search') }}
 						</button>
 
-						<!-- Current Shift Toggle -->
-						<label class="flex items-center gap-2 cursor-pointer select-none ms-auto">
-							<div
-								@click="toggleShiftFilter"
-								:class="[
-									'w-10 h-5 rounded-full transition-colors relative flex-shrink-0',
-									useShiftFilter ? 'bg-blue-600' : 'bg-gray-300'
-								]"
-							>
-								<div :class="[
-									'absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform',
-									useShiftFilter ? 'translate-x-5' : 'translate-x-0'
-								]"></div>
-							</div>
-							<span class="text-xs font-medium text-gray-700">{{ __('Current Shift Only') }}</span>
-						</label>
 					</div>
 
 					<!-- Content -->
@@ -182,7 +166,6 @@ const emit = defineEmits(["update:modelValue"])
 
 const show = ref(props.modelValue)
 const loading = ref(false)
-const useShiftFilter = ref(false)
 const lastLoaded = ref("")
 
 const today = new Date().toISOString().split("T")[0]
@@ -209,19 +192,13 @@ function handleClose() {
 	show.value = false
 }
 
-function toggleShiftFilter() {
-	useShiftFilter.value = !useShiftFilter.value
-	loadCounts()
-}
-
 async function loadCounts() {
 	loading.value = true
 	try {
 		const result = await call("ecs_posnext.api.daily_payment.get_invoice_counts", {
 			branch: props.branch || null,
-			from_date: useShiftFilter.value ? null : (fromDate.value || null),
-			to_date: useShiftFilter.value ? null : (toDate.value || null),
-			pos_opening_shift: useShiftFilter.value ? (props.posOpeningShift || null) : null,
+			from_date: fromDate.value || null,
+			to_date: toDate.value || null,
 		})
 		counts.value = result || { cash: 0, visa: 0, total: 0 }
 		const now = new Date()

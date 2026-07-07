@@ -140,9 +140,6 @@ def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_sh
 	elif to_date:
 		filters.append(["posting_date", "<=", to_date])
 
-	if pos_opening_shift:
-		filters.append(["pos_opening_entry", "=", pos_opening_shift])
-
 	invoices = frappe.get_list(
 		"Sales Invoice",
 		filters=filters,
@@ -158,10 +155,11 @@ def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_sh
 
 	rows = frappe.db.sql(
 		"""
-		SELECT parent, mode_of_payment
-		FROM `tabSales Invoice Payment`
-		WHERE parent IN %(names)s
-		  AND amount > 0
+		SELECT sip.parent, sip.mode_of_payment, mop.type AS mop_type
+		FROM `tabSales Invoice Payment` sip
+		LEFT JOIN `tabMode of Payment` mop ON mop.name = sip.mode_of_payment
+		WHERE sip.parent IN %(names)s
+		  AND sip.amount > 0
 		""",
 		{"names": tuple(invoice_names)},
 		as_dict=True,
@@ -171,8 +169,7 @@ def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_sh
 	visa_invoices = set()
 
 	for row in rows:
-		mode = (row.mode_of_payment or "").strip().lower()
-		if mode == "cash" or "cash" in mode or "كاش" in mode or "نقد" in mode or "نقدي" in mode:
+		if (row.mop_type or "").strip().lower() == "cash":
 			cash_invoices.add(row.parent)
 		else:
 			visa_invoices.add(row.parent)
