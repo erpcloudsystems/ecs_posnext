@@ -122,6 +122,73 @@ def get_daily_payments(employee=None, from_date=None, to_date=None, branch=None,
 
 
 @frappe.whitelist()
+def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_shift=None):
+	"""Return invoice counts grouped by payment method for Cash and Visa (non-Cash)."""
+	filters = [
+		["docstatus", "=", 1],
+		["is_pos", "=", 1],
+	]
+
+	if branch:
+		filters.append(["branch", "=", branch])
+
+	if from_date:
+		if to_date:
+			filters.append(["posting_date", "between", [from_date, to_date]])
+		else:
+			filters.append(["posting_date", ">=", from_date])
+	elif to_date:
+		filters.append(["posting_date", "<=", to_date])
+
+	if pos_opening_shift:
+		filters.append(["pos_opening_entry", "=", pos_opening_shift])
+
+	invoices = frappe.get_list(
+		"Sales Invoice",
+		filters=filters,
+		fields=["name"],
+		limit=0,
+	)
+
+	invoice_names = [d.name for d in invoices]
+	total = len(invoice_names)
+
+	if not invoice_names:
+		return {"cash": 0, "visa": 0, "total": 0}
+
+	rows = frappe.db.sql(
+		"""
+		SELECT parent, mode_of_payment
+		FROM `tabSales Invoice Payment`
+		WHERE parent IN %(names)s
+		  AND amount > 0
+		""",
+		{"names": tuple(invoice_names)},
+		as_dict=True,
+	)
+
+	cash_invoices = set()
+	visa_invoices = set()
+
+	for row in rows:
+		mode = (row.mode_of_payment or "").strip().lower()
+		if mode == "cash" or "cash" in mode or "كاش" in mode or "نقد" in mode or "نقدي" in mode:
+			cash_invoices.add(row.parent)
+		else:
+			visa_invoices.add(row.parent)
+
+	for name in invoice_names:
+		if name not in cash_invoices and name not in visa_invoices:
+			cash_invoices.add(name)
+
+	return {
+		"cash": len(cash_invoices),
+		"visa": len(visa_invoices),
+		"total": total,
+	}
+
+
+@frappe.whitelist()
 def get_daily_payment_detail(name):
 	"""Fetch a single Daily Payment record with all details."""
 	doc = frappe.get_doc("Daily Payment", name)

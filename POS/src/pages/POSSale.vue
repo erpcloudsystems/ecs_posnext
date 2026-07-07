@@ -688,6 +688,9 @@
 			<!-- Daily Payment Management -->
 			<DailyPaymentManagement v-model="showDailyPayment" :branch="shiftStore.profileBranch" :payment-methods="shiftStore.profilePaymentMethods" :pos-opening-shift="shiftStore.currentShift?.name" />
 
+			<!-- Track Invoices -->
+			<TrackInvoices v-model="showTrackInvoices" :branch="shiftStore.profileBranch" :pos-opening-shift="shiftStore.currentShift?.name" />
+
 			<!-- Invoice Detail Dialog -->
 			<InvoiceDetailDialog
 				v-model="showInvoiceDetail"
@@ -1033,6 +1036,7 @@ import WarehouseAvailabilityDialog from "@/components/sale/WarehouseAvailability
 import POSSettings from "@/components/settings/POSSettings.vue";
 import InvoiceManagement from "@/components/invoices/InvoiceManagement.vue";
 import DailyPaymentManagement from "@/components/daily_payment/DailyPaymentManagement.vue";
+import TrackInvoices from "@/components/daily_payment/TrackInvoices.vue";
 import InvoiceDetailDialog from "@/components/invoices/InvoiceDetailDialog.vue";
 import { useRealtimeStock } from "@/composables/useRealtimeStock";
 import { usePOSEvents } from "@/composables/usePOSEvents";
@@ -1144,6 +1148,9 @@ const showInvoiceManagement = ref(false);
 
 // Daily Payment Management dialog
 const showDailyPayment = ref(false);
+
+// Track Invoices dialog
+const showTrackInvoices = ref(false);
 
 // Invoice Detail dialog
 const showInvoiceDetail = ref(false);
@@ -2636,6 +2643,8 @@ function handleManagementMenuClick(menuItem) {
 		showStockLookup.value = true;
 	} else if (menuItem === "daily-payment") {
 		showDailyPayment.value = true;
+	} else if (menuItem === "track-invoices") {
+		showTrackInvoices.value = true;
 	}
 }
 

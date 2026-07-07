@@ -283,14 +283,51 @@ export const usePOSSyncStore = defineStore("posSync", () => {
 				// Continue with other data loading
 			}
 
-			// Load customers if cache needs refresh
-			if (!cacheReady || needsRefresh) {
-				showSuccess(__("Loading customers for offline use..."))
-
-				const customersData = await cacheCustomersFromServer(currentProfile.name)
-				await cacheData([], customersData.customers || [])
-
-				showSuccess(__("Data is ready for offline use"))
+			// Always sync customers to ensure offline availability
+			// Uses delta sync (modified_since) for efficiency
+			log.info('Syncing customers for offline use')
+			try {
+				const CUSTOMERS_SYNC_KEY = 'pos_customers_last_sync'
+				const lastSync = localStorage.getItem(CUSTOMERS_SYNC_KEY)
+				
+				const response = await call("ecs_posnext.api.customers.get_customers", {
+					pos_profile: currentProfile.name,
+					search_term: "",
+					start: 0,
+					limit: 0,
+					modified_since: lastSync,
+				})
+				
+				const delta = response?.message || response || []
+				if (delta.length > 0) {
+					const active = delta.filter((c) => !c.disabled)
+					const disabled = delta.filter((c) => c.disabled)
+					
+					// Cache active customers
+					if (active.length > 0) {
+						await cacheData([], active)
+					}
+					// Remove disabled customers
+					if (disabled.length > 0) {
+						await offlineWorker.deleteCustomers(disabled.map((c) => c.name))
+					}
+					
+					log.success(`Synced ${active.length} active, removed ${disabled.length} disabled customers`)
+				} else if (!lastSync) {
+					// First time sync - no delta, load all
+					const customersData = await cacheCustomersFromServer(currentProfile.name)
+					if (customersData.customers?.length > 0) {
+						await cacheData([], customersData.customers)
+						log.success(`Cached ${customersData.customers.length} customers for offline use`)
+					}
+				} else {
+					log.debug('No customer updates since last sync')
+				}
+				
+				localStorage.setItem(CUSTOMERS_SYNC_KEY, new Date().toISOString())
+			} catch (error) {
+				log.error('Failed to sync customers', error)
+				// Continue - not critical for POS operation if already cached
 			}
 
 			// Preload invoice history and unpaid invoices in parallel for faster startup
