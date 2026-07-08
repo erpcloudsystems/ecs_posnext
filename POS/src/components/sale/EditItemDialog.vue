@@ -171,6 +171,22 @@
 												</div>
 											</div>
 
+											<!-- Price List Selector (per-item override) -->
+											<div>
+												<label class="block text-sm font-medium text-gray-700 mb-2 text-start flex items-center gap-2">
+													{{ __('Price List') }}
+													<span v-if="loadingPriceList" class="text-xs text-blue-600 flex items-center gap-1">
+														<FeatherIcon name="loader" class="w-3 h-3 animate-spin" />
+														{{ __('Updating price...') }}
+													</span>
+												</label>
+												<SelectInput
+													v-model="localPriceList"
+													:options="priceListOptions"
+													@change="handlePriceListChange"
+												/>
+											</div>
+
 											<!-- Serial Numbers Section (only for serial items) -->
 											<div v-if="localItem?.has_serial_no && localSerials.length > 0" class="border-t border-gray-200 pt-4">
 												<div class="flex items-center justify-between mb-3">
@@ -289,6 +305,7 @@
 import { call } from "@/utils/apiWrapper"
 import { useToast } from "@/composables/useToast"
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import { useItemSearchStore } from "@/stores/itemSearch"
 import { useSerialNumberStore } from "@/stores/serialNumber"
 import { getItemStock } from "@/utils/stockValidator"
 import { formatCurrency as formatCurrencyUtil, getCurrencySymbol, roundCurrency } from "@/utils/currency"
@@ -298,6 +315,7 @@ import SelectInput from "@/components/common/SelectInput.vue"
 
 const { showSuccess, showError, showWarning } = useToast()
 const settingsStore = usePOSSettingsStore()
+const itemSearchStore = useItemSearchStore()
 const serialStore = useSerialNumberStore()
 
 const props = defineProps({
@@ -310,6 +328,10 @@ const props = defineProps({
 	currency: {
 		type: String,
 		default: "EGP",
+	},
+	posProfile: {
+		type: String,
+		default: "",
 	},
 })
 
@@ -333,6 +355,11 @@ const localSerials = ref([]) // List of serial numbers for this item
 const removedSerials = ref([]) // Track serials removed during this edit session
 const originalSerials = ref([]) // Original serials when dialog opened
 const originalPriceListRate = ref(0) // Original price_list_rate when dialog opened (for rate edit validation)
+
+// Per-item price list override
+const localPriceList = ref("") // Selected price list for this item
+const priceLists = ref([]) // Available selling price lists
+const loadingPriceList = ref(false) // True while fetching a new rate after price list change
 
 const show = computed({
 	get: () => props.modelValue,
@@ -422,6 +449,74 @@ const warehouseOptions = computed(() => {
 	return [{ value: localWarehouse.value, label: localWarehouse.value || __('Default') }]
 })
 
+// Price list dropdown options (all selling price lists)
+const priceListOptions = computed(() => {
+	const options = priceLists.value.map((pl) => ({
+		value: pl.name,
+		label: pl.price_list_name || pl.name,
+	}))
+	// Ensure the current selection is always present even if not in the list
+	if (localPriceList.value && !options.some((o) => o.value === localPriceList.value)) {
+		options.unshift({ value: localPriceList.value, label: localPriceList.value })
+	}
+	return options
+})
+
+// Load available selling price lists once (all of them, not profile-scoped)
+async function loadPriceLists() {
+	if (priceLists.value.length > 0) return
+	try {
+		const res = await call("ecs_posnext.api.items.get_pos_price_lists")
+		priceLists.value = res || []
+	} catch (e) {
+		console.warn("[EditItemDialog] Failed to load price lists:", e)
+	}
+}
+
+// Fetch the item's rate for the currently selected price list + UOM and apply it
+async function refreshRateFromPriceList({ notify = true } = {}) {
+	if (!localItem.value || !localPriceList.value || !props.posProfile) return
+	loadingPriceList.value = true
+	try {
+		const res = await call("ecs_posnext.api.items.get_item_details", {
+			item_code: localItem.value.item_code,
+			pos_profile: props.posProfile,
+			qty: localQuantity.value || 1,
+			uom: localUom.value,
+			price_list: localPriceList.value,
+		})
+		const newRate = res?.price_list_rate ?? res?.rate
+		if (newRate !== undefined && newRate !== null) {
+			localRate.value = roundCurrency(newRate)
+			originalPriceListRate.value = roundCurrency(newRate)
+			calculateTotals()
+			if (notify) showSuccess(__('Price updated from "{0}"', [localPriceList.value]))
+		} else if (notify) {
+			showWarning(
+				__('No price found for "{0}" in price list "{1}"', [
+					localItem.value.item_name,
+					localPriceList.value,
+				]),
+			)
+		}
+	} catch (e) {
+		console.error("[EditItemDialog] Failed to fetch price for price list:", e)
+		if (notify) showError(__('Failed to fetch price for the selected price list'))
+	} finally {
+		loadingPriceList.value = false
+	}
+}
+
+// Re-fetch the item's rate whenever the selected price list changes.
+// SelectInput passes the newly selected value here; commit it before fetching
+// so we never read a stale v-model value during the same tick.
+function handlePriceListChange(value) {
+	if (value !== undefined && value !== null && value !== "") {
+		localPriceList.value = value
+	}
+	refreshRateFromPriceList({ notify: true })
+}
+
 const discountTypeOptions = computed(() => [
 	{ value: 'percentage', label: __('Percentage (%)') },
 	{ value: 'amount', label: __('Amount') }
@@ -448,6 +543,15 @@ watch(
 			originalPriceListRate.value = newItem.price_list_rate || newItem.rate || 0
 			localWarehouse.value =
 				newItem.warehouse || props.warehouses[0]?.name || ""
+
+			// Initialize price list: existing override, else the selected/default one
+			localPriceList.value =
+				newItem.custom_price_list ||
+				itemSearchStore.selectedPriceList ||
+				newItem.price_list ||
+				""
+			// Load the list of selectable price lists (once)
+			loadPriceLists()
 
 			// Initialize serial numbers
 			if (newItem.has_serial_no && newItem.serial_no) {
@@ -576,10 +680,18 @@ function handleQuantityBlur() {
 	calculateTotals()
 }
 
-function handleUomChange() {
-	// When UOM changes, we need to fetch new rate from server
-	// For now, we'll just recalculate with current rate
-	calculateTotals()
+function handleUomChange(value) {
+	// Commit the newly selected UOM before fetching (avoid stale v-model read)
+	if (value !== undefined && value !== null && value !== "") {
+		localUom.value = value
+	}
+	// When UOM changes, re-fetch the correct rate for the new UOM under the
+	// currently selected price list (falls back to just recalculating).
+	if (localPriceList.value) {
+		refreshRateFromPriceList({ notify: false })
+	} else {
+		calculateTotals()
+	}
 }
 
 async function handleWarehouseChange() {
@@ -719,6 +831,8 @@ function updateItem() {
 		// Preserve price_list_rate for reference (original price before any manual edits)
 		price_list_rate: originalPriceListRate.value,
 		warehouse: localWarehouse.value,
+		// Per-item price list override (persisted to Sales Invoice Item.custom_price_list)
+		custom_price_list: localPriceList.value || null,
 		discount_percentage:
 			discountType.value === "percentage" ? discountValue.value : 0,
 		discount_amount:

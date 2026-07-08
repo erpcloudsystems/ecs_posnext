@@ -1676,8 +1676,13 @@ def get_items_count(pos_profile, item_group=None, include_variants=0):
 
 
 @frappe.whitelist()
-def get_item_details(item_code, pos_profile, customer=None, qty=1, uom=None):  # noqa: ARG001 - customer reserved for future use
-	"""Get detailed item info including price, tax, stock"""
+def get_item_details(item_code, pos_profile, customer=None, qty=1, uom=None, price_list=None):  # noqa: ARG001 - customer reserved for future use
+	"""Get detailed item info including price, tax, stock.
+
+	If ``price_list`` is provided, the item rate is fetched from that price list
+	instead of the POS Profile's default selling price list (used for per-item
+	price list overrides in the POS).
+	"""
 	try:
 		# Parse pos_profile if it's a JSON string
 		if isinstance(pos_profile, str):
@@ -1714,10 +1719,13 @@ def get_item_details(item_code, pos_profile, customer=None, qty=1, uom=None):  #
 		if uom:
 			item["uom"] = uom
 
+		# Allow a per-item price list override; fall back to the profile default
+		effective_price_list = price_list or pos_profile_doc.selling_price_list
+
 		return get_item_detail(
 			item=json.dumps(item),
 			warehouse=pos_profile_doc.warehouse,
-			price_list=pos_profile_doc.selling_price_list,
+			price_list=effective_price_list,
 			company=pos_profile_doc.company,
 		)
 	except Exception as e:

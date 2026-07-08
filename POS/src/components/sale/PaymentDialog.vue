@@ -110,14 +110,20 @@
 										-{{ formatCurrency(calculatedAdditionalDiscount) }}
 									</span>
 								</div>
-								<!-- Percentage Select: 0% to 100% in steps of 10 -->
-								<select
-									v-model.number="localAdditionalDiscount"
-									@change="handleAdditionalDiscountChange"
-									class="w-full h-9 px-3 text-sm font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer"
-								>
-									<option v-for="pct in [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]" :key="pct" :value="pct">{{ pct }}%</option>
-								</select>
+								<!-- Discount Amount Input -->
+								<div class="relative">
+									<span class="absolute start-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-orange-400 pointer-events-none">{{ currencySymbol }}</span>
+									<input
+										v-model.number="localAdditionalDiscount"
+										@change="handleAdditionalDiscountChange"
+										type="number"
+										inputmode="decimal"
+										min="0"
+										step="0.01"
+										:placeholder="__('Discount amount')"
+										class="w-full h-9 ps-8 pe-3 text-sm font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400"
+									/>
+								</div>
 							</div>
 							<!-- Subtotal -->
 							<div class="flex items-center justify-between text-sm">
@@ -470,7 +476,7 @@
 								:class="[
 									'inline-flex items-center rounded-lg border-2 transition-all font-medium select-none touch-none',
 									isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
-									lastSelectedMethod?.mode_of_payment === method.mode_of_payment
+									getMethodTotal(method.mode_of_payment) > 0
 										? isWalletPaymentMethod(method.mode_of_payment)
 											? 'border-amber-500 bg-amber-50 text-amber-700'
 											: 'border-blue-500 bg-blue-50 text-blue-700'
@@ -672,6 +678,67 @@
 						</div>
 					</div>
 					<!-- End Mobile Payment Section -->
+
+					<!-- Cash Received / Change Calculator (Desktop only) -->
+					<div :class="['hidden lg:block bg-white rounded-lg border border-gray-200 p-3', isCompactMode ? 'mt-2' : 'mt-3']">
+						<div class="text-start text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+							{{ __('Cash Received') }}
+						</div>
+						<div class="flex items-center gap-2">
+							<div class="relative flex-1">
+								<span class="absolute start-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">{{ currencySymbol }}</span>
+								<input
+									v-model="cashReceivedInput"
+									type="number"
+									inputmode="decimal"
+									min="0"
+									step="0.01"
+									:placeholder="__('Amount received from customer')"
+									@keyup.enter="calculateChange"
+									class="w-full h-10 ps-6 pe-2 text-sm font-semibold bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+								/>
+							</div>
+							<!-- Button 1: record the amount taken from the customer -->
+							<button
+								type="button"
+								@click="setCashReceived"
+								:disabled="!cashReceivedInput || Number(cashReceivedInput) <= 0"
+								:class="[
+									'h-10 px-4 rounded-lg text-sm font-semibold whitespace-nowrap transition-colors',
+									!cashReceivedInput || Number(cashReceivedInput) <= 0
+										? 'bg-blue-200 text-white cursor-not-allowed'
+										: 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
+								]"
+							>
+								{{ __('Amount Received') }}
+							</button>
+							<!-- Button 2: calculate the change to give back -->
+							<button
+								type="button"
+								@click="calculateChange"
+								:disabled="!cashReceivedInput || Number(cashReceivedInput) <= 0"
+								:class="[
+									'h-10 px-4 rounded-lg text-sm font-semibold whitespace-nowrap transition-colors',
+									!cashReceivedInput || Number(cashReceivedInput) <= 0
+										? 'bg-green-200 text-white cursor-not-allowed'
+										: 'bg-green-500 text-white hover:bg-green-600 active:bg-green-700'
+								]"
+							>
+								{{ __('Change') }}
+							</button>
+						</div>
+						<!-- Received / Change summary -->
+						<div v-if="cashReceived > 0 || showChangeDue" class="mt-2 grid grid-cols-2 gap-2">
+							<div class="rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-center">
+								<div class="text-[10px] uppercase tracking-wide text-blue-600 font-medium">{{ __('Received') }}</div>
+								<div class="text-base font-bold text-blue-700">{{ formatCurrency(cashReceived) }}</div>
+							</div>
+							<div v-if="showChangeDue" class="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-center">
+								<div class="text-[10px] uppercase tracking-wide text-green-600 font-medium">{{ __('Change to Return') }}</div>
+								<div class="text-base font-bold text-green-700">{{ formatCurrency(changeToReturn) }}</div>
+							</div>
+						</div>
+					</div>
 
 					<!-- Action Buttons (Desktop only) -->
 					<div :class="['hidden lg:flex items-center gap-2', isCompactMode ? 'mt-2' : 'mt-4']">
@@ -952,6 +1019,37 @@ function numpadAddPayment() {
 		addCustomPayment(lastSelectedMethod.value, numpadValue.value)
 		numpadClear()
 	}
+}
+
+// ===========================================
+// Cash Received / Change Calculator
+// Helper for the cashier: enter the cash amount taken from the customer,
+// then show the change (grand total - received) to hand back.
+// ===========================================
+const cashReceivedInput = ref("")
+const cashReceived = ref(0)
+const showChangeDue = ref(false)
+
+// Change to give back to the customer = received - grand total (never negative)
+const changeToReturn = computed(() => {
+	const change = (cashReceived.value || 0) - roundCurrency(props.grandTotal)
+	return change > 0 ? roundCurrency(change) : 0
+})
+
+// Button 1: record the amount taken from the customer
+function setCashReceived() {
+	const amt = Number.parseFloat(cashReceivedInput.value)
+	cashReceived.value = amt > 0 ? roundCurrency(amt) : 0
+	showChangeDue.value = false
+}
+
+// Button 2: calculate the change (grand total - received) to give back
+function calculateChange() {
+	const amt = Number.parseFloat(cashReceivedInput.value)
+	if (amt > 0) {
+		cashReceived.value = roundCurrency(amt)
+	}
+	showChangeDue.value = true
 }
 
 // Additional discount state
@@ -1391,8 +1489,9 @@ const remainingAvailableCredit = computed(() => {
 // Use discount-eligible subtotal (excludes items with custom_not_included=1) as base
 const discountBase = computed(() => props.discountEligibleSubtotal ?? props.subtotal)
 
+// Additional discount is now entered as a flat amount (not a percentage)
 const calculatedAdditionalDiscount = computed(() => {
-	return roundCurrency((discountBase.value * localAdditionalDiscount.value) / 100)
+	return roundCurrency(localAdditionalDiscount.value || 0)
 })
 
 const remainingAmount = computed(() => {
@@ -1663,6 +1762,10 @@ watch(show, (newVal) => {
 		customAmount.value = ""
 		numpadClear()
 		mobileCustomAmount.value = ""
+		// Reset cash received / change calculator
+		cashReceivedInput.value = ""
+		cashReceived.value = 0
+		showChangeDue.value = false
 		lastSelectedMethod.value = null
 		customerCredit.value = []
 		// Note: Don't reset customerBalance here - it's pre-fetched when customer changes
@@ -1735,14 +1838,36 @@ watch(
 // ===========================================
 
 // Select payment method (tap action)
+// A single tap selects the method AND registers the payment for the full
+// remaining amount. Tapping the same method again (when it fully covers the
+// total) clears it, so it works as a simple select/deselect toggle.
 function selectPaymentMethod(method) {
 	lastSelectedMethod.value = method
 	log.debug("[PaymentDialog] Selected payment method:", method.mode_of_payment)
+
+	// Keep numpad / mobile custom amount pre-filled for the manual entry flow
 	if (remainingAmount.value > 0) {
 		const isCash = isCashPaymentMethod(method)
 		const exactAmt = isCash ? Math.ceil(remainingAmount.value) : roundCurrency(remainingAmount.value)
 		setNumpadValue(exactAmt)
 		mobileCustomAmount.value = exactAmt.toFixed(2)
+	}
+
+	// Toggle off: if this method already fully covers the total, tapping removes it
+	const fullyPaidByThisMethod =
+		remainingAmount.value === 0 &&
+		paymentEntries.value.length > 0 &&
+		paymentEntries.value.every((e) => e.mode_of_payment === method.mode_of_payment)
+	if (fullyPaidByThisMethod) {
+		paymentEntries.value = paymentEntries.value.filter(
+			(e) => e.mode_of_payment !== method.mode_of_payment,
+		)
+		return
+	}
+
+	// Otherwise register the payment for the remaining amount on a single tap
+	if (remainingAmount.value > 0) {
+		quickAddPayment(method)
 	}
 }
 
@@ -1882,7 +2007,7 @@ const {
 } = useLongPress({
 	duration: 500,
 	onTap: selectPaymentMethod,
-	onLongPress: quickAddPayment,
+	onLongPress: selectPaymentMethod,
 })
 
 // Wrapper handlers to pass method to composable
@@ -2111,31 +2236,36 @@ function getMethodTotal(methodName) {
 		.reduce((sum, entry) => sum + (entry.amount || 0), 0)
 }
 
-// Additional discount handlers
+// Additional discount handler - discount is entered as a flat amount
 function handleAdditionalDiscountChange() {
-	let discountValue = localAdditionalDiscount.value
+	let amount = Number.parseFloat(localAdditionalDiscount.value) || 0
 
-	// Clamp to max allowed
-	if (settingsStore.maxDiscountAllowed > 0 && discountValue > settingsStore.maxDiscountAllowed) {
-		localAdditionalDiscount.value = settingsStore.maxDiscountAllowed
-		discountValue = settingsStore.maxDiscountAllowed
-		showWarning(
-			__("Maximum allowed discount is {0}%", [settingsStore.maxDiscountAllowed]),
-		)
+	// Cannot be negative
+	if (amount < 0) {
+		amount = 0
 	}
 
-	if (discountValue > 100) {
-		localAdditionalDiscount.value = 100
-		discountValue = 100
+	const base = discountBase.value
+
+	// Cannot discount more than the discount-eligible subtotal
+	if (amount > base) {
+		amount = base
 	}
 
-	if (discountValue < 0) {
-		localAdditionalDiscount.value = 0
-		discountValue = 0
+	// Respect the max discount percentage from settings (converted to an amount)
+	if (settingsStore.maxDiscountAllowed > 0) {
+		const maxAmount = roundCurrency((base * settingsStore.maxDiscountAllowed) / 100)
+		if (amount > maxAmount) {
+			amount = maxAmount
+			showWarning(
+				__("Maximum allowed discount is {0}", [formatCurrency(maxAmount)]),
+			)
+		}
 	}
 
-	const discountAmount = roundCurrency((discountBase.value * discountValue) / 100)
-	emit("update-additional-discount", discountAmount)
+	amount = roundCurrency(amount)
+	localAdditionalDiscount.value = amount
+	emit("update-additional-discount", amount)
 }
 
 // Watch for dialog open to sync additional discount from parent

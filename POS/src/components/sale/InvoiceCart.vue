@@ -270,12 +270,12 @@
 
 				<!-- Customer Dropdown -->
 				<div
-					v-if="customerSearchFocused || customerSearch.trim().length >= 2"
+					v-if="customerSearchFocused || customerSearch.trim().length >= 1"
 					class="absolute z-50 mt-0.5 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-hidden will-change-transform"
 				>
 					<!-- Frequent Customers Header (when showing suggestions) -->
 					<div
-						v-if="customerSearchFocused && customerSearch.trim().length < 2 && customerResults.length > 0"
+						v-if="customerSearchFocused && customerSearch.trim().length < 1 && customerResults.length > 0"
 						class="px-2 py-1 bg-gray-50 border-b border-gray-200"
 					>
 						<span class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
@@ -314,7 +314,7 @@
 					</div>
 
 					<!-- No Results + Create New Option -->
-					<div v-else-if="customerSearch.trim().length >= 2">
+					<div v-else-if="customerSearch.trim().length >= 1">
 						<div
 							class="px-2 py-1.5 text-center text-[11px] font-medium text-gray-700 border-b border-gray-100"
 						>
@@ -325,7 +325,7 @@
 					<!-- Create New Customer Option -->
 					<button
 						type="button"
-						v-if="customerSearch.trim().length >= 2"
+						v-if="customerSearch.trim().length >= 1"
 						@mousedown.prevent="createNewCustomer"
 						class="w-full text-start px-2 py-1.5 hover:bg-green-50 active:bg-green-100 flex items-center gap-1.5 border-t border-gray-200 touch-manipulation select-none cursor-pointer"
 					>
@@ -1228,6 +1228,7 @@
 			:item="selectedItem"
 			:warehouses="warehouses"
 			:currency="currency"
+			:pos-profile="posProfile"
 			@update-item="handleUpdateItem"
 		/>
 
@@ -1494,22 +1495,29 @@ const customerMap = computed(() => {
 const customerResults = computed(() => {
 	const searchValue = customerSearch.value.trim().toLowerCase();
 
-	// When focused with no/short search term, show frequent customers (top 5)
-	if (searchValue.length < 2) {
+	// When focused with no search term, show frequent customers first, then the rest
+	if (!searchValue) {
 		if (customerSearchFocused.value) {
 			// Get frequent customer IDs from the store
 			const frequentIds = customerSearchStore.frequentCustomers.slice(0, 5);
-			if (frequentIds.length > 0) {
-				// O(1) lookup using pre-computed map instead of O(n) find
-				const frequentCustomers = [];
-				for (const id of frequentIds) {
-					const cust = customerMap.value.get(id);
-					if (cust) frequentCustomers.push(cust);
+			const frequentCustomers = [];
+			const frequentSet = new Set();
+			for (const id of frequentIds) {
+				const cust = customerMap.value.get(id);
+				if (cust) {
+					frequentCustomers.push(cust);
+					frequentSet.add(cust.name);
 				}
-				return frequentCustomers;
 			}
-			// If no frequent customers, show first 5 from the list
-			return allCustomers.value.slice(0, 5);
+			// Fill the rest of the dropdown with other customers so the full
+			// list is visible immediately on focus (no typing required).
+			const others = [];
+			for (const cust of allCustomers.value) {
+				if (frequentSet.has(cust.name)) continue;
+				others.push(cust);
+				if (frequentCustomers.length + others.length >= 50) break;
+			}
+			return [...frequentCustomers, ...others].slice(0, 50);
 		}
 		return [];
 	}
@@ -1619,6 +1627,11 @@ function handleSearchFocus() {
 	if (!customerHistoryLoaded.value) {
 		customerSearchStore.loadCustomerHistory();
 		customerHistoryLoaded.value = true;
+	}
+	// Ensure the customer list is available so results show immediately on focus
+	// (even before any character is typed).
+	if (allCustomers.value.length === 0) {
+		customerSearchStore.loadAllCustomers(props.posProfile);
 	}
 }
 

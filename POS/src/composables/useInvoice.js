@@ -3,6 +3,7 @@ import { computed, ref, toRaw } from "vue"
 import { isOffline, getCachedItem } from "@/utils/offline"
 import { useSerialNumberStore } from "@/stores/serialNumber"
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import { useItemSearchStore } from "@/stores/itemSearch"
 import { CoalescingMutex } from "@/utils/mutex"
 import { logger } from "@/utils/logger"
 import { roundCurrency } from "@/utils/currency"
@@ -20,6 +21,8 @@ export function useInvoice() {
 	// Serial Number Store for returning serials when items are removed
 	const serialStore = useSerialNumberStore()
 	const settingsStore = usePOSSettingsStore()
+	// Used to default each item's price list to the currently selected one
+	const itemSearchStore = useItemSearchStore()
 
 	// Reactive computed from settings store - always in sync
 	const allowAdditionalDiscount = computed(() => settingsStore.allowAdditionalDiscount)
@@ -790,6 +793,8 @@ export function useInvoice() {
 	 * @returns {Array} Items formatted for ERPNext Sales Invoice
 	 */
 	function formatItemsForSubmission(items) {
+		// Default price list applied to every item unless overridden per item
+		const defaultPriceList = itemSearchStore.selectedPriceList || null
 		return items.map((item) => ({
 			item_code: item.item_code,
 			item_name: item.item_name,
@@ -807,6 +812,8 @@ export function useInvoice() {
 			// Manual rate edit tracking for audit logging
 			is_rate_manually_edited: item.is_rate_manually_edited || 0,
 			original_rate: item.original_rate || null,
+			// Per-item price list override (falls back to the selected price list)
+			custom_price_list: item.custom_price_list || defaultPriceList,
 		}))
 	}
 
