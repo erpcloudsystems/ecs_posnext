@@ -106,10 +106,15 @@ def get_sales_by_working_day(filters=None):
 
     has_sales_order = frappe.db.has_column("Sales Invoice", "sales_order")
     has_custom_so_type = frappe.db.has_column("Sales Order", "custom_so_type")
+    has_si_custom_order = frappe.db.has_column("Sales Invoice", "custom_order_type")
     join_so = "LEFT JOIN `tabSales Order` so ON so.name = si.sales_order" if has_sales_order else ""
 
-    # Determine the expression used for order type
-    if has_sales_order and has_custom_so_type and has_si_custom_so:
+    # Determine the expression used for order type.
+    # Prefer Sales Invoice custom_order_type (Pickup / Delivery / Dine In / Talabat),
+    # falling back to the legacy custom_so_type field for older data.
+    if has_si_custom_order:
+        order_type_expr = "si.custom_order_type"
+    elif has_sales_order and has_custom_so_type and has_si_custom_so:
         order_type_expr = "COALESCE(so.custom_so_type, si.custom_so_type)"
     elif has_sales_order and has_custom_so_type:
         order_type_expr = "so.custom_so_type"
@@ -444,9 +449,14 @@ def get_sales_by_date_range(filters=None):
 
     has_sales_order = frappe.db.has_column("Sales Invoice", "sales_order")
     has_custom_so_type = frappe.db.has_column("Sales Order", "custom_so_type")
+    has_si_custom_order = frappe.db.has_column("Sales Invoice", "custom_order_type")
     join_so = "LEFT JOIN `tabSales Order` so ON so.name = si.sales_order" if has_sales_order else ""
 
-    if has_sales_order and has_custom_so_type and has_si_custom_so:
+    # Prefer Sales Invoice custom_order_type (Pickup / Delivery / Dine In / Talabat),
+    # falling back to the legacy custom_so_type field for older data.
+    if has_si_custom_order:
+        order_type_expr = "si.custom_order_type"
+    elif has_sales_order and has_custom_so_type and has_si_custom_so:
         order_type_expr = "COALESCE(so.custom_so_type, si.custom_so_type)"
     elif has_sales_order and has_custom_so_type:
         order_type_expr = "so.custom_so_type"

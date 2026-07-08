@@ -150,7 +150,8 @@ def _create_kds_order(doc):
             "kds_station": main_station,
             "qty": item.qty,
             "is_special": 0,
-            "special_notes": "",
+            # Per-item note from the variant picker / checkout dialog (Sales Invoice Item.posa_notes)
+            "special_notes": item.get("posa_notes") or "",
             "station_status": main_status,
             "selected_components": components_raw,
             "ingredients": json.dumps(main_ingredients) if main_ingredients else "",
@@ -268,7 +269,7 @@ def get_active_orders(branch=None):
         filters=filters,
         fields=[
             "name", "order_no", "custom_number_order", "sales_invoice", "branch",
-            "order_time", "target_minutes", "expected_ready_time", "status",
+            "order_time", "target_minutes", "expected_ready_time", "status", "order_type",
         ],
         order_by="order_time asc",
         limit=200,
@@ -284,6 +285,33 @@ def get_active_orders(branch=None):
                     "is_component", "combo_item_name", "combo_group_id"],
             order_by="idx asc",
         )
+
+        # Enrich with display fields from the linked Sales Invoice (table / customer / rider)
+        inv = order.get("sales_invoice")
+        if inv:
+            si = frappe.db.get_value(
+                "Sales Invoice", inv,
+                ["custom_table_number", "customer_name", "posa_notes",
+                 "custom_payment_type", "outstanding_amount"],
+                as_dict=True,
+            ) or {}
+            order["table_number"] = si.get("custom_table_number")
+            order["customer_name"] = si.get("customer_name")
+            order["order_note"] = si.get("posa_notes")
+            order["custom_payment_type"] = si.get("custom_payment_type")
+            order["outstanding_amount"] = si.get("outstanding_amount")
+
+            otype = (order.get("order_type") or "").lower()
+            if otype == "talabat":
+                order["rider"] = "Talabat"
+            elif otype == "delivery":
+                driver = frappe.db.get_value(
+                    "Delivery Assignment",
+                    {"order_reference": inv, "order_doctype": "Sales Invoice"},
+                    "driver",
+                )
+                if driver:
+                    order["rider"] = frappe.db.get_value("Driver", driver, "full_name") or driver
 
     return orders
 

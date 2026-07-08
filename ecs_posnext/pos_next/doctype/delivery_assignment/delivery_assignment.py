@@ -4,10 +4,45 @@ from frappe.model.document import Document
 from frappe.utils import now_datetime
 
 
+def _sync_driver_availability(driver, exclude_assignment=None):
+	"""
+	Recompute a driver's dispatch status from their outstanding assignments.
+
+	A driver becomes 'Available' as soon as they have no non-terminal assignments
+	left (across all shifts), otherwise 'On Delivery'. A manually parked driver
+	('Off Duty') is never auto-reactivated. Talabat assignments have no driver.
+
+	`exclude_assignment` skips the assignment currently being saved, whose new
+	terminal status is not committed yet when this runs in before_save.
+	"""
+	if not driver:
+		return
+	current = frappe.db.get_value("Driver", driver, "dispatch_current_status")
+	if current == "Off Duty":
+		return
+	filters = {
+		"driver": driver,
+		"status": ["in", ["Assigned", "Picked Up", "Out for Delivery"]],
+		"docstatus": ["!=", 2],
+	}
+	if exclude_assignment:
+		filters["name"] = ["!=", exclude_assignment]
+	active = frappe.db.count("Delivery Assignment", filters)
+	new_status = "Available" if active == 0 else "On Delivery"
+	if new_status != current:
+		frappe.db.set_value("Driver", driver, "dispatch_current_status", new_status)
+
+
 class DeliveryAssignment(Document):
 	def validate(self):
 		self._validate_shift_open()
 		self._enforce_prepaid_zero()
+		self._validate_channel_driver()
+
+	def _validate_channel_driver(self):
+		# Internal deliveries require one of our drivers; Talabat is handled by the platform's own driver.
+		if (self.delivery_channel or "Internal") == "Internal" and not self.driver:
+			frappe.throw(_("A driver is required for internal delivery assignments."))
 
 	def before_save(self):
 		if not self.assigned_time:
@@ -35,7 +70,9 @@ class DeliveryAssignment(Document):
 			if self.order_doctype == "Sales Invoice":
 				doc = frappe.get_doc("Sales Invoice", self.order_reference)
 				self.customer = doc.customer
-				self.amount_to_collect = doc.outstanding_amount if not self.amount_to_collect else self.amount_to_collect
+				# Prepaid (incl. Talabat handover) never collects — leave amount at zero.
+				if self.payment_mode != "Prepaid":
+					self.amount_to_collect = doc.outstanding_amount if not self.amount_to_collect else self.amount_to_collect
 				addr = frappe.db.get_value(
 					"Address",
 					{"name": doc.shipping_address_name or doc.customer_address},
@@ -58,7 +95,10 @@ class DeliveryAssignment(Document):
 			return
 
 		if self.status == "Out for Delivery":
-			frappe.db.set_value("Driver", self.driver, "dispatch_current_status", "On Delivery")
+			if not self.out_for_delivery_time:
+				self.out_for_delivery_time = now_datetime()
+			if self.driver:
+				frappe.db.set_value("Driver", self.driver, "dispatch_current_status", "On Delivery")
 
 		elif self.status == "Delivered":
 			self.delivered_time = now_datetime()
@@ -68,27 +108,11 @@ class DeliveryAssignment(Document):
 					frappe.throw(_("Amount Collected is required for COD deliveries."))
 			if settings.require_proof_on_delivery and not self.proof_image:
 				frappe.throw(_("Proof of delivery image is required."))
-			if self._all_driver_assignments_terminal():
-				frappe.db.set_value("Driver", self.driver, "dispatch_current_status", "Available")
+			_sync_driver_availability(self.driver, exclude_assignment=self.name)
 
 		elif self.status in ("Returned", "Failed"):
 			self.amount_collected = 0
 			self.delivered_time = now_datetime()
-			if self._all_driver_assignments_terminal():
-				frappe.db.set_value("Driver", self.driver, "dispatch_current_status", "Available")
+			_sync_driver_availability(self.driver, exclude_assignment=self.name)
 
 		frappe.publish_realtime("dispatch_desk_refresh", {"shift": self.shift})
-
-	def _all_driver_assignments_terminal(self):
-		"""Return True if all other active assignments for this driver are in a terminal state."""
-		active = frappe.db.count(
-			"Delivery Assignment",
-			{
-				"driver": self.driver,
-				"shift": self.shift,
-				"name": ["!=", self.name],
-				"status": ["in", ["Assigned", "Picked Up", "Out for Delivery"]],
-				"docstatus": ["!=", 2],
-			},
-		)
-		return active == 0

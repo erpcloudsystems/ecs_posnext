@@ -523,11 +523,11 @@ function render_app() {
           label: __("Price Lists"),
         });
 
-        // Order Types from Sales Order custom_so_type select options (multi-select)
+        // Order Types from Sales Invoice custom_order_type select options (multi-select)
         if (this.$refs.orderTypesCtrl) {
-          frappe.model.with_doctype("Sales Order", () => {
+          frappe.model.with_doctype("Sales Invoice", () => {
             const soTypeDf =
-              frappe.meta.get_docfield("Sales Order", "custom_so_type") || {};
+              frappe.meta.get_docfield("Sales Invoice", "custom_order_type") || {};
             const options = (soTypeDf.options || "")
               .split("\n")
               .map((o) => o.trim())

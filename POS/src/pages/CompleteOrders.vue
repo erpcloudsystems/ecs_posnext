@@ -137,6 +137,7 @@
 						<thead>
 							<tr class="bg-gray-50 border-b border-gray-200">
 								<th class="px-4 py-3 text-start text-xs font-bold text-gray-600 uppercase tracking-wider">{{ __("Order") }}</th>
+								<th class="px-4 py-3 text-start text-xs font-bold text-gray-600 uppercase tracking-wider">{{ __("Time") }}</th>
 								<th class="px-4 py-3 text-start text-xs font-bold text-gray-600 uppercase tracking-wider">{{ __("Customer") }}</th>
 								<th class="px-4 py-3 text-start text-xs font-bold text-gray-600 uppercase tracking-wider">{{ __("Branch") }}</th>
 								<th class="px-4 py-3 text-start text-xs font-bold text-gray-600 uppercase tracking-wider">{{ __("Type") }}</th>
@@ -149,8 +150,13 @@
 							</tr>
 						</thead>
 						<tbody class="divide-y divide-gray-100">
-							<tr v-for="order in paginatedOrders" :key="order.name" class="hover:bg-gray-50 transition-colors">
-								<td class="px-4 py-3 font-medium text-blue-600">{{ order.custom_number_order || order.name }}</td>
+							<template v-for="order in paginatedOrders" :key="order.name">
+							<tr class="hover:bg-gray-50 transition-colors">
+								<td class="px-4 py-3 font-medium text-blue-600">
+									{{ order.custom_number_order || order.name }}
+									<span v-if="order.supplements && order.supplements.length" class="ms-1 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700">+{{ order.supplements.length }}</span>
+								</td>
+								<td class="px-4 py-3 text-gray-600 whitespace-nowrap">{{ fmtOrderTime(order.order_time) }}</td>
 								<td class="px-4 py-3">
 									<div class="text-gray-900 font-medium">{{ order.customer_name }}</div>
 									<div class="text-xs text-gray-400">{{ order.contact_mobile }}</div>
@@ -180,7 +186,7 @@
 									</span>
 									<span v-else class="text-gray-300">-</span>
 								</td>
-								<td class="px-4 py-3 text-end font-bold text-gray-900">{{ formatNumber(order.grand_total) }}</td>
+								<td class="px-4 py-3 text-end font-bold text-gray-900">{{ formatNumber(order._combined_total !== undefined ? order._combined_total : order.grand_total) }}</td>
 								<td class="px-4 py-3">
 									<div class="flex items-center justify-center gap-2">
 										<!-- View Items -->
@@ -228,6 +234,43 @@
 									</div>
 								</td>
 							</tr>
+
+							<!-- Supplement rows (additions on the same order) stacked under the parent -->
+							<tr v-for="sup in order.supplements" :key="sup.name" class="bg-indigo-50/40 hover:bg-indigo-50 transition-colors">
+								<td class="px-4 py-2 ps-8 font-medium text-indigo-700">↳ {{ sup.custom_number_order || sup.name }}</td>
+								<td class="px-4 py-2 text-gray-500 whitespace-nowrap">{{ fmtOrderTime(sup.order_time) }}</td>
+								<td class="px-4 py-2 text-xs text-gray-400">{{ __("إضافة") }}</td>
+								<td class="px-4 py-2 text-gray-500">{{ sup.branch }}</td>
+								<td class="px-4 py-2">
+									<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">{{ sup.custom_so_type }}</span>
+								</td>
+								<td class="px-4 py-2 text-xs text-gray-500">{{ sup.custom_unique_talbat_number || '-' }}</td>
+								<td class="px-4 py-2 text-gray-400">-</td>
+								<td class="px-4 py-2">
+									<span :class="getStatusClasses(sup.status_name)" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">{{ sup.status_name }}</span>
+								</td>
+								<td class="px-4 py-2">
+									<span v-if="sup.kds_status" :class="getKdsStatusClasses(sup.kds_status)" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">{{ sup.kds_status }}</span>
+									<span v-else class="text-gray-300">-</span>
+								</td>
+								<td class="px-4 py-2 text-end font-semibold text-gray-700">{{ formatNumber(sup.grand_total) }}</td>
+								<td class="px-4 py-2">
+									<div class="flex items-center justify-center gap-2">
+										<button @click="viewOrderItems(sup.name)" class="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" :title="__('View Items')">
+											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+											</svg>
+										</button>
+										<button @click="printOrder(sup.name)" class="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors" :title="__('Print Receipt')">
+											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+											</svg>
+										</button>
+									</div>
+								</td>
+							</tr>
+							</template>
 						</tbody>
 					</table>
 				</div>
@@ -402,6 +445,16 @@ const passwordInput = ref("")
 const passwordError = ref("")
 const orderToDelete = ref(null)
 
+// Format the order time (HH:MM) so the chronological order reads clearly
+const fmtOrderTime = (dt) => {
+	if (!dt) return "-"
+	try {
+		return new Date(String(dt).replace(" ", "T")).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+	} catch {
+		return "-"
+	}
+}
+
 // Actions
 const goBack = () => router.push("/")
 
@@ -421,7 +474,7 @@ const fetchOrders = async () => {
 const checkOpeningShift = async () => {
 	try {
 		const r = await call("ecs_posnext.api.shifts.check_opening_shift", {
-			user: frappe.session.user
+			user: window.frappe?.session?.user || ""
 		})
 		if (r) {
 			posProfile.value = r.pos_profile
@@ -431,9 +484,61 @@ const checkOpeningShift = async () => {
 	}
 }
 
+// ── Supplement grouping (mirror All Orders) ──────────────────────────────────
+// Supplement order numbers have 2+ hyphens: M-1-1 is a supplement of M-1.
+function isSupplementOrder(orderNum) {
+	if (!orderNum) return false
+	return String(orderNum).split("-").length >= 3
+}
+function getParentOrderNum(orderNum) {
+	if (!isSupplementOrder(orderNum)) return null
+	const s = String(orderNum)
+	return s.substring(0, s.lastIndexOf("-"))
+}
+
+// Group supplements under their parent order (adds a +N badge + combined total)
+const groupedOrders = computed(() => {
+	const all = orders.value
+	const parentMap = {}
+	const supplementSet = new Set()
+	const result = []
+
+	// Reset any previously attached supplements (prevents duplicates on re-compute)
+	for (const order of all) {
+		order.supplements = []
+		order._combined_total = undefined
+	}
+
+	// First pass: index parent orders by their number
+	for (const order of all) {
+		const num = order.custom_number_order
+		if (num && !isSupplementOrder(num)) parentMap[num] = order
+	}
+
+	// Second pass: attach each supplement to its parent (if the parent is present)
+	for (const order of all) {
+		const num = order.custom_number_order
+		if (num && isSupplementOrder(num)) {
+			const parent = parentMap[getParentOrderNum(num)]
+			if (parent) {
+				parent.supplements.push(order)
+				if (parent._combined_total === undefined) parent._combined_total = parseFloat(parent.grand_total || 0)
+				parent._combined_total += parseFloat(order.grand_total || 0)
+				supplementSet.add(order.name)
+			}
+		}
+	}
+
+	// Keep parents + any supplement whose parent isn't in the current result set
+	for (const order of all) {
+		if (!supplementSet.has(order.name)) result.push(order)
+	}
+	return result
+})
+
 // Filters
 const filteredOrders = computed(() => {
-	let data = orders.value.slice()
+	let data = groupedOrders.value.slice()
 	
 	if (statusFilter.value !== "all") {
 		data = data.filter(o => (o.status_name || "").toLowerCase() === statusFilter.value.toLowerCase())
@@ -556,7 +661,8 @@ const printOrder = async (name) => {
 		const r = await call("ecs_posnext.api.kitchen_order.get_sales_invoice_from_order", { sales_order: name })
 		const invoice = r?.[0]?.parent
 		if (invoice) {
-			window.open(`/printview?doctype=Sales Invoice&name=${invoice}&trigger_print=1&format=NEW%20Receipt&no_letterhead=0`, "_blank")
+			const fmt = encodeURIComponent("print format sales")
+			window.open(`/printview?doctype=Sales Invoice&name=${encodeURIComponent(invoice)}&trigger_print=1&format=${fmt}&no_letterhead=0`, "_blank")
 		} else {
 			window.frappe?.show_alert?.({ message: __("No linked Sales Invoice found"), indicator: "orange" })
 		}
@@ -636,20 +742,34 @@ const deleteOrder = (name) => {
 }
 
 const confirmDelete = async () => {
-	const correctPassword = posProfile.value?.custom_discaunt_password
-	if (passwordInput.value === correctPassword) {
-		try {
-			await call("ecs_posnext.api.kitchen_order.cancel_sales_order_and_invoices", {
-				sales_order: orderToDelete.value
-			})
-			window.frappe?.show_alert?.({ message: __("Order cancelled successfully"), indicator: "green" })
-			showPasswordDialog.value = false
-			fetchOrders()
-		} catch (error) {
-			console.error("Failed to cancel order:", error)
+	passwordError.value = ""
+	let manager = null
+	try {
+		const res = await call("ecs_posnext.api.kitchen_order.verify_cancel_manager", {
+			pos_profile: posProfile.value?.name || posProfile.value || "",
+			password: passwordInput.value,
+		})
+		if (!res || !res.valid) {
+			passwordError.value = __("Incorrect supervisor password")
+			return
 		}
-	} else {
+		manager = res.manager || null
+	} catch (error) {
+		console.error("Manager verification failed:", error)
 		passwordError.value = __("Incorrect supervisor password")
+		return
+	}
+
+	try {
+		await call("ecs_posnext.api.kitchen_order.cancel_sales_order_and_invoices", {
+			sales_order: orderToDelete.value,
+			cancelled_by_manager: manager,
+		})
+		window.frappe?.show_alert?.({ message: __("Order cancelled successfully"), indicator: "green" })
+		showPasswordDialog.value = false
+		fetchOrders()
+	} catch (error) {
+		console.error("Failed to cancel order:", error)
 	}
 }
 
@@ -659,13 +779,15 @@ const formatNumber = (val) => {
 
 // Real-time
 const setupRealtime = () => {
-	frappe.realtime.on("sales_order_created", fetchOrders)
-	frappe.realtime.on("sales_order_updated", fetchOrders)
+	if (!window.frappe?.realtime) return
+	window.frappe.realtime.on("sales_order_created", fetchOrders)
+	window.frappe.realtime.on("sales_order_updated", fetchOrders)
 }
 
 const cleanupRealtime = () => {
-	frappe.realtime.off("sales_order_created", fetchOrders)
-	frappe.realtime.off("sales_order_updated", fetchOrders)
+	if (!window.frappe?.realtime) return
+	window.frappe.realtime.off("sales_order_created", fetchOrders)
+	window.frappe.realtime.off("sales_order_updated", fetchOrders)
 }
 
 onMounted(() => {

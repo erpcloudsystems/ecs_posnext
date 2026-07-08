@@ -519,6 +519,7 @@ const rejectDialog = ref({ show: false, order: null, reason: "", loading: false 
 const posProfile = ref(null)
 // Cancel flow (mirrors AllOrders)
 const orderToDelete = ref(null)
+const approvedManager = ref(null)
 const showPasswordDialog = ref(false)
 const passwordInput = ref("")
 const passwordError = ref("")
@@ -627,12 +628,22 @@ const deleteDeliveryOrder = (delivery) => {
 	showPasswordDialog.value = true
 }
 
-const confirmDelete = () => {
-	const correctPassword = posProfile.value?.custom_discaunt_password
-	if (passwordInput.value === correctPassword) {
-		showPasswordDialog.value = false
-		showWastageQuestion.value = true
-	} else {
+const confirmDelete = async () => {
+	passwordError.value = ""
+	try {
+		const res = await call("ecs_posnext.api.kitchen_order.verify_cancel_manager", {
+			pos_profile: posProfile.value?.name || posProfile.value || "",
+			password: passwordInput.value,
+		})
+		if (res && res.valid) {
+			approvedManager.value = res.manager || null
+			showPasswordDialog.value = false
+			showWastageQuestion.value = true
+		} else {
+			passwordError.value = __("Password is incorrect. Please try again.")
+		}
+	} catch (error) {
+		console.error("Manager verification failed:", error)
 		passwordError.value = __("Password is incorrect. Please try again.")
 	}
 }
@@ -747,6 +758,7 @@ const proceedWithCancellation = async (isWastage, itemsToReturn = [], wastageIte
 			wastage_items: JSON.stringify(wastageItemsList),
 			stock_entry_type: wastageStockEntryType.value,
 			employee: selectedEmployee.value,
+			cancelled_by_manager: approvedManager.value,
 		})
 		// Mark the Delivery Assignment as Returned
 		await call("ecs_posnext.ecs_posnext.api.dispatcher.mark_assignment_returned", {
@@ -761,6 +773,7 @@ const proceedWithCancellation = async (isWastage, itemsToReturn = [], wastageIte
 	} finally {
 		wastageItems.value = []
 		orderToDelete.value = null
+		approvedManager.value = null
 		wastageStockEntryType.value = "Consumptions"
 		selectedEmployee.value = null
 	}

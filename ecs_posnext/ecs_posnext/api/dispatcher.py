@@ -83,6 +83,7 @@ def open_dispatcher_shift(pos_profile):
 		"branch": branch,
 		"pos_profile": pos_profile,
 		"dispatcher": user,
+		"max_driver_orders": _get_max_driver_orders(shift.name),
 	}
 
 
@@ -104,6 +105,7 @@ def get_open_shift():
 		"opening_time": shift.period_start_date,
 		"branch": branch,
 		"dispatcher": user,
+		"max_driver_orders": _get_max_driver_orders(shift.name),
 	}
 
 
@@ -148,8 +150,9 @@ def get_unassigned_orders():
 		"Sales Invoice",
 		filters=filters,
 		fields=["name", "customer", "outstanding_amount", "grand_total", "custom_so_type",
-				"contact_mobile", "shipping_address_name", "customer_address",
+				"contact_mobile", "shipping_address_name", "customer_address", "territory",
 				"custom_number_order", "custom_order_type", "payment_terms_template",
+				"custom_payment_type", "custom_unique_talbat_number", "custom_third_party_referance_number",
 				"posting_date", "posting_time"],
 		order_by="posting_date desc, posting_time desc",
 		limit=200,
@@ -163,7 +166,7 @@ def get_unassigned_orders():
 	# Fetch KDS status for each invoice
 	kds_rows = frappe.db.sql(
 		"""
-		SELECT sales_invoice, status, ready_time, expected_ready_time
+		SELECT sales_invoice, status, ready_time, completed_time, expected_ready_time
 		FROM `tabKDS Order`
 		WHERE sales_invoice IN %(names)s
 		  AND status != 'Cancelled'
@@ -204,19 +207,23 @@ def get_unassigned_orders():
 		kds_row = kds_map.get(inv["name"])
 		kds_status = kds_row["status"] if kds_row else None
 		inv["kds_status"] = kds_status or "No KDS"
-		inv["kds_ready"] = kds_status in ("Completed", None) if kds_status != "No KDS" else True
-		# No KDS order means kitchen not configured — treat as ready
-		if not kds_status:
-			inv["kds_ready"] = True
+		# Kitchen is done (ready for dispatch) once the KDS order is Ready or Completed,
+		# or when there is no KDS order at all (kitchen not tracked for this order).
+		inv["kds_ready"] = (kds_status in ("Ready", "Completed")) if kds_status else True
 
-		# Timestamp from which the dispatcher waiting timer counts up
-		# Uses actual ready_time if set, falls back to expected_ready_time, then posting datetime
-		if kds_row and kds_row.get("ready_time"):
-			inv["kitchen_ready_at"] = str(kds_row["ready_time"])
-		elif kds_row and kds_row.get("expected_ready_time"):
-			inv["kitchen_ready_at"] = str(kds_row["expected_ready_time"])
-		elif inv["kds_ready"]:
-			inv["kitchen_ready_at"] = str(inv["posting_date"]) + " " + str(inv["posting_time"])
+		# Dispatcher waiting timer starts the moment the kitchen finished.
+		# Prefer the actual ready_time, then completed_time, then the expected time.
+		# Only set once the order is ready; otherwise no timer is shown yet.
+		if inv["kds_ready"]:
+			if kds_row and kds_row.get("ready_time"):
+				inv["kitchen_ready_at"] = str(kds_row["ready_time"])
+			elif kds_row and kds_row.get("completed_time"):
+				inv["kitchen_ready_at"] = str(kds_row["completed_time"])
+			elif kds_row and kds_row.get("expected_ready_time"):
+				inv["kitchen_ready_at"] = str(kds_row["expected_ready_time"])
+			else:
+				# No KDS record — count from when the order was placed
+				inv["kitchen_ready_at"] = str(inv["posting_date"]) + " " + str(inv["posting_time"])
 		else:
 			inv["kitchen_ready_at"] = None
 
@@ -430,14 +437,32 @@ def _compute_unified_status(order_type, kds_status, da_status):
 
 @frappe.whitelist()
 def get_available_drivers(branch=None):
-	"""Return drivers with dispatch_current_status = Available."""
+	"""
+	Return drivers who can still take an order: Active, not Off Duty, matching the
+	branch, and still under their capacity (max orders per the shift's POS Profile).
+
+	A driver stays in the list — even while On Delivery — until their capacity is
+	full, so the dispatcher can keep loading them up to the limit.
+	"""
+	filters = {"status": "Active", "dispatch_current_status": ["!=", "Off Duty"]}
+	if branch:
+		filters["custom_branch"] = branch
 	drivers = frappe.get_all(
 		"Driver",
-		filters={"status": "Active", "dispatch_current_status": "Available"},
-		fields=["name", "full_name", "cell_number", "dispatch_current_status", "dispatch_active_shift"],
+		filters=filters,
+		fields=["name", "full_name", "cell_number", "dispatch_current_status", "dispatch_active_shift", "custom_branch as branch"],
 		order_by="full_name asc",
 	)
-	# Enrich with active assignment count
+
+	# Capacity from the dispatcher's open shift POS Profile
+	user = frappe.session.user
+	shift = frappe.db.get_value(
+		"POS Opening Shift", {"user": user, "status": "Open", "docstatus": 1}, "name"
+	)
+	max_orders = _get_max_driver_orders(shift)
+
+	# Keep only drivers still under capacity, enriched with their current load
+	result = []
 	for driver in drivers:
 		driver["active_load"] = frappe.db.count(
 			"Delivery Assignment",
@@ -447,7 +472,10 @@ def get_available_drivers(branch=None):
 				"docstatus": ["!=", 2],
 			},
 		)
-	return drivers
+		driver["max_orders"] = max_orders
+		if driver["active_load"] < max_orders:
+			result.append(driver)
+	return result
 
 
 @frappe.whitelist()
@@ -463,16 +491,19 @@ def get_active_assignments(shift=None):
 		"Delivery Assignment",
 		filters=filters,
 		fields=[
-			"name", "driver", "order_reference", "customer", "delivery_address",
+			"name", "driver", "delivery_channel", "order_reference", "customer", "delivery_address",
 			"contact_phone", "payment_mode", "amount_to_collect", "amount_collected", "status",
-			"creation as assigned_at",
+			"creation as assigned_at", "out_for_delivery_time",
 		],
 		order_by="driver asc, creation asc",
 	)
 
-	# Enrich with driver name
+	# Enrich with driver name (Talabat assignments have no internal driver)
 	driver_names = {}
 	for a in assignments:
+		if not a.driver:
+			a["driver_name"] = None
+			continue
 		if a.driver not in driver_names:
 			driver_names[a.driver] = frappe.db.get_value("Driver", a.driver, "full_name") or a.driver
 		a["driver_name"] = driver_names[a.driver]
@@ -491,26 +522,71 @@ def get_active_assignments(shift=None):
 	for a in assignments:
 		kds_status = kds_map.get(a.get("order_reference"))
 		a["kds_status"] = kds_status or "No KDS"
-		# kds_ready = True only when kitchen is done (Completed) or no KDS order exists
-		a["kds_ready"] = (kds_status == "Completed") if kds_status else True
+		# Kitchen is done once the KDS order is Ready or Completed (or no KDS order exists)
+		a["kds_ready"] = (kds_status in ("Ready", "Completed")) if kds_status else True
 
 	return assignments
 
 
 @frappe.whitelist()
-def update_assignment_status(assignment, status, amount_collected=None):
-	"""Update a Delivery Assignment status from the dispatcher desk."""
+def get_pos_payment_modes(shift=None):
+	"""
+	Return the mode-of-payment options for the dispatcher's POS Profile so the
+	collect screen can offer more than cash and support split payment.
+	"""
+	user = frappe.session.user
+	if not shift:
+		shift = frappe.db.get_value(
+			"POS Opening Shift", {"user": user, "status": "Open", "docstatus": 1}, "name"
+		)
+	pos_profile = frappe.db.get_value("POS Opening Shift", shift, "pos_profile") if shift else None
+
+	modes = []
+	if pos_profile:
+		rows = frappe.get_all(
+			"POS Payment Method",
+			filters={"parent": pos_profile},
+			fields=["mode_of_payment"],
+			order_by="idx asc",
+		)
+		for r in rows:
+			mtype = frappe.get_cached_value("Mode of Payment", r.mode_of_payment, "type")
+			modes.append({"mode_of_payment": r.mode_of_payment, "type": mtype})
+
+	if not modes:
+		modes = [{"mode_of_payment": "Cash", "type": "Cash"}]
+	return modes
+
+
+@frappe.whitelist()
+def update_assignment_status(assignment, status, amount_collected=None, payments=None):
+	"""
+	Update a Delivery Assignment status from the dispatcher desk.
+
+	payments: optional JSON list of {mode_of_payment, amount} — lets the dispatcher
+	collect a COD invoice across one or more payment modes (cash, card, …). When
+	provided it takes precedence over amount_collected.
+	"""
+	import json
+
+	if isinstance(payments, str):
+		payments = json.loads(payments) if payments else None
+	if payments:
+		payments = [p for p in payments if flt(p.get("amount")) > 0]
+
 	doc = frappe.get_doc("Delivery Assignment", assignment)
 	if doc.status in ("Delivered", "Returned", "Failed"):
 		frappe.throw(_("Assignment {0} is already in a terminal state.").format(assignment))
 	doc.status = status
-	if amount_collected is not None:
+	if payments:
+		doc.amount_collected = sum(flt(p.get("amount")) for p in payments)
+	elif amount_collected is not None:
 		doc.amount_collected = flt(amount_collected)
 	doc.save(ignore_permissions=True)
 
-	# Create Payment Entry immediately when COD delivery is collected
+	# Create Payment Entry(ies) immediately when COD delivery is collected
 	if status == "Delivered" and doc.payment_mode == "Cash (COD)" and doc.order_reference:
-		_create_cod_payment_entry(doc)
+		_create_cod_payment_entries(doc, payments)
 
 	return {"status": doc.status}
 
@@ -635,10 +711,14 @@ def _resolve_shift_for_invoice(assignment_doc):
 	) or None
 
 
-def _create_cod_payment_entry(assignment_doc):
+def _create_cod_payment_entries(assignment_doc, payments=None):
 	"""
-	Create a Payment Entry for a COD delivery so it appears in POS Closing Shift
+	Create Payment Entry(ies) for a COD delivery so they appear in POS Closing Shift
 	payment reconciliation (filtered by reference_no = shift name).
+
+	payments: optional list of {mode_of_payment, amount}. When omitted, a single
+	cash Payment Entry is created (legacy behaviour). Multiple entries — one per
+	mode of payment — support split payment on a single invoice.
 	"""
 	if not assignment_doc.order_reference:
 		frappe.throw(_("Cannot create payment entry: Delivery Assignment {0} has no linked Sales Invoice.").format(
@@ -662,43 +742,57 @@ def _create_cod_payment_entry(assignment_doc):
 	if outstanding <= 0:
 		return
 
-	collected = flt(assignment_doc.amount_collected or assignment_doc.amount_to_collect)
-	if collected <= 0:
-		frappe.throw(_("Collected amount is zero for {0}.").format(assignment_doc.name))
-
-	# Resolve cash Mode of Payment and GL account via the POS Profile on the shift
 	pos_profile = frappe.db.get_value("POS Opening Shift", shift, "pos_profile")
 	company = frappe.db.get_value("Sales Invoice", assignment_doc.order_reference, "company")
+	settings = frappe.get_single("Dispatch Settings")
 
-	mode_of_payment = _resolve_cash_mode(pos_profile)
-	paid_to = _resolve_cash_account(mode_of_payment, company)
+	# Build the list of (mode, amount) splits
+	if payments:
+		splits = [
+			{"mode_of_payment": p.get("mode_of_payment") or _resolve_cash_mode(pos_profile),
+			 "amount": flt(p.get("amount"))}
+			for p in payments if flt(p.get("amount")) > 0
+		]
+	else:
+		collected = flt(assignment_doc.amount_collected or assignment_doc.amount_to_collect)
+		splits = [{"mode_of_payment": _resolve_cash_mode(pos_profile), "amount": collected}]
 
-	# Fall back to Dispatch Settings clearing account
-	if not paid_to:
-		settings = frappe.get_single("Dispatch Settings")
-		paid_to = settings.driver_cash_clearing_account
-
-	if not paid_to:
-		frappe.throw(_(
-			"Cannot create payment entry for {0}: no cash GL account found "
-			"(POS Profile: {1}, Mode of Payment: {2}). "
-			"Configure a cash account in the POS Profile or Dispatch Settings."
-		).format(assignment_doc.name, pos_profile, mode_of_payment))
+	if not splits or sum(s["amount"] for s in splits) <= 0:
+		frappe.throw(_("Collected amount is zero for {0}.").format(assignment_doc.name))
 
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
-	pe = get_payment_entry("Sales Invoice", assignment_doc.order_reference)
-	pe.mode_of_payment = mode_of_payment
-	pe.paid_to = paid_to
-	pe.paid_amount = collected
-	pe.received_amount = collected
-	# reference_no = shift name → picked up by get_payments_entries() in POS Closing Shift
-	pe.reference_no = shift
-	pe.reference_date = frappe.utils.today()
-	pe.remarks = _("COD Collection — Delivery Assignment {0}, Driver {1}").format(
-		assignment_doc.name, assignment_doc.driver
-	)
-	pe.insert(ignore_permissions=True)
-	pe.submit()
+
+	remaining = outstanding
+	for split in splits:
+		mode_of_payment = split["mode_of_payment"]
+		amount = split["amount"]
+
+		paid_to = _resolve_cash_account(mode_of_payment, company) or settings.driver_cash_clearing_account
+		if not paid_to:
+			frappe.throw(_(
+				"Cannot create payment entry for {0}: no GL account found "
+				"(POS Profile: {1}, Mode of Payment: {2}). "
+				"Configure an account for this Mode of Payment or a clearing account in Dispatch Settings."
+			).format(assignment_doc.name, pos_profile, mode_of_payment))
+
+		pe = get_payment_entry("Sales Invoice", assignment_doc.order_reference)
+		pe.mode_of_payment = mode_of_payment
+		pe.paid_to = paid_to
+		pe.paid_amount = amount
+		pe.received_amount = amount
+		# Allocate against the invoice up to what is still outstanding; any excess stays unallocated.
+		alloc = min(amount, remaining) if remaining > 0 else 0
+		if pe.references:
+			pe.references[0].allocated_amount = alloc
+		remaining = flt(remaining - alloc)
+		# reference_no = shift name → picked up by get_payments_entries() in POS Closing Shift
+		pe.reference_no = shift
+		pe.reference_date = frappe.utils.today()
+		pe.remarks = _("COD Collection — Delivery Assignment {0}, Driver {1}, {2}").format(
+			assignment_doc.name, assignment_doc.driver or _("Talabat"), mode_of_payment
+		)
+		pe.insert(ignore_permissions=True)
+		pe.submit()
 
 
 def _resolve_cash_mode(pos_profile):
@@ -724,6 +818,28 @@ def _resolve_cash_account(mode_of_payment, company):
 	)
 
 
+def _get_max_driver_orders(shift):
+	"""Max concurrent orders a driver may carry, configured on the shift's POS Profile."""
+	max_orders = None
+	if shift:
+		pos_profile = frappe.db.get_value("POS Opening Shift", shift, "pos_profile")
+		if pos_profile:
+			max_orders = frappe.db.get_value("POS Profile", pos_profile, "custom_max_driver_orders")
+	return int(max_orders) if max_orders and int(max_orders) > 0 else 2
+
+
+def _driver_active_load(driver):
+	"""Count a driver's non-terminal assignments across all shifts."""
+	return frappe.db.count(
+		"Delivery Assignment",
+		{
+			"driver": driver,
+			"status": ["in", ["Assigned", "Picked Up", "Out for Delivery"]],
+			"docstatus": ["!=", 2],
+		},
+	)
+
+
 @frappe.whitelist()
 def create_assignments(driver, orders, shift=None):
 	"""
@@ -745,6 +861,17 @@ def create_assignments(driver, orders, shift=None):
 			"name",
 		)
 		shift = open_shift or ""
+
+	# Enforce the per-driver order cap (configurable on the POS Profile)
+	max_orders = _get_max_driver_orders(shift)
+	current_load = _driver_active_load(driver)
+	if current_load + len(orders) > max_orders:
+		driver_name = frappe.db.get_value("Driver", driver, "full_name") or driver
+		frappe.throw(
+			_("{0} already has {1} active order(s); the limit is {2}. Cannot assign {3} more.").format(
+				driver_name, current_load, max_orders, len(orders)
+			)
+		)
 
 	settings = frappe.get_single("Dispatch Settings")
 	created = []
@@ -772,6 +899,70 @@ def create_assignments(driver, orders, shift=None):
 
 	frappe.publish_realtime("dispatch_desk_refresh", {"shift": shift})
 	return created
+
+
+@frappe.whitelist()
+def handover_to_talabat(orders, shift=None):
+	"""
+	Hand Talabat orders over to the Talabat platform's own driver.
+
+	Creates a driverless Delivery Assignment on the 'Talabat' channel, straight to
+	'Out for Delivery', so the order leaves the unassigned board and is tracked as
+	"with Talabat driver" until the dispatcher confirms the customer received it
+	(marking it Delivered). Talabat is prepaid — nothing to collect, no driver touched.
+	"""
+	import json
+
+	if isinstance(orders, str):
+		orders = json.loads(orders)
+
+	if not shift:
+		user = frappe.session.user
+		shift = frappe.db.get_value(
+			"POS Opening Shift",
+			{"user": user, "status": "Open", "docstatus": 1},
+			"name",
+		) or ""
+
+	created = []
+	for invoice_name in orders:
+		# Cash Talabat orders: dispatcher collects from the Talabat driver on return.
+		# Prepaid Talabat orders: nothing to collect — just confirm receipt.
+		outstanding = flt(frappe.db.get_value("Sales Invoice", invoice_name, "outstanding_amount"))
+		is_cod = outstanding > 0
+		da = frappe.get_doc(
+			{
+				"doctype": "Delivery Assignment",
+				"shift": shift,
+				"delivery_channel": "Talabat",
+				"order_doctype": "Sales Invoice",
+				"order_reference": invoice_name,
+				"payment_mode": "Cash (COD)" if is_cod else "Prepaid",
+				"amount_to_collect": outstanding if is_cod else 0,
+				"status": "Out for Delivery",
+			}
+		)
+		da.insert(ignore_permissions=True)
+		created.append(da.name)
+
+	frappe.publish_realtime("dispatch_desk_refresh", {"shift": shift})
+	return created
+
+
+@frappe.whitelist()
+def deliver_talabat(order, payments=None, shift=None):
+	"""
+	Deliver a Talabat order in a single step — no assign, no tracking.
+
+	Paid orders are marked Delivered immediately. Unpaid (cash) orders record the
+	collected payment(s) first, then deliver. The driverless Talabat assignment is
+	created and finalised within the same request, so it never lingers in an
+	'Out for Delivery' / assigned state.
+	"""
+	names = handover_to_talabat([order], shift)
+	da_name = names[0]
+	update_assignment_status(da_name, "Delivered", payments=payments)
+	return {"assignment": da_name, "status": "Delivered"}
 
 
 # ---------------------------------------------------------------------------

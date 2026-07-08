@@ -1537,28 +1537,43 @@ def submit_invoice(invoice=None, data=None):
         elif not invoice_doc.get("custom_number_order") and invoice_doc.get("custom_order_type"):
             shift_start_str, _ = _get_user_shift_date_range()
 
-            prefix_map = {
-                "Talabat": "T",
-                "Pickup": "P",
-                "Delivery": "D",
-                "Dine In": "DI"
-            }
-
             order_type = invoice_doc.get("custom_order_type")
-            prefix = prefix_map.get(order_type, str(order_type)[0].upper())
             pos_profile = invoice_doc.get("pos_profile")
+            branch = invoice_doc.get("branch")
+
+            # Talabat (aggregator) orders are numbered T-*, with their own sequence.
+            # Everything else (Dine In / Pickup / Delivery ...) shares a single M-* sequence.
+            is_talabat = order_type == "Talabat"
+            prefix = "T" if is_talabat else "M"
+
+            # Count within the current shift, grouped by channel (Talabat vs. everything
+            # else), excluding supplement invoices (X-Y-Z format). Scope by branch so all
+            # POS Profiles serving the same branch (including Call Center orders targeting
+            # it) share one continuous sequence; fall back to POS Profile if no branch.
+            channel_condition = (
+                "AND custom_order_type = 'Talabat'"
+                if is_talabat
+                else "AND custom_order_type != 'Talabat'"
+            )
+
+            if branch:
+                scope_condition = "branch = %s"
+                scope_value = branch
+            else:
+                scope_condition = "pos_profile = %s"
+                scope_value = pos_profile
 
             count = frappe.db.sql(
-                """
+                f"""
                 SELECT COUNT(name)
                 FROM `tabSales Invoice`
-                WHERE pos_profile = %s
-                  AND custom_order_type = %s
+                WHERE {scope_condition}
+                  {channel_condition}
                   AND TIMESTAMP(posting_date, posting_time) >= %s
                   AND docstatus < 2
                   AND (custom_number_order IS NULL OR custom_number_order NOT LIKE '%%-%%-%%')
                 """,
-                (pos_profile, order_type, shift_start_str)
+                (scope_value, shift_start_str)
             )[0][0]
 
             # Read the cycling limit from POS Profile (0 = no cycling)
@@ -2395,7 +2410,7 @@ def assign_driver_to_invoice(invoice_name, driver):
 
 @frappe.whitelist()
 def convert_order_type(invoice_name, order_type):
-	allowed = ("Delivery", "Pickup")
+	allowed = ("Delivery", "Pickup", "Dine In")
 	if order_type not in allowed:
 		frappe.throw(_("Invalid order type: {0}").format(order_type))
 	if not frappe.db.exists("Sales Invoice", invoice_name):

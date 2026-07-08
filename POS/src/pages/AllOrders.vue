@@ -394,16 +394,30 @@
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
 												</svg>
 											</button>
+											<!-- ===== Call Center: convert between Pickup and Delivery ===== -->
 											<!-- Convert to Delivery (Pickup orders only) -->
-											<button v-if="order.custom_order_type === 'Pickup' && order.docstatus === 1" @click.stop="convertOrderType(order, 'Delivery')" class="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors" :title="__('Convert to Delivery')">
+											<button v-if="isCallCenter && order.custom_order_type === 'Pickup' && order.docstatus === 1" @click.stop="convertOrderType(order, 'Delivery')" class="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors" :title="__('Convert to Delivery')">
 												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8l1.5 9.5A2 2 0 008.5 19h7a2 2 0 001.99-1.5L19 8" />
 												</svg>
 											</button>
 											<!-- Convert to Pickup (Delivery orders only) -->
-											<button v-if="order.custom_order_type === 'Delivery' && order.docstatus === 1" @click.stop="convertOrderType(order, 'Pickup')" class="p-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50 rounded-lg transition-colors" :title="__('Convert to Pickup')">
+											<button v-if="isCallCenter && order.custom_order_type === 'Delivery' && order.docstatus === 1" @click.stop="convertOrderType(order, 'Pickup')" class="p-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50 rounded-lg transition-colors" :title="__('Convert to Pickup')">
 												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+												</svg>
+											</button>
+											<!-- ===== Cashier (non-Call-Center): convert between Dine In and Takeaway ===== -->
+											<!-- Convert to Takeaway (Dine In orders only) -->
+											<button v-if="!isCallCenter && order.custom_order_type === 'Dine In' && order.docstatus === 1" @click.stop="convertOrderType(order, 'Pickup')" class="p-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50 rounded-lg transition-colors" :title="__('Convert to Takeaway')">
+												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8l1.5 9.5A2 2 0 008.5 19h7a2 2 0 001.99-1.5L19 8" />
+												</svg>
+											</button>
+											<!-- Convert to Dine In (Takeaway/Pickup orders only) -->
+											<button v-if="!isCallCenter && order.custom_order_type === 'Pickup' && order.docstatus === 1" @click.stop="convertOrderType(order, 'Dine In')" class="p-1.5 text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded-lg transition-colors" :title="__('Convert to Dine In')">
+												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 10l2-6h14l2 6M3 10v10a1 1 0 001 1h16a1 1 0 001-1V10" />
 												</svg>
 											</button>
 											<!-- Pay Outstanding -->
@@ -1009,6 +1023,13 @@ const selectedInvoiceName = ref("")
 const posProfile = ref(null)
 const posOpeningShift = ref(null)
 
+// Call Center users convert between Pickup and Delivery.
+// Cashier / non-Call-Center users convert between Dine In and Takeaway (Pickup).
+const isCallCenter = computed(() => {
+	const name = posProfile.value?.name || posProfile.value
+	return typeof name === "string" && name.trim() === "Call Center"
+})
+
 // Payment dialog state
 const showPaymentDialog = ref(false)
 const paymentMethods = ref([])
@@ -1025,6 +1046,7 @@ const showPasswordDialog = ref(false)
 const passwordInput = ref("")
 const passwordError = ref("")
 const orderToDelete = ref(null)
+const approvedManager = ref(null)
 const passwordInputRef = ref(null)
 
 // Wastage dialog state
@@ -1335,7 +1357,7 @@ function viewInvoice(name) {
 
 function printInvoice(name) {
 	window.open(
-		`/printview?doctype=Sales Invoice&name=${name}&trigger_print=1&format=POS Next Receipt&no_letterhead=0`,
+		`/printview?doctype=Sales Invoice&name=${name}&trigger_print=1&format=print format sales&no_letterhead=0`,
 		"_blank"
 	)
 }
@@ -1440,12 +1462,22 @@ function deleteOrder(order) {
 	showPasswordDialog.value = true
 }
 
-function confirmDelete() {
-	const correctPassword = posProfile.value?.custom_discaunt_password
-	if (passwordInput.value === correctPassword) {
-		showPasswordDialog.value = false
-		showWastageQuestion.value = true
-	} else {
+async function confirmDelete() {
+	passwordError.value = ""
+	try {
+		const res = await call("ecs_posnext.api.kitchen_order.verify_cancel_manager", {
+			pos_profile: posProfile.value?.name || posProfile.value || "",
+			password: passwordInput.value,
+		})
+		if (res && res.valid) {
+			approvedManager.value = res.manager || null
+			showPasswordDialog.value = false
+			showWastageQuestion.value = true
+		} else {
+			passwordError.value = __("Password is incorrect. Please try again.")
+		}
+	} catch (error) {
+		console.error("Manager verification failed:", error)
 		passwordError.value = __("Password is incorrect. Please try again.")
 	}
 }
@@ -1557,6 +1589,7 @@ async function proceedWithCancellation(isWastage, itemsToReturn = [], wastageIte
 			wastage_items: JSON.stringify(wastageItemsList),
 			stock_entry_type: wastageStockEntryType.value,
 			employee: selectedEmployee.value,
+			cancelled_by_manager: approvedManager.value,
 		})
 
 		let msg = __("Order cancelled successfully.")
@@ -1571,6 +1604,7 @@ async function proceedWithCancellation(isWastage, itemsToReturn = [], wastageIte
 	} finally {
 		wastageItems.value = []
 		orderToDelete.value = null
+		approvedManager.value = null
 		wastageStockEntryType.value = "Consumptions"
 		selectedEmployee.value = null
 	}

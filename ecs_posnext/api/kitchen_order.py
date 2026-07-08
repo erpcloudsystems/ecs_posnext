@@ -55,7 +55,40 @@ def get_stock_items_for_wastage(sales_invoice):
     return stock_items
 
 @frappe.whitelist()
-def cancel_sales_invoice_with_wastage(sales_invoice, is_wastage=False, items_to_return="[]", wastage_items="[]", stock_entry_type="Consumptions", employee=None):
+def verify_cancel_manager(pos_profile=None, password=None):
+    """Verify a manager password for authorizing an order cancellation.
+
+    Passwords are stored (encrypted) on the ``POS Manager`` doctype and are
+    never shipped to the browser. A manager is valid for the given POS Profile
+    when it has no allowed profiles configured (valid for all) or the profile is
+    listed. Returns the matched manager name so it can be recorded for audit.
+    """
+    from frappe.utils.password import get_decrypted_password
+
+    password = (password or "").strip()
+    if not password:
+        return {"valid": False}
+
+    managers = frappe.get_all("POS Manager", filters={"enabled": 1}, fields=["name", "manager_name"])
+    for m in managers:
+        allowed_profiles = frappe.get_all(
+            "POS Manager POS Profile",
+            filters={"parent": m.name},
+            pluck="pos_profile",
+        )
+        # Empty list => manager may authorize on all profiles.
+        if allowed_profiles and pos_profile and pos_profile not in allowed_profiles:
+            continue
+
+        stored = get_decrypted_password("POS Manager", m.name, "password", raise_exception=False)
+        if stored and stored == password:
+            return {"valid": True, "manager": m.manager_name or m.name}
+
+    return {"valid": False}
+
+
+@frappe.whitelist()
+def cancel_sales_invoice_with_wastage(sales_invoice, is_wastage=False, items_to_return="[]", wastage_items="[]", stock_entry_type="Consumptions", employee=None, cancelled_by_manager=None):
     """Cancel Sales Invoice with wastage handling - create stock entry for wastage items."""
     
     is_wastage = is_wastage if isinstance(is_wastage, bool) else is_wastage == "true" or is_wastage == True
@@ -133,6 +166,17 @@ def cancel_sales_invoice_with_wastage(sales_invoice, is_wastage=False, items_to_
     except Exception as e:
         frappe.log_error(title="Cancel Invoice Error", message=f"Error cancelling Sales Invoice {sales_invoice}: {str(e)}")
         return {"status": "error", "message": str(e)}
+
+    # Record which manager authorized the cancellation (audit trail)
+    if cancelled_by_manager:
+        try:
+            frappe.db.set_value(
+                "Sales Invoice", sales_invoice,
+                "custom_cancelled_by_manager", cancelled_by_manager,
+                update_modified=False,
+            )
+        except Exception:
+            frappe.log_error(title="Record Cancel Manager Error", message=frappe.get_traceback())
 
     # Cancel linked Sales Orders
     for so_name in sales_orders:
@@ -279,9 +323,12 @@ def get_sales_order2(status=None):
         yesterday = today - timedelta(days=1)
         tomorrow = today + timedelta(days=1)
 
-        if start_time and end_time:
-            start_t = get_time(start_time)
-            end_t = get_time(end_time)
+        start_t = get_time(start_time) if start_time else None
+        end_t = get_time(end_time) if end_time else None
+
+        # A zero-width window (start == end) is invalid configuration and would
+        # filter out every order; treat it as "no window" (whole day) instead.
+        if start_t and end_t and start_t != end_t:
             current_time = now.time()
 
             if start_t <= end_t:
@@ -331,7 +378,7 @@ def get_sales_order2(status=None):
     order_type_col_si = "custom_order_type" if frappe.db.has_column("Sales Invoice", "custom_order_type") else "NULL"
 
     queries = []
-    
+    # frappe.throw(f"{branch_filter_sql_si}")
     # Query for Sales Invoices (All requested statuses)
     if include_completed or so_statuses:
         status_cond = ""
@@ -379,7 +426,7 @@ def get_sales_order2(status=None):
                 {time_condition_si}
                 {branch_filter_sql_si}
         """)
-
+    # frappe.throw(f"{queries}")
     if not queries:
         return []
 
@@ -395,7 +442,7 @@ def get_sales_order2(status=None):
         all_params.append(branch_filter_param)
 
     rows = frappe.db.sql(full_query, tuple(all_params), as_dict=True)
-
+    # frappe.throw(f"{all_params}")
     # Group flat rows into orders with nested items
     orders = {}
     for row in rows:
@@ -418,6 +465,7 @@ def get_sales_order2(status=None):
                 "grand_total": row["grand_total"],
                 "driver_name": row["driver_name"],
                 "kds_status": row.get("kds_status"),
+                "order_time": str(row["creation"]) if row.get("creation") else None,
             }
         orders[order_name]["items"].append({
             "item_code": row["item_code"],
@@ -510,7 +558,7 @@ def get_sales_invoice_from_order(sales_order):
 
 
 @frappe.whitelist()
-def cancel_sales_order_and_invoices(sales_order):
+def cancel_sales_order_and_invoices(sales_order, cancelled_by_manager=None):
     """Cancel all Sales Invoices linked to a Sales Order, then cancel the Sales Order.
        If an invoice name is passed, cancel it and its linked Sales Order.
     """
@@ -540,6 +588,15 @@ def cancel_sales_order_and_invoices(sales_order):
                 doc_inv.flags.ignore_links = True
                 doc_inv.cancel()
                 cancelled_invoices += 1
+                if cancelled_by_manager:
+                    try:
+                        frappe.db.set_value(
+                            "Sales Invoice", inv_name,
+                            "custom_cancelled_by_manager", cancelled_by_manager,
+                            update_modified=False,
+                        )
+                    except Exception:
+                        frappe.log_error(title="Record Cancel Manager Error", message=frappe.get_traceback())
         except Exception as e:
             frappe.log_error(f"Error cancelling Sales Invoice {inv_name}: {str(e)}")
     

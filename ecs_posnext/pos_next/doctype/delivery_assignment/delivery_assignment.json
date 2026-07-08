@@ -8,10 +8,12 @@
   "naming_series",
   "shift",
   "driver",
+  "delivery_channel",
   "user_id",
   "column_break_top",
   "status",
   "assigned_time",
+  "out_for_delivery_time",
   "delivered_time",
   "section_order",
   "order_doctype",
@@ -58,7 +60,16 @@
    "in_list_view": 1,
    "label": "Driver",
    "options": "Driver",
-   "reqd": 1
+   "reqd": 0
+  },
+  {
+   "default": "Internal",
+   "fieldname": "delivery_channel",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Delivery Channel",
+   "options": "Internal\nTalabat"
   },
   {
    "fieldname": "column_break_top",
@@ -77,6 +88,12 @@
    "fieldname": "assigned_time",
    "fieldtype": "Datetime",
    "label": "Assigned Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "out_for_delivery_time",
+   "fieldtype": "Datetime",
+   "label": "Out for Delivery Time",
    "read_only": 1
   },
   {

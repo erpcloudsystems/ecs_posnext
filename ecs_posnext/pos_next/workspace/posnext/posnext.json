@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"cDBfxZcI12\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">POSNext</span>\",\"col\":12}},{\"id\":\"QZK44RksGI\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Super Opening\",\"col\":3}},{\"id\":\"p4KrSYzInK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Opening Shift\",\"col\":3}},{\"id\":\"EuDVjJUKSQ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Start POS\",\"col\":3}},{\"id\":\"VO-VLNdx_2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Closing Shift\",\"col\":3}},{\"id\":\"vGT3FkIZS6\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Shift Group Closing\",\"col\":3}},{\"id\":\"RoWvjX8Ocp\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Profile\",\"col\":3}},{\"id\":\"OYrA05uyCG\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Offer\",\"col\":3}},{\"id\":\"FUd4_fFBgH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Coupon\",\"col\":3}},{\"id\":\"y6UCXnEiZx\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item Manger\",\"col\":3}},{\"id\":\"uXQ4aBaRfk\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"293IFk0o6X\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"3fYYYsboAw\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b></b></span><span class=\\\"h1\\\">kitchen stations</span>\",\"col\":12}},{\"id\":\"3NpZYAB4tJ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"kds/station\",\"col\":3}},{\"id\":\"8n5T1-wTNK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Order\",\"col\":3}},{\"id\":\"j8SCRO62Lf\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Station\",\"col\":3}},{\"id\":\"eejgbg4BOC\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Settings\",\"col\":3}},{\"id\":\"Qq3D52KG6d\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Dispatcher \",\"col\":3}},{\"id\":\"YwDw11oI_0\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Screen assembly\",\"col\":3}},{\"id\":\"8Lnc62O4tv\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Sandwiches station\",\"col\":4}}]",
+ "content": "[{\"id\":\"cDBfxZcI12\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">POSNext</span>\",\"col\":12}},{\"id\":\"QZK44RksGI\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Super Opening\",\"col\":3}},{\"id\":\"p4KrSYzInK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Opening Shift\",\"col\":3}},{\"id\":\"EuDVjJUKSQ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Start POS\",\"col\":3}},{\"id\":\"VO-VLNdx_2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Closing Shift\",\"col\":3}},{\"id\":\"vGT3FkIZS6\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Shift Group Closing\",\"col\":3}},{\"id\":\"RoWvjX8Ocp\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Profile\",\"col\":3}},{\"id\":\"OYrA05uyCG\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Offer\",\"col\":3}},{\"id\":\"FUd4_fFBgH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Coupon\",\"col\":3}},{\"id\":\"y6UCXnEiZx\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item Manger\",\"col\":3}},{\"id\":\"uXQ4aBaRfk\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"293IFk0o6X\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"3fYYYsboAw\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b></b></span><span class=\\\"h1\\\">kitchen stations</span>\",\"col\":12}},{\"id\":\"3NpZYAB4tJ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"kds/station\",\"col\":3}},{\"id\":\"8n5T1-wTNK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Order\",\"col\":3}},{\"id\":\"j8SCRO62Lf\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Station\",\"col\":3}},{\"id\":\"eejgbg4BOC\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Settings\",\"col\":3}},{\"id\":\"Qq3D52KG6d\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Dispatcher \",\"col\":3}},{\"id\":\"Ct6MzLC1cw\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Fatta\",\"col\":3}},{\"id\":\"YwDw11oI_0\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Screen assembly\",\"col\":3}},{\"id\":\"8Lnc62O4tv\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Sandwiches station\",\"col\":4}}]",
  "creation": "2026-01-28 16:48:36.007405",
  "custom_blocks": [],
  "docstatus": 0,
@@ -34,7 +34,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-06-09 15:34:56.289026",
+ "modified": "2026-07-06 16:23:01.331212",
  "modified_by": "Administrator",
  "module": "POS Next",
  "name": "POSNext",
@@ -46,9 +46,6 @@
  "roles": [
   {
    "role": "Sales User"
-  },
-  {
-   "role": "Cashier"
   },
   {
    "role": "Call center manager"
@@ -70,6 +67,20 @@
   {
    "color": "Grey",
    "doc_view": "List",
+   "label": "Fatta",
+   "type": "URL",
+   "url": "https://mumo15.erpcloud.systems/pos/kds/station/Fatta"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Item Manger",
+   "type": "URL",
+   "url": "https://mumo15.erpcloud.systems/pos/product-editor?desk=1"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
    "label": "Kds Order",
    "link_to": "KDS Order",
    "stats_filter": "[]",
@@ -78,9 +89,16 @@
   {
    "color": "Grey",
    "doc_view": "List",
-   "label": "Sandwiches station",
+   "label": "kds/station",
    "type": "URL",
-   "url": "https://mumo15.erpnext.cloud/pos/kds/station/Sandwiches"
+   "url": "https://mumo15.erpcloud.systems/pos/kds/stations"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Dispatcher ",
+   "type": "URL",
+   "url": "https://mumo15.erpcloud.systems/pos/dispatcher"
   },
   {
    "color": "Grey",
@@ -95,28 +113,14 @@
    "doc_view": "List",
    "label": "Screen assembly",
    "type": "URL",
-   "url": "https://mumo15.erpnext.cloud/pos/kds/assembly?branch"
+   "url": "https://mumo15.erpcloud.systems/pos/kds/assembly?branch"
   },
   {
    "color": "Grey",
    "doc_view": "List",
-   "label": "Dispatcher ",
+   "label": "Sandwiches station",
    "type": "URL",
-   "url": "https://mumo15.erpnext.cloud/pos/dispatcher"
-  },
-  {
-   "color": "Grey",
-   "doc_view": "List",
-   "label": "kds/station",
-   "type": "URL",
-   "url": "https://mumo15.erpnext.cloud/pos/kds/stations"
-  },
-  {
-   "color": "Grey",
-   "doc_view": "List",
-   "label": "Item Manger",
-   "type": "URL",
-   "url": "https://mumo15.erpnext.cloud/pos/product-editor?desk=1"
+   "url": "https://mumo15.erpcloud.systems/pos/kds/station/Sandwiches"
   },
   {
    "color": "Grey",

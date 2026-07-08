@@ -1,0 +1,86 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:manager_name",
+ "creation": "2026-07-05 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "manager_name",
+  "enabled",
+  "column_break_main",
+  "password",
+  "profiles_section",
+  "pos_profiles",
+  "profiles_help"
+ ],
+ "fields": [
+  {
+   "fieldname": "manager_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Manager Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "password",
+   "fieldtype": "Password",
+   "label": "Password",
+   "reqd": 1
+  },
+  {
+   "fieldname": "profiles_section",
+   "fieldtype": "Section Break",
+   "label": "Allowed POS Profiles"
+  },
+  {
+   "fieldname": "pos_profiles",
+   "fieldtype": "Table MultiSelect",
+   "label": "POS Profiles",
+   "options": "POS Manager POS Profile"
+  },
+  {
+   "fieldname": "profiles_help",
+   "fieldtype": "HTML",
+   "label": "Profiles Help",
+   "options": "<p class=\"text-muted small\">Leave empty to allow this manager to authorize on <b>all</b> POS Profiles.</p>"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Manager",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

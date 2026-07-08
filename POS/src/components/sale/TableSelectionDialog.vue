@@ -88,7 +88,7 @@
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
 						</svg>
 						
-						<span class="font-bold text-gray-800 text-center truncate w-full">{{ table.name }}</span>
+						<span class="font-bold text-gray-800 text-center truncate w-full">{{ table.no }}</span>
 						
 						<div v-if="table.isOccupied" class="mt-1 flex flex-col items-center">
 							<span v-if="table.invoice" class="text-xs font-semibold text-gray-700">{{ formatCurrency(table.invoice.grand_total) }}</span>
@@ -152,8 +152,10 @@ const tablesResource = createResource({
 
 			},
 
-			fields: '["name", "status"]',
-			limit: 1000
+			fields: '["name", "status", "no"]',
+			order_by: 'no asc',
+			// frappe.client.get_list uses limit_page_length (default 20); 0 = no limit / all rows
+			limit_page_length: 0
 		}
 	},
 	auto: false,
@@ -164,17 +166,20 @@ const tablesResource = createResource({
 
 const tablesWithStatus = computed(() => {
 	return tables.value.map(table => {
-		const invoice = draftInvoices.value.find(inv => 
-			inv.custom_order_type === 'Dine In' && 
+		const invoice = draftInvoices.value.find(inv =>
+			inv.custom_order_type === 'Dine In' &&
 			inv.custom_table_number === table.name
 		)
-		
+
 		return {
 			...table,
 			isOccupied: table.status === 'disabled' || table.status === 'Disabled' || !!invoice,
 			invoice: invoice || null
 		}
-	})
+	}).sort((a, b) =>
+		// Numeric-aware sort so table numbers order 1, 2, 3 … 10, 11 instead of 1, 10, 11, 2
+		String(a.no ?? '').localeCompare(String(b.no ?? ''), undefined, { numeric: true, sensitivity: 'base' })
+	)
 })
 
 async function fetchDraftInvoices() {

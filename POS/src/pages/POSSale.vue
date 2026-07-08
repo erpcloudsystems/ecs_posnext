@@ -1944,8 +1944,10 @@ function handleProceedToPayment() {
 	// 	return;
 	// }
 
+	// Require an explicitly selected customer before checkout (the POS Profile
+	// default customer must not silently satisfy this).
 	const customerValue = cartStore.customer?.name || cartStore.customer;
-	if (!customerValue && !shiftStore.profileCustomer) {
+	if (!customerValue) {
 		showWarning(__("Please select a customer before proceeding"));
 		uiStore.showCustomerDialog = true;
 		pendingPaymentAfterCustomer.value = true;
@@ -1985,7 +1987,7 @@ async function handleErrorRetry() {
 async function handlePaymentCompleted(paymentData) {
 	try {
 		const customerValue = cartStore.customer?.name || cartStore.customer;
-		if (!customerValue && !shiftStore.profileCustomer) {
+		if (!customerValue) {
 			showWarning(__("Please select a customer before proceeding"));
 			uiStore.showPaymentDialog = false;
 			uiStore.showCustomerDialog = true;
@@ -2849,10 +2851,12 @@ function handleViewInvoice(invoice) {
 
 // Centralized print handler - uses printInvoice.js utilities
 async function handlePrintInvoice(invoiceData) {
+	// Print format used when submitting an invoice from the POS
+	const SALES_PRINT_FORMAT = "print format sales";
 	try {
 		// Silent print path — send directly to thermal printer via QZ Tray
 		if (posSettingsStore.silentPrint) {
-			const result = await printWithSilentFallback(invoiceData);
+			const result = await printWithSilentFallback(invoiceData, SALES_PRINT_FORMAT);
 			if (result.method === "browser") {
 				log.info("Used browser print fallback");
 			}
@@ -2861,7 +2865,7 @@ async function handlePrintInvoice(invoiceData) {
 
 		// Standard browser print path — always fetch full invoice by name so
 		// sales_team and other child tables are available in the custom fallback too
-		await printInvoiceByName(invoiceData.name);
+		await printInvoiceByName(invoiceData.name, SALES_PRINT_FORMAT);
 	} catch (error) {
 		log.error("Error printing invoice:", error);
 		window.frappe?.msgprint({
