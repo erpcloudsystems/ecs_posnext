@@ -426,6 +426,12 @@
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
 												</svg>
 											</button>
+											<!-- Return to Need My Action (Call Center only, rejected drafts) -->
+											<button v-if="isCallCenter && order.docstatus === 0 && order.custom_is_rejected" @click="openReturnDialog(order)" class="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition-colors" :title="__('Return to Need My Action')">
+												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a5 5 0 015 5v2m-8-7l-4-4m0 0l4-4m-4 4h4" />
+												</svg>
+											</button>
 											<!-- Cancel/Delete -->
 											<button @click="deleteOrder(order)" class="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" :title="__('Cancel')">
 												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -864,6 +870,59 @@
 			</div>
 		</teleport>
 
+		<!-- Return to Need My Action Dialog (Call Center) -->
+		<teleport to="body">
+			<div v-if="showReturnDialog" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="closeReturnDialog">
+				<div class="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+					<div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+						<div>
+							<h3 class="text-lg font-semibold text-gray-900">{{ __("Return to Need My Action") }}</h3>
+							<p v-if="returnOrder" class="text-xs text-gray-500 mt-0.5">{{ returnOrder.custom_number_order || returnOrder.name }}</p>
+						</div>
+						<button @click="closeReturnDialog" class="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+							</svg>
+						</button>
+					</div>
+					<div class="p-6 space-y-4">
+						<!-- Rejection reason -->
+						<div v-if="returnOrder?.custom_rejection_reason" class="p-3 bg-red-50 rounded-lg border border-red-100">
+							<div class="text-xs font-bold text-red-600 uppercase tracking-wider mb-0.5">{{ __("Rejection Reason") }}</div>
+							<div class="text-sm text-red-800">{{ returnOrder.custom_rejection_reason }}</div>
+						</div>
+						<div v-else class="text-xs text-gray-400 italic">{{ __("No rejection reason recorded.") }}</div>
+
+						<!-- Payment type -->
+						<div>
+							<label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{{ __("Payment Type") }}</label>
+							<select v-model="returnPaymentType" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none bg-white">
+								<option :value="null">{{ __("Select Payment Type") }}</option>
+								<option value="Cash on delivery">{{ __("Cash on delivery") }}</option>
+								<option value="Credit Card">{{ __("Credit Card") }}</option>
+								<option value="Cash Talabat">{{ __("Cash Talabat") }}</option>
+								<option value="Credit Card on delivary">{{ __("Credit Card on delivary") }}</option>
+								<option value="Cash">{{ __("Cash") }}</option>
+							</select>
+						</div>
+
+						<!-- Receipt number -->
+						<div>
+							<label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{{ __("Receipt Number") }}</label>
+							<input v-model="returnReceiptNumber" type="text" :placeholder="__('Enter receipt number')" @keyup.enter="confirmReturnToNeedMyAction" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none bg-white" />
+						</div>
+					</div>
+					<div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
+						<button @click="closeReturnDialog" :disabled="returnSubmitting" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">{{ __("Cancel") }}</button>
+						<button @click="confirmReturnToNeedMyAction" :disabled="returnSubmitting" class="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors disabled:opacity-50">
+							<svg v-if="returnSubmitting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+							{{ __("Return to Need My Action") }}
+						</button>
+					</div>
+				</div>
+			</div>
+		</teleport>
+
 		<!-- Order Number Limit Settings Dialog -->
 		<teleport to="body">
 			<div v-if="limitDialog.show" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -1066,6 +1125,13 @@ const showDriverDialog = ref(false)
 const driverDialogInvoiceName = ref("")
 const driverDialogSelected = ref("")
 const driverAssigning = ref(false)
+
+// Return to Need My Action dialog (Call Center)
+const showReturnDialog = ref(false)
+const returnOrder = ref(null)
+const returnPaymentType = ref(null)
+const returnReceiptNumber = ref("")
+const returnSubmitting = ref(false)
 
 // Add/Edit customer second mobile number
 const showMobileDialog = ref(false)
@@ -1843,6 +1909,40 @@ async function convertOrderType(order, newType) {
 	} catch (error) {
 		console.error("Failed to convert order type:", error)
 		window.frappe?.show_alert?.({ message: __("Failed to update order type"), indicator: "red" })
+	}
+}
+
+function openReturnDialog(order) {
+	returnOrder.value = order
+	returnPaymentType.value = order.custom_payment_type || null
+	returnReceiptNumber.value = order.custom_receipt_number || ""
+	showReturnDialog.value = true
+}
+
+function closeReturnDialog() {
+	showReturnDialog.value = false
+	returnOrder.value = null
+	returnPaymentType.value = null
+	returnReceiptNumber.value = ""
+}
+
+async function confirmReturnToNeedMyAction() {
+	if (returnSubmitting.value || !returnOrder.value) return
+	returnSubmitting.value = true
+	try {
+		await call("ecs_posnext.api.invoices.return_order_to_need_my_action", {
+			invoice_name: returnOrder.value.name,
+			payment_type: returnPaymentType.value || "",
+			receipt_number: returnReceiptNumber.value || "",
+		})
+		window.frappe?.show_alert?.({ message: __("Order returned to Need My Action"), indicator: "green" })
+		closeReturnDialog()
+		fetchOrders()
+	} catch (error) {
+		console.error("Failed to return order to Need My Action:", error)
+		window.frappe?.show_alert?.({ message: __("Failed to return order to Need My Action"), indicator: "red" })
+	} finally {
+		returnSubmitting.value = false
 	}
 }
 </script>

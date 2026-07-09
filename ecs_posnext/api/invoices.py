@@ -703,6 +703,33 @@ def validate_return_items(original_invoice_name, return_items, doctype="Sales In
 # ==========================================
 
 
+def _apply_cost_center_from_opening_shift(invoice_doc):
+    """
+    Set the invoice Cost Center from the POS Profile linked to its POS Opening Shift.
+
+    The opening shift determines which branch/profile actually fulfils the order
+    (e.g. Call Center orders route to the target branch's shift), so that shift's
+    POS Profile carries the correct accounting Cost Center — not necessarily the
+    ordering POS Profile on the invoice. The resolved cost center is applied to the
+    header and propagated to every item so the whole invoice posts consistently.
+    """
+    opening_shift = invoice_doc.get("posa_pos_opening_shift")
+    if not opening_shift:
+        return
+
+    shift_profile = frappe.db.get_value("POS Opening Shift", opening_shift, "pos_profile")
+    if not shift_profile:
+        return
+
+    cost_center = frappe.db.get_value("POS Profile", shift_profile, "cost_center")
+    if not cost_center:
+        return
+
+    invoice_doc.cost_center = cost_center
+    for item in invoice_doc.get("items", []):
+        item.cost_center = cost_center
+
+
 def _prepare_invoice_doc(data):
     """
     Build and prepare an invoice document from POS data WITHOUT saving.
@@ -1450,6 +1477,9 @@ def submit_invoice(invoice=None, data=None):
 
         # Build and prepare invoice doc
         invoice_doc, pos_profile_doc = _prepare_invoice_doc(invoice)
+
+        # Cost Center follows the POS Profile linked to the invoice's POS Opening Shift
+        _apply_cost_center_from_opening_shift(invoice_doc)
 
         # For return invoices, set update_outstanding_for_self = 0
         if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
@@ -2218,6 +2248,9 @@ def get_all_orders(date_from=None, date_to=None, limit=500):
 				si.branch,
 				si.driver,
 				si.owner,
+				COALESCE(si.custom_is_rejected, 0) AS custom_is_rejected,
+				si.custom_payment_type,
+				si.custom_rejection_reason,
 				COALESCE(cust.mobile_no, '') AS mobile_no,
 				COALESCE(cust.custom_other_mobile_no, '') AS other_mobile_no,
 				ko.status AS kds_status
@@ -2268,6 +2301,9 @@ def get_all_orders(date_from=None, date_to=None, limit=500):
 				si.branch,
 				si.driver,
 				si.owner,
+				COALESCE(si.custom_is_rejected, 0) AS custom_is_rejected,
+				si.custom_payment_type,
+				si.custom_rejection_reason,
 				COALESCE(cust.mobile_no, '') AS mobile_no,
 				COALESCE(cust.custom_other_mobile_no, '') AS other_mobile_no,
 				ko.status AS kds_status
@@ -2656,6 +2692,60 @@ def reject_order_payment(invoice_name, reason=None):
         pass
 
     return {"message": _("Order {0} has been rejected").format(invoice_name)}
+
+
+@frappe.whitelist()
+def return_order_to_need_my_action(invoice_name, payment_type=None, receipt_number=None):
+    """
+    Clear the 'rejected' flag on a Call Center draft so it reappears in Need My Action.
+
+    When a draft is rejected from Need My Action, custom_is_rejected is set to 1 and the
+    order drops off the list. It has no other way back, so this restores it. Only drafts
+    (docstatus 0) can be returned — a submitted invoice is no longer awaiting checkout.
+
+    The Call Center may correct the expected payment type (custom_payment_type) and the
+    receipt number (custom_receipt_number) while returning the order so the cashier can
+    complete checkout with the right details.
+    """
+    doctype = "Sales Invoice"
+
+    if not frappe.db.exists(doctype, invoice_name):
+        frappe.throw(_("Invoice {0} does not exist").format(invoice_name))
+
+    if frappe.db.get_value(doctype, invoice_name, "docstatus") != 0:
+        frappe.throw(_("Only draft orders can be returned to Need My Action ({0}).").format(invoice_name))
+
+    updates = {
+        "custom_is_rejected": 0,
+        "custom_rejection_reason": "",
+    }
+    if payment_type is not None:
+        updates["custom_payment_type"] = payment_type
+    if receipt_number is not None:
+        updates["custom_receipt_number"] = receipt_number
+
+    frappe.db.set_value(doctype, invoice_name, updates, update_modified=True)
+    frappe.db.commit()
+
+    # db.set_value bypasses document hooks, so emit the realtime event manually
+    try:
+        pos_profile = frappe.db.get_value(doctype, invoice_name, "pos_profile") or ""
+        frappe.publish_realtime(
+            event="pos_order_changed",
+            message={
+                "invoice_name": invoice_name,
+                "action": "return_to_action",
+                "docstatus": 0,
+                "pos_profile": pos_profile,
+                "timestamp": frappe.utils.now(),
+            },
+            user=None,
+            after_commit=True,
+        )
+    except Exception:
+        pass
+
+    return {"message": _("Order {0} returned to Need My Action").format(invoice_name)}
 
 
 @frappe.whitelist()

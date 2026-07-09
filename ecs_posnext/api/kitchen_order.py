@@ -108,11 +108,16 @@ def cancel_sales_invoice_with_wastage(sales_invoice, is_wastage=False, items_to_
     
     wastage_stock_entry_name = None
 
-    if stock_entry_type == "Loaded" and not employee:
+    has_wastage_items = bool(is_wastage and wastage_items and len(wastage_items) > 0)
+
+    # Employee is only required for a "Loaded" wastage stock entry — i.e. when a
+    # wastage stock entry is actually going to be created. A plain cancellation
+    # (No wastage) must never demand an employee.
+    if has_wastage_items and stock_entry_type == "Loaded" and not employee:
         frappe.throw(_("Please select an employee"))
-    
+
     # Create Stock Entry for wastage items
-    if is_wastage and wastage_items and len(wastage_items) > 0:
+    if has_wastage_items:
         try:
             stock_entry = frappe.new_doc("Stock Entry")
             stock_entry.stock_entry_type = stock_entry_type  # Consumptions or Loaded

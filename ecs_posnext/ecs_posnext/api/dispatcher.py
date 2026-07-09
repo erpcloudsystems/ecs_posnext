@@ -480,7 +480,11 @@ def get_available_drivers(branch=None):
 
 @frappe.whitelist()
 def get_active_assignments(shift=None):
-	"""Return all non-terminal assignments, optionally filtered by shift."""
+	"""
+	Return all non-terminal assignments, optionally filtered by shift.
+	Scoped to the current user's branch (auto-detected from their open POS Opening
+	Shift → POS Profile) so each branch only sees its own delivery assignments.
+	"""
 	filters = {
 		"status": ["in", ["Assigned", "Picked Up", "Out for Delivery"]],
 		"docstatus": ["!=", 2],
@@ -497,6 +501,34 @@ def get_active_assignments(shift=None):
 		],
 		order_by="driver asc, creation asc",
 	)
+
+	# Restrict to the branch of the current user's open shift. Each assignment is
+	# tied to a Sales Invoice (order_reference) that carries the branch.
+	branch = None
+	user = frappe.session.user
+	open_shift = frappe.db.get_value(
+		"POS Opening Shift",
+		{"user": user, "status": "Open", "docstatus": 1},
+		"pos_profile",
+	)
+	if open_shift:
+		branch = frappe.db.get_value("POS Profile", open_shift, "branch") or None
+
+	if branch and assignments:
+		ref_names = list({a["order_reference"] for a in assignments if a.get("order_reference")})
+		branch_refs = set(
+			frappe.get_all(
+				"Sales Invoice",
+				filters={"name": ["in", ref_names], "branch": branch},
+				pluck="name",
+			)
+		) if ref_names else set()
+		# Keep branch orders; drop assignments whose invoice belongs to another branch.
+		# Assignments with no order_reference are kept (nothing to scope them by).
+		assignments = [
+			a for a in assignments
+			if not a.get("order_reference") or a["order_reference"] in branch_refs
+		]
 
 	# Enrich with driver name (Talabat assignments have no internal driver)
 	driver_names = {}

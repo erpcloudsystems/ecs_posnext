@@ -1015,6 +1015,42 @@ const formatTimeAgo = (dateStr, timeStr) => {
 	}
 }
 
+// ── New-action alert (sound + notification) ────────────────────────────────────
+// Total number of items currently awaiting the cashier's action.
+const pendingCount = computed(
+	() => orders.value.length + failedDeliveries.value.length + statusRequests.value.length,
+)
+
+function playNewActionSound() {
+	try {
+		const ctx = new (window.AudioContext || window.webkitAudioContext)()
+		;[{ freq: 880, start: 0, dur: 0.12 }, { freq: 1100, start: 0.13, dur: 0.12 }, { freq: 1320, start: 0.26, dur: 0.2 }].forEach(({ freq, start, dur }) => {
+			const osc = ctx.createOscillator(), gain = ctx.createGain()
+			osc.connect(gain); gain.connect(ctx.destination)
+			osc.type = "sine"; osc.frequency.value = freq
+			gain.gain.setValueAtTime(0.4, ctx.currentTime + start)
+			gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur)
+			osc.start(ctx.currentTime + start); osc.stop(ctx.currentTime + start + dur + 0.05)
+		})
+	} catch {}
+}
+
+// Watch the pending count; alert (sound + toast) whenever new work arrives so
+// orders are not left waiting. First load (prev = -1) is silent.
+let prevPendingCount = -1
+watch(pendingCount, (count) => {
+	if (prevPendingCount >= 0 && count > prevPendingCount) {
+		playNewActionSound()
+		const added = count - prevPendingCount
+		showWarning(
+			added > 1
+				? __("{0} new orders need your action", [String(added)])
+				: __("New order needs your action"),
+		)
+	}
+	prevPendingCount = count
+})
+
 // ── Realtime ──────────────────────────────────────────────────────────────────
 const { onOrderChanged } = useRealtimeOrders()
 
