@@ -1487,13 +1487,15 @@ async function _searchCustomersByName(query) {
 	}
 	customerSearchLoading.value = true
 	try {
-		const results = await call("frappe.client.get_list", {
-			doctype: "Customer",
-			fields: ["name", "customer_name", "mobile_no"],
-			filters: [["customer_name", "like", `%${query}%`]],
-			limit_page_length: 10,
-			order_by: "customer_name asc",
-		})
+		const results = props.isOffline
+			? await _searchCachedCustomers(query, "name")
+			: await call("frappe.client.get_list", {
+					doctype: "Customer",
+					fields: ["name", "customer_name", "mobile_no"],
+					filters: [["customer_name", "like", `%${query}%`]],
+					limit_page_length: 10,
+					order_by: "customer_name asc",
+				})
 		customerNameResults.value = results || []
 	} catch (err) {
 		log.error("[PaymentDialog] Customer name search error:", err)
@@ -1509,17 +1511,45 @@ async function _searchCustomersByMobile(query) {
 		return
 	}
 	try {
-		const results = await call("frappe.client.get_list", {
-			doctype: "Customer",
-			fields: ["name", "customer_name", "mobile_no"],
-			filters: [["mobile_no", "like", `%${query}%`]],
-			limit_page_length: 10,
-			order_by: "customer_name asc",
-		})
+		const results = props.isOffline
+			? await _searchCachedCustomers(query, "mobile")
+			: await call("frappe.client.get_list", {
+					doctype: "Customer",
+					fields: ["name", "customer_name", "mobile_no"],
+					filters: [["mobile_no", "like", `%${query}%`]],
+					limit_page_length: 10,
+					order_by: "customer_name asc",
+				})
 		customerMobileResults.value = results || []
 	} catch (err) {
 		log.error("[PaymentDialog] Customer mobile search error:", err)
 		customerMobileResults.value = []
+	}
+}
+
+// Search cached customers from IndexedDB (offline mode)
+async function _searchCachedCustomers(query, field = "name") {
+	try {
+		const term = query.toLowerCase().trim()
+		const allResults = await offlineWorker.searchCachedCustomers(term, 20)
+
+		// Filter to match the online behavior per field
+		const filtered = allResults.filter((cust) => {
+			if (!cust) return false
+			const name = (cust.customer_name || "").toLowerCase()
+			const mobile = (cust.mobile_no || "").toLowerCase()
+			const id = (cust.name || "").toLowerCase()
+
+			if (field === "mobile") {
+				return mobile.includes(term)
+			}
+			return name.includes(term) || id.includes(term)
+		})
+
+		return filtered.slice(0, 10)
+	} catch (err) {
+		log.error("[PaymentDialog] Cached customer search error:", err)
+		return []
 	}
 }
 
