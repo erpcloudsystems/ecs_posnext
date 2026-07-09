@@ -847,6 +847,7 @@
 </template>
 
 <script setup>
+import { useCustomerSearchStore } from "@/stores/customerSearch"
 import { usePOSSettingsStore } from "@/stores/posSettings"
 import { usePOSSalesPersonStore } from "@/stores/posSalesPerson"
 import {
@@ -868,6 +869,7 @@ import { useResponsivePayment } from "@/composables/useResponsivePayment"
 const log = logger.create("PaymentDialog")
 const settingsStore = usePOSSettingsStore()
 const salesPersonStore = usePOSSalesPersonStore()
+const customerSearchStore = useCustomerSearchStore()
 const { showWarning, showInfo } = useToast()
 
 // Derived commission split for Multiple Sales Persons mode (read-only here:
@@ -1487,16 +1489,9 @@ async function _searchCustomersByName(query) {
 	}
 	customerSearchLoading.value = true
 	try {
-		const results = props.isOffline
-			? await _searchCachedCustomers(query, "name")
-			: await call("frappe.client.get_list", {
-					doctype: "Customer",
-					fields: ["name", "customer_name", "mobile_no"],
-					filters: [["customer_name", "like", `%${query}%`]],
-					limit_page_length: 10,
-					order_by: "customer_name asc",
-				})
-		customerNameResults.value = results || []
+		// Always use the shared customer store (same as InvoiceCart)
+		// so the search works offline and stays consistent across the app
+		customerNameResults.value = _searchCachedCustomers(query, "name")
 	} catch (err) {
 		log.error("[PaymentDialog] Customer name search error:", err)
 		customerNameResults.value = []
@@ -1511,27 +1506,19 @@ async function _searchCustomersByMobile(query) {
 		return
 	}
 	try {
-		const results = props.isOffline
-			? await _searchCachedCustomers(query, "mobile")
-			: await call("frappe.client.get_list", {
-					doctype: "Customer",
-					fields: ["name", "customer_name", "mobile_no"],
-					filters: [["mobile_no", "like", `%${query}%`]],
-					limit_page_length: 10,
-					order_by: "customer_name asc",
-				})
-		customerMobileResults.value = results || []
+		// Always use the shared customer store (same as InvoiceCart)
+		customerMobileResults.value = _searchCachedCustomers(query, "mobile")
 	} catch (err) {
 		log.error("[PaymentDialog] Customer mobile search error:", err)
 		customerMobileResults.value = []
 	}
 }
 
-// Search cached customers from IndexedDB (offline mode)
-async function _searchCachedCustomers(query, field = "name") {
+// Search cached customers from shared store (offline mode)
+function _searchCachedCustomers(query, field = "name") {
 	try {
 		const term = query.toLowerCase().trim()
-		const allResults = await offlineWorker.searchCachedCustomers(term, 20)
+		const allResults = customerSearchStore.allCustomers || []
 
 		// Filter to match the online behavior per field
 		const filtered = allResults.filter((cust) => {
@@ -1946,6 +1933,10 @@ watch(show, (newVal) => {
 		isCreatingCustomer.value = false
 		customerNameResults.value = []
 		customerMobileResults.value = []
+		// Load customer cache (offline-first, same as InvoiceCart)
+		if (props.posProfile) {
+			customerSearchStore.loadAllCustomers(props.posProfile)
+		}
 		if (props.customer) {
 			const custObj = typeof props.customer === "object"
 				? props.customer
@@ -2366,19 +2357,38 @@ async function completePayment() {
 	if (!resolvedCustomer && customerNameQuery.value.trim()) {
 		isCreatingCustomer.value = true
 		try {
-			const newCust = await call("frappe.client.insert", {
-				doc: {
-					doctype: "Customer",
-					customer_name: customerNameQuery.value.trim(),
+			const trimmedName = customerNameQuery.value.trim()
+			const mobile = customerMobileQuery.value.trim() || ""
+
+			let newCust
+			if (props.isOffline) {
+				// Offline: create local customer and cache it for later sync
+				newCust = {
+					name: trimmedName,
+					customer_name: trimmedName,
+					mobile_no: mobile,
 					customer_type: "Individual",
 					customer_group: "أفراد",
 					territory: "All Territories",
-					mobile_no: customerMobileQuery.value.trim() || "",
-				},
-			})
+					offline_created: true,
+				}
+				await customerSearchStore.addCustomerToCache(newCust)
+				log.debug("[PaymentDialog] Offline customer cached:", newCust)
+			} else {
+				newCust = await call("frappe.client.insert", {
+					doc: {
+						doctype: "Customer",
+						customer_name: trimmedName,
+						customer_type: "Individual",
+						customer_group: "أفراد",
+						territory: "All Territories",
+						mobile_no: mobile,
+					},
+				})
+				log.debug("[PaymentDialog] New customer created:", newCust)
+			}
 			resolvedCustomer = newCust
 			selectedCustomer.value = newCust
-			log.debug("[PaymentDialog] New customer created:", newCust)
 		} catch (err) {
 			log.error("[PaymentDialog] Failed to create customer:", err)
 			showWarning(__("Failed to create customer: {0}", [err.message || "Unknown error"]))
