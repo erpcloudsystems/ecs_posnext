@@ -402,6 +402,7 @@ def get_sales_order2(status=None):
         queries.append(f"""
             SELECT
                 IF(t.docstatus=1, 'Completed', COALESCE(t.{kitchen_status_col if has_kitchen_col_si else "status"}, 'Pending')) AS status_name,
+                t.docstatus,
                 t.customer_name,
                 t.branch,
                 t.custom_number_order,
@@ -461,6 +462,7 @@ def get_sales_order2(status=None):
                 "other_mobile_no": row.get("other_mobile_no") or "",
                 "branch": row["branch"],
                 "status_name": row["status_name"],
+                "docstatus": row["docstatus"],
                 "custom_unique_talbat_number": row["custom_unique_talbat_number"],
                 "items": [],
                 "transaction_date": row["transaction_date"],

@@ -225,8 +225,8 @@
 												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
 											</svg>
 										</button>
-										<!-- Cancel -->
-										<button @click="deleteOrder(order.name)" class="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" :title="__('Cancel')">
+										<!-- Cancel (hidden on Completed Orders) -->
+										<button v-if="false" @click="deleteOrder(order.name)" class="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" :title="__('Cancel')">
 											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
 											</svg>
@@ -462,7 +462,10 @@ const fetchOrders = async () => {
 	loading.value = true
 	try {
 		const r = await call("ecs_posnext.api.kitchen_order.get_sales_order2")
-		orders.value = r || []
+		// Completed Orders shows only submitted invoices — hide drafts and cancelled orders
+		orders.value = (r || []).filter(o =>
+			o.docstatus === 1 && (o.status_name || "").toLowerCase() !== "cancelled"
+		)
 	} catch (error) {
 		console.error("Failed to fetch orders:", error)
 		window.frappe?.show_alert?.({ message: __("Failed to load orders"), indicator: "red" })
