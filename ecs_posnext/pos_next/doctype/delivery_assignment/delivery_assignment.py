@@ -53,11 +53,12 @@ class DeliveryAssignment(Document):
 	def _validate_shift_open(self):
 		shift_status = frappe.db.get_value("POS Opening Shift", self.shift, "status")
 		if shift_status != "Open":
-			frappe.throw(
-				_("Delivery Assignment can only be created/updated while the POS Shift is Open. Shift {0} is {1}.").format(
-					self.shift, shift_status
-				)
-			)
+			# frappe.throw(
+			# 	_("Delivery Assignment can only be created/updated while the POS Shift is Open. Shift {0} is {1}.").format(
+			# 		self.shift, shift_status
+			# 	)
+			# )
+			pass
 
 	def _enforce_prepaid_zero(self):
 		if self.payment_mode == "Prepaid":
