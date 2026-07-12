@@ -88,15 +88,19 @@ class POSClosingShift(Document):
         )
 
     def set_closing_amounts(self):
-        """Set closing amounts: total_cash for cash mode, expected_amount for others."""
+        """Set closing amounts: counted cash for cash-type modes, expected for the rest.
+
+        Classification relies on the Mode of Payment `type` (== "Cash"), NOT the
+        mode's name. This keeps electronic wallets whose name merely contains
+        "cash" (e.g. "Vodafone Cash") out of the physical-cash reconciliation —
+        provided their Mode of Payment type is set correctly (Bank/Phone, not Cash).
+        """
         if not self.payment_reconciliation:
             return
 
-        cash_mop = _get_cash_mode_of_payment(self.pos_profile)
-
         for d in self.payment_reconciliation:
-            is_cash = d.mode_of_payment == cash_mop or "cash" in (d.mode_of_payment or "").lower()
-            if is_cash:
+            mop_type = frappe.get_cached_value("Mode of Payment", d.mode_of_payment, "type")
+            if mop_type == "Cash":
                 d.closing_amount = self.total_cash
             else:
                 d.closing_amount = d.expected_amount
