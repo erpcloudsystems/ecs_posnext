@@ -23,6 +23,22 @@ def validate(doc, method=None):
 	"""
 	apply_tax_inclusive(doc)
 	auto_assign_loyalty_program_on_invoice(doc)
+	validate_delivery_address(doc)
+
+
+def validate_delivery_address(doc):
+	"""Require a delivery address on POS Delivery orders.
+
+	Frontend enforces this at checkout; this is a defense-in-depth guard for any
+	other path (offline sync, imports) so a Delivery invoice can never be saved
+	without an address.
+	"""
+	if not doc.get("is_pos"):
+		return
+	if (doc.get("custom_order_type") or "") != "Delivery":
+		return
+	if not (doc.get("customer_address") or doc.get("shipping_address_name")):
+		frappe.throw(_("Delivery address is required for delivery orders."))
 
 
 def _get_cached_pos_settings(pos_profile):

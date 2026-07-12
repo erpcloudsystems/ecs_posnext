@@ -1414,6 +1414,7 @@ import { useItemSearchStore } from "@/stores/itemSearch";
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "@/utils/currency";
 import { useFormatters } from "@/composables/useFormatters";
 import { useCartSort } from "@/composables/useCartSort";
+import { useToast } from "@/composables/useToast";
 import { isOffline } from "@/utils/offline";
 import { offlineWorker } from "@/utils/offline/workerClient";
 import { logger } from "@/utils/logger";
@@ -1440,8 +1441,15 @@ const offersStore = usePOSOffersStore(); // Pinia store for offers/promotions
 const customerSearchStore = useCustomerSearchStore(); // Pinia store for customer search
 const itemSearchStore = useItemSearchStore(); // Pinia store for item search and catalog
 const { formatQuantity } = useFormatters(); // Quantity formatting utilities
+const { showError } = useToast(); // Toast notifications
 
 function handleProceedToPayment() {
+	// Delivery orders must have a delivery address before checkout.
+	if (cartStore.orderType === 'Delivery' && !cartStore.customerAddress) {
+		showError(__("Delivery address is required for delivery orders"));
+		showAddressSelector.value = true;
+		return;
+	}
 	emit("proceed-to-payment");
 }
 
