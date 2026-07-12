@@ -91,7 +91,7 @@
                     </li>
                   </ul>
                 </template>
-                <div v-if="group.item.special_notes" class="text-sm text-amber-300 mt-1 ml-2">{{ group.item.special_notes }}</div>
+                <div v-if="group.item.special_notes" class="text-xl font-bold text-amber-300 mt-1 ml-2">{{ group.item.special_notes }}</div>
               </template>
 
               <!-- ── Combo group: main meal name + its components ── -->
@@ -125,7 +125,7 @@
                         </li>
                       </ul>
                     </template>
-                    <div v-if="child.special_notes" class="text-sm text-amber-300 mt-1 ml-2">{{ child.special_notes }}</div>
+                    <div v-if="child.special_notes" class="text-xl font-bold text-amber-300 mt-1 ml-2">{{ child.special_notes }}</div>
                   </div>
                 </div>
               </template>

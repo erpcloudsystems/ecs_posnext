@@ -175,7 +175,7 @@
             <div class="mx-3.5 border-t border-neutral-800"></div>
 
             <!-- Order-level note -->
-            <div v-if="order.order_note" class="mx-3.5 mt-2 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs text-right" dir="rtl">
+            <div v-if="order.order_note" class="mx-3.5 mt-2 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-lg font-bold text-right" dir="rtl">
               📝 {{ order.order_note }}
             </div>
 
@@ -204,7 +204,7 @@
                   </div>
                   <!-- per-item (component) note -->
                   <div v-for="(row, ni) in componentRows(group)" :key="'n'+ni">
-                    <div v-if="row.note" class="text-[11px] text-amber-300/90 text-right pr-6" dir="rtl">📝 {{ row.note }}</div>
+                    <div v-if="row.note" class="text-base font-semibold text-amber-300/90 text-right pr-6" dir="rtl">📝 {{ row.note }}</div>
                   </div>
 
                   <!-- removed ingredients on the group -->
@@ -213,7 +213,7 @@
                     <span class="flex-1 text-right line-through" dir="rtl">{{ ri.item_name || ri }}</span>
                   </div>
 
-                  <div v-if="group.special_notes" class="text-[11px] text-amber-300/90 text-right pt-0.5" dir="rtl">📝 {{ group.special_notes }}</div>
+                  <div v-if="group.special_notes" class="text-base font-semibold text-amber-300/90 text-right pt-0.5" dir="rtl">📝 {{ group.special_notes }}</div>
                 </div>
               </div>
             </div>
