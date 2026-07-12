@@ -302,7 +302,7 @@
 								<div class="flex items-center gap-2">
 									<div class="flex-1 min-w-0">
 										<div class="flex items-center gap-1.5">
-											<span class="text-blue-400 font-medium text-xs">{{ a.order_reference }}</span>
+											<span class="text-blue-400 font-medium text-xs">{{ a.custom_number_order || a.order_reference }}</span>
 											<span class="text-gray-400 text-xs truncate">{{ a.customer }}</span>
 										</div>
 										<div v-if="a.delivery_address" class="text-xs text-gray-600 truncate">📍 {{ a.delivery_address }}</div>
@@ -378,7 +378,7 @@
 					<div v-for="row in bundleCollectRows" :key="row.name" class="bg-gray-900 rounded-lg p-3">
 						<div class="flex items-center justify-between mb-2">
 							<div>
-								<span class="text-blue-400 font-medium text-sm">{{ row.order_reference }}</span>
+								<span class="text-blue-400 font-medium text-sm">{{ row.custom_number_order || row.order_reference }}</span>
 								<span class="text-gray-400 text-xs ml-2">{{ row.customer }}</span>
 							</div>
 							<span v-if="row.payment_mode === 'Cash (COD)'" class="text-xs bg-amber-900 text-amber-300 rounded px-1.5 py-0.5 font-bold">COD</span>
@@ -770,6 +770,7 @@ async function handoverTalabat(order) {
 function openTalabatCollect(order) {
 	bundleCollectRows.value = [{
 		order_reference: order.name,
+		custom_number_order: order.custom_number_order,
 		customer: order.customer,
 		payment_mode: "Cash (COD)",
 		amount_to_collect: order.outstanding_amount || 0,

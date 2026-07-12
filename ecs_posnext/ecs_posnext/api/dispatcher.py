@@ -540,9 +540,10 @@ def get_active_assignments(shift=None):
 			driver_names[a.driver] = frappe.db.get_value("Driver", a.driver, "full_name") or a.driver
 		a["driver_name"] = driver_names[a.driver]
 
-	# Enrich with KDS status for each order_reference
+	# Enrich with KDS status + the human order number (custom_number_order) per invoice
 	invoice_names = [a["order_reference"] for a in assignments if a.get("order_reference")]
 	kds_map = {}
+	number_order_map = {}
 	if invoice_names:
 		kds_rows = frappe.db.sql(
 			"""SELECT sales_invoice, status FROM `tabKDS Order`
@@ -551,11 +552,22 @@ def get_active_assignments(shift=None):
 		)
 		kds_map = {r.sales_invoice: r.status for r in kds_rows}
 
+		number_order_map = {
+			r.name: r.custom_number_order
+			for r in frappe.get_all(
+				"Sales Invoice",
+				filters={"name": ["in", invoice_names]},
+				fields=["name", "custom_number_order"],
+			)
+		}
+
 	for a in assignments:
 		kds_status = kds_map.get(a.get("order_reference"))
 		a["kds_status"] = kds_status or "No KDS"
 		# Kitchen is done once the KDS order is Ready or Completed (or no KDS order exists)
 		a["kds_ready"] = (kds_status in ("Ready", "Completed")) if kds_status else True
+		# Order number shown on the dispatch board instead of the raw invoice name
+		a["custom_number_order"] = number_order_map.get(a.get("order_reference"))
 
 	return assignments
 
