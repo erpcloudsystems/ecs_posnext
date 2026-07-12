@@ -19,10 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All existing payment dialog functionality (sales persons, payment methods, write-off, etc.) is preserved
 
 ### Fixed
-- **Offline Customer Search in Payment Dialog**
-  - `PaymentDialog.vue` now falls back to `offlineWorker.searchCachedCustomers` when the POS is offline
-  - Name and mobile customer searches in the Complete Payment dialog use the IndexedDB cache instead of `frappe.client.get_list`
-  - Prevents empty customer dropdowns when no network connection is available, while preserving existing online search behavior
+- **Offline Customer Search & Creation in Payment Dialog**
+  - `PaymentDialog.vue` now uses the shared `customerSearchStore` for customer search (same as the cart's customer search)
+  - Name and mobile customer searches in the Complete Payment dialog work offline by filtering the cached customer list
+  - Customer cache is loaded when the dialog opens, so dropdowns populate immediately even without connectivity
+  - Creating a new customer while offline now caches the customer locally instead of calling `frappe.client.insert`; the backend creates the customer when the offline invoice syncs
 - **Item Price Validity Filters**
   - Added `valid_from` and `valid_upto` date filters to all Item Price queries across `get_items()`, `get_items_bulk()`, `get_item_variants()`, and `search_by_barcode()` functions
   - POS now displays only currently valid prices, excluding expired or future-dated prices

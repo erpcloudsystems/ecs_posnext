@@ -131,6 +131,13 @@ export const usePOSSalesPersonStore = defineStore("posSalesPerson", () => {
 		activeSalesPerson.value = null
 	}
 
+	// Clear the current selection without touching the "Multiple Sales Persons" toggle
+	// Used after a sale completes so the next invoice starts with no sales person selected
+	function clearSelection() {
+		selected.value = []
+		activeSalesPerson.value = null
+	}
+
 	/**
 	 * Derive the commission split from per-item assignment.
 	 * @param {Array} items - cart items (each may carry sales_person + amount)
@@ -187,6 +194,7 @@ export const usePOSSalesPersonStore = defineStore("posSalesPerson", () => {
 		getActive,
 		nameFor,
 		reset,
+		clearSelection,
 		computeAllocations,
 		allItemsAssigned,
 	}

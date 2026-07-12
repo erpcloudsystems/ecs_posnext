@@ -252,6 +252,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		appliedCoupon.value = null
 		currentDraftId.value = null
 		targetDoctype.value = "Sales Invoice"
+		salesPersonStore.clearSelection()
 
 		// Reset offer processing state
 		suppressOfferReapply.value = false

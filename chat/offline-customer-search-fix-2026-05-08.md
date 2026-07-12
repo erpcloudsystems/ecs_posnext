@@ -1,23 +1,20 @@
-# Offline Customer Search Fix - 2026-05-08
+# Offline Customer Search & Creation Fix - 2026-05-08
 
 ## Summary
-Fixed the customer search dropdown in the Complete Payment dialog so it works while the POS is offline. Previously, both the Customer Name and Customer Mobile searches called `frappe.client.get_list` directly, which fails without network connectivity and left the dropdown empty.
+Fixed the customer search and customer creation in the Complete Payment dialog so both work while the POS is offline, matching the behavior of the cart's customer search shown in the screenshot. Previously, the inline customer fields called `frappe.client.get_list` for search and `frappe.client.insert` for creation, both of which fail without network connectivity.
 
 ## Root Cause
-`PaymentDialog.vue` implemented inline customer search using server-side `frappe.client.get_list` calls only. It did not use the existing IndexedDB customer cache maintained by the offline worker, even though `offlineWorker.searchCachedCustomers` was already exposed and preloaded.
+`PaymentDialog.vue` implemented inline customer search using server-side `frappe.client.get_list` calls only. It did not use the shared `customerSearchStore` (which the cart uses) and did not handle offline customer creation.
 
 ## Changes Made
 
 ### `POS/src/components/sale/PaymentDialog.vue`
-1. **`_searchCustomersByName`**: When `props.isOffline` is true, now calls `_searchCachedCustomers(query, "name")` instead of `frappe.client.get_list`.
-2. **`_searchCustomersByMobile`**: When `props.isOffline` is true, now calls `_searchCachedCustomers(query, "mobile")` instead of `frappe.client.get_list`.
-3. **New helper `_searchCachedCustomers(query, field)`**:
-   - Uses `offlineWorker.searchCachedCustomers(term, 20)` to fetch from IndexedDB.
-   - Filters results to match online behavior:
-     - `"name"` search matches `customer_name` or `name`.
-     - `"mobile"` search matches `mobile_no`.
-   - Returns up to 10 results.
-   - Catches and logs errors, returning an empty array so the UI degrades gracefully.
+1. **Import `useCustomerSearchStore`**: Added the shared store that InvoiceCart uses for customer search and caching.
+2. **Load customer cache on open**: When the dialog opens, `customerSearchStore.loadAllCustomers(props.posProfile)` is called so the cache is ready immediately.
+3. **`_searchCustomersByName`**: Now always filters `customerSearchStore.allCustomers` in memory (same as the cart's customer search), so it works offline and online.
+4. **`_searchCustomersByMobile`**: Same change as above, filtering by `mobile_no`.
+5. **`_searchCachedCustomers(query, field)`**: Refactored to a synchronous helper that filters the store's `allCustomers` array.
+6. **Offline customer creation**: In `completePayment`, when `props.isOffline` is true and a new customer name is typed, a local customer object is created and cached via `customerSearchStore.addCustomerToCache`. Online creation still uses `frappe.client.insert`.
 
 ## Files Modified
 - `POS/src/components/sale/PaymentDialog.vue`
@@ -27,5 +24,5 @@ Fixed the customer search dropdown in the Complete Payment dialog so it works wh
 ⚠️ Build/lint was not executed in this session.
 
 ## Notes
-- Online behavior is unchanged; offline behavior now mirrors the online search as closely as possible using the local customer cache.
-- New customer creation still requires network connectivity because it uses `frappe.client.insert`; this fix addresses only the search/fetch issue reported by the user.
+- The payment dialog customer search now behaves like the cart's customer search (same shared store, same offline-first cache).
+- Offline-created customers are cached locally and will be created on the server when the offline invoice is synced (the backend `update_invoice` already creates missing customers).
