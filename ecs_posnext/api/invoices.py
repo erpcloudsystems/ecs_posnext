@@ -1558,7 +1558,6 @@ def submit_invoice(invoice=None, data=None):
                 SELECT COUNT(name)
                 FROM `tabSales Invoice`
                 WHERE custom_number_order LIKE %s
-                  AND docstatus != 2
                 """,
                 (f"{parent_order_number}-%",)
             )[0][0]
@@ -1600,7 +1599,6 @@ def submit_invoice(invoice=None, data=None):
                 WHERE {scope_condition}
                   {channel_condition}
                   AND TIMESTAMP(posting_date, posting_time) >= %s
-                  AND docstatus < 2
                   AND (custom_number_order IS NULL OR custom_number_order NOT LIKE '%%-%%-%%')
                 """,
                 (scope_value, shift_start_str)
