@@ -99,6 +99,37 @@ def on_sales_invoice_submit(doc, method=None):
         frappe.log_error(frappe.get_traceback(), "KDS Order Creation Failed")
 
 
+def on_sales_invoice_cancel(doc, method=None):
+    """When a Sales Invoice is cancelled, cancel its KDS Order so it disappears
+    from the kitchen (KDS) and dispatch screens."""
+    orders = frappe.get_all(
+        "KDS Order",
+        filters={"sales_invoice": doc.name, "status": ["!=", "Cancelled"]},
+        pluck="name",
+    )
+    for order in orders:
+        try:
+            frappe.db.set_value("KDS Order", order, "status", "Cancelled")
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "KDS Order Cancel Failed")
+
+    if orders:
+        frappe.publish_realtime(
+            "kds_update",
+            {
+                "action": "order_cancelled",
+                "invoice": doc.name,
+                "branch": doc.get("branch"),
+            },
+            after_commit=True,
+        )
+        frappe.publish_realtime(
+            "dispatch_desk_refresh",
+            {"source": "kds", "invoice": doc.name},
+            after_commit=True,
+        )
+
+
 def _create_kds_order(doc):
     settings = _get_settings_for_branch(doc.get("branch"))
     order_type = doc.get("custom_order_type") or ""

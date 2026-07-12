@@ -243,7 +243,8 @@ doc_events = {
 		"on_cancel": [
 			"ecs_posnext.realtime_events.emit_stock_update_event",
 			"ecs_posnext.realtime_events.emit_order_changed_event",
-			"ecs_posnext.api.sales_invoice_hooks.cancel_payment_entries_on_cancel"
+			"ecs_posnext.api.sales_invoice_hooks.cancel_payment_entries_on_cancel",
+			"ecs_posnext.ecs_posnext.api.kds.on_sales_invoice_cancel"
 		],
 		"after_insert": [
 			"ecs_posnext.realtime_events.emit_invoice_created_event",
