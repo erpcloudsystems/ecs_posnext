@@ -27,6 +27,18 @@ frappe.ui.form.on("POS Closing Shift", {
 			set_html_data(frm);
 		}
 
+		// Load Mode of Payment types so cash classification relies on `type == "Cash"`
+		// (not the mode's name) — mirrors the backend set_closing_amounts logic.
+		frappe.db.get_list("Mode of Payment", { fields: ["name", "type"], limit: 0 }).then((rows) => {
+			frm.mode_types = {};
+			(rows || []).forEach((r) => {
+				frm.mode_types[r.name] = r.type;
+			});
+			if (frm.doc.docstatus === 0 && frm.cash_mop) {
+				calculate_total_cash(frm);
+			}
+		});
+
 		if (frm.doc.pos_profile) {
 			frappe.call({
 				method: "ecs_posnext.pos_next.doctype.pos_closing_shift.pos_closing_shift.get_cash_mode_of_payment_py",
@@ -277,9 +289,13 @@ function calculate_total_cash(frm) {
 	frm.set_value("total_cash", total);
 
 	const cash_mop = get_cash_mode_of_payment(frm);
+	const mode_types = frm.mode_types || {};
 
 	(frm.doc.payment_reconciliation || []).forEach((d) => {
-		const is_cash = d.mode_of_payment === cash_mop || (d.mode_of_payment || "").toLowerCase().includes("cash");
+		// Rely on the Mode of Payment type; fall back to the configured cash mode
+		// only when the type map has not loaded yet. Never match by name substring.
+		const known_type = mode_types[d.mode_of_payment];
+		const is_cash = known_type ? known_type === "Cash" : d.mode_of_payment === cash_mop;
 		if (is_cash) {
 			frappe.model.set_value(d.doctype, d.name, "closing_amount", total);
 		} else {

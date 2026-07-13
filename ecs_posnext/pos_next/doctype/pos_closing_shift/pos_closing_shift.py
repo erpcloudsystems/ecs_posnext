@@ -65,16 +65,67 @@ class POSClosingShift(Document):
                 _("Selected POS Opening Shift should be open."),
                 title=_("Invalid Opening Entry"),
             )
+        self.dedupe_child_rows()
         self.calculate_total_cash()
         self.set_closing_amounts()
         self.update_payment_reconciliation()
+
+    def dedupe_child_rows(self):
+        """Guard against duplicate child-table rows however they arrive.
+
+        - payment_reconciliation: merged by mode of payment (amounts summed) so the
+          reconciliation stays correct; closing_amount/difference/total_diff are
+          recomputed downstream in validate.
+        - other tables: only exact duplicate rows (same natural key) are dropped,
+          so no legitimate distinct row is ever removed.
+        """
+        # payment_reconciliation — merge by mode of payment
+        merged, order = {}, []
+        for d in self.get("payment_reconciliation") or []:
+            key = d.mode_of_payment
+            if key in merged:
+                m = merged[key]
+                m.opening_amount = flt(m.opening_amount) + flt(d.opening_amount)
+                m.expected_amount = flt(m.expected_amount) + flt(d.expected_amount)
+            else:
+                merged[key] = d
+                order.append(key)
+        if len(order) != len(self.get("payment_reconciliation") or []):
+            self.set("payment_reconciliation", [merged[k] for k in order])
+
+        # Reference / breakdown tables — drop exact duplicates only
+        self._dedupe_exact("pos_transactions", ("sales_invoice", "pos_invoice"))
+        self._dedupe_exact("pos_payments", ("payment_entry",))
+        self._dedupe_exact("taxes", ("account_head", "rate", "amount"))
+        self._dedupe_exact("custom_cash_invoices", ("sales_invoice", "mode_of_payment", "amount"))
+        self._dedupe_exact("custom_credit_invoices", ("sales_invoice", "mode_of_payment", "amount"))
+
+    def _dedupe_exact(self, fieldname, key_fields):
+        """Remove rows whose key_fields tuple was already seen (keep first)."""
+        rows = self.get(fieldname) or []
+        if not rows:
+            return
+        seen, kept = set(), []
+        for r in rows:
+            key = tuple(r.get(f) for f in key_fields)
+            if key in seen:
+                continue
+            seen.add(key)
+            kept.append(r)
+        if len(kept) != len(rows):
+            self.set(fieldname, kept)
 
     def update_payment_reconciliation(self):
         # update the difference values in Payment Reconciliation child table
         # get default precision for site
         precision = frappe.get_cached_value("System Settings", None, "currency_precision") or 3
+        total_diff = 0
         for d in self.payment_reconciliation:
-            d.difference = +flt(d.closing_amount, precision) - flt(d.expected_amount, precision)
+            d.difference = flt(d.closing_amount, precision) - flt(d.expected_amount, precision)
+            total_diff += flt(d.difference)
+        # Authoritative total: recomputed server-side so it always matches the
+        # per-row (type-based) differences, regardless of what the client sent.
+        self.total_diff = flt(total_diff, precision)
 
     def calculate_total_cash(self):
         self.total_cash = (
@@ -524,6 +575,7 @@ def _process_invoice(invoice, invoice_field, company_currency, cash_mode, paymen
     # Build transaction record
     transaction = frappe._dict({
         invoice_field: invoice.name,
+        "custom_number_order": invoice.get("custom_number_order"),
         "posting_date": invoice.posting_date,
         "grand_total": base_grand_total,
         "transaction_currency": invoice.get("currency") or company_currency,
@@ -610,6 +662,13 @@ def make_closing_shift_from_opening(opening_shift):
     credit_invoice_rows = []
     _mode_cash_cache = {}
 
+    # Credit table should only list modes of payment configured on this POS Profile.
+    profile_modes = set(frappe.get_all(
+        "POS Payment Method",
+        filters={"parent": opening_shift.get("pos_profile")},
+        pluck="mode_of_payment",
+    ))
+
     def _is_cash(mode):
         if not mode:
             return False
@@ -640,7 +699,11 @@ def make_closing_shift_from_opening(opening_shift):
                 "amount": amount,
                 "posting_date": invoice.posting_date,
             }
-            (cash_invoice_rows if _is_cash(p.mode_of_payment) else credit_invoice_rows).append(row)
+            if _is_cash(p.mode_of_payment):
+                cash_invoice_rows.append(row)
+            elif p.mode_of_payment in profile_modes:
+                # Only credit modes that belong to this POS Profile are listed.
+                credit_invoice_rows.append(row)
 
     # Process payment entries
     pos_payments_table = []
