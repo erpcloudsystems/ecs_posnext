@@ -379,7 +379,13 @@ def get_sales_order2(status=None):
     kitchen_status_col = "custom_order_in_kitchen_"
     has_kitchen_col_si = frappe.db.has_column("Sales Invoice", kitchen_status_col)
     
-    table_no_col_si = "custom_table_number" if frappe.db.has_column("Sales Invoice", "custom_table_number") else "NULL"
+    if frappe.db.has_column("Sales Invoice", "custom_table_no"):
+        # Prefer the human table number; fall back to the link id for older invoices.
+        table_no_col_si = "COALESCE(NULLIF(t.custom_table_no, ''), t.custom_table_number)"
+    elif frappe.db.has_column("Sales Invoice", "custom_table_number"):
+        table_no_col_si = "t.custom_table_number"
+    else:
+        table_no_col_si = "NULL"
     order_type_col_si = "custom_order_type" if frappe.db.has_column("Sales Invoice", "custom_order_type") else "NULL"
 
     queries = []
@@ -410,7 +416,7 @@ def get_sales_order2(status=None):
                 t1.item_code,
                 t1.qty,
                 t.{order_type_col_si} AS order_type,
-                t.{table_no_col_si} AS table_no,
+                {table_no_col_si} AS table_no,
                 t.posting_date AS transaction_date,
                 t.custom_unique_talbat_number,
                 t.driver,

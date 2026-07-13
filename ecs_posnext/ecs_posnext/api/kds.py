@@ -322,11 +322,12 @@ def get_active_orders(branch=None):
         if inv:
             si = frappe.db.get_value(
                 "Sales Invoice", inv,
-                ["custom_table_number", "customer_name", "posa_notes",
+                ["custom_table_number", "custom_table_no", "customer_name", "posa_notes",
                  "custom_payment_type", "outstanding_amount"],
                 as_dict=True,
             ) or {}
-            order["table_number"] = si.get("custom_table_number")
+            # Show the human table number; fall back to the link id for older invoices.
+            order["table_number"] = si.get("custom_table_no") or si.get("custom_table_number")
             order["customer_name"] = si.get("customer_name")
             order["order_note"] = si.get("posa_notes")
             order["custom_payment_type"] = si.get("custom_payment_type")
