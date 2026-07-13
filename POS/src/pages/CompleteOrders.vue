@@ -461,7 +461,9 @@ const goBack = () => router.push("/")
 const fetchOrders = async () => {
 	loading.value = true
 	try {
-		const r = await call("ecs_posnext.api.kitchen_order.get_sales_order2")
+		const r = await call("ecs_posnext.api.kitchen_order.get_sales_order2", {
+			target_date: filterDate.value || undefined,
+		})
 		// Completed Orders shows only submitted invoices — hide drafts and cancelled orders
 		orders.value = (r || []).filter(o =>
 			o.docstatus === 1 && (o.status_name || "").toLowerCase() !== "cancelled"
@@ -546,10 +548,10 @@ const filteredOrders = computed(() => {
 	if (statusFilter.value !== "all") {
 		data = data.filter(o => (o.status_name || "").toLowerCase() === statusFilter.value.toLowerCase())
 	}
-	
-	if (filterDate.value) {
-		data = data.filter(o => o.transaction_date === filterDate.value)
-	}
+
+	// Date scoping is handled server-side by the shift window (get_sales_order2
+	// target_date), so we no longer filter by calendar date here — that would
+	// drop after-midnight invoices whose posting_date is the next calendar day.
 	
 	if (search.value) {
 		const s = search.value.toLowerCase()
@@ -612,6 +614,10 @@ const paginatedOrders = computed(() => {
 
 // Reset to page 1 whenever any filter changes
 watch([filterMobile, () => filteredOrders.value.length], () => { currentPage.value = 1 })
+
+// Re-fetch from the server when the selected day changes (server scopes by the
+// shift window for that date, including the after-midnight hours).
+watch(filterDate, () => { fetchOrders() })
 
 // Status colors
 const getStatusClasses = (status) => {

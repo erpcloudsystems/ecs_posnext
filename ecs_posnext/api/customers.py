@@ -518,21 +518,20 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
         limit=5
     )
 
-    # Active coupons
+    # Coupons — total count + the customer's unused coupons (used = 0)
     coupons = []
+    coupons_total = 0
+    coupons_unused = 0
     try:
-        coupon_codes = frappe.get_all(
+        coupons_total = frappe.db.count("Coupon Code", {"customer": customer})
+        coupons_unused = frappe.db.count("Coupon Code", {"customer": customer, "used": 0})
+        coupons = frappe.get_all(
             "Coupon Code",
-            filters={
-                "customer": customer,
-                "used": 0,
-                "valid_from": ["<=", frappe.utils.today()],
-                "valid_upto": [">=", frappe.utils.today()]
-            },
-            fields=["name", "coupon_code", "pricing_rule", "valid_upto"],
-            limit=10
+            filters={"customer": customer, "used": 0},
+            fields=["name", "coupon_code", "pricing_rule", "valid_from", "valid_upto"],
+            order_by="valid_upto desc",
+            limit=50,
         )
-        coupons = coupon_codes
     except Exception:
         pass
 
@@ -551,6 +550,8 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
         "last_order_in_branch": last_order_in_branch,
         "notes": notes,
         "coupons": coupons,
+        "coupons_total": coupons_total,
+        "coupons_unused": coupons_unused,
         "mobile_no": cust.get("mobile_no") or "",
         "loyalty_program": cust.get("loyalty_program") or "",
     }

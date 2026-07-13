@@ -196,21 +196,36 @@
 
 				<!-- Coupons Tab -->
 				<div v-if="activeTab === 'coupons'" class="space-y-2">
+					<!-- Count summary -->
+					<div class="flex items-center gap-2">
+						<div class="flex-1 bg-gray-50 rounded-lg border border-gray-100 px-2 py-1.5 text-center">
+							<p class="text-[10px] text-gray-500 uppercase tracking-wider">{{ __("Total") }}</p>
+							<p class="text-sm font-bold text-gray-900">{{ profile.coupons_total || 0 }}</p>
+						</div>
+						<div class="flex-1 bg-green-50 rounded-lg border border-green-100 px-2 py-1.5 text-center">
+							<p class="text-[10px] text-green-600 uppercase tracking-wider">{{ __("Unused") }}</p>
+							<p class="text-sm font-bold text-green-800">{{ profile.coupons_unused || 0 }}</p>
+						</div>
+					</div>
+
 					<div v-if="profile.coupons?.length > 0" class="space-y-1.5">
 						<div
 							v-for="coupon in profile.coupons"
 							:key="coupon.name"
-							class="flex items-center justify-between p-2 bg-green-50 rounded-lg border border-green-100"
+							class="flex items-center justify-between p-2 rounded-lg border"
+							:class="isCouponExpired(coupon) ? 'bg-gray-50 border-gray-200' : 'bg-green-50 border-green-100'"
 						>
 							<div>
-								<p class="text-xs font-bold text-green-800">{{ coupon.coupon_code }}</p>
-								<p class="text-[10px] text-green-600">{{ __("Valid until") }}: {{ coupon.valid_upto }}</p>
+								<p class="text-xs font-bold" :class="isCouponExpired(coupon) ? 'text-gray-500' : 'text-green-800'">{{ coupon.coupon_code }}</p>
+								<p class="text-[10px]" :class="isCouponExpired(coupon) ? 'text-red-500' : 'text-green-600'">
+									{{ isCouponExpired(coupon) ? __("Expired") : __("Valid until") }}: {{ coupon.valid_upto }}
+								</p>
 							</div>
 							<span class="text-lg">🎟️</span>
 						</div>
 					</div>
 					<div v-else class="text-center py-4">
-						<p class="text-xs text-gray-400">{{ __("No active coupons") }}</p>
+						<p class="text-xs text-gray-400">{{ __("No unused coupons") }}</p>
 					</div>
 				</div>
 
@@ -334,9 +349,15 @@ const tabs = computed(() => [
 	{ id: "favorites", label: __("Favorites"), badge: null },
 	{ id: "lastOrder", label: __("Last Order"), badge: null },
 	{ id: "notes", label: __("Notes"), badge: profile.value?.notes?.length || null },
-	{ id: "coupons", label: __("Coupons"), badge: profile.value?.coupons?.length || null },
+	{ id: "coupons", label: __("Coupons"), badge: profile.value?.coupons_unused || null },
 	{ id: "complaints", label: __("Complaints"), badge: complaints.value.length || null },
 ])
+
+// A coupon is expired when its valid_upto date is before today.
+function isCouponExpired(coupon) {
+	if (!coupon?.valid_upto) return false
+	return new Date(coupon.valid_upto) < new Date(new Date().toDateString())
+}
 
 const customerName = computed(() => {
 	if (!props.customer) return null

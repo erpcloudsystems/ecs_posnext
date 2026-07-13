@@ -1633,8 +1633,12 @@ def submit_invoice(invoice=None, data=None):
         
         # Allow Call Center to submit if Payment Type is selected and outstanding > 0
         call_center_can_submit = is_call_center_invoice and invoice_doc.custom_payment_type and invoice_doc.outstanding_amount > 0
-        
-        if not is_call_center_invoice or force_submit or call_center_can_submit:
+
+        # Talabat orders never need branch approval — submit them straight away so
+        # they go to the kitchen / dispatch instead of waiting in Need My Action.
+        is_talabat = (invoice_doc.custom_order_type or "").strip().lower() == "talabat"
+
+        if not is_call_center_invoice or force_submit or call_center_can_submit or is_talabat:
             invoice_doc.submit()
         invoice_submitted = True
 
@@ -2360,9 +2364,27 @@ def get_all_orders(date_from=None, date_to=None, limit=500):
 			):
 				owner_name_map[u.name] = u.full_name
 
+		# Latest non-cancelled Delivery Assignment status per invoice (delivery flow)
+		da_status_map = {}
+		da_rows = frappe.db.sql(f"""
+			SELECT da.order_reference, da.status
+			FROM `tabDelivery Assignment` da
+			INNER JOIN (
+				SELECT order_reference, MAX(creation) AS mx
+				FROM `tabDelivery Assignment`
+				WHERE order_doctype = 'Sales Invoice' AND docstatus != 2
+				  AND order_reference IN ({placeholders})
+				GROUP BY order_reference
+			) latest ON latest.order_reference = da.order_reference AND latest.mx = da.creation
+			WHERE da.order_doctype = 'Sales Invoice' AND da.docstatus != 2
+		""", tuple(invoice_names), as_dict=True)
+		da_status_map = {r.order_reference: r.status for r in da_rows}
+
 		for inv in invoices:
 			inv.items = items_map.get(inv.name, [])
 			inv.owner_name = owner_name_map.get(inv.owner) or inv.owner
+			# Delivery status from the Delivery Assignment (empty for non-delivery orders)
+			inv.delivery_status = da_status_map.get(inv.name)
 
 			# Derive a display status
 			if inv.docstatus == 0:
@@ -2538,6 +2560,7 @@ def get_need_my_action_orders():
 		WHERE
 			si.docstatus = 0
 			AND (COALESCE(si.custom_is_rejected, 0) = 0)
+			AND (COALESCE(si.custom_order_type, '') != 'Talabat')
 			AND (LOWER(si.pos_profile) LIKE '%%call center%%' OR EXISTS(
 				SELECT 1 FROM `tabTag Link` tl WHERE tl.document_type='Sales Invoice' AND tl.document_name=si.name AND tl.tag='Call Center'
 			))

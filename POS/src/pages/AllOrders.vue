@@ -262,6 +262,9 @@
 								<th class="px-4 py-3 text-start text-xs font-semibold text-gray-600 uppercase tracking-wider">
 									{{ __("KDS") }}
 								</th>
+								<th class="px-4 py-3 text-start text-xs font-semibold text-gray-600 uppercase tracking-wider">
+									{{ __("Delivery") }}
+								</th>
 								<th class="px-4 py-3 text-end text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:text-gray-900" @click="sortBy('grand_total')">
 									{{ __("Total") }}
 									<span v-if="sortField === 'grand_total'" class="ms-1">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
@@ -336,6 +339,13 @@
 									<td class="px-4 py-3">
 										<span v-if="order.kds_status" :class="getKdsStatusClasses(order.kds_status)" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
 											{{ order.kds_status }}
+										</span>
+										<span v-else class="text-gray-300">-</span>
+									</td>
+									<!-- Delivery Status -->
+									<td class="px-4 py-3">
+										<span v-if="order.delivery_status" :class="getDeliveryStatusClasses(order.delivery_status)" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
+											{{ order.delivery_status }}
 										</span>
 										<span v-else class="text-gray-300">-</span>
 									</td>
@@ -1744,6 +1754,18 @@ function getKdsStatusClasses(status) {
 		case "Completed": return "bg-emerald-100 text-emerald-700"
 		case "Cancelled": return "bg-red-100 text-red-700"
 		default:          return "bg-gray-100 text-gray-600"
+	}
+}
+
+function getDeliveryStatusClasses(status) {
+	switch (status) {
+		case "Assigned":         return "bg-indigo-100 text-indigo-700"
+		case "Picked Up":        return "bg-blue-100 text-blue-700"
+		case "Out for Delivery": return "bg-amber-100 text-amber-700"
+		case "Delivered":        return "bg-emerald-100 text-emerald-700"
+		case "Returned":         return "bg-gray-200 text-gray-700"
+		case "Failed":           return "bg-red-100 text-red-700"
+		default:                 return "bg-gray-100 text-gray-600"
 	}
 }
 

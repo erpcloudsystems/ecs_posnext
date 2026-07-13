@@ -6,7 +6,7 @@ from __future__ import unicode_literals
 import frappe
 import json
 from frappe import _
-from frappe.utils import flt, nowdate, get_datetime, add_days, now_datetime, get_time
+from frappe.utils import flt, nowdate, get_datetime, add_days, now_datetime, get_time, getdate
 from datetime import datetime, date, timedelta
 
 @frappe.whitelist()
@@ -285,7 +285,7 @@ def _get_shift_times(pos_profiles=None, explicit_profile=None):
 
 
 @frappe.whitelist()
-def get_sales_order2(status=None):
+def get_sales_order2(status=None, target_date=None):
     if status:
         status_list = [s.strip() for s in status.split(",")]
     else:
@@ -324,9 +324,6 @@ def get_sales_order2(status=None):
         end_time = profile_data.get("custom_shift_end_time") if profile_data else None
 
         now = now_datetime()
-        today = now.date()
-        yesterday = today - timedelta(days=1)
-        tomorrow = today + timedelta(days=1)
 
         start_t = get_time(start_time) if start_time else None
         end_t = get_time(end_time) if end_time else None
@@ -334,43 +331,58 @@ def get_sales_order2(status=None):
         # A zero-width window (start == end) is invalid configuration and would
         # filter out every order; treat it as "no window" (whole day) instead.
         if start_t and end_t and start_t != end_t:
-            current_time = now.time()
-
-            if start_t <= end_t:
-                # Same-day range (e.g. 06:00 - 23:00)
-                if current_time >= start_t:
-                    range_start = datetime.combine(today, start_t)
-                    range_end = datetime.combine(today, end_t)
+            if target_date:
+                # Explicit shift date selected — return that shift's full window
+                # deterministically. For an overnight shift (e.g. 12:00 PM → 06:00 AM)
+                # this spans midnight, so invoices after 12 midnight are shown under
+                # the SAME selected day instead of leaking to the next calendar date.
+                anchor = getdate(target_date)
+                range_start = datetime.combine(anchor, start_t)
+                if start_t <= end_t:
+                    range_end = datetime.combine(anchor, end_t)
                 else:
-                    range_start = datetime.combine(yesterday, start_t)
-                    range_end = datetime.combine(yesterday, end_t)
+                    range_end = datetime.combine(anchor + timedelta(days=1), end_t)
             else:
-                # Overnight range (e.g. 13:00 - 05:00)
-                if current_time >= start_t:
-                    range_start = datetime.combine(today, start_t)
-                    range_end = datetime.combine(tomorrow, end_t)
+                today = now.date()
+                yesterday = today - timedelta(days=1)
+                tomorrow = today + timedelta(days=1)
+                current_time = now.time()
+
+                if start_t <= end_t:
+                    # Same-day range (e.g. 06:00 - 23:00)
+                    if current_time >= start_t:
+                        range_start = datetime.combine(today, start_t)
+                        range_end = datetime.combine(today, end_t)
+                    else:
+                        range_start = datetime.combine(yesterday, start_t)
+                        range_end = datetime.combine(yesterday, end_t)
                 else:
-                    range_start = datetime.combine(yesterday, start_t)
-                    range_end = datetime.combine(today, end_t)
+                    # Overnight range (e.g. 13:00 - 05:00)
+                    if current_time >= start_t:
+                        range_start = datetime.combine(today, start_t)
+                        range_end = datetime.combine(tomorrow, end_t)
+                    else:
+                        range_start = datetime.combine(yesterday, start_t)
+                        range_end = datetime.combine(today, end_t)
 
             time_condition_so = "AND t.creation BETWEEN %s AND %s"
             time_condition_si = "AND TIMESTAMP(t.posting_date, t.posting_time) BETWEEN %s AND %s"
             date_params = [range_start, range_end]
         else:
+            day = getdate(target_date) if target_date else now.date()
             time_condition_so = "AND t.transaction_date = %s"
             time_condition_si = "AND t.posting_date = %s"
-            date_params = [today]
+            date_params = [day]
 
         if pos_profile_name.lower() != "call center":
             branch_filter_sql_so = " AND t.branch = %s "
             branch_filter_sql_si = " AND t.branch = %s "
             branch_filter_param = pos_profile_name
     else:
-        now = now_datetime()
-        today = now.date()
+        day = getdate(target_date) if target_date else now_datetime().date()
         time_condition_so = "AND t.transaction_date = %s"
         time_condition_si = "AND t.posting_date = %s"
-        date_params = [today]
+        date_params = [day]
 
     # Check which table to use for kitchen status
     # User says "in new version no Sales Order", so we prioritize Sales Invoice
