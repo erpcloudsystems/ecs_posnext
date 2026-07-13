@@ -7,3 +7,7 @@
 ecs_posnext.patches.v1_7_0.reinstall_workspace
 ecs_posnext.patches.cancel_kds_for_cancelled_invoices
 ecs_posnext.patches.add_table_no_fetch_field
+ecs_posnext.patches.kitchen_receipt_talabat_window
+ecs_posnext.patches.print_format_sales_talabat_window
+ecs_posnext.patches.print_talabat_unique_number
+ecs_posnext.patches.add_delivery_note

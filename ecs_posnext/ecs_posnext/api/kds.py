@@ -323,7 +323,7 @@ def get_active_orders(branch=None):
             si = frappe.db.get_value(
                 "Sales Invoice", inv,
                 ["custom_table_number", "custom_table_no", "customer_name", "posa_notes",
-                 "custom_payment_type", "outstanding_amount"],
+                 "custom_payment_type", "outstanding_amount", "custom_third_party_referance_number"],
                 as_dict=True,
             ) or {}
             # Show the human table number; fall back to the link id for older invoices.
@@ -332,6 +332,8 @@ def get_active_orders(branch=None):
             order["order_note"] = si.get("posa_notes")
             order["custom_payment_type"] = si.get("custom_payment_type")
             order["outstanding_amount"] = si.get("outstanding_amount")
+            # Talabat counter/window number (external reference) shown on the card.
+            order["window_no"] = si.get("custom_third_party_referance_number")
 
             otype = (order.get("order_type") or "").lower()
             if otype == "talabat":

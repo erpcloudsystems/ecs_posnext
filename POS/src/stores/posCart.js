@@ -145,6 +145,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		localStorage.getItem("pos_default_order_type") || "Pickup",
 	)
 	const customerAddress = ref(null)
+	const deliveryNote = ref("")
 	const selectedBranch = ref(null)
 	const selectedBranchWarehouse = ref(null)
 	const selectedBranchProfile = ref(null)
@@ -282,6 +283,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		targetDoctype.value = "Sales Invoice"
 		orderType.value = localStorage.getItem("pos_default_order_type") || "Pickup"
 		customerAddress.value = null
+		deliveryNote.value = ""
 		deliveryCharge.value = null
 		selectedBranch.value = null
 		selectedTable.value = null
@@ -314,6 +316,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		selectedTable.value = invoice.custom_table_number || null
 		numberOfGuests.value = invoice.custom_number_of_guests || null
 		additionalDiscount.value = invoice.discount_amount || 0
+		deliveryNote.value = invoice.custom_delivery_note || ""
 
 		if (invoice.customer_address) {
 			await setCustomerAddress(invoice.customer_address, invoice.territory)
@@ -417,7 +420,8 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		}
 		// Use the same POS profile so taxes/prices stay consistent
 		resumedInvoicePosProfile.value = invoice.pos_profile || null
-		
+		deliveryNote.value = invoice.custom_delivery_note || ""
+
 		// Restore address if available (this will trigger setDeliveryCharge, which we intercept for supplements)
 		if (invoice.customer_address) {
 			await setCustomerAddress(invoice.customer_address, invoice.territory)
@@ -542,6 +546,14 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	}
 
 	function setCustomer(selectedCustomer) {
+		const prev = customer.value?.name || customer.value || null
+		const next = selectedCustomer?.name || selectedCustomer || null
+		// Changing the customer invalidates the previously selected delivery address
+		// (and its delivery charge) — clear them so a stale address is never reused.
+		if (prev !== next) {
+			customerAddress.value = null
+			deliveryCharge.value = null
+		}
 		customer.value = selectedCustomer
 	}
 
@@ -2080,6 +2092,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		orderType,
 		setOrderType,
 		customerAddress,
+		deliveryNote,
 		setCustomerAddress,
 		deliveryCharge,
 		setDeliveryCharge,

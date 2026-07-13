@@ -152,7 +152,7 @@
                 </div>
               </div>
               <div class="text-right">
-                <div class="text-xl font-mono font-bold leading-none" :style="{ color: statusColor(order) }">{{ timerLabel(order) }}</div>
+                <div class="text-xl font-mono font-bold leading-none text-white">{{ timerLabel(order) }}</div>
                 <div class="text-[10px] font-bold mt-1 flex items-center justify-end gap-1" :style="{ color: statusColor(order) }">
                   <span class="w-1.5 h-1.5 rounded-full" :style="{ background: statusColor(order) }"></span>{{ statusLabel(order) }}
                 </div>
@@ -169,7 +169,11 @@
                   {{ payMeta(order).emoji }} {{ payMeta(order).labelEn }}
                 </span>
               </div>
-              <span class="text-[11px] text-neutral-400 font-medium truncate max-w-[55%]">{{ whoLabel(order) }}</span>
+              <div class="flex flex-col items-end gap-0.5 max-w-[55%]">
+                <span class="text-[11px] text-neutral-400 font-medium truncate w-full text-right">{{ whoLabel(order) }}</span>
+                <span v-if="customerLine(order)" class="text-xs text-white font-semibold truncate w-full text-right">👤 {{ customerLine(order) }}</span>
+                <span v-if="windowNo(order)" class="text-xs font-black text-sky-300 truncate w-full text-right" dir="rtl">🪟 شباك {{ windowNo(order) }}</span>
+              </div>
             </div>
 
             <div class="mx-3.5 border-t border-neutral-800"></div>
@@ -388,6 +392,18 @@ function whoLabel(order) {
   if (k === "talabat") return `Rider: ${order.rider || "Talabat"}`
   if (k === "dinein") return order.table_number ? `Table: ${order.table_number}` : "Dine In"
   return order.customer_name || "Customer"
+}
+
+// Customer name shown (in addition to the rider) for all delivery order types.
+function customerLine(order) {
+  const k = typeKey(order)
+  if (k === "cod" || k === "vod" || k === "paid" || k === "talabat") return order.customer_name || ""
+  return ""
+}
+
+// Talabat counter/window number (custom_third_party_referance_number) — Talabat only.
+function windowNo(order) {
+  return typeKey(order) === "talabat" ? (order.window_no || "") : ""
 }
 
 // ── Numbers / clock ──────────────────────────────────────────────────

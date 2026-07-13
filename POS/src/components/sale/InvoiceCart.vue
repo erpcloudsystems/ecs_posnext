@@ -508,6 +508,22 @@
 				</div>
 			</div>
 
+			<!-- Delivery note (Delivery only) — shown to the driver on the dispatch print -->
+			<div v-if="cartStore.orderType === 'Delivery'" class="mt-2">
+				<div class="flex items-center gap-1 mb-1">
+					<svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+					</svg>
+					<span class="text-xs font-semibold text-gray-700 uppercase tracking-wider">{{ __("Delivery Note") }}</span>
+				</div>
+				<textarea
+					v-model="cartStore.deliveryNote"
+					rows="2"
+					:placeholder="__('Note for the driver (address details, landmarks, instructions)…')"
+					class="w-full text-sm border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 py-2 px-3 resize-none"
+				></textarea>
+			</div>
+
 			<!-- Address Selector Dialog -->
 			<AddressSelector
 				v-if="customer"

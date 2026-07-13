@@ -1,5 +1,5 @@
 <template>
-	<Dialog v-model="show" :options="{ title: __('Select Delivery Address'), size: 'md' }">
+	<Dialog v-model="show" :options="{ title: __('Select Delivery Address'), size: '3xl' }">
 		<template #body-content>
 			<div class="space-y-4 py-2">
 				<div v-if="loading" class="flex items-center justify-center py-12">
@@ -36,7 +36,7 @@
 						</button>
 					</div>
 					
-					<div class="grid grid-cols-1 gap-2.5 max-h-[40vh] overflow-y-auto pr-1 custom-scrollbar">
+					<div class="grid grid-cols-1 gap-2.5 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
 						<div
 							v-for="addr in addresses"
 							:key="addr.name"

@@ -149,7 +149,7 @@ def get_unassigned_orders():
 	invoices = frappe.get_all(
 		"Sales Invoice",
 		filters=filters,
-		fields=["name", "customer", "outstanding_amount", "grand_total", "custom_so_type",
+		fields=["name", "customer", "customer_name", "outstanding_amount", "grand_total", "custom_so_type",
 				"contact_mobile", "shipping_address_name", "customer_address", "territory",
 				"custom_number_order", "custom_order_type", "payment_terms_template",
 				"custom_payment_type", "custom_unique_talbat_number", "custom_third_party_referance_number",
@@ -553,11 +553,11 @@ def get_active_assignments(shift=None):
 		kds_map = {r.sales_invoice: r.status for r in kds_rows}
 
 		number_order_map = {
-			r.name: r.custom_number_order
+			r.name: r
 			for r in frappe.get_all(
 				"Sales Invoice",
 				filters={"name": ["in", invoice_names]},
-				fields=["name", "custom_number_order"],
+				fields=["name", "custom_number_order", "customer_name"],
 			)
 		}
 
@@ -566,8 +566,10 @@ def get_active_assignments(shift=None):
 		a["kds_status"] = kds_status or "No KDS"
 		# Kitchen is done once the KDS order is Ready or Completed (or no KDS order exists)
 		a["kds_ready"] = (kds_status in ("Ready", "Completed")) if kds_status else True
-		# Order number shown on the dispatch board instead of the raw invoice name
-		a["custom_number_order"] = number_order_map.get(a.get("order_reference"))
+		# Order number + customer name shown on the dispatch board
+		inv_row = number_order_map.get(a.get("order_reference"))
+		a["custom_number_order"] = inv_row.custom_number_order if inv_row else None
+		a["customer_name"] = inv_row.customer_name if inv_row else None
 
 	return assignments
 

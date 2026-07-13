@@ -1036,6 +1036,7 @@ export function useInvoice() {
 			custom_order_type: customOrderType,
 			custom_table_number: cartStore.selectedTable || null,
 			custom_number_of_guests: cartStore.numberOfGuests || null,
+			custom_delivery_note: cartStore.deliveryNote || null,
 			items: formatItemsForSubmission(rawItems),
 			packed_items: getPackedItemsForSubmission(rawItems),
 			payments: rawPayments.map((p) => ({
@@ -1125,6 +1126,7 @@ export function useInvoice() {
 					update_stock: 1, // Critical: Ensures stock is updated
 					custom_order_type: customOrderType || "Pickup",
 					custom_payment_type: customPaymentType.value,
+					custom_delivery_note: cartStore.deliveryNote || null,
 					posa_delivery_charges: deliveryCharge.value?.name,
 					posa_delivery_charges_rate: deliveryCharge.value?.rate,
 					territory: deliveryCharge.value?.territory,

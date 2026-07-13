@@ -120,7 +120,7 @@
 									<div class="text-lg font-mono font-bold leading-none">
 										{{ order.outstanding_amount > 0 ? fmtCurrency(order.outstanding_amount) : fmtCurrency(order.grand_total) }}
 									</div>
-									<div class="text-xs opacity-75 truncate max-w-[100px]">{{ order.customer }}</div>
+									<div class="text-xs opacity-75 truncate max-w-[100px]">{{ order.customer_name || order.customer }}</div>
 								</div>
 							</div>
 
@@ -156,7 +156,7 @@
 									:class="talabatPaid(order) ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'">
 									{{ talabatPaid(order) ? '✓ ' + __('مدفوع') : '✗ ' + __('غير مدفوع') }}
 								</span>
-								<span class="text-xs text-gray-400 font-mono">{{ __('شباك طلبات') }} #{{ talabatNumber(order) }}</span>
+								<span class="text-xs text-gray-400 font-mono">{{ __('شباك طلبات') }} {{ talabatNumber(order) }}</span>
 							</div>
 
 							<!-- Talabat handover — only once the kitchen is ready -->
@@ -212,7 +212,7 @@
 									<div class="text-lg font-mono font-bold leading-none">
 										{{ order.outstanding_amount > 0 ? fmtCurrency(order.outstanding_amount) : fmtCurrency(order.grand_total) }}
 									</div>
-									<div class="text-xs opacity-75 truncate max-w-[100px]">{{ order.customer }}</div>
+									<div class="text-xs opacity-75 truncate max-w-[100px]">{{ order.customer_name || order.customer }}</div>
 								</div>
 							</div>
 
@@ -260,7 +260,7 @@
 			</div>
 
 			<!-- Active Assignments sidebar -->
-			<div class="flex flex-col bg-gray-800 border-l border-gray-700 shrink-0 overflow-hidden" style="width: 320px">
+			<div class="flex flex-col bg-gray-800 border-l border-gray-700 shrink-0 overflow-hidden" style="width: 420px">
 				<div class="px-4 py-3 border-b border-gray-700 shrink-0">
 					<h2 class="font-bold text-sm text-gray-400 uppercase tracking-wider">
 						{{ __('Active Assignments') }}
@@ -303,7 +303,7 @@
 									<div class="flex-1 min-w-0">
 										<div class="flex items-center gap-1.5">
 											<span class="text-blue-400 font-medium text-xs">{{ a.custom_number_order || a.order_reference }}</span>
-											<span class="text-gray-400 text-xs truncate">{{ a.customer }}</span>
+											<span class="text-gray-400 text-xs truncate">{{ a.customer_name || a.customer }}</span>
 										</div>
 										<div v-if="a.delivery_address" class="text-xs text-gray-600 truncate">📍 {{ a.delivery_address }}</div>
 										<div class="text-xs mt-0.5">
@@ -384,7 +384,7 @@
 						<div class="flex items-center justify-between mb-2">
 							<div>
 								<span class="text-blue-400 font-medium text-sm">{{ row.custom_number_order || row.order_reference }}</span>
-								<span class="text-gray-400 text-xs ml-2">{{ row.customer }}</span>
+								<span class="text-gray-400 text-xs ml-2">{{ row.customer_name || row.customer }}</span>
 							</div>
 							<span v-if="row.payment_mode === 'Cash (COD)'" class="text-xs bg-amber-900 text-amber-300 rounded px-1.5 py-0.5 font-bold">COD</span>
 							<span v-else class="text-xs bg-green-900 text-green-300 rounded px-1.5 py-0.5 font-bold">Paid</span>
@@ -687,7 +687,7 @@ function paymentLabel(o) {
 	return o.outstanding_amount > 0 ? "💵 كاش" : "✓ مدفوع"
 }
 function talabatNumber(o) {
-	return o.custom_unique_talbat_number || o.custom_third_party_referance_number || "—"
+	return o.custom_third_party_referance_number || o.custom_unique_talbat_number || "—"
 }
 function talabatPaid(o) {
 	return !(o.outstanding_amount > 0)
@@ -777,6 +777,7 @@ function openTalabatCollect(order) {
 		order_reference: order.name,
 		custom_number_order: order.custom_number_order,
 		customer: order.customer,
+		customer_name: order.customer_name,
 		payment_mode: "Cash (COD)",
 		amount_to_collect: order.outstanding_amount || 0,
 		payments: [{ mode_of_payment: defaultPaymentMode.value, amount: order.outstanding_amount || 0 }],
