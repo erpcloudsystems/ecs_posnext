@@ -178,10 +178,7 @@
 				<ManagementSlider @menu-clicked="handleManagementMenuClick" />
 
 				<!-- Main Content Container -->
-				<div
-					ref="containerRef"
-					class="flex-1 flex flex-col lg:flex-row overflow-hidden relative"
-				>
+				<div class="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
 					<!-- Mobile Tab Navigation -->
 					<div
 						class="lg:hidden bg-white border-b border-gray-200 flex shadow-sm sticky top-0 z-[100]"
@@ -313,13 +310,7 @@
 					<keep-alive>
 						<div
 							v-if="uiStore.isDesktop || uiStore.mobileActiveTab === 'items'"
-							:style="{
-								width: uiStore.isDesktop ? uiStore.leftPanelWidth + 'px' : '100%',
-							}"
-							:class="[
-								'flex flex-col bg-white overflow-hidden',
-								uiStore.isDesktop ? 'flex-shrink-0' : 'flex-1',
-							]"
+							class="flex flex-col bg-white overflow-hidden flex-1"
 							style="contain: layout style paint"
 						>
 							<ItemsSelector
@@ -332,41 +323,19 @@
 						</div>
 					</keep-alive>
 
-					<!-- Draggable Divider (Desktop Only) -->
+					<!-- Static divider before the cart panel (desktop) -->
 					<div
 						v-if="uiStore.isDesktop"
-						ref="dividerRef"
-						role="separator"
-						aria-orientation="vertical"
-						@pointerdown="startResize"
-						class="w-1 bg-gray-200 hover:bg-blue-400 cursor-col-resize relative flex-shrink-0 transition-[background-color] duration-100 hidden lg:block"
-						:class="{
-							'bg-blue-500': uiStore.isResizing,
-							'pointer-events-none opacity-0': uiStore.isAnyDialogOpen,
-							'z-[1]': !uiStore.isAnyDialogOpen,
-						}"
-					>
-						<div
-							class="absolute inset-y-0 -left-2 -right-2"
-							style="cursor: col-resize"
-						></div>
-						<div
-							class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-1 h-12 bg-gray-400 rounded-full"
-							:class="{
-								'bg-blue-600': uiStore.isResizing,
-								'bg-blue-500': !uiStore.isResizing,
-							}"
-							style="transition: background-color 0.1s ease; opacity: 0.8"
-						></div>
-					</div>
+						class="w-px bg-gray-200 flex-shrink-0 hidden lg:block"
+					></div>
 
-					<!-- Right: Invoice Cart (Desktop) / Tab Content (Mobile) -->
+					<!-- Right: Invoice Cart (Desktop, fixed width) / Tab Content (Mobile) -->
 					<keep-alive>
 						<div
 							v-if="uiStore.isDesktop || uiStore.mobileActiveTab === 'cart'"
 							:class="[
 								'flex flex-col bg-gray-50 overflow-hidden',
-								uiStore.isDesktop ? 'flex-1' : 'flex-1',
+								uiStore.isDesktop ? 'w-96 xl:w-[420px] flex-shrink-0' : 'flex-1',
 							]"
 							style="min-width: 300px; contain: layout style paint"
 						>
@@ -1040,7 +1009,6 @@ import TrackInvoices from "@/components/daily_payment/TrackInvoices.vue";
 import InvoiceDetailDialog from "@/components/invoices/InvoiceDetailDialog.vue";
 import { useRealtimeStock } from "@/composables/useRealtimeStock";
 import { usePOSEvents } from "@/composables/usePOSEvents";
-import { useLocale } from "@/composables/useLocale";
 import { session } from "@/data/session";
 import { useUserData } from "@/data/user";
 import { parseError } from "@/utils/errorHandler";
@@ -1102,14 +1070,9 @@ const log = logger.create("POSSale");
 // User data composable
 const { userName, userImage } = useUserData();
 
-// Locale composable for RTL support
-const { isRTL } = useLocale();
-
 // Component refs
 const itemsSelectorRef = ref(null);
 const offersDialogRef = ref(null);
-const containerRef = ref(null);
-const dividerRef = ref(null);
 const pendingPaymentAfterCustomer = ref(false);
 const logoutAfterClose = ref(false);
 const editCustomer = ref(null); // Customer being edited (null for create mode)
@@ -1214,15 +1177,10 @@ const profileWarehouses = computed(() => {
 	return [];
 });
 
-// Resize state
-let resizeState = null;
-let bodyStyleSnapshot = null;
-
 onMounted(async () => {
 	// Window resize listeners (passive for better performance)
 	const handleResize = () => {
 		uiStore.setWindowWidth(window.innerWidth);
-		updateLayoutBounds();
 	};
 	window.addEventListener("resize", handleResize, { passive: true });
 
@@ -1382,7 +1340,6 @@ onMounted(async () => {
 		const currentProfileName = shiftStore.profileName;
 		if (_initializedProfile && _initializedProfile === currentProfileName) {
 			log.debug("Skipping init — already initialized (remount)");
-			updateLayoutBounds();
 			return;
 		}
 
@@ -1394,15 +1351,12 @@ onMounted(async () => {
 			} catch {
 				// Original caller handles errors; this mount just waits
 			}
-			updateLayoutBounds();
 			return;
 		}
 
 		_posInitPromise = initPOS();
 		await _posInitPromise;
 		_posInitPromise = null;
-
-		updateLayoutBounds();
 	} catch (error) {
 		_posInitPromise = null;
 		log.error("Error checking shift:", error);
@@ -1458,15 +1412,6 @@ onMounted(async () => {
 		_initializedProfile = shiftStore.profileName;
 	}
 });
-
-watch(
-	() => shiftStore.hasOpenShift,
-	(value) => {
-		if (value && typeof window !== "undefined") {
-			updateLayoutBounds();
-		}
-	}
-);
 
 // Watch for cart changes to re-apply offers
 // Comprehensive watcher that detects all cart changes including:
@@ -1599,9 +1544,7 @@ watch(
 onUnmounted(() => {
 	window.removeEventListener("resize", () => {
 		uiStore.setWindowWidth(window.innerWidth);
-		updateLayoutBounds();
 	});
-	stopResize();
 
 	// Stop periodic stock sync on unmount
 	offlineWorker.stopStockSync().catch(() => {});
@@ -2519,111 +2462,6 @@ async function handleSyncAll() {
 			"sync"
 		);
 	}
-}
-
-// Resizable layout helpers
-function updateLayoutBounds() {
-	if (!containerRef.value) return;
-	const containerWidth = containerRef.value.offsetWidth;
-	uiStore.updateLayoutBounds(containerWidth);
-}
-
-function startResize(event) {
-	if (!containerRef.value || !dividerRef.value) {
-		return;
-	}
-	if (event.isPrimary === false) {
-		return;
-	}
-	if (event.button !== undefined && event.button !== 0 && event.pointerType !== "touch") {
-		return;
-	}
-
-	updateLayoutBounds();
-
-	resizeState = {
-		pointerId: event.pointerId,
-		startX: event.clientX,
-		startWidth: uiStore.leftPanelWidth,
-		containerWidth: containerRef.value?.offsetWidth ?? 1120,
-	};
-
-	uiStore.setResizing(true);
-
-	bodyStyleSnapshot = {
-		cursor: document.body.style.cursor,
-		userSelect: document.body.style.userSelect,
-	};
-
-	// Add document-level event listeners for dragging
-	document.addEventListener("pointermove", handleResize);
-	document.addEventListener("pointerup", stopResize);
-	document.addEventListener("pointercancel", stopResize);
-
-	dividerRef.value.setPointerCapture?.(event.pointerId);
-	document.body.style.cursor = "col-resize";
-	document.body.style.userSelect = "none";
-	event.preventDefault();
-}
-
-function handleResize(event) {
-	if (
-		!uiStore.isResizing ||
-		!resizeState ||
-		(event.pointerId ?? resizeState.pointerId) !== resizeState.pointerId
-	) {
-		return;
-	}
-
-	event.preventDefault();
-
-	const containerWidth = containerRef.value?.offsetWidth ?? resizeState.containerWidth;
-	resizeState.containerWidth = containerWidth;
-
-	const deltaX = event.clientX - resizeState.startX;
-	// In RTL, dragging right should decrease width, so invert deltaX
-	const adjustedDelta = isRTL.value ? -deltaX : deltaX;
-	const rawWidth = resizeState.startWidth + adjustedDelta;
-
-	uiStore.setLeftPanelWidth(rawWidth, containerWidth);
-}
-
-function stopResize(event) {
-	if (!uiStore.isResizing || !resizeState) {
-		return;
-	}
-
-	if (event?.pointerId !== undefined && event.pointerId !== resizeState.pointerId) {
-		return;
-	}
-
-	if (event?.preventDefault) {
-		event.preventDefault();
-	}
-
-	// Remove document-level event listeners
-	document.removeEventListener("pointermove", handleResize);
-	document.removeEventListener("pointerup", stopResize);
-	document.removeEventListener("pointercancel", stopResize);
-
-	if (dividerRef.value?.hasPointerCapture?.(resizeState.pointerId)) {
-		dividerRef.value.releasePointerCapture(resizeState.pointerId);
-	}
-
-	uiStore.setResizing(false);
-	resizeState = null;
-	restoreBodyStyles();
-	updateLayoutBounds();
-}
-
-function restoreBodyStyles() {
-	if (!bodyStyleSnapshot) {
-		return;
-	}
-
-	document.body.style.cursor = bodyStyleSnapshot.cursor || "";
-	document.body.style.userSelect = bodyStyleSnapshot.userSelect || "";
-	bodyStyleSnapshot = null;
 }
 
 // Management and Promotion handlers

@@ -2,9 +2,6 @@ import { useDialog, useDialogState } from "@/composables/useDialogState"
 import { defineStore } from "pinia"
 import { computed, ref } from "vue"
 
-const LEFT_PANEL_MIN = 320
-const RIGHT_PANEL_MIN = 360
-
 export const usePOSUIStore = defineStore("posUI", () => {
 	// Loading state
 	const isLoading = ref(true)
@@ -52,10 +49,6 @@ export const usePOSUIStore = defineStore("posUI", () => {
 	const windowWidth = ref(
 		typeof window !== "undefined" ? window.innerWidth : 1024,
 	)
-
-	// Layout state
-	const leftPanelWidth = ref(800)
-	const isResizing = ref(false)
 
 	// Computed
 	const isDesktop = computed(() => windowWidth.value >= 1024)
@@ -106,42 +99,6 @@ export const usePOSUIStore = defineStore("posUI", () => {
 
 	function setInitialCustomerName(name) {
 		initialCustomerName.value = name
-	}
-
-	// Layout actions
-	function clampLeftPanelWidth(width, containerWidth) {
-		const safeContainerWidth =
-			Number.isFinite(containerWidth) && containerWidth > 0
-				? containerWidth
-				: LEFT_PANEL_MIN + RIGHT_PANEL_MIN
-		const maxWidth = Math.max(
-			LEFT_PANEL_MIN,
-			safeContainerWidth - RIGHT_PANEL_MIN,
-		)
-		const clampedWidth = Math.min(Math.max(width, LEFT_PANEL_MIN), maxWidth)
-		return Number.isFinite(clampedWidth) ? clampedWidth : LEFT_PANEL_MIN
-	}
-
-	function setLeftPanelWidth(width, containerWidth = null) {
-		if (containerWidth !== null) {
-			const clamped = clampLeftPanelWidth(width, containerWidth)
-			leftPanelWidth.value = clamped
-		} else {
-			leftPanelWidth.value = width
-		}
-	}
-
-	function setResizing(resizing) {
-		isResizing.value = resizing
-	}
-
-	function updateLayoutBounds(containerWidth) {
-		if (containerWidth) {
-			leftPanelWidth.value = clampLeftPanelWidth(
-				leftPanelWidth.value,
-				containerWidth,
-			)
-		}
 	}
 
 	function resetAllDialogs() {
@@ -199,8 +156,6 @@ export const usePOSUIStore = defineStore("posUI", () => {
 		initialCustomerName,
 		mobileActiveTab,
 		windowWidth,
-		leftPanelWidth,
-		isResizing,
 
 		// Computed
 		isDesktop,
@@ -213,10 +168,6 @@ export const usePOSUIStore = defineStore("posUI", () => {
 		clearError,
 		showSuccess,
 		setInitialCustomerName,
-		setLeftPanelWidth,
-		setResizing,
-		updateLayoutBounds,
-		clampLeftPanelWidth,
 		resetAllDialogs,
 	}
 })
