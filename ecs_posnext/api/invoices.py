@@ -1560,6 +1560,24 @@ def submit_invoice(invoice=None, data=None):
 # ==========================================
 
 
+def _check_invoice_access(invoice_doc):
+	"""
+	Shared permission check for POS invoice access.
+
+	Deliberately checks doctype-level read access plus Branch user-permission
+	scoping only - a per-document `has_permission`/`check_permission` call also
+	validates unrelated Account link fields (write_off_account, cash_bank_account,
+	etc.) against the user's Account User Permissions, incorrectly denying access
+	to invoices these POS users just created themselves.
+	"""
+	if not frappe.has_permission("Sales Invoice", "read"):
+		frappe.throw(_("You don't have permission to view this invoice"))
+
+	allowed_branches = frappe.permissions.get_user_permissions(frappe.session.user).get("Branch")
+	if allowed_branches and invoice_doc.branch and invoice_doc.branch not in [d.doc for d in allowed_branches]:
+		frappe.throw(_("You don't have permission to view this invoice"), frappe.PermissionError)
+
+
 @frappe.whitelist()
 def get_invoice(invoice_name):
 	"""
@@ -1577,14 +1595,57 @@ def get_invoice(invoice_name):
 	if not frappe.db.exists("Sales Invoice", invoice_name):
 		frappe.throw(_("Invoice {0} does not exist").format(invoice_name))
 
-	# Check permissions
-	if not frappe.has_permission("Sales Invoice", "read", invoice_name):
-		frappe.throw(_("You don't have permission to view this invoice"))
-
 	# Get invoice document
 	invoice = frappe.get_doc("Sales Invoice", invoice_name)
 
+	_check_invoice_access(invoice)
+
 	return invoice.as_dict()
+
+
+@frappe.whitelist()
+def get_invoice_print_html(invoice_name, print_format=None, letterhead=None, no_letterhead=1, trigger_print=0):
+	"""
+	Render the print HTML/style for a Sales Invoice, for use by the POS app's
+	own print handling (browser popup + silent/QZ Tray printing).
+
+	Replaces direct frontend calls to Frappe's core `frappe.www.printview`
+	endpoints, whose `document.check_permission()` / `validate_print_permission()`
+	checks hit the same Account-link User Permission cascade as `get_invoice`
+	(see `_check_invoice_access`) and would otherwise block cashiers from
+	printing invoices they just created.
+	"""
+	from frappe.utils import cint
+	from frappe.www.printview import get_print_format_doc, get_print_style, get_rendered_template, set_link_titles
+
+	if not invoice_name:
+		frappe.throw(_("Invoice name is required"))
+
+	if not frappe.db.exists("Sales Invoice", invoice_name):
+		frappe.throw(_("Invoice {0} does not exist").format(invoice_name))
+
+	document = frappe.get_doc("Sales Invoice", invoice_name)
+
+	_check_invoice_access(document)
+
+	meta = frappe.get_meta("Sales Invoice")
+	print_format_doc = get_print_format_doc(print_format, meta=meta)
+	set_link_titles(document)
+
+	frappe.flags.ignore_print_permissions = True
+	try:
+		html = get_rendered_template(
+			document,
+			print_format=print_format_doc,
+			meta=meta,
+			no_letterhead=cint(no_letterhead),
+			letterhead=letterhead,
+			trigger_print=cint(trigger_print),
+		)
+	finally:
+		frappe.flags.ignore_print_permissions = False
+
+	return {"html": html, "style": get_print_style(print_format=print_format_doc)}
 
 
 @frappe.whitelist()

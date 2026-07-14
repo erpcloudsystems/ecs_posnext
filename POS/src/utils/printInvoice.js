@@ -15,6 +15,27 @@ function formatCurrency(amount) {
 }
 
 /**
+ * Fetch server-rendered print HTML + style for a Sales Invoice via our own
+ * ecs_posnext endpoint rather than Frappe's core printview endpoints.
+ * Frappe's `document.check_permission()` / `validate_print_permission()` run a
+ * per-document permission check that cascades into unrelated Account link
+ * fields (write_off_account, etc.), which incorrectly blocks branch cashiers
+ * from printing invoices they just created themselves.
+ */
+async function fetchPrintHTML(invoiceName, { printFormat, letterhead = null, noLetterhead = 1 } = {}) {
+	const result = await call("ecs_posnext.api.invoices.get_invoice_print_html", {
+		invoice_name: invoiceName,
+		print_format: printFormat || DEFAULT_PRINT_FORMAT,
+		letterhead,
+		no_letterhead: noLetterhead,
+	})
+	const html = result?.html || result?.message?.html
+	const style = result?.style || result?.message?.style || ""
+	if (!html) throw new Error("Failed to get print HTML from server")
+	return { html, style }
+}
+
+/**
  * Resolve print format & letterhead from a POS Profile.
  * Returns defaults when the profile lookup fails so callers always get a value.
  */
@@ -42,35 +63,40 @@ async function resolvePrintSettings(posProfile, printFormat, letterhead) {
 }
 
 // ============================================================================
-// Browser printing (opens /printview in a new window)
+// Browser printing (renders server print HTML in a new window)
 // ============================================================================
 
 /**
- * Open Frappe's /printview in a new browser window.
- * The page includes trigger_print=1 so the OS print dialog appears automatically.
- * Falls back to the hardcoded receipt template if the popup is blocked.
+ * Fetch server-rendered print HTML/style for the invoice and open it in a new
+ * browser window, triggering the OS print dialog automatically.
+ * Falls back to the hardcoded receipt template if the popup is blocked or the
+ * server render fails.
  */
 export async function printInvoice(invoiceData, printFormat = null, letterhead = null) {
 	try {
 		if (!invoiceData?.name) throw new Error("Invalid invoice data")
 
-		const doctype = invoiceData.doctype || "Sales Invoice"
-		const format = printFormat || DEFAULT_PRINT_FORMAT
-
-		const params = new URLSearchParams({
-			doctype,
-			name: invoiceData.name,
-			format,
-			no_letterhead: letterhead ? 0 : 1,
-			_lang: "en",
-			trigger_print: 1,
-			_t: Date.now(),
+		const { html, style } = await fetchPrintHTML(invoiceData.name, {
+			printFormat: printFormat || DEFAULT_PRINT_FORMAT,
+			letterhead,
+			noLetterhead: letterhead ? 0 : 1,
 		})
-		if (letterhead) params.append("letterhead", letterhead)
 
-		const printWindow = window.open(`/printview?${params}`, "_blank", "width=800,height=600")
+		const printWindow = window.open("", "_blank", "width=800,height=600")
 		if (!printWindow) {
 			throw new Error("Popup blocked — check your browser settings.")
+		}
+
+		const fullHTML = `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><style>${style}</style></head>
+<body>${html}</body>
+</html>`
+
+		printWindow.document.write(fullHTML)
+		printWindow.document.close()
+		printWindow.onload = () => {
+			setTimeout(() => printWindow.print(), 250)
 		}
 		return true
 	} catch (error) {
@@ -99,25 +125,17 @@ export async function printInvoiceByName(invoiceName, printFormat = null, letter
 
 /**
  * Fetch the server-rendered print HTML and send it to a thermal printer
- * via QZ Tray. Uses Frappe's get_html_and_style API which returns the
- * print format HTML + its inline styles (standard.css, print style, custom CSS).
+ * via QZ Tray. Returns the print format HTML + its inline styles (standard.css,
+ * print style, custom CSS).
  * Note: print.bundle.css (Bootstrap grid/tables) is NOT included — print
  * formats that rely on Bootstrap layout classes may render differently.
  * Paper size and margins are controlled by the QZ Tray config in qzTray.js.
  */
 export async function silentPrintInvoice(invoiceName, printFormat = null) {
-	const format = printFormat || DEFAULT_PRINT_FORMAT
-
-	const result = await call("frappe.www.printview.get_html_and_style", {
-		doc: "Sales Invoice",
-		name: invoiceName,
-		print_format: format,
-		no_letterhead: 1,
+	const { html, style } = await fetchPrintHTML(invoiceName, {
+		printFormat: printFormat || DEFAULT_PRINT_FORMAT,
+		noLetterhead: 1,
 	})
-
-	const html = result?.html || result?.message?.html
-	const style = result?.style || result?.message?.style || ""
-	if (!html) throw new Error("Failed to get print HTML from server")
 
 	const fullHTML = `<!DOCTYPE html>
 <html>
@@ -162,7 +180,7 @@ export async function printWithSilentFallback(invoiceData, printFormat = null) {
 /**
  * Last-resort receipt renderer. Builds a complete HTML document from the
  * invoice data and writes it into a new window. Only triggered when the
- * browser blocks the /printview popup.
+ * popup is blocked or the server-rendered print HTML request fails.
  */
 export function printInvoiceCustom(invoiceData) {
 	const printWindow = window.open("", "_blank", "width=350,height=600")
