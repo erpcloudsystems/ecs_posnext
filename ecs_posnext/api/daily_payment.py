@@ -124,6 +124,14 @@ def get_daily_payments(employee=None, from_date=None, to_date=None, branch=None,
 @frappe.whitelist()
 def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_shift=None):
 	"""Return invoice counts grouped by payment method for Cash and Visa (non-Cash)."""
+	if not frappe.has_permission("Sales Invoice", "read"):
+		frappe.throw(_("Not permitted to view Sales Invoice"), frappe.PermissionError)
+
+	if branch:
+		allowed_branches = frappe.permissions.get_user_permissions(frappe.session.user).get("Branch")
+		if allowed_branches and branch not in [d.doc for d in allowed_branches]:
+			frappe.throw(_("Not permitted to view invoices for branch {0}").format(branch), frappe.PermissionError)
+
 	filters = [
 		["docstatus", "=", 1],
 		["is_pos", "=", 1],
@@ -140,11 +148,16 @@ def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_sh
 	elif to_date:
 		filters.append(["posting_date", "<=", to_date])
 
+	# Bypass permission-engine's user-permission cascade on unrelated Account
+	# link fields (write_off_account, cash_bank_account, etc.) which otherwise
+	# hides every invoice for branch users with restrictive Account permissions.
+	# Doctype-level read access and branch scoping are already enforced above.
 	invoices = frappe.get_list(
 		"Sales Invoice",
 		filters=filters,
 		fields=["name"],
 		limit=0,
+		ignore_permissions=True,
 	)
 
 	invoice_names = [d.name for d in invoices]
