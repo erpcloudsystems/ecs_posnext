@@ -20,7 +20,9 @@
 					</div>
 					<h3 class="mt-4 text-sm font-medium text-gray-900">{{ __('No offers available') }}</h3>
 					<p class="mt-2 text-xs text-gray-500">
-						{{ __('Add items to your cart to see eligible offers') }}
+						{{ needsBranch
+							? __('Select a branch to see eligible offers')
+							: __('Add items to your cart to see eligible offers') }}
 					</p>
 				</div>
 
@@ -239,6 +241,13 @@ const appliedOfferCodes = computed(() => {
 
 // Use ALL eligible offers from store (includes both auto and manual offers)
 const eligibleOffers = computed(() => offersStore.allEligibleOffersSorted)
+
+// Offers are branch-restricted and Call Center has no branch until a target is
+// picked. With items in the cart, that — not an empty cart — is why the list is
+// empty, so point at the real cause.
+const needsBranch = computed(
+	() => !offersStore.cartSnapshot.branch && offersStore.cartSnapshot.itemCount > 0,
+)
 
 // Loading state - check if offers are being loaded
 const loading = computed(() => {

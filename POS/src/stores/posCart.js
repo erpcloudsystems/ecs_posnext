@@ -1,5 +1,7 @@
 import { call } from "@/utils/apiWrapper"
 import { useInvoice } from "@/composables/useInvoice"
+import { shiftState } from "@/composables/useShift"
+import { useItemSearchStore } from "@/stores/itemSearch"
 import { usePOSOffersStore } from "@/stores/posOffers"
 import { usePOSSettingsStore } from "@/stores/posSettings"
 import { parseError } from "@/utils/errorHandler"
@@ -150,6 +152,13 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	const selectedBranchWarehouse = ref(null)
 	const selectedBranchProfile = ref(null)
 	const selectedBranchPriceList = ref(null)
+
+	// Branch this sale belongs to, used to match branch-restricted offers.
+	// Call Center has no branch of its own and targets one per order; every other
+	// profile uses its own. Mirrors how the backend resolves it on submit.
+	const effectiveBranch = computed(
+		() => selectedBranch.value || shiftState.value.pos_profile?.branch || null,
+	)
 	const selectedTable = ref(null)
 	const numberOfGuests = ref(null)
 
@@ -196,6 +205,9 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			customer.value?.name || customer.value || "none",
 			// Applied offers count
 			appliedOffers.value.length.toString(),
+			// Branch — offers are branch-restricted, so switching the Call Center
+			// target branch must re-evaluate even when the items are unchanged
+			effectiveBranch.value || "none",
 		]
 		return parts.join("::")
 	}
@@ -588,14 +600,22 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		// Use toRaw() to ensure we get current, non-reactive values (prevents stale cached quantities)
 		const rawItems = toRaw(invoiceItems.value)
 
+		// Cart items are priced with the price list picked in the breadcrumb, so
+		// offers must be evaluated against that same list — otherwise a rule bound
+		// to `for_price_list` is matched against a list the cart isn't using.
+		const itemStore = useItemSearchStore()
+		const priceList =
+			itemStore.getPriceListParam() || currentProfile?.selling_price_list
+
 		return {
 			doctype: "Sales Invoice",
 			pos_profile: posProfile.value,
 			customer:
 				customer.value?.name || customer.value || currentProfile?.customer,
 			company: currentProfile?.company,
-			selling_price_list: currentProfile?.selling_price_list,
+			selling_price_list: priceList,
 			currency: currentProfile?.currency,
+			branch: effectiveBranch.value,
 			discount_amount: additionalDiscount.value || 0,
 			coupon_code: appliedCoupon.value?.name || "",
 			items: rawItems.map((item) => ({
@@ -1121,7 +1141,10 @@ export const usePOSCartStore = defineStore("posCart", () => {
 				(offer) => !appliedOfferCodes.has(offer.name),
 			)
 
-			if (newOffers.length === 0) {
+			// Re-evaluate even when no *new* offer is eligible. Rows added since the
+			// last call still carry a 0% discount, and only the server recomputes the
+			// whole cart, so returning here would leave them undiscounted.
+			if (newOffers.length === 0 && appliedOffers.value.length === 0) {
 				return
 			}
 
@@ -1519,6 +1542,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			itemQuantities,
 			itemGroupQuantities,
 			brandQuantities,
+			branch: effectiveBranch.value,
 		}
 	}
 
@@ -1766,6 +1790,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 				itemQuantities: cachedItemQuantities,
 				itemGroupQuantities: cachedItemGroupQuantities,
 				brandQuantities: cachedBrandQuantities,
+				branch: effectiveBranch.value,
 			})
 		}
 	}
@@ -1840,12 +1865,14 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		}
 
 		// === ONLINE MODE ===
-		// Get current profile from posProfile
+		// posProfile.value is only the profile name, so read the full profile doc
+		// from shift state for company/price list/currency.
+		const profileDoc = shiftState.value.pos_profile || {}
 		const currentProfile = {
 			customer: customer.value?.name || customer.value,
-			company: posProfile.value.company,
-			selling_price_list: posProfile.value.selling_price_list,
-			currency: posProfile.value.currency,
+			company: profileDoc.company,
+			selling_price_list: profileDoc.selling_price_list,
+			currency: profileDoc.currency,
 		}
 
 		// Validate and auto-remove invalid offers (if any are applied)
@@ -1989,6 +2016,10 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			subtotal,
 			// Watch customer changes (some offers are customer-specific)
 			() => customer.value?.name || customer.value,
+			// Watch branch changes (offers can be restricted to branches).
+			// Picking the Call Center target branch after items are already in the
+			// cart changes nothing else, so without this the offer never applies.
+			effectiveBranch,
 		],
 		(_newVals, oldVals) => {
 			// Skip if this is initial render with empty cart
@@ -2098,6 +2129,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		setDeliveryCharge,
 
 		selectedBranch,
+		effectiveBranch,
 		selectedBranchWarehouse,
 		selectedBranchProfile,
 		selectedBranchPriceList,

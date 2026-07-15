@@ -50,6 +50,15 @@ frappe.ui.form.on("POS Closing Shift", {
 					}
 				},
 			});
+
+			// Load the POS Profile's own modes of payment — these are the
+			// "branch / direct-sale" modes (Talabat / external modes are not listed).
+			frappe.db.get_doc("POS Profile", frm.doc.pos_profile).then((profile) => {
+				frm.profile_modes = new Set((profile.payments || []).map((p) => p.mode_of_payment));
+				if (frm.doc.docstatus === 0 && frm.cash_mop) {
+					calculate_total_cash(frm);
+				}
+			});
 		}
 	},
 
@@ -77,6 +86,16 @@ frappe.ui.form.on("POS Closing Shift", {
 	cash_10_egp: calculate_total_cash,
 	cash_5_egp: calculate_total_cash,
 	cash_1_egp: calculate_total_cash,
+
+	// Dedicated "Actual Credit Card" field → fills the branch credit mode's Closing.
+	actual_credit_card(frm) {
+		if (frm.doc.docstatus !== 0) return;
+		const row = get_branch_credit_row(frm);
+		if (row) {
+			frappe.model.set_value(row.doctype, row.name, "closing_amount", flt(frm.doc.actual_credit_card));
+		}
+		calculate_total_diff(frm);
+	},
 
 	before_submit(frm) {
 		return new Promise((resolve, reject) => {
@@ -290,28 +309,84 @@ function calculate_total_cash(frm) {
 
 	const cash_mop = get_cash_mode_of_payment(frm);
 	const mode_types = frm.mode_types || {};
+	const profile_modes = frm.profile_modes || new Set();
 
 	(frm.doc.payment_reconciliation || []).forEach((d) => {
-		// Rely on the Mode of Payment type; fall back to the configured cash mode
-		// only when the type map has not loaded yet. Never match by name substring.
 		const known_type = mode_types[d.mode_of_payment];
 		const is_cash = known_type ? known_type === "Cash" : d.mode_of_payment === cash_mop;
-		if (is_cash) {
+		const is_branch = profile_modes.has(d.mode_of_payment);
+
+		if (is_branch && is_cash) {
+			// Branch physical-cash drawer — set to the counted total.
 			frappe.model.set_value(d.doctype, d.name, "closing_amount", total);
+		} else if (is_branch) {
+			// Branch (direct-sale) credit/card — the cashier enters the actual
+			// amount; only default to expected when nothing was entered yet.
+			if (d.closing_amount === undefined || d.closing_amount === null || d.closing_amount === "") {
+				frappe.model.set_value(d.doctype, d.name, "closing_amount", d.expected_amount);
+			}
 		} else {
+			// Talabat / external modes — auto-reconciled to expected.
 			frappe.model.set_value(d.doctype, d.name, "closing_amount", d.expected_amount);
 		}
 	});
 
+	// Keep the standalone "Actual Credit Card" field in sync with its grid row.
+	const creditRow = get_branch_credit_row(frm);
+	if (creditRow && flt(frm.doc.actual_credit_card) !== flt(creditRow.closing_amount)) {
+		frm.set_value("actual_credit_card", flt(creditRow.closing_amount));
+	}
+
 	calculate_total_diff(frm);
 }
 
+// The branch (direct-sale) credit row the "Actual Credit Card" field maps to:
+// a POS-Profile mode that isn't cash. Prefers a card-named mode when several exist.
+function get_branch_credit_row(frm) {
+	const profile_modes = frm.profile_modes || new Set();
+	const mode_types = frm.mode_types || {};
+	const rows = (frm.doc.payment_reconciliation || []).filter(
+		(d) => profile_modes.has(d.mode_of_payment) && mode_types[d.mode_of_payment] !== "Cash"
+	);
+	if (rows.length === 0) return null;
+	if (rows.length === 1) return rows[0];
+	return rows.find((d) => /credit|card|visa/i.test(d.mode_of_payment)) || rows[0];
+}
+
 function calculate_total_diff(frm) {
-	let total_diff = 0;
+	const mode_types = frm.mode_types || {};
+	const profile_modes = frm.profile_modes || new Set();
+	const cash_mop = get_cash_mode_of_payment(frm);
+
+	let total_diff = 0, total_diff_cash = 0, total_diff_credit = 0;
+	let cashSold = 0, cashCol = 0, creditSold = 0, creditCol = 0;
+
 	(frm.doc.payment_reconciliation || []).forEach((d) => {
-		total_diff += flt(d.difference);
+		const diff = flt(d.difference);
+		total_diff += diff;
+
+		const known_type = mode_types[d.mode_of_payment];
+		const is_cash = known_type ? known_type === "Cash" : d.mode_of_payment === cash_mop;
+		const is_branch = profile_modes.has(d.mode_of_payment);
+
+		if (is_branch && is_cash) {
+			total_diff_cash += diff;
+			cashSold += flt(d.expected_amount);
+			cashCol += flt(d.closing_amount);
+		} else if (is_branch) {
+			total_diff_credit += diff;
+			creditSold += flt(d.expected_amount);
+			creditCol += flt(d.closing_amount);
+		}
 	});
+
 	frm.set_value("total_diff", total_diff);
+	frm.set_value("total_diff_cash", total_diff_cash);
+	frm.set_value("total_diff_credit", total_diff_credit);
+	frm.set_value("direct_cash_sold", cashSold);
+	frm.set_value("direct_cash_collected", cashCol);
+	frm.set_value("direct_credit_sold", creditSold);
+	frm.set_value("direct_credit_collected", creditCol);
 }
 
 function get_cash_mode_of_payment(frm) {

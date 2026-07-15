@@ -14,6 +14,7 @@ const defaultSnapshot = () => ({
 	itemQuantities: {},      // { item_code: qty }
 	itemGroupQuantities: {}, // { item_group: qty }
 	brandQuantities: {},     // { brand: qty }
+	branch: null,            // branch the sale belongs to (for branch-restricted offers)
 })
 
 function getDiscountSortValue(offer) {
@@ -63,6 +64,7 @@ export const usePOSOffersStore = defineStore("posOffers", () => {
 			itemQuantities,
 			itemGroupQuantities,
 			brandQuantities,
+			branch: snapshot.branch || null,
 		}
 	}
 
@@ -142,6 +144,24 @@ export const usePOSOffersStore = defineStore("posOffers", () => {
 			return {
 				eligible: false,
 				reason: "Cart is empty",
+			}
+		}
+
+		// Branch restriction. An offer with no branches listed applies everywhere.
+		// Call Center has no branch until a target is picked, so nothing applies
+		// yet — the discount must not change after the branch is chosen.
+		const branch = cartSnapshot.value.branch || null
+		if (!branch) {
+			return {
+				eligible: false,
+				reason: __("Select a branch to see available offers"),
+			}
+		}
+		const allowedBranches = offer?.allowed_branches || []
+		if (allowedBranches.length > 0 && !allowedBranches.includes(branch)) {
+			return {
+				eligible: false,
+				reason: __("This offer is not available at {0}", [branch]),
 			}
 		}
 

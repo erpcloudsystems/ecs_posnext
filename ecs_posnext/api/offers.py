@@ -10,7 +10,7 @@ Promotional Schemes and standalone Pricing Rules.
 """
 
 from typing import Dict, List, Optional
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 import frappe
 from frappe import _
 from frappe.utils import flt, getdate, nowdate
@@ -86,6 +86,8 @@ class Offer:
 	is_recursive: int = 0  # 1 if offer applies recursively (e.g., buy 2 get 1 free for every 2)
 	recurse_for: float = 0  # Give free item for every N quantity (used when is_recursive=1)
 	apply_recursion_over: float = 0  # Qty for which recursion isn't applicable
+	# Branches this offer is limited to. Empty means every branch.
+	allowed_branches: List[str] = field(default_factory=list)
 
 	def to_dict(self) -> Dict:
 		"""Convert to dictionary for API response"""
@@ -216,6 +218,42 @@ class EligibilityFetcher:
 		return brands_map
 
 
+class AllowedBranchFetcher:
+	"""Fetches the branch restriction for pricing rules"""
+
+	@staticmethod
+	def fetch(rule_names: List[str]) -> Dict[str, List[str]]:
+		"""
+		Map pricing rule name -> list of allowed branches.
+
+		A rule missing from the map has no restriction and applies everywhere.
+		"""
+		if not rule_names or not frappe.db.table_exists("POS Offer Allowed Branch"):
+			return {}
+
+		results = frappe.db.sql("""
+			SELECT parent, branch
+			FROM `tabPOS Offer Allowed Branch`
+			WHERE parenttype = 'Pricing Rule' AND parent IN %s
+		""", [rule_names], as_dict=1)
+
+		branches_map = {}
+		for row in results:
+			if row.get("branch"):
+				branches_map.setdefault(row["parent"], []).append(row["branch"])
+		return branches_map
+
+
+def is_offer_allowed_for_branch(allowed_branches, branch) -> bool:
+	"""An empty restriction allows every branch; otherwise the branch must match.
+
+	Shared by the offers list and the pricing engine so both agree.
+	"""
+	if not allowed_branches:
+		return True
+	return bool(branch) and branch in allowed_branches
+
+
 class SlabFetcher:
 	"""Fetches discount slabs for promotional schemes"""
 
@@ -280,7 +318,8 @@ class OfferBuilder:
 	def build_from_scheme_rule(
 		rule: Dict,
 		slab: Dict,
-		eligibility: OfferEligibility
+		eligibility: OfferEligibility,
+		allowed_branches: Optional[List[str]] = None
 	) -> Offer:
 		"""Build offer from promotional scheme pricing rule"""
 
@@ -336,13 +375,15 @@ class OfferBuilder:
 			same_item=1 if slab.get("same_item") and not is_price_discount else 0,
 			is_recursive=1 if slab.get("is_recursive") and not is_price_discount else 0,
 			recurse_for=flt(slab.get("recurse_for", 0)) if not is_price_discount else 0,
-			apply_recursion_over=flt(slab.get("apply_recursion_over", 0)) if not is_price_discount else 0
+			apply_recursion_over=flt(slab.get("apply_recursion_over", 0)) if not is_price_discount else 0,
+			allowed_branches=allowed_branches or []
 		)
 
 	@staticmethod
 	def build_from_standalone_rule(
 		rule: Dict,
-		eligibility: OfferEligibility
+		eligibility: OfferEligibility,
+		allowed_branches: Optional[List[str]] = None
 	) -> Offer:
 		"""Build offer from standalone pricing rule"""
 
@@ -384,7 +425,8 @@ class OfferBuilder:
 			promotional_scheme_id=None,
 			eligible_items=eligible_items,
 			eligible_item_groups=eligible_item_groups,
-			eligible_brands=eligible_brands
+			eligible_brands=eligible_brands,
+			allowed_branches=allowed_branches or []
 		)
 
 
@@ -454,6 +496,8 @@ def _get_promotional_scheme_offers(company: str, date: str) -> List[Offer]:
 	price_slabs = SlabFetcher.fetch_price_slabs(scheme_names)
 	product_slabs = SlabFetcher.fetch_product_slabs(scheme_names)
 	eligibility_map = EligibilityFetcher.fetch_all(scheme_names)
+	# Branch restrictions live on the generated Pricing Rule, not the scheme
+	branches_map = AllowedBranchFetcher.fetch([rule["name"] for rule in pricing_rules])
 
 	# Build offers
 	offers = []
@@ -470,7 +514,9 @@ def _get_promotional_scheme_offers(company: str, date: str) -> List[Offer]:
 			continue
 
 		eligibility = eligibility_map.get(scheme_name, OfferEligibility([], [], []))
-		offer = OfferBuilder.build_from_scheme_rule(rule, slab, eligibility)
+		offer = OfferBuilder.build_from_scheme_rule(
+			rule, slab, eligibility, branches_map.get(rule["name"])
+		)
 		offers.append(offer)
 
 	return offers
@@ -507,12 +553,15 @@ def _get_standalone_pricing_rule_offers(company: str, date: str) -> List[Offer]:
 
 	# Fetch eligibility in batch
 	eligibility_map = EligibilityFetcher.fetch_all(rule_names)
+	branches_map = AllowedBranchFetcher.fetch(rule_names)
 
 	# Build offers
 	offers = []
 	for rule in pricing_rules:
 		eligibility = eligibility_map.get(rule["name"], OfferEligibility([], [], []))
-		offer = OfferBuilder.build_from_standalone_rule(rule, eligibility)
+		offer = OfferBuilder.build_from_standalone_rule(
+			rule, eligibility, branches_map.get(rule["name"])
+		)
 		offers.append(offer)
 
 	return offers

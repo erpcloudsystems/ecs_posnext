@@ -2350,6 +2350,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		// PRICE LIST & GROUP NAVIGATION
 		// ========================================================================
 		selectedPriceList,
+		getPriceListParam,
 		availablePriceLists,
 		groupBreadcrumb,
 		currentGroupChildren,

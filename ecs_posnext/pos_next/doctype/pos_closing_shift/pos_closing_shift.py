@@ -115,17 +115,59 @@ class POSClosingShift(Document):
         if len(kept) != len(rows):
             self.set(fieldname, kept)
 
+    def _get_mode_meta(self):
+        """Return a classifier for each mode of payment.
+
+        is_cash  : Mode of Payment type == "Cash".
+        is_branch: mode is configured on the shift's POS Profile — i.e. a
+                   direct-sale / branch mode (as opposed to Talabat / external).
+        """
+        profile_modes = set(
+            frappe.get_all(
+                "POS Payment Method", filters={"parent": self.pos_profile}, pluck="mode_of_payment"
+            )
+        ) if self.pos_profile else set()
+
+        def meta(mode):
+            mtype = frappe.get_cached_value("Mode of Payment", mode, "type")
+            return frappe._dict(is_cash=(mtype == "Cash"), is_branch=(mode in profile_modes))
+
+        return meta
+
     def update_payment_reconciliation(self):
         # update the difference values in Payment Reconciliation child table
         # get default precision for site
         precision = frappe.get_cached_value("System Settings", None, "currency_precision") or 3
-        total_diff = 0
+        meta = self._get_mode_meta()
+
+        total_diff = total_diff_cash = total_diff_credit = 0
+        d_cash_sold = d_cash_col = d_credit_sold = d_credit_col = 0
+
         for d in self.payment_reconciliation:
             d.difference = flt(d.closing_amount, precision) - flt(d.expected_amount, precision)
             total_diff += flt(d.difference)
-        # Authoritative total: recomputed server-side so it always matches the
-        # per-row (type-based) differences, regardless of what the client sent.
+
+            m = meta(d.mode_of_payment)
+            if m.is_branch and m.is_cash:
+                total_diff_cash += flt(d.difference)
+                d_cash_sold += flt(d.expected_amount)
+                d_cash_col += flt(d.closing_amount)
+            elif m.is_branch:  # branch (direct-sale) credit / card / wallet
+                total_diff_credit += flt(d.difference)
+                d_credit_sold += flt(d.expected_amount)
+                d_credit_col += flt(d.closing_amount)
+
+        # Authoritative totals: recomputed server-side so they always match the
+        # per-row differences, regardless of what the client sent.
         self.total_diff = flt(total_diff, precision)
+        self.total_diff_cash = flt(total_diff_cash, precision)
+        self.total_diff_credit = flt(total_diff_credit, precision)
+
+        # Direct-sale (branch) reconciliation: what was sold (expected) vs collected (actual)
+        self.direct_cash_sold = flt(d_cash_sold, precision)
+        self.direct_cash_collected = flt(d_cash_col, precision)
+        self.direct_credit_sold = flt(d_credit_sold, precision)
+        self.direct_credit_collected = flt(d_credit_col, precision)
 
     def calculate_total_cash(self):
         self.total_cash = (
@@ -149,11 +191,19 @@ class POSClosingShift(Document):
         if not self.payment_reconciliation:
             return
 
+        meta = self._get_mode_meta()
         for d in self.payment_reconciliation:
-            mop_type = frappe.get_cached_value("Mode of Payment", d.mode_of_payment, "type")
-            if mop_type == "Cash":
+            m = meta(d.mode_of_payment)
+            if m.is_branch and m.is_cash:
+                # Branch physical-cash drawer — reconciled against the counted notes.
                 d.closing_amount = self.total_cash
+            elif m.is_branch:
+                # Branch (direct-sale) credit/card — the cashier enters the actual
+                # closing amount. Only default to expected when nothing was entered.
+                if d.closing_amount in (None, ""):
+                    d.closing_amount = d.expected_amount
             else:
+                # Talabat / external modes — auto-reconciled to their expected value.
                 d.closing_amount = d.expected_amount
 
     def on_submit(self):

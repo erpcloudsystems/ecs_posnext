@@ -9,6 +9,7 @@
   "is_default",
   "column_break_1",
   "default_target_minutes",
+  "warning_threshold_minutes",
   "section_order_types",
   "warning_threshold_pct",
   "pickup_target_minutes",
@@ -46,11 +47,19 @@
    "label": "Target Minutes"
   },
   {
+   "default": "10",
+   "description": "Minutes elapsed before the timer turns amber. Must be less than Target Minutes.",
+   "fieldname": "warning_threshold_minutes",
+   "fieldtype": "Int",
+   "label": "Warning After (min)"
+  },
+  {
    "default": "70",
-   "description": "Percent of target time elapsed before timer turns amber",
+   "description": "Calculated from Warning After (min) ÷ Target Minutes. Read-only.",
    "fieldname": "warning_threshold_pct",
    "fieldtype": "Int",
-   "label": "Warning Threshold %"
+   "label": "Warning Threshold %",
+   "read_only": 1
   },
   {
    "fieldname": "section_order_types",

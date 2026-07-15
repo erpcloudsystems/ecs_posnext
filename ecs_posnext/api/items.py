@@ -827,7 +827,7 @@ def get_item_variants(template_item, pos_profile=None, warehouse=None, price_lis
 		template_info = frappe.db.get_value(
 			"Item", 
 			template_item, 
-			["custom_addons_label", "enabled_item_bundle", "image", "item_name"], 
+			["custom_addons_label","item_group", "enabled_item_bundle", "image", "item_name"], 
 			as_dict=True
 		)
 		
@@ -842,7 +842,7 @@ def get_item_variants(template_item, pos_profile=None, warehouse=None, price_lis
 		""", (template_item,), as_dict=True)
 
 		# Get ingredients for all variants if they are bundles, or fallback to template
-		bundle_variant_codes = [v["item_code"] for v in variants if v.get("enabled_item_bundle")]
+		bundle_variant_codes = [v["item_code"] for v in variants if template_info.get("item_group")== 'السندوتشات']
 		search_bundle_codes = list(bundle_variant_codes)
 		if template_info.get("enabled_item_bundle"):
 			search_bundle_codes.append(template_item)

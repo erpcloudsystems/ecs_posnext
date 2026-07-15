@@ -114,7 +114,8 @@ fixtures = [
 					"Item-kds_station",
 					"Sales Invoice Item-custom_selected_components",
 					"Sales Invoice Item-is_bundle",
-					"Sales Invoice Item-removed_ingredients"
+					"Sales Invoice Item-removed_ingredients",
+					"Pricing Rule-custom_allowed_branches"
 				]
 			]
 		]

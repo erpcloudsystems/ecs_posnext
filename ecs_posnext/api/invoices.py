@@ -9,6 +9,7 @@ from frappe import _
 from frappe.utils import flt, cint, nowdate, nowtime, get_datetime, cstr
 from erpnext.stock.doctype.batch.batch import get_batch_qty, get_batch_no
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import get_bank_cash_account
+from ecs_posnext.api.offers import AllowedBranchFetcher, is_offer_allowed_for_branch
 
 
 # ==========================================
@@ -3652,6 +3653,73 @@ def search_invoices_for_return(
 # ==========================================
 
 
+def _resolve_branch(invoice, profile):
+    """Branch this sale belongs to.
+
+    Call Center has no branch of its own and targets one explicitly per order;
+    every other profile uses its own. Mirrors the resolution used when the
+    invoice is actually created.
+    """
+    return invoice.get("branch") or profile.get("branch")
+
+
+def _filter_rules_by_branch(rule_map, branch):
+    """Drop pricing rules that are not allowed at `branch`.
+
+    A rule with no branches listed applies everywhere.
+    """
+    if not rule_map:
+        return rule_map
+
+    branches_map = AllowedBranchFetcher.fetch(list(rule_map.keys()))
+    if not branches_map:
+        return rule_map
+
+    return {
+        name: details
+        for name, details in rule_map.items()
+        if is_offer_allowed_for_branch(branches_map.get(name), branch)
+    }
+
+
+def _resolve_selling_price_list(invoice, profile, customer=None):
+    """Resolve the price list used to evaluate Pricing Rules.
+
+    Mirrors the chain a Sales Invoice resolves on submit (POS Profile ->
+    Customer -> Customer Group -> Selling Settings). Pricing Rules bound to a
+    `for_price_list` only match when this is populated, so falling back the
+    same way keeps the POS preview consistent with the submitted invoice.
+    """
+    price_list = (
+        invoice.get("price_list")
+        or invoice.get("selling_price_list")
+        or profile.get("selling_price_list")
+    )
+    if price_list:
+        return price_list
+
+    if customer:
+        # db.get_value (not get_cached_value) so an unknown customer yields None
+        # instead of raising and silently disabling every offer.
+        price_list, customer_group = (
+            frappe.db.get_value(
+                "Customer", customer, ["default_price_list", "customer_group"]
+            )
+            or (None, None)
+        )
+        if price_list:
+            return price_list
+
+        if customer_group:
+            price_list = frappe.db.get_value(
+                "Customer Group", customer_group, "default_price_list"
+            )
+            if price_list:
+                return price_list
+
+    return frappe.db.get_single_value("Selling Settings", "selling_price_list")
+
+
 @frappe.whitelist()
 def apply_offers(invoice_data, selected_offers=None):
     """Calculate and apply promotional offers using ERPNext Pricing Rules.
@@ -3806,8 +3874,7 @@ def apply_offers(invoice_data, selected_offers=None):
                 "conversion_rate": flt(invoice.get("conversion_rate") or 1) or 1,
                 "plc_conversion_rate": flt(invoice.get("plc_conversion_rate") or 1)
                 or 1,
-                "price_list": invoice.get("price_list")
-                or profile.get("selling_price_list"),
+                "price_list": _resolve_selling_price_list(invoice, profile, customer),
                 "customer": customer,
                 "customer_group": customer_group,
                 "territory": territory,
@@ -3886,6 +3953,10 @@ def apply_offers(invoice_data, selected_offers=None):
 
                 # Include both promotional scheme rules and standalone pricing rules
                 rule_map[record.name] = record
+
+        # Honour the per-rule branch restriction. Done here rather than in the
+        # ERPNext engine call so the POS preview and the submitted invoice agree.
+        rule_map = _filter_rules_by_branch(rule_map, _resolve_branch(invoice, profile))
 
         if selected_offer_names:
             # Restrict available rules to the ones explicitly selected from the UI.

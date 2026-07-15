@@ -6,9 +6,13 @@ Sales Invoice Hooks
 Event handlers for Sales Invoice document events
 """
 
+import json
+
 import frappe
 from frappe import _
 from frappe.utils import cint
+
+from ecs_posnext.api.offers import AllowedBranchFetcher, is_offer_allowed_for_branch
 
 
 def validate(doc, method=None):
@@ -24,6 +28,73 @@ def validate(doc, method=None):
 	apply_tax_inclusive(doc)
 	auto_assign_loyalty_program_on_invoice(doc)
 	validate_delivery_address(doc)
+	enforce_offer_branch_restrictions(doc)
+
+
+def _parse_pricing_rule_names(value):
+	"""pricing_rules may arrive as a list, a JSON array, or a CSV string."""
+	if not value:
+		return []
+	if isinstance(value, (list, tuple)):
+		return [str(v) for v in value if v]
+
+	text = str(value).strip()
+	if text.startswith("["):
+		try:
+			parsed = json.loads(text)
+		except (json.JSONDecodeError, TypeError, ValueError):
+			return []
+		return [str(v) for v in parsed if v] if isinstance(parsed, list) else []
+
+	return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def enforce_offer_branch_restrictions(doc, method=None):
+	"""Drop pricing rules that are not allowed at this invoice's branch.
+
+	The POS already hides these, but ERPNext's own pricing engine ignores the
+	branch, so without this an offline sync, desk entry or import could apply a
+	branch-restricted offer outside its branches — the same POS/backend mismatch
+	this restriction exists to prevent. A rule with no branches listed is
+	unrestricted and always survives.
+	"""
+	items = doc.get("items") or []
+	rules_per_item = [_parse_pricing_rule_names(item.get("pricing_rules")) for item in items]
+
+	all_rules = {name for names in rules_per_item for name in names}
+	if not all_rules:
+		return
+
+	branches_map = AllowedBranchFetcher.fetch(list(all_rules))
+	if not branches_map:
+		return  # nothing is restricted
+
+	branch = doc.get("branch")
+	disallowed = {
+		name
+		for name in all_rules
+		if not is_offer_allowed_for_branch(branches_map.get(name), branch)
+	}
+	if not disallowed:
+		return
+
+	changed = False
+	for item, names in zip(items, rules_per_item):
+		if not any(name in disallowed for name in names):
+			continue
+
+		item.pricing_rules = ",".join(n for n in names if n not in disallowed)
+		# The remaining rules can't be re-costed here, so fall back to the list
+		# rate. Under-discounting is the safe direction; a branch must never get
+		# a discount it isn't entitled to.
+		item.discount_percentage = 0
+		item.discount_amount = 0
+		if item.get("price_list_rate"):
+			item.rate = item.price_list_rate
+		changed = True
+
+	if changed:
+		doc.calculate_taxes_and_totals()
 
 
 def validate_delivery_address(doc):
