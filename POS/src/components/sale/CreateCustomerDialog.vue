@@ -99,6 +99,14 @@
 					<Input v-model="customerData.email_id" type="email" :placeholder="__('Enter email address')" />
 				</div>
 
+				<!-- Tax ID -->
+				<div>
+					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+						{{ __("Tax ID") }}
+					</label>
+					<Input v-model="customerData.tax_id" type="text" :placeholder="__('Enter tax ID')" />
+				</div>
+
 				<!-- Customer Group -->
 				<div>
 					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
@@ -233,7 +241,8 @@ const customerData = ref({
 	customer_name: "",
 	mobile_no: "",
 	email_id: "",
-	customer_group: "أفراد",
+	tax_id: "",
+	customer_group: "",
 	territory: "All Territories",
 })
 
@@ -247,6 +256,14 @@ const show = computed({
 })
 
 const isEditMode = computed(() => !!props.customer?.name)
+
+// Default Customer Group by POS Profile region: DAZJED... / DAZRUH... -> Jeddah / Riyadh
+const defaultCustomerGroup = computed(() => {
+	const profile = (props.posProfile || "").toUpperCase()
+	if (profile.includes("JED")) return "Jeddah"
+	if (profile.includes("RUH")) return "Riyadh"
+	return "Individual"
+})
 
 const currentCountryCode = computed(() => {
 	const country = countriesStore.countries.find((c) => c.isd === selectedCountryCode.value)
@@ -332,17 +349,14 @@ const updateTerritoryFromCountry = () => {
 // =============================================================================
 
 const createCustomerResource = createResource({
-	url: "frappe.client.insert",
+	url: "ecs_posnext.api.customers.create_customer",
 	makeParams: () => ({
-		doc: {
-			doctype: "Customer",
-			customer_name: customerData.value.customer_name,
-			customer_type: "Individual",
-			customer_group: customerData.value.customer_group || __("أفراد"),
-			territory: customerData.value.territory || __("All Territories"),
-			mobile_no: customerData.value.mobile_no || "",
-			email_id: customerData.value.email_id || "",
-		},
+		customer_name: customerData.value.customer_name,
+		customer_group: customerData.value.customer_group || defaultCustomerGroup.value,
+		territory: customerData.value.territory || __("All Territories"),
+		mobile_no: customerData.value.mobile_no || "",
+		email_id: customerData.value.email_id || "",
+		tax_id: customerData.value.tax_id || "",
 	}),
 	onSuccess: (data) => {
 		showSuccess(__("Customer {0} created successfully", [data.customer_name]))
@@ -362,10 +376,11 @@ const updateCustomerResource = createResource({
 		name: props.customer?.name,
 		fieldname: {
 			customer_name: customerData.value.customer_name,
-			customer_group: customerData.value.customer_group || __("أفراد"),
+			customer_group: customerData.value.customer_group || defaultCustomerGroup.value,
 			territory: customerData.value.territory || __("All Territories"),
 			mobile_no: customerData.value.mobile_no || "",
 			email_id: customerData.value.email_id || "",
+			tax_id: customerData.value.tax_id || "",
 		},
 	}),
 	onSuccess: (data) => {
@@ -425,6 +440,12 @@ const loadDialogData = async () => {
 	customerGroupsResource.reload()
 	checkPermissions()
 
+	// New customer: default the group from the active POS Profile's region
+	// (DAZJED*/DAZRUH* -> Jeddah/Riyadh); edit mode keeps the customer's own group.
+	if (!isEditMode.value) {
+		customerData.value.customer_group = defaultCustomerGroup.value
+	}
+
 	// Set country from POS Profile
 	if (props.posProfile) {
 		await posProfileResource.reload()
@@ -461,7 +482,8 @@ const resetForm = () => {
 		customer_name: "",
 		mobile_no: "",
 		email_id: "",
-		customer_group: "أفراد",
+		tax_id: "",
+		customer_group: defaultCustomerGroup.value,
 		territory: "All Territories",
 	})
 	selectedCountryCode.value = "+966"
@@ -484,7 +506,8 @@ watch(
 		if (customer?.name) {
 			customerData.value.customer_name = customer.customer_name || ""
 			customerData.value.email_id = customer.email_id || ""
-			customerData.value.customer_group = customer.customer_group || "أفراد"
+			customerData.value.tax_id = customer.tax_id || ""
+			customerData.value.customer_group = customer.customer_group || defaultCustomerGroup.value
 			customerData.value.territory = customer.territory || "All Territories"
 			// Handle mobile_no with country code
 			if (customer.mobile_no) {

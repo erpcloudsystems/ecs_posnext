@@ -50,6 +50,8 @@ declare module 'vue' {
     POSSettings: typeof import('./src/components/settings/POSSettings.vue')['default']
     PriceListSelector: typeof import('./src/components/sale/PriceListSelector.vue')['default']
     PromotionManagement: typeof import('./src/components/sale/PromotionManagement.vue')['default']
+    ReservationCartBar: typeof import('./src/components/build/ReservationCartBar.vue')['default']
+    ReservationCheckoutDialog: typeof import('./src/components/build/ReservationCheckoutDialog.vue')['default']
     ReservationSelector: typeof import('./src/components/sale/ReservationSelector.vue')['default']
     ReturnInvoiceDialog: typeof import('./src/components/sale/ReturnInvoiceDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']

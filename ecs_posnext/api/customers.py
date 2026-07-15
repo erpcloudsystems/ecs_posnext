@@ -78,7 +78,15 @@ def get_customers(search_term="", pos_profile=None, limit=20, modified_since=Non
 
 
 @frappe.whitelist()
-def create_customer(customer_name, mobile_no=None, email_id=None, customer_group="أفراد", territory="All Territories", company=None):
+def create_customer(
+    customer_name,
+    mobile_no=None,
+    email_id=None,
+    customer_group="أفراد",
+    territory="All Territories",
+    company=None,
+    tax_id=None,
+):
     """
     Create a new customer from POS.
 
@@ -89,6 +97,7 @@ def create_customer(customer_name, mobile_no=None, email_id=None, customer_group
         customer_group (str): Customer group (default: أفراد)
         territory (str): Territory (default: All Territories)
         company (str): Company (optional, used to auto-assign loyalty program)
+        tax_id (str): Tax ID (optional)
 
     Returns:
         dict: Created customer document
@@ -105,6 +114,13 @@ def create_customer(customer_name, mobile_no=None, email_id=None, customer_group
     if company:
         loyalty_program = get_default_loyalty_program(company)
 
+    # This site's Customer doctype has first_name/last_name as mandatory
+    # custom fields (see ecs_posnext.api.build_booking._resolve_or_create_customer),
+    # so they must be derived here too or Customer.insert() raises MandatoryError.
+    name_parts = customer_name.strip().split(" ", 1)
+    first_name = name_parts[0]
+    last_name = name_parts[1] if len(name_parts) > 1 else name_parts[0]
+
     customer = frappe.get_doc(
         {
             "doctype": "Customer",
@@ -114,7 +130,10 @@ def create_customer(customer_name, mobile_no=None, email_id=None, customer_group
             "territory": territory or "All Territories",
             "mobile_no": mobile_no or "",
             "email_id": email_id or "",
+            "tax_id": tax_id or "",
             "loyalty_program": loyalty_program,
+            "first_name": first_name,
+            "last_name": last_name,
         }
     )
 

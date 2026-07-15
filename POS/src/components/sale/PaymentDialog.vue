@@ -2668,15 +2668,11 @@ async function completePayment() {
 	if (!resolvedCustomer && customerNameQuery.value.trim()) {
 		isCreatingCustomer.value = true
 		try {
-			const newCust = await call("frappe.client.insert", {
-				doc: {
-					doctype: "Customer",
-					customer_name: customerNameQuery.value.trim(),
-					customer_type: "Individual",
-					customer_group: "أفراد",
-					territory: "All Territories",
-					mobile_no: customerMobileQuery.value.trim() || "",
-				},
+			const newCust = await call("ecs_posnext.api.customers.create_customer", {
+				customer_name: customerNameQuery.value.trim(),
+				customer_group: "أفراد",
+				territory: "All Territories",
+				mobile_no: customerMobileQuery.value.trim() || "",
 			})
 			resolvedCustomer = newCust
 			selectedCustomer.value = newCust

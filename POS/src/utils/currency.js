@@ -112,6 +112,18 @@ export function formatCurrencyNumber(value, locale = DEFAULT_LOCALE) {
 	return getFormatter(settings.currency, locale).format(value)
 }
 
+/**
+ * Format value with a currency CODE prefix (e.g. "SAR 230.00") instead of a
+ * symbol - matches how amounts are displayed on the Saudi-market storefront,
+ * and sidesteps currencies (e.g. SAR) that have no correct symbol mapping.
+ */
+export function formatCurrencyCode(value, currencyCode = DEFAULT_CURRENCY, locale = DEFAULT_LOCALE) {
+	if (typeof value !== "number" || Number.isNaN(value)) return ""
+	const abs = Math.abs(value)
+	const formatted = `${currencyCode} ${getFormatter(settings.currency, locale).format(abs)}`
+	return value < 0 ? `-${formatted}` : formatted
+}
+
 /** Get CSS class for positive/negative values */
 export function getCurrencyClass(value) {
 	return value < 0 ? "text-red-600" : "text-gray-900"

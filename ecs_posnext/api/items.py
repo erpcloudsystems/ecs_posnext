@@ -9,7 +9,7 @@ from erpnext.stock.doctype.batch.batch import get_batch_qty
 from erpnext.stock.get_item_details import get_item_details as erpnext_get_item_details
 from frappe import _
 from frappe.query_builder import DocType, Order, functions as fn
-from frappe.utils import flt, nowdate
+from frappe.utils import cint, flt, nowdate
 
 ITEM_RESULT_FIELDS = [
 	"name as item_code",
@@ -2380,3 +2380,146 @@ def get_batch_serial_data_for_items(item_codes, warehouse):
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Get Batch/Serial Data for Items Error")
 		return {}
+
+
+# =============================================================================
+# Build Catalog (all published products, mirrors webshop's product listing)
+# =============================================================================
+
+BUILD_CATALOG_ROLE = "Sales User"
+
+
+@frappe.whitelist()
+def has_build_access():
+	"""Whether the current user may access the POS 'Build' product catalog page."""
+	return BUILD_CATALOG_ROLE in frappe.get_roles()
+
+
+@frappe.whitelist()
+def get_all_products(search_term=None, item_group=None, start=0, limit=40):
+	"""List all published products for the POS 'Build' catalog page.
+
+	Reads from Website Item (like webshop's product listing) instead of the
+	POS-profile-scoped Item search, since this page has no profile/warehouse context.
+	"""
+	if BUILD_CATALOG_ROLE not in frappe.get_roles():
+		frappe.throw(_("Not permitted to access the product catalog"), frappe.PermissionError)
+
+	start = cint(start)
+	limit = cint(limit) or 40
+
+	filters = {"published": 1}
+	if item_group:
+		filters["item_group"] = item_group
+
+	or_filters = None
+	if search_term:
+		or_filters = [
+			["web_item_name", "like", f"%{search_term}%"],
+			["item_code", "like", f"%{search_term}%"],
+		]
+
+	items = frappe.get_all(
+		"Website Item",
+		filters=filters,
+		or_filters=or_filters,
+		fields=[
+			"item_code",
+			"web_item_name",
+			"item_name",
+			"item_group",
+			"website_image as image",
+			"route",
+		],
+		start=start,
+		page_length=limit,
+		order_by="web_item_name asc",
+	)
+
+	total_count = frappe.db.count("Website Item", filters=filters)
+
+	price_list = frappe.db.get_single_value("Selling Settings", "selling_price_list") or "Standard Selling"
+	item_codes = [item["item_code"] for item in items]
+	prices = {}
+	if item_codes:
+		for row in frappe.get_all(
+			"Item Price",
+			filters={"item_code": ["in", item_codes], "price_list": price_list, "selling": 1},
+			fields=["item_code", "price_list_rate"],
+		):
+			prices[row["item_code"]] = row["price_list_rate"]
+
+	for item in items:
+		item["price_list_rate"] = prices.get(item["item_code"], 0)
+		if not item.get("image"):
+			item["image"] = frappe.db.get_value("Item", item["item_code"], "image")
+
+	currency = frappe.db.get_value("Price List", price_list, "currency") or "SAR"
+
+	return {
+		"items": items,
+		"total_count": total_count,
+		"has_more": start + len(items) < total_count,
+		"currency": currency,
+	}
+
+
+@frappe.whitelist()
+def get_build_catalog_item_groups():
+	"""Item groups that have at least one published Website Item — for the Build page filter."""
+	if BUILD_CATALOG_ROLE not in frappe.get_roles():
+		frappe.throw(_("Not permitted to access the product catalog"), frappe.PermissionError)
+
+	rows = frappe.get_all(
+		"Website Item",
+		filters={"published": 1},
+		fields=["item_group"],
+		group_by="item_group",
+		order_by="item_group asc",
+	)
+	return [row["item_group"] for row in rows if row.get("item_group")]
+
+
+@frappe.whitelist()
+def get_product_detail(item_code):
+	"""Full detail for a single product on the POS 'Build' catalog page."""
+	if BUILD_CATALOG_ROLE not in frappe.get_roles():
+		frappe.throw(_("Not permitted to access the product catalog"), frappe.PermissionError)
+
+	product = frappe.db.get_value(
+		"Website Item",
+		{"item_code": item_code, "published": 1},
+		[
+			"item_code",
+			"web_item_name",
+			"item_name",
+			"item_group",
+			"brand",
+			"stock_uom",
+			"website_image as image",
+			"short_description",
+			"web_long_description",
+			"route",
+			"on_backorder",
+		],
+		as_dict=True,
+	)
+
+	if not product:
+		frappe.throw(_("Product not found"), frappe.DoesNotExistError)
+
+	price_list = frappe.db.get_single_value("Selling Settings", "selling_price_list") or "Standard Selling"
+	product["price_list_rate"] = (
+		frappe.db.get_value(
+			"Item Price",
+			{"item_code": item_code, "price_list": price_list, "selling": 1},
+			"price_list_rate",
+		)
+		or 0
+	)
+	product["currency"] = frappe.db.get_value("Price List", price_list, "currency") or "SAR"
+
+	if not product.get("image"):
+		product["image"] = frappe.db.get_value("Item", item_code, "image")
+
+	return product
