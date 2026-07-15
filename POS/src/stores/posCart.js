@@ -2,6 +2,7 @@ import { call } from "@/utils/apiWrapper"
 import { useInvoice } from "@/composables/useInvoice"
 import { shiftState } from "@/composables/useShift"
 import { useItemSearchStore } from "@/stores/itemSearch"
+import { usePOSEventsStore } from "@/stores/posEvents"
 import { usePOSOffersStore } from "@/stores/posOffers"
 import { usePOSSettingsStore } from "@/stores/posSettings"
 import { parseError } from "@/utils/errorHandler"
@@ -594,6 +595,36 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		removeDiscount()
 		appliedCoupon.value = null
 		showSuccess(__("Discount has been removed from cart"))
+	}
+
+	/**
+	 * Point the cart at the target branch's warehouse.
+	 *
+	 * Items keep the warehouse they were added with, so a Call Center order built
+	 * before the branch is chosen would keep validating stock against the Call
+	 * Center warehouse while the branch actually fulfils it — the backend
+	 * re-points every line to the branch warehouse on submit regardless.
+	 * Also refreshes stock so on-hand figures come from the new warehouse.
+	 */
+	function applyBranchWarehouse(warehouse, previousWarehouse = null) {
+		if (!warehouse) return
+
+		for (const item of invoiceItems.value) {
+			item.warehouse = warehouse
+		}
+		rebuildIncrementalCache()
+
+		// Reuse the existing warehouse-change event so the stock store reloads
+		// on-hand quantities for the new warehouse.
+		try {
+			usePOSEventsStore().emit("settings:warehouse-changed", {
+				oldWarehouse: previousWarehouse,
+				newWarehouse: warehouse,
+				requiresStockRefresh: true,
+			})
+		} catch (error) {
+			console.error("Failed to emit warehouse change for branch:", error)
+		}
 	}
 
 	function buildOfferEvaluationPayload(currentProfile) {
@@ -2134,10 +2165,15 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		selectedBranchProfile,
 		selectedBranchPriceList,
 		setBranch(branch, warehouse = null, profile = null, priceList = null) {
+			const previousWarehouse = selectedBranchWarehouse.value
 			selectedBranch.value = branch
 			selectedBranchWarehouse.value = warehouse
 			selectedBranchProfile.value = profile
 			selectedBranchPriceList.value = priceList
+
+			if (warehouse !== previousWarehouse) {
+				applyBranchWarehouse(warehouse, previousWarehouse)
+			}
 		},
 
 		selectedTable,

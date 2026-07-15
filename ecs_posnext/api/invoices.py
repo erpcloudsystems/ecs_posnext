@@ -731,6 +731,34 @@ def _apply_cost_center_from_opening_shift(invoice_doc):
         item.cost_center = cost_center
 
 
+def _get_branch_warehouse(branch):
+    """Warehouse of the POS Profile that belongs to this branch."""
+    if not branch:
+        return None
+    return frappe.db.get_value(
+        "POS Profile", {"branch": branch, "disabled": 0}, "warehouse"
+    )
+
+
+def _apply_branch_warehouse(invoice_doc, branch):
+    """Point every line at the branch's warehouse.
+
+    Call this AFTER set_missing_values(). ERPNext's set_pos_fields() calls
+    get_pos_profile_item_details(..., update_data=True), which unconditionally
+    re-stamps the POS Profile's warehouse onto every item, so anything set before
+    that is discarded.
+    """
+    branch_warehouse = _get_branch_warehouse(branch)
+    if not branch_warehouse:
+        return
+
+    for item in invoice_doc.get("items", []):
+        item.warehouse = branch_warehouse
+
+    for p_item in invoice_doc.get("packed_items", []):
+        p_item.warehouse = branch_warehouse
+
+
 def _prepare_invoice_doc(data):
     """
     Build and prepare an invoice document from POS data WITHOUT saving.
@@ -861,22 +889,17 @@ def _prepare_invoice_doc(data):
                 frappe.throw(_("Target Branch is mandatory for Call Center orders."))
 
             if selected_branch:
-                # Fetch branch warehouse from its POS Profile
-                branch_warehouse = frappe.db.get_value(
-                    "POS Profile", 
-                    {"branch": selected_branch, "disabled": 0}, 
-                    "warehouse"
-                )
-
                 invoice_doc.branch = selected_branch
                 for item in invoice_doc.get("items", []):
                     item.branch = selected_branch
-                    if branch_warehouse:
-                        item.warehouse = branch_warehouse
+
+                # Warehouse is re-applied after set_missing_values() further down:
+                # ERPNext's set_pos_fields() stamps the POS Profile's own warehouse
+                # over every line, which would send a Call Center order to the Call
+                # Center warehouse instead of the branch fulfilling it.
+                _apply_branch_warehouse(invoice_doc, selected_branch)
 
                 for p_item in invoice_doc.get("packed_items", []):
-                    if branch_warehouse:
-                        p_item.warehouse = branch_warehouse
                     if not flt(p_item.conversion_factor):
                         p_item.conversion_factor = 1.0
 
@@ -1038,6 +1061,13 @@ def _prepare_invoice_doc(data):
 
     # Populate missing fields (company, currency, accounts, etc.)
     invoice_doc.set_missing_values()
+
+    # MUST run after set_missing_values(): ERPNext's set_pos_fields() overwrites
+    # every line's warehouse with the POS Profile's own, so setting it earlier is
+    # silently undone. A Call Center order is fulfilled by its target branch, so
+    # the stock has to come out of that branch's warehouse.
+    if invoice_doc.get("branch"):
+        _apply_branch_warehouse(invoice_doc, invoice_doc.branch)
 
     # Calculate totals and apply discounts
     invoice_doc.calculate_taxes_and_totals()
