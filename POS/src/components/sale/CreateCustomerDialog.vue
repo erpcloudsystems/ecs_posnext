@@ -494,9 +494,33 @@ const resetForm = () => {
 // Watchers
 // =============================================================================
 
+// Digits only, stripping spaces/parens/dashes/plus so "05 8100 8984" and
+// "+966581008984" normalize the same as "0581008984".
+const digitsOnly = (text) => (text || "").replace(/\D/g, "")
+
+// The phone input pairs with the +966 country-code selector, so it holds the
+// 9-digit local subscriber number without a leading 0 (e.g. "581008984").
+const normalizeLocalMobile = (digits) => {
+	if (digits.length === 8) return `5${digits}`
+	if (digits.length === 10 && digits.startsWith("0")) return digits.slice(1)
+	return digits
+}
+
+// Quick-create from the customer search box: numeric-looking searches (how
+// customers are normally looked up) prefill Mobile Number, not Customer Name.
 watch(
 	() => props.initialName,
-	(name) => name && (customerData.value.customer_name = name)
+	(name) => {
+		if (!name) return
+		const trimmed = name.trim()
+		const isPhoneLike = /^[\d\s()+-]+$/.test(trimmed) && digitsOnly(trimmed).length > 0
+		if (isPhoneLike) {
+			phoneNumber.value = normalizeLocalMobile(digitsOnly(trimmed))
+			updateMobileNumber()
+		} else {
+			customerData.value.customer_name = trimmed
+		}
+	}
 )
 
 // Pre-fill form when customer prop changes (edit mode)
