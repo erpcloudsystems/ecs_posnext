@@ -84,11 +84,12 @@
 						<input
 							v-model="phoneNumber"
 							type="tel"
-							:placeholder="__('Enter phone number')"
+							:placeholder="isSaudiNumber ? __('5XXXXXXXX') : __('Enter phone number')"
 							class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-start"
 							@input="updateMobileNumber"
 						/>
 					</div>
+					<p v-if="saudiMobileError" class="mt-1 text-xs text-red-500">{{ saudiMobileError }}</p>
 				</div>
 
 				<!-- Email -->
@@ -167,7 +168,7 @@
 						variant="solid"
 						@click="handleCreate"
 						:loading="createCustomerResource.loading || updateCustomerResource.loading || checkingPermission"
-						:disabled="!customerData.customer_name || !hasPermission"
+						:disabled="!customerData.customer_name || !hasPermission || !!saudiMobileError"
 					>
 						{{ isEditMode ? __("Save Changes") : __("Create Customer") }}
 					</Button>
@@ -285,6 +286,34 @@ const filteredCountries = computed(() => {
 
 const handleFlagError = (e) => (e.target.style.display = "none")
 
+// Digits only, stripping spaces/parens/dashes/plus so "05 8100 8984" and
+// "+966581008984" normalize the same as "0581008984".
+const digitsOnly = (text) => (text || "").replace(/\D/g, "")
+
+// The phone input pairs with the +966 country-code selector, so it holds the
+// 9-digit local subscriber number without a leading 0 (e.g. "581008984").
+const normalizeLocalMobile = (digits) => {
+	if (digits.length === 8) return `5${digits}`
+	if (digits.length === 10 && digits.startsWith("0")) return digits.slice(1)
+	return digits
+}
+
+// Saudi mobile format: "05" followed by 8 digits (10 digits total), e.g.
+// "0501234567". The input holds the 9-digit local part without the leading
+// 0 (see normalizeLocalMobile above), so this checks that 9-digit form.
+const SAUDI_LOCAL_MOBILE_REGEX = /^5\d{8}$/
+
+const isSaudiNumber = computed(() => selectedCountryCode.value === "+966")
+
+const saudiMobileError = computed(() => {
+	if (!isSaudiNumber.value) return ""
+	const digits = digitsOnly(phoneNumber.value)
+	if (!digits) return ""
+	return SAUDI_LOCAL_MOBILE_REGEX.test(normalizeLocalMobile(digits))
+		? ""
+		: __("Enter a valid Saudi mobile number (05 followed by 8 digits)")
+})
+
 const selectCountry = (country) => {
 	selectedCountryCode.value = country.isd
 	showCountryDropdown.value = false
@@ -293,7 +322,19 @@ const selectCountry = (country) => {
 }
 
 const updateMobileNumber = () => {
-	customerData.value.mobile_no = phoneNumber.value ? `${selectedCountryCode.value}-${phoneNumber.value}` : ""
+	if (!phoneNumber.value) {
+		customerData.value.mobile_no = ""
+		return
+	}
+
+	if (isSaudiNumber.value) {
+		// Store in the local Saudi format the customer list expects: "05" + 8
+		// digits (e.g. "0501234567"), not "+966-501234567".
+		const normalized = normalizeLocalMobile(digitsOnly(phoneNumber.value))
+		customerData.value.mobile_no = SAUDI_LOCAL_MOBILE_REGEX.test(normalized) ? `0${normalized}` : ""
+	} else {
+		customerData.value.mobile_no = `${selectedCountryCode.value}-${phoneNumber.value}`
+	}
 }
 
 const handleClickOutside = (event) => {
@@ -470,6 +511,9 @@ const handleCreate = async () => {
 	if (!customerData.value.customer_name) {
 		return showError(__("Customer Name is required"))
 	}
+	if (saudiMobileError.value) {
+		return showError(saudiMobileError.value)
+	}
 	if (isEditMode.value) {
 		await updateCustomerResource.submit()
 	} else {
@@ -493,18 +537,6 @@ const resetForm = () => {
 // =============================================================================
 // Watchers
 // =============================================================================
-
-// Digits only, stripping spaces/parens/dashes/plus so "05 8100 8984" and
-// "+966581008984" normalize the same as "0581008984".
-const digitsOnly = (text) => (text || "").replace(/\D/g, "")
-
-// The phone input pairs with the +966 country-code selector, so it holds the
-// 9-digit local subscriber number without a leading 0 (e.g. "581008984").
-const normalizeLocalMobile = (digits) => {
-	if (digits.length === 8) return `5${digits}`
-	if (digits.length === 10 && digits.startsWith("0")) return digits.slice(1)
-	return digits
-}
 
 // Quick-create from the customer search box: numeric-looking searches (how
 // customers are normally looked up) prefill Mobile Number, not Customer Name.
@@ -537,11 +569,14 @@ watch(
 			if (customer.mobile_no) {
 				customerData.value.mobile_no = customer.mobile_no
 				if (customer.mobile_no.includes("-")) {
+					// Older records saved as "<code>-<local number>"
 					const [code, ...rest] = customer.mobile_no.split("-")
 					selectedCountryCode.value = code
 					phoneNumber.value = rest.join("-")
 				} else {
-					phoneNumber.value = customer.mobile_no
+					// Local-format number (e.g. Saudi "0501234567") - the phone
+					// input holds the 9-digit local part without the leading 0.
+					phoneNumber.value = normalizeLocalMobile(digitsOnly(customer.mobile_no))
 				}
 			}
 		}
