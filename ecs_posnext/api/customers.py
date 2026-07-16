@@ -768,12 +768,16 @@ def get_users_for_assignment():
     )
 
 
-@frappe.whitelist()
 def create_complaint_coupon(customer, discount_type, discount_value,
                             valid_upto=None, max_uses=1, company=None,
                             branch=None, complaint_name=None,
                             include_fees=False, fees_amount=0):
-    """Create a POS Coupon for a customer as complaint compensation."""
+    """Create a POS Coupon for a customer as complaint compensation.
+
+    Not whitelisted: coupons are only ever minted after a Compensation Coupon
+    Request is approved (see approve_coupon_request). Cashiers request; a Call
+    Center manager approves, which calls this.
+    """
     import random, string
     from frappe.utils import today, add_days
 
@@ -1004,3 +1008,165 @@ def get_daily_complaints_report(report_date=None):
         "by_type": [{"type": k, "count": v} for k, v in sorted(by_type.items(), key=lambda x: -x[1])],
         "complaints": [dict(r) for r in rows],
     }
+
+
+# ---------------------------------------------------------------------------
+# Compensation coupon approval workflow
+#
+# A cashier/agent requests a compensation coupon from the Complaints page. The
+# request is created Pending and shown on the Need My Action page, where a Call
+# Center manager approves it — which mints the actual POS Coupon (and its
+# journal entry) — or rejects it, creating nothing.
+# ---------------------------------------------------------------------------
+
+COUPON_APPROVER_ROLES = ("System Manager", "Call center manager", "Deputy Call Center Manager")
+
+
+def _require_coupon_approver():
+    user = frappe.session.user
+    if user == "Administrator":
+        return
+    if not set(COUPON_APPROVER_ROLES) & set(frappe.get_roles(user)):
+        frappe.throw(_("You are not permitted to approve compensation coupons."), frappe.PermissionError)
+
+
+def _publish_coupon_request_changed(action, branch=None):
+    """Broadcast a coupon-request change so the Need My Action page refreshes live."""
+    try:
+        frappe.publish_realtime(
+            event="coupon_request_changed",
+            message={"action": action, "branch": branch, "timestamp": frappe.utils.now()},
+            user=None,
+            after_commit=True,
+        )
+    except Exception:
+        # Realtime is best-effort — never fail the request because the socket is down.
+        pass
+
+
+@frappe.whitelist()
+def request_complaint_coupon(customer, discount_type, discount_value,
+                             valid_upto=None, max_uses=1, branch=None,
+                             complaint_name=None, include_fees=False, fees_amount=0):
+    """Create a Pending compensation-coupon request for manager approval.
+
+    No POS Coupon is created here — that happens only on approval.
+    """
+    if not customer or not frappe.db.exists("Customer", customer):
+        frappe.throw(_("Customer not found"))
+
+    discount_value = frappe.utils.flt(discount_value)
+    if discount_value <= 0:
+        frappe.throw(_("Discount value must be greater than zero"))
+    if discount_type not in ("Percentage", "Amount"):
+        frappe.throw(_("Invalid discount type"))
+    if discount_type == "Percentage" and discount_value > 100:
+        frappe.throw(_("Percentage cannot exceed 100"))
+
+    include_fees = 1 if frappe.parse_json(include_fees) else 0
+    fees_amount = frappe.utils.flt(fees_amount) if include_fees and discount_type == "Amount" else 0
+
+    cust = frappe.db.get_value(
+        "Customer", customer, ["customer_name", "mobile_no"], as_dict=True
+    ) or {}
+
+    complaint_number = None
+    if complaint_name:
+        complaint_number = frappe.db.get_value(
+            "Customer Complaint", complaint_name, "custom_complaint_number"
+        )
+        if not branch:
+            branch = frappe.db.get_value("Customer Complaint", complaint_name, "branch")
+
+    doc = frappe.get_doc({
+        "doctype": "Compensation Coupon Request",
+        "customer": customer,
+        "customer_name": cust.get("customer_name"),
+        "mobile": cust.get("mobile_no") or "",
+        "branch": branch or None,
+        "complaint": complaint_name or None,
+        "complaint_number": complaint_number or None,
+        "discount_type": discount_type,
+        "discount_value": discount_value,
+        "valid_upto": valid_upto or None,
+        "max_uses": frappe.utils.cint(max_uses) or 1,
+        "include_fees": include_fees,
+        "fees_amount": fees_amount,
+        "status": "Pending",
+        "requested_by": frappe.session.user,
+    }).insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    _publish_coupon_request_changed("create", doc.branch)
+    return {"name": doc.name, "status": "Pending"}
+
+
+@frappe.whitelist()
+def get_pending_coupon_requests():
+    """Pending compensation-coupon requests for the Need My Action page."""
+    filters = {"status": "Pending"}
+    try:
+        from ecs_posnext.api.invoices import _get_user_branch_filter_info
+        branch, is_cc = _get_user_branch_filter_info()
+        if not is_cc and branch:
+            filters["branch"] = branch
+    except Exception:
+        pass
+    return frappe.get_all(
+        "Compensation Coupon Request",
+        filters=filters,
+        fields=[
+            "name", "customer", "customer_name", "mobile", "branch",
+            "complaint", "complaint_number", "discount_type", "discount_value",
+            "valid_upto", "max_uses", "include_fees", "fees_amount",
+            "requested_by", "creation",
+        ],
+        order_by="creation desc",
+    )
+
+
+@frappe.whitelist()
+def approve_coupon_request(name):
+    """Approve a request — mint the POS Coupon and mark the request Approved."""
+    _require_coupon_approver()
+    doc = frappe.get_doc("Compensation Coupon Request", name)
+    if doc.status != "Pending":
+        frappe.throw(_("This request is already {0}.").format(doc.status))
+
+    result = create_complaint_coupon(
+        customer=doc.customer,
+        discount_type=doc.discount_type,
+        discount_value=doc.discount_value,
+        valid_upto=str(doc.valid_upto) if doc.valid_upto else None,
+        max_uses=doc.max_uses,
+        branch=doc.branch,
+        complaint_name=doc.complaint,
+        include_fees=doc.include_fees,
+        fees_amount=doc.fees_amount,
+    )
+
+    doc.status = "Approved"
+    doc.approved_by = frappe.session.user
+    doc.coupon_code = result.get("coupon_code")
+    doc.pos_coupon = result.get("name")
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    _publish_coupon_request_changed("approve", doc.branch)
+    return {"status": "Approved", "coupon_code": result.get("coupon_code")}
+
+
+@frappe.whitelist()
+def reject_coupon_request(name):
+    """Reject a request — create no coupon."""
+    _require_coupon_approver()
+    doc = frappe.get_doc("Compensation Coupon Request", name)
+    if doc.status != "Pending":
+        frappe.throw(_("This request is already {0}.").format(doc.status))
+    doc.status = "Rejected"
+    doc.approved_by = frappe.session.user
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    _publish_coupon_request_changed("reject", doc.branch)
+    return {"status": "Rejected"}

@@ -149,8 +149,49 @@
 				</div>
 			</div>
 
+			<!-- Compensation Coupon Requests -->
+			<div v-if="couponRequests.length" class="mb-8">
+				<div class="flex items-center gap-2 mb-4">
+					<span class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
+					<h2 class="text-base font-bold text-green-700">{{ __("Compensation Coupon Requests") }}</h2>
+					<span class="ml-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold">{{ couponRequests.length }}</span>
+				</div>
+				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+					<div v-for="r in couponRequests" :key="r.name"
+						class="bg-white rounded-2xl border-2 border-green-200 shadow-sm overflow-hidden flex flex-col">
+						<div class="px-5 py-4 border-b border-green-100 bg-green-50 flex items-start justify-between">
+							<div>
+								<div class="text-sm font-bold text-gray-900">{{ r.customer_name || r.customer }}</div>
+								<div class="text-xs text-gray-500 mt-0.5">{{ r.mobile || '' }}<span v-if="r.branch"> — {{ r.branch }}</span></div>
+							</div>
+							<span class="px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-green-100 text-green-800">
+								🎟️ {{ r.discount_type === 'Percentage' ? (r.discount_value + '%') : r.discount_value }}
+							</span>
+						</div>
+						<div class="p-4 flex-1 text-sm text-gray-700 space-y-1">
+							<div>
+								{{ r.discount_type === 'Percentage'
+									? __('{0}% discount coupon', [r.discount_value])
+									: __('Amount coupon: {0}', [r.discount_value]) }}
+								<span v-if="r.include_fees && r.fees_amount"> + {{ __('fees') }} {{ r.fees_amount }}</span>
+							</div>
+							<div v-if="r.complaint_number" class="text-xs text-gray-400">{{ __('Complaint') }}: {{ r.complaint_number }}</div>
+							<div class="text-xs text-gray-400">
+								<span v-if="r.max_uses">{{ __('Max uses') }}: {{ r.max_uses }}</span>
+								<span v-if="r.valid_upto"> · {{ __('Valid until') }}: {{ r.valid_upto }}</span>
+							</div>
+							<div class="text-xs text-gray-400">{{ __('By') }}: {{ r.requested_by }}</div>
+						</div>
+						<div class="px-4 py-3 border-t border-gray-100 flex items-center gap-2 bg-gray-50">
+							<button @click="rejectCouponRequest(r)" :disabled="couponBusy === r.name" class="flex-1 px-3 py-2 text-sm font-bold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-100 disabled:opacity-50">{{ __("Reject") }}</button>
+							<button @click="approveCouponRequest(r)" :disabled="couponBusy === r.name" class="flex-1 px-3 py-2 text-sm font-bold text-white bg-green-600 rounded-xl hover:bg-green-700 disabled:opacity-50">{{ __("Approve") }}</button>
+						</div>
+					</div>
+				</div>
+			</div>
+
 			<!-- Orders Grid -->
-			<div v-else-if="!filteredOrders.length && !failedDeliveries.length && !statusRequests.length" class="flex flex-col items-center justify-center py-24 bg-white rounded-2xl border border-gray-200 shadow-sm text-center px-4">
+			<div v-else-if="!filteredOrders.length && !failedDeliveries.length && !statusRequests.length && !couponRequests.length" class="flex flex-col items-center justify-center py-24 bg-white rounded-2xl border border-gray-200 shadow-sm text-center px-4">
 				<div class="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mb-6">
 					<svg class="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
@@ -510,6 +551,8 @@ const orders = ref([])
 const failedDeliveries = ref([])
 const statusRequests = ref([])
 const statusBusy = ref(null)
+const couponRequests = ref([])
+const couponBusy = ref(null)
 const loading = ref(false)
 const search = ref("")
 const orderTypeFilter = ref("all")
@@ -564,14 +607,16 @@ const confirmReject = async () => {
 const fetchOrders = async () => {
 	loading.value = true
 	try {
-		const [r, fd, sr] = await Promise.all([
+		const [r, fd, sr, cr] = await Promise.all([
 			call("ecs_posnext.api.invoices.get_need_my_action_orders"),
 			call("ecs_posnext.ecs_posnext.api.dispatcher.get_failed_delivery_orders"),
 			call("ecs_posnext.api.customer_status.get_pending_customer_status_requests"),
+			call("ecs_posnext.api.customers.get_pending_coupon_requests"),
 		])
 		orders.value = r || []
 		failedDeliveries.value = fd || []
 		statusRequests.value = sr || []
+		couponRequests.value = cr || []
 	} catch (error) {
 		console.error("Failed to fetch need action orders:", error)
 		window.frappe?.show_alert?.({
@@ -608,6 +653,34 @@ async function rejectStatusRequest(r) {
 		window.frappe?.show_alert?.({ message: e.message || __("Failed to reject"), indicator: "red" })
 	} finally {
 		statusBusy.value = null
+	}
+}
+
+async function approveCouponRequest(r) {
+	if (couponBusy.value) return
+	couponBusy.value = r.name
+	try {
+		const res = await call("ecs_posnext.api.customers.approve_coupon_request", { name: r.name })
+		couponRequests.value = couponRequests.value.filter((x) => x.name !== r.name)
+		window.frappe?.show_alert?.({ message: __("Coupon approved: {0}", [res.coupon_code || ""]), indicator: "green" })
+	} catch (e) {
+		window.frappe?.show_alert?.({ message: e.message || __("Failed to approve"), indicator: "red" })
+	} finally {
+		couponBusy.value = null
+	}
+}
+
+async function rejectCouponRequest(r) {
+	if (couponBusy.value) return
+	couponBusy.value = r.name
+	try {
+		await call("ecs_posnext.api.customers.reject_coupon_request", { name: r.name })
+		couponRequests.value = couponRequests.value.filter((x) => x.name !== r.name)
+		window.frappe?.show_alert?.({ message: __("Rejected"), indicator: "orange" })
+	} catch (e) {
+		window.frappe?.show_alert?.({ message: e.message || __("Failed to reject"), indicator: "red" })
+	} finally {
+		couponBusy.value = null
 	}
 }
 
@@ -1054,12 +1127,31 @@ watch(pendingCount, (count) => {
 // ── Realtime ──────────────────────────────────────────────────────────────────
 const { onOrderChanged } = useRealtimeOrders()
 
+const COUPON_EVENT = "coupon_request_changed"
 let realtimeRefreshTimer = null
 let unsubscribeOrders = null
+let couponListenerBound = false
+let couponRetryTimer = null
 
 function scheduleRealtimeRefresh() {
 	clearTimeout(realtimeRefreshTimer)
 	realtimeRefreshTimer = setTimeout(() => fetchOrders(), 800)
+}
+
+// Compensation coupon requests aren't part of pos_order_changed, so subscribe
+// to their own broadcast event. Retry until the socket is ready (bootstrap is
+// async, exactly like useRealtimeOrders does for orders).
+function bindCouponListener() {
+	if (couponListenerBound) return
+	if (!window.frappe?.realtime) {
+		clearTimeout(couponRetryTimer)
+		couponRetryTimer = setTimeout(bindCouponListener, 400)
+		return
+	}
+	clearTimeout(couponRetryTimer)
+	couponRetryTimer = null
+	window.frappe.realtime.on(COUPON_EVENT, scheduleRealtimeRefresh)
+	couponListenerBound = true
 }
 
 onMounted(async () => {
@@ -1071,11 +1163,14 @@ onMounted(async () => {
 		cartStore.posOpeningShift = shiftStore.currentShift?.name
 	}
 	unsubscribeOrders = onOrderChanged(scheduleRealtimeRefresh)
+	bindCouponListener()
 })
 
 onUnmounted(() => {
 	unsubscribeOrders?.()
 	clearTimeout(realtimeRefreshTimer)
+	clearTimeout(couponRetryTimer)
+	try { window.frappe?.realtime?.off?.(COUPON_EVENT, scheduleRealtimeRefresh) } catch { /* noop */ }
 })
 </script>
 
