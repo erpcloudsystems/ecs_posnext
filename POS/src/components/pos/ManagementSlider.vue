@@ -105,7 +105,7 @@
 
 		<!-- Need My Action -->
 		<button
-			v-if="hasManagementAccess"
+			v-if="canSeeNeedMyAction"
 			@click="handleMenuClick('need-my-action')"
 			:class="[
 				'w-12 h-12 rounded-lg flex items-center justify-center transition-all relative group',
@@ -199,6 +199,11 @@ const bootstrapStore = useBootstrapStore()
 const router = useRouter()
 
 const hasManagementAccess = computed(() => !bootstrapStore.hasRole("Cashier"))
+
+// Need My Action is restricted to the call-center management roles only.
+const canSeeNeedMyAction = computed(
+	() => bootstrapStore.hasRole("Call center manager") || bootstrapStore.hasRole("Deputy Call Center Manager"),
+)
 
 const props = defineProps({
 	pendingCount: {
