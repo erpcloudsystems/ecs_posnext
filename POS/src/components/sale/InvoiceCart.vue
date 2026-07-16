@@ -1793,7 +1793,7 @@ watch(() => props.customer, (newCustomer) => {
 	} else {
 		availableGiftCards.value = [];
 	}
-});
+}, { immediate: true });
 
 // Watch for price list change to sync order type
 watch(currentPriceList, (newList) => {

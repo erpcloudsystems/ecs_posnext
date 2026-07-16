@@ -573,10 +573,24 @@ def _get_standalone_pricing_rule_offers(company: str, date: str) -> List[Offer]:
 
 @frappe.whitelist()
 def get_active_coupons(customer: str, company: str) -> List[Dict]:
-	"""Get active gift card coupons for a customer"""
+	"""Get active, currently-valid gift card coupons for a customer.
+
+	`company` may be either a Company or a POS Profile name — the caller passes
+	the active POS Profile, so resolve it to the real company before filtering
+	(a POS Profile name never equals a Company, so the filter would otherwise
+	match nothing).
+	"""
 	if not frappe.db.table_exists("POS Coupon"):
 		return []
 
+	if not customer or not company:
+		return []
+
+	if not frappe.db.exists("Company", company):
+		resolved = frappe.db.get_value("POS Profile", company, "company")
+		company = resolved or company
+
+	today = getdate()
 	coupons = frappe.get_all(
 		"POS Coupon",
 		filters={
@@ -584,11 +598,22 @@ def get_active_coupons(customer: str, company: str) -> List[Dict]:
 			"coupon_type": "Gift Card",
 			"customer": customer,
 			"used": 0,
+			"disabled": 0,
 		},
 		fields=["name", "coupon_code", "coupon_name", "valid_from", "valid_upto"],
 	)
 
-	return coupons
+	# Drop coupons outside their validity window so the badge only counts
+	# coupons the customer can actually use right now.
+	active = []
+	for c in coupons:
+		if c.get("valid_from") and getdate(c["valid_from"]) > today:
+			continue
+		if c.get("valid_upto") and getdate(c["valid_upto"]) < today:
+			continue
+		active.append(c)
+
+	return active
 
 
 @frappe.whitelist()
