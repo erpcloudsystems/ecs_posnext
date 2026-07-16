@@ -10,7 +10,7 @@ approves it (which applies the change to the Customer) or rejects it.
 import frappe
 from frappe import _
 
-APPROVER_ROLES = ("System Manager", "Bransh Manager")
+APPROVER_ROLES = ("System Manager", "Bransh Manager", "Deputy Call Center Manager")
 
 
 def _require_approver():
