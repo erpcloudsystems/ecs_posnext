@@ -96,6 +96,7 @@ export async function printInvoice(invoiceData, printFormat = null, letterhead =
 		printWindow.document.write(fullHTML)
 		printWindow.document.close()
 		printWindow.onload = () => {
+			printWindow.onafterprint = () => printWindow.close()
 			setTimeout(() => printWindow.print(), 250)
 		}
 		return true
@@ -303,6 +304,7 @@ export function printInvoiceCustom(invoiceData) {
 	printWindow.document.write(printContent)
 	printWindow.document.close()
 	printWindow.onload = () => {
+		printWindow.onafterprint = () => printWindow.close()
 		setTimeout(() => printWindow.print(), 250)
 	}
 }
