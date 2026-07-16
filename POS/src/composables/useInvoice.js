@@ -244,20 +244,10 @@ export function useInvoice() {
 	// Total of custom_not_included items (excluded from subtotal when allowAdditionalDiscount is on)
 	const notIncludedTotal = computed(() => {
 		if (!allowAdditionalDiscount.value) {
-			console.log(
-				"[DEBUG notIncludedTotal] allowAdditionalDiscount is FALSE, returning 0",
-			)
 			return 0
 		}
 		let total = 0
 		for (const item of invoiceItems.value) {
-			console.log(
-				"[DEBUG notIncludedTotal] item:",
-				item.item_code,
-				"custom_not_included:",
-				item.custom_not_included,
-				typeof item.custom_not_included,
-			)
 			if (!item.custom_not_included) continue
 			const isManuallyEdited = item.is_rate_manually_edited === 1
 			const effectiveRate = isManuallyEdited
@@ -265,7 +255,6 @@ export function useInvoice() {
 				: item.price_list_rate || item.rate
 			total += roundCurrency(item.quantity * roundCurrency(effectiveRate))
 		}
-		console.log("[DEBUG notIncludedTotal] result:", total)
 		return roundCurrency(total)
 	})
 	const subtotal = computed(() => {
@@ -1136,29 +1125,10 @@ export function useInvoice() {
 				} catch (error) {
 					// Preserve original error object with all its properties
 					console.error("Submit invoice error:", error)
-					console.log(
-						"submitInvoiceResource.error:",
-						submitInvoiceResource.error,
-					)
 
 					// If resource has error data, extract and attach it
 					if (submitInvoiceResource.error) {
 						const resourceError = submitInvoiceResource.error
-						console.log("Resource error details:", {
-							exc_type: resourceError.exc_type,
-							_server_messages: resourceError._server_messages,
-							httpStatus: resourceError.httpStatus,
-							messages: resourceError.messages,
-							messagesContent: JSON.stringify(resourceError.messages),
-							data: resourceError.data,
-							exception: resourceError.exception,
-							keys: Object.keys(resourceError),
-						})
-
-						// The messages array likely contains the detailed error info
-						if (resourceError.messages && resourceError.messages.length > 0) {
-							console.log("First message:", resourceError.messages[0])
-						}
 
 						// Attach all resource error properties to the error
 						error.exc_type = resourceError.exc_type || error.exc_type
@@ -1167,8 +1137,6 @@ export function useInvoice() {
 						error.messages = resourceError.messages
 						error.exception = resourceError.exception
 						error.data = resourceError.data
-
-						console.log("After attaching, error.messages:", error.messages)
 					}
 
 					throw error

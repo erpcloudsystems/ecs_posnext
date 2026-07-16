@@ -284,7 +284,25 @@ def get_payment_account(mode_of_payment, company):
     """
     Get account for mode of payment.
     Tries multiple fallback methods to find a suitable account.
+
+    Resolution is cached for the lifetime of the current request: the same
+    (mode_of_payment, company) pair is commonly resolved more than once while
+    processing a single POS invoice submission.
     """
+    cache = getattr(frappe.local, "_pos_payment_account_cache", None)
+    if cache is None:
+        cache = frappe.local._pos_payment_account_cache = {}
+
+    cache_key = (mode_of_payment, company)
+    if cache_key in cache:
+        return cache[cache_key]
+
+    account_info = _resolve_payment_account(mode_of_payment, company)
+    cache[cache_key] = account_info
+    return account_info
+
+
+def _resolve_payment_account(mode_of_payment, company):
     # Try 1: Mode of Payment Account table
     account = frappe.db.get_value(
         "Mode of Payment Account",
@@ -393,6 +411,20 @@ def create_payment_entries_for_invoice(invoice_doc):
     if not invoice_doc.get("payments"):
         return
 
+    # Fetch existing Payment Entries for this invoice once (one query) instead
+    # of re-querying per payment row. Same guard, same result, fewer round trips.
+    existing_pe_modes = set(
+        frappe.get_all(
+            "Payment Entry",
+            filters={
+                "reference_no": invoice_doc.name,
+                "party": invoice_doc.customer,
+                "docstatus": ["!=", 2],
+            },
+            pluck="mode_of_payment",
+        )
+    )
+
     created = []
     for payment in invoice_doc.payments:
         amount = flt(payment.get("amount") or 0)
@@ -403,16 +435,7 @@ def create_payment_entries_for_invoice(invoice_doc):
         if not mode_of_payment:
             continue
 
-        existing = frappe.db.exists(
-            "Payment Entry",
-            {
-                "reference_no": invoice_doc.name,
-                "mode_of_payment": mode_of_payment,
-                "party": invoice_doc.customer,
-                "docstatus": ["!=", 2],
-            },
-        )
-        if existing:
+        if mode_of_payment in existing_pe_modes:
             continue
 
         account_info = get_payment_account(mode_of_payment, invoice_doc.company)
@@ -455,12 +478,14 @@ def create_payment_entries_for_invoice(invoice_doc):
             pe.insert(ignore_permissions=True)
             pe.submit()
             created.append(pe.name)
+            existing_pe_modes.add(mode_of_payment)
         except frappe.ValidationError as e:
             if "already been fully paid" in str(e):
                 pe.references = []
                 pe.insert(ignore_permissions=True)
                 pe.submit()
                 created.append(pe.name)
+                existing_pe_modes.add(mode_of_payment)
             else:
                 raise
 
@@ -478,8 +503,13 @@ def create_payment_entries_for_invoice(invoice_doc):
 # ==========================================
 
 
-def _get_available_stock(item):
-    """Return available stock qty for an item row."""
+def _get_available_stock(item, bin_qty_map=None):
+    """Return available stock qty for an item row.
+
+    If `bin_qty_map` is supplied (built by `_collect_stock_errors` from one
+    bulk query), non-batch lookups are served from it instead of issuing a
+    per-item query. Behavior is identical either way.
+    """
     warehouse = item.get("warehouse")
     batch_no = item.get("batch_no")
     item_code = item.get("item_code")
@@ -490,6 +520,9 @@ def _get_available_stock(item):
     if batch_no:
         return get_batch_qty(batch_no, warehouse) or 0
 
+    if bin_qty_map is not None:
+        return bin_qty_map.get((item_code, warehouse), 0)
+
     # Get stock from Bin
     bin_qty = frappe.db.get_value(
         "Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty"
@@ -499,12 +532,38 @@ def _get_available_stock(item):
 
 def _collect_stock_errors(items):
     """Return list of items exceeding available stock."""
+    # Bulk-fetch Bin quantities for all non-batch lines in one query instead of
+    # one query per cart line. Batch items still resolve individually via
+    # get_batch_qty (batch-specific logic, left untouched).
+    bin_keys = {
+        (d.get("item_code"), d.get("warehouse"))
+        for d in items
+        if d.get("item_code")
+        and d.get("warehouse")
+        and not d.get("batch_no")
+        and flt(d.get("qty")) >= 0
+    }
+
+    bin_qty_map = {}
+    if bin_keys:
+        item_codes = list({k[0] for k in bin_keys})
+        warehouses = list({k[1] for k in bin_keys})
+        for row in frappe.get_all(
+            "Bin",
+            filters={
+                "item_code": ["in", item_codes],
+                "warehouse": ["in", warehouses],
+            },
+            fields=["item_code", "warehouse", "actual_qty"],
+        ):
+            bin_qty_map[(row.item_code, row.warehouse)] = flt(row.actual_qty)
+
     errors = []
     for d in items:
         if flt(d.get("qty")) < 0:
             continue
 
-        available = _get_available_stock(d)
+        available = _get_available_stock(d, bin_qty_map)
         requested = flt(
             d.get("stock_qty")
             or (flt(d.get("qty")) * flt(d.get("conversion_factor") or 1))

@@ -212,18 +212,26 @@ def create_payment_entry_on_submit(doc, method=None):
 		if not doc.payments:
 			return
 
+		# Fetch existing Payment Entries for this invoice once (one query) instead
+		# of re-querying per payment row. Same guard, same result, fewer round trips.
+		existing_pe_modes = set(
+			frappe.get_all(
+				"Payment Entry",
+				filters={
+					"reference_no": doc.name,
+					"party": doc.customer,
+					"docstatus": ["!=", 2]
+				},
+				pluck="mode_of_payment"
+			)
+		)
+
 		for payment in doc.payments:
 			if not payment.amount or payment.amount <= 0:
 				continue
 
 			# Guard: skip if a Payment Entry already exists for this invoice + mode of payment
-			existing = frappe.db.exists("Payment Entry", {
-				"reference_no": doc.name,
-				"mode_of_payment": payment.mode_of_payment,
-				"party": doc.customer,
-				"docstatus": ["!=", 2]
-			})
-			if existing:
+			if payment.mode_of_payment in existing_pe_modes:
 				continue
 
 			# Resolve the cash/bank account linked to this mode of payment for this company
@@ -274,6 +282,10 @@ def create_payment_entry_on_submit(doc, method=None):
 					pe.submit()
 				else:
 					raise
+
+			# Mark as created so a second payment row using the same mode of
+			# payment (rare, but possible) doesn't create a duplicate entry.
+			existing_pe_modes.add(payment.mode_of_payment)
 
 	except Exception as e:
 		frappe.log_error(

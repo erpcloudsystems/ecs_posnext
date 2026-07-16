@@ -2131,8 +2131,12 @@ async function handlePaymentCompleted(paymentData) {
 					draftsStore.deleteDraft(draftIdToDelete);
 				}
 
-				// Refresh stock - Direct API (50-200ms), no Socket.IO lag!
-				await stockStore.refresh(soldItemCodes, shiftStore.profileWarehouse);
+				// Refresh stock in the background (non-blocking) - the invoice is
+				// already submitted at this point, so the cashier shouldn't wait
+				// on this before seeing confirmation.
+				stockStore.refresh(soldItemCodes, shiftStore.profileWarehouse).catch((err) =>
+					log.debug("Background stock refresh failed:", err)
+				);
 
 				// Refresh invoice history cache in background (non-blocking)
 				loadInvoiceHistoryData().catch((err) =>
