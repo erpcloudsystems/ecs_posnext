@@ -41,6 +41,38 @@ export function getInvoiceStatusColor(invoice) {
 }
 
 /**
+ * Get the appropriate CSS classes for a Sales Order status badge
+ * @param {Object} order - Sales Order object with status and docstatus fields
+ * @returns {string} Tailwind CSS classes for the status badge
+ */
+export function getSalesOrderStatusColor(order) {
+	const status = order.status?.toLowerCase()
+
+	if (status === 'cancelled' || order.docstatus === 2) {
+		return 'bg-red-100 text-red-800'
+	}
+
+	if (status === 'closed') {
+		return 'bg-gray-100 text-gray-800'
+	}
+
+	if (status === 'completed') {
+		return 'bg-green-100 text-green-800'
+	}
+
+	if (status === 'on hold') {
+		return 'bg-yellow-100 text-yellow-800'
+	}
+
+	if (status === 'to deliver and bill' || status === 'to bill' || status === 'to deliver') {
+		return 'bg-orange-100 text-orange-800'
+	}
+
+	// Gray for draft and others
+	return 'bg-gray-100 text-gray-800'
+}
+
+/**
  * Get status color theme name for use with Badge component
  * @param {string} status - Invoice status string
  * @returns {string} Theme name (red, yellow, blue, green, gray)

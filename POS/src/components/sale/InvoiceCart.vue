@@ -93,6 +93,7 @@
 							<!-- Action Buttons -->
 							<div class="flex items-center gap-0.5 flex-shrink-0" @click.stop>
 								<button
+									v-if="!isDefaultCompanyCustomer"
 									type="button"
 									@click.stop="$emit('edit-customer', customer)"
 									class="w-7 h-7 flex items-center justify-center text-blue-500 hover:bg-blue-50 active:bg-blue-100 rounded-lg transition-colors touch-manipulation"
@@ -1442,6 +1443,11 @@ const emit = defineEmits([
 	"close-shift", // () - Close current shift
 	// "create-sales-order", // () - Create Sales Order // Removed as per instruction
 ])
+
+// VIM Entertainment is the default company customer and must not be editable from the POS.
+const isDefaultCompanyCustomer = computed(
+	() => (props.customer?.customer_name || props.customer?.name) === "VIM ENTERTAINMENT",
+)
 
 // Load the loyalty wallet whenever the selected customer changes (for the reward card).
 watch(

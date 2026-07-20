@@ -95,7 +95,7 @@
 								d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
 							/>
 						</svg>
-						<span>{{ __("Invoice History") }}</span>
+						<span>{{ __("History") }}</span>
 					</button>
 					<button
 						v-if="offlineStore.pendingInvoicesCount > 0"
@@ -563,15 +563,18 @@
 				@option-selected="handleOptionSelected"
 			/>
 
-			<!-- Invoice History Dialog -->
-			<InvoiceHistoryDialog
+			<!-- History Dialog (Invoices + Orders tabs) -->
+			<HistoryDialog
 				v-model="uiStore.showHistoryDialog"
 				:pos-profile="shiftStore.profileName"
 				:pos-opening-shift="shiftStore.currentShift?.name"
+				:company="shiftStore.profileCompany"
 				:currency="shiftStore.profileCurrency"
 				@view-invoice="handleViewInvoice"
 				@print-invoice="handlePrintInvoice"
 				@return-created="handleReturnCreated"
+				@view-order="handleViewOrder"
+				@print-order="handlePrintOrder"
 			/>
 
 			<!-- Offline Invoices Dialog -->
@@ -996,7 +999,7 @@ import CreateCustomerDialog from "@/components/sale/CreateCustomerDialog.vue";
 import CustomerDialog from "@/components/sale/CustomerDialog.vue";
 import DraftInvoicesDialog from "@/components/sale/DraftInvoicesDialog.vue";
 import InvoiceCart from "@/components/sale/InvoiceCart.vue";
-import InvoiceHistoryDialog from "@/components/sale/InvoiceHistoryDialog.vue";
+import HistoryDialog from "@/components/sale/HistoryDialog.vue";
 import ItemSelectionDialog from "@/components/sale/ItemSelectionDialog.vue";
 import ItemsSelector from "@/components/sale/ItemsSelector.vue";
 import OffersDialog from "@/components/sale/OffersDialog.vue";
@@ -1948,6 +1951,10 @@ function handleCreateCustomer(searchValue) {
 }
 
 function handleEditCustomer(customer) {
+	// VIM Entertainment is the default company customer and must not be editable from the POS.
+	if ((customer?.customer_name || customer?.name) === "VIM ENTERTAINMENT") {
+		return;
+	}
 	editCustomer.value = customer; // Set customer for edit mode
 	uiStore.setInitialCustomerName("");
 	uiStore.showCreateCustomerDialog = true;
@@ -2820,11 +2827,31 @@ async function handlePrintInvoice(invoiceData) {
 		await printInvoiceByName(invoiceData.name);
 	} catch (error) {
 		log.error("Error printing invoice:", error);
-		window.frappe?.msgprint({
-			title: "Error",
-			message: "Failed to print invoice",
-			indicator: "red",
-		});
+		showError(__("Failed to print invoice"));
+	}
+}
+
+// View a Sales Order from Order History — open it in the desk app since
+// InvoiceDetailDialog is built around Sales Invoice-only fields (payments, returns).
+function handleViewOrder(order) {
+	window.open(`/app/sales-order/${order.name}`, "_blank");
+}
+
+// Print a Sales Order from Order History — reuses the same print pipeline as invoices.
+async function handlePrintOrder(orderData) {
+	try {
+		if (posSettingsStore.silentPrint) {
+			const result = await printWithSilentFallback(orderData);
+			if (result.method === "browser") {
+				log.info("Used browser print fallback");
+			}
+			return;
+		}
+
+		await printInvoiceByName(orderData.name, null, null, "Sales Order");
+	} catch (error) {
+		log.error("Error printing order:", error);
+		showError(__("Failed to print order"));
 	}
 }
 

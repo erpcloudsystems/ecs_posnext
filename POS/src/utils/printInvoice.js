@@ -4,6 +4,9 @@ import { printHTML as qzPrintHTML } from "@/utils/qzTray"
 
 const log = logger.create("PrintInvoice")
 
+// "POS Next Receipt" is a Print Format registered against Sales Invoice only —
+// using it for any other doctype (e.g. Sales Order) fails with a doctype mismatch.
+// Leaving printFormat unset for other doctypes lets Frappe use that doctype's own default.
 const DEFAULT_PRINT_FORMAT = "POS Next Receipt"
 
 // ============================================================================
@@ -14,11 +17,15 @@ function formatCurrency(amount) {
 	return Number.parseFloat(amount || 0).toFixed(2)
 }
 
+function defaultFormatFor(doctype) {
+	return doctype === "Sales Invoice" ? DEFAULT_PRINT_FORMAT : null
+}
+
 /**
  * Resolve print format & letterhead from a POS Profile.
  * Returns defaults when the profile lookup fails so callers always get a value.
  */
-async function resolvePrintSettings(posProfile, printFormat, letterhead) {
+async function resolvePrintSettings(posProfile, printFormat, letterhead, doctype = "Sales Invoice") {
 	if (printFormat) return { printFormat, letterhead }
 
 	if (posProfile) {
@@ -29,7 +36,7 @@ async function resolvePrintSettings(posProfile, printFormat, letterhead) {
 			})
 			if (doc) {
 				return {
-					printFormat: doc.print_format || DEFAULT_PRINT_FORMAT,
+					printFormat: doc.print_format || defaultFormatFor(doctype),
 					letterhead: letterhead || doc.letter_head || null,
 				}
 			}
@@ -38,7 +45,7 @@ async function resolvePrintSettings(posProfile, printFormat, letterhead) {
 		}
 	}
 
-	return { printFormat: DEFAULT_PRINT_FORMAT, letterhead }
+	return { printFormat: defaultFormatFor(doctype), letterhead }
 }
 
 // ============================================================================
@@ -55,17 +62,17 @@ export async function printInvoice(invoiceData, printFormat = null, letterhead =
 		if (!invoiceData?.name) throw new Error("Invalid invoice data")
 
 		const doctype = invoiceData.doctype || "Sales Invoice"
-		const format = printFormat || DEFAULT_PRINT_FORMAT
+		const format = printFormat || defaultFormatFor(doctype)
 
 		const params = new URLSearchParams({
 			doctype,
 			name: invoiceData.name,
-			format,
 			no_letterhead: letterhead ? 0 : 1,
 			_lang: "en",
 			trigger_print: 1,
 			_t: Date.now(),
 		})
+		if (format) params.append("format", format)
 		if (letterhead) params.append("letterhead", letterhead)
 
 		const printWindow = window.open(`/printview?${params}`, "_blank", "width=800,height=600")
@@ -83,13 +90,14 @@ export async function printInvoice(invoiceData, printFormat = null, letterhead =
  * Fetch an invoice by name, resolve its POS Profile print settings,
  * then open the browser print window.
  */
-export async function printInvoiceByName(invoiceName, printFormat = null, letterhead = null) {
+export async function printInvoiceByName(invoiceName, printFormat = null, letterhead = null, doctype = "Sales Invoice") {
 	const invoiceDoc = await call("ecs_posnext.api.invoices.get_invoice", {
 		invoice_name: invoiceName,
+		doctype,
 	})
 	if (!invoiceDoc) throw new Error("Invoice not found")
 
-	const settings = await resolvePrintSettings(invoiceDoc.pos_profile, printFormat, letterhead)
+	const settings = await resolvePrintSettings(invoiceDoc.pos_profile, printFormat, letterhead, doctype)
 	return printInvoice(invoiceDoc, settings.printFormat, settings.letterhead)
 }
 
@@ -105,13 +113,13 @@ export async function printInvoiceByName(invoiceName, printFormat = null, letter
  * formats that rely on Bootstrap layout classes may render differently.
  * Paper size and margins are controlled by the QZ Tray config in qzTray.js.
  */
-export async function silentPrintInvoice(invoiceName, printFormat = null) {
-	const format = printFormat || DEFAULT_PRINT_FORMAT
+export async function silentPrintInvoice(invoiceName, printFormat = null, doctype = "Sales Invoice") {
+	const format = printFormat || defaultFormatFor(doctype)
 
 	const result = await call("frappe.www.printview.get_html_and_style", {
-		doc: "Sales Invoice",
+		doc: doctype,
 		name: invoiceName,
-		print_format: format,
+		...(format && { print_format: format }),
 		no_letterhead: 1,
 	})
 
@@ -138,16 +146,17 @@ export async function silentPrintInvoice(invoiceName, printFormat = null) {
 export async function printWithSilentFallback(invoiceData, printFormat = null) {
 	const invoiceName = invoiceData?.name
 	if (!invoiceName) throw new Error("Invalid invoice data — missing name")
+	const doctype = invoiceData.doctype || "Sales Invoice"
 
 	try {
-		await silentPrintInvoice(invoiceName, printFormat)
+		await silentPrintInvoice(invoiceName, printFormat, doctype)
 		return { method: "silent", success: true }
 	} catch (err) {
 		log.warn("Silent print failed, falling back to browser:", err?.message || err)
 	}
 
 	try {
-		await printInvoiceByName(invoiceName, printFormat)
+		await printInvoiceByName(invoiceName, printFormat, null, doctype)
 		return { method: "browser", success: true }
 	} catch (err) {
 		log.error("Browser print fallback also failed:", err)

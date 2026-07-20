@@ -1326,6 +1326,16 @@ def check_offline_invoice_synced(offline_id):
 
 @frappe.whitelist()
 def submit_invoice(invoice=None, data=None):
+    """Enqueue submission of the invoice (Step 2)."""
+    frappe.enqueue(
+        _submit_invoice,
+        queue="short",
+        invoice=invoice,
+        data=data,
+    )
+
+
+def _submit_invoice(invoice=None, data=None):
     """Submit the invoice (Step 2)."""
     # Handle different calling conventions
     if invoice is None:
@@ -1689,28 +1699,32 @@ def submit_invoice(invoice=None, data=None):
 
 
 @frappe.whitelist()
-def get_invoice(invoice_name):
+def get_invoice(invoice_name, doctype="Sales Invoice"):
 	"""
-	Get a single invoice with all details for POS.
+	Get a single Sales Invoice or Sales Order with all details for POS.
 
 	Args:
-		invoice_name: Sales Invoice name
+		invoice_name: document name
+		doctype: "Sales Invoice" or "Sales Order"
 
 	Returns:
-		Complete invoice document with items and payments
+		Complete document with items and payments
 	"""
+	if doctype not in ("Sales Invoice", "Sales Order"):
+		frappe.throw(_("Invalid doctype"))
+
 	if not invoice_name:
 		frappe.throw(_("Invoice name is required"))
 
-	if not frappe.db.exists("Sales Invoice", invoice_name):
-		frappe.throw(_("Invoice {0} does not exist").format(invoice_name))
+	if not frappe.db.exists(doctype, invoice_name):
+		frappe.throw(_("{0} {1} does not exist").format(doctype, invoice_name))
 
 	# Check permissions
-	if not frappe.has_permission("Sales Invoice", "read", invoice_name):
-		frappe.throw(_("You don't have permission to view this invoice"))
+	if not frappe.has_permission(doctype, "read", invoice_name):
+		frappe.throw(_("You don't have permission to view this document"))
 
 	# Get invoice document
-	invoice = frappe.get_doc("Sales Invoice", invoice_name)
+	invoice = frappe.get_doc(doctype, invoice_name)
 
 	return invoice.as_dict()
 
