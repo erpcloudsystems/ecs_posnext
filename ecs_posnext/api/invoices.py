@@ -877,7 +877,7 @@ def update_invoice(data):
                             mode_of_payment, company
                         )
                         if account_info:
-                            payment["account"] = account_info.get("account")
+                            payment.account = account_info.get("account")
                     except Exception as e:
                         frappe.log_error(
                             f"Failed to get payment account for {mode_of_payment}: {e}",
@@ -1048,7 +1048,7 @@ def update_invoice(data):
                         mode_of_payment, invoice_doc.company
                     )
                     if account_info:
-                        payment["account"] = account_info.get("account")
+                        payment.account = account_info.get("account")
                 except Exception as e:
                     frappe.log_error(
                         f"Failed to get payment account for {mode_of_payment}: {e}",
