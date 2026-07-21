@@ -349,8 +349,11 @@
 										</span>
 										<span v-else class="text-gray-300">-</span>
 									</td>
-									<!-- Total -->
-									<td class="px-4 py-3 text-end font-medium text-gray-900">{{ formatNumber(order._combined_total !== undefined ? order._combined_total : order.grand_total) }}</td>
+									<!-- Total (hidden once the order is Paid) -->
+									<td class="px-4 py-3 text-end font-medium text-gray-900">
+										<span v-if="order.display_status !== 'Paid'">{{ formatNumber(order._combined_total !== undefined ? order._combined_total : order.grand_total) }}</span>
+										<span v-else class="text-gray-300">-</span>
+									</td>
 									<!-- Outstanding -->
 									<td class="px-4 py-3 text-end" :class="(order._combined_outstanding !== undefined ? order._combined_outstanding : order.outstanding_amount) > 0 ? 'text-red-600 font-medium' : 'text-gray-400'">
 										{{ formatNumber(order._combined_outstanding !== undefined ? order._combined_outstanding : order.outstanding_amount) }}
