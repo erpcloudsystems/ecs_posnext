@@ -36,8 +36,7 @@
 							<input
 								v-model="fromDate"
 								type="date"
-								:min="minDate"
-								:max="toDate || undefined"
+								:min="props.posOpeningShiftDate"
 								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
 							/>
 						</div>
@@ -48,7 +47,7 @@
 							<input
 								v-model="toDate"
 								type="date"
-								:min="fromDate || minDate"
+								:min="props.posOpeningShiftDate"
 								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
 							/>
 						</div>
@@ -163,7 +162,7 @@ const props = defineProps({
 		type: String,
 		default: null,
 	},
-	posOpeningDate: {
+	posOpeningShiftDate: {
 		type: String,
 		default: null,
 	},
@@ -176,9 +175,8 @@ const loading = ref(false)
 const lastLoaded = ref("")
 
 const today = new Date().toISOString().split("T")[0]
-const minDate = props.posOpeningDate ? props.posOpeningDate.split(" ")[0] : null
-const fromDate = ref(minDate || today)
-const toDate = ref(today)
+const fromDate = ref(props.posOpeningShiftDate || today)
+const toDate = ref(props.posOpeningShiftDate || today)
 
 const counts = ref({ cash: 0, visa: 0, total: 0 })
 
@@ -187,6 +185,8 @@ watch(
 	(val) => {
 		show.value = val
 		if (val) {
+			fromDate.value = props.posOpeningShiftDate || today
+			toDate.value = props.posOpeningShiftDate || today
 			loadCounts()
 		}
 	},
@@ -207,7 +207,6 @@ async function loadCounts() {
 			branch: props.branch || null,
 			from_date: fromDate.value || null,
 			to_date: toDate.value || null,
-			pos_opening_shift: props.posOpeningShift || null,
 		})
 		counts.value = result || { cash: 0, visa: 0, total: 0 }
 		const now = new Date()

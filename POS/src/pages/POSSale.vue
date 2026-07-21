@@ -658,7 +658,7 @@
 			<DailyPaymentManagement v-model="showDailyPayment" :branch="shiftStore.profileBranch" :payment-methods="shiftStore.profilePaymentMethods" :pos-opening-shift="shiftStore.currentShift?.name" />
 
 			<!-- Track Invoices -->
-			<TrackInvoices v-model="showTrackInvoices" :branch="shiftStore.profileBranch" :pos-opening-shift="shiftStore.currentShift?.name" :pos-opening-date="shiftStore.currentShift?.period_start_date" />
+			<TrackInvoices v-model="showTrackInvoices" :branch="shiftStore.profileBranch" :pos-opening-shift="shiftStore.currentShift?.name" :pos-opening-shift-date="shiftStore.currentShift?.posting_date" />
 
 			<!-- Employee Attendance -->
 			<EmployeeAttendance v-model="showEmployeeAttendance" :company="shiftStore.profileCompany" :branch="shiftStore.profileBranch" />
