@@ -38,6 +38,13 @@ POS_SETTINGS_FIELDS = [
 	"create_only_sales_order",
 ]
 
+# Item Types (Item.custom_item_type) considered "third party" for order history filtering
+# Used by orders.py to only surface Sales Orders billed through a third-party aggregator
+THIRD_PARTY_ITEM_TYPES = [
+	"Prepaid Third Party",
+	"Post Paid Third Party",
+]
+
 # Default POS Settings values
 # Used when no POS Settings found or on error
 DEFAULT_POS_SETTINGS = {

@@ -2810,6 +2810,12 @@ function handleViewInvoice(invoice) {
 	showInvoiceDetail.value = true;
 }
 
+// Pinned so Sales Order prints always use the compact layout, regardless of
+// whatever print_format happens to be set on the active POS Profile. Sales
+// Invoice prints below intentionally keep resolving through the POS Profile's
+// own print_format (the old layout).
+const HISTORY_PRINT_FORMAT = "New POS with QR TC1 (Compact)";
+
 // Centralized print handler - uses printInvoice.js utilities
 async function handlePrintInvoice(invoiceData) {
 	try {
@@ -2841,14 +2847,14 @@ function handleViewOrder(order) {
 async function handlePrintOrder(orderData) {
 	try {
 		if (posSettingsStore.silentPrint) {
-			const result = await printWithSilentFallback(orderData);
+			const result = await printWithSilentFallback(orderData, HISTORY_PRINT_FORMAT);
 			if (result.method === "browser") {
 				log.info("Used browser print fallback");
 			}
 			return;
 		}
 
-		await printInvoiceByName(orderData.name, null, null, "Sales Order");
+		await printInvoiceByName(orderData.name, HISTORY_PRINT_FORMAT, null, "Sales Order");
 	} catch (error) {
 		log.error("Error printing order:", error);
 		showError(__("Failed to print order"));

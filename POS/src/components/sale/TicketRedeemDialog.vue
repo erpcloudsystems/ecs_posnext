@@ -130,7 +130,7 @@
 								type="button"
 								class="h-9 px-4 text-xs font-semibold rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
 								:disabled="t._busy || !t._renewUses || t._renewUses < 1 || !t._renewAmount || t._renewAmount <= 0"
-								@click="doRenew(t)"
+								@click="confirmRenew(t)"
 							>
 								{{ t._busy ? __("Processing...") : __("Renew") }}
 							</button>
@@ -142,6 +142,30 @@
 		<template #actions>
 			<div class="flex justify-end w-full">
 				<Button variant="subtle" @click="show = false">{{ __("Close") }}</Button>
+			</div>
+		</template>
+	</Dialog>
+
+	<!-- Renew Confirmation -->
+	<Dialog
+		v-model="showRenewConfirm"
+		:options="{ title: __('Renew Subscription?'), size: 'xs' }"
+	>
+		<template #body-content>
+			<div class="py-3">
+				<p class="text-sm text-gray-600">
+					{{ __("Are you sure you want to renew this subscription?") }}
+				</p>
+			</div>
+		</template>
+		<template #actions>
+			<div class="flex gap-2 w-full">
+				<Button class="flex-1" variant="subtle" @click="showRenewConfirm = false">
+					{{ __("Cancel") }}
+				</Button>
+				<Button class="flex-1" variant="solid" theme="amber" @click="proceedRenew">
+					{{ __("Renew") }}
+				</Button>
 			</div>
 		</template>
 	</Dialog>
@@ -174,6 +198,8 @@ const tickets = ref([])
 const searching = ref(false)
 const searched = ref(false)
 const searchInput = ref(null)
+const showRenewConfirm = ref(false)
+const ticketToRenew = ref(null)
 
 const show = computed({
 	get: () => props.modelValue,
@@ -275,6 +301,19 @@ async function doRedeem(t, print) {
 		showError(parseError(e).message || __("Redeem failed"))
 	} finally {
 		t._busy = false
+	}
+}
+
+function confirmRenew(t) {
+	ticketToRenew.value = t
+	showRenewConfirm.value = true
+}
+
+async function proceedRenew() {
+	showRenewConfirm.value = false
+	if (ticketToRenew.value) {
+		await doRenew(ticketToRenew.value)
+		ticketToRenew.value = null
 	}
 }
 

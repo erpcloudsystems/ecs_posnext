@@ -318,24 +318,11 @@ const orderHasMore = ref(true)
 const isLoadingMoreOrders = ref(false)
 
 const ordersResource = createResource({
-	url: "frappe.client.get_list",
+	url: "ecs_posnext.api.orders.get_third_party_sales_orders",
 	makeParams() {
 		return {
-			doctype: "Sales Order",
-			filters: {
-				...(props.company && { company: props.company }),
-			},
-			fields: [
-				"name",
-				"customer",
-				"customer_name",
-				"customer.mobile_no as customer_mobile",
-				"transaction_date",
-				"grand_total",
-				"status",
-				"docstatus",
-			],
-			order_by: "`tabSales Order`.modified desc",
+			company: props.company || undefined,
+			search_term: searchTerm.value || undefined,
 			start: orderPage.value * pageSize,
 			page_length: pageSize,
 		}
@@ -370,15 +357,9 @@ const filteredInvoices = computed(() => {
 	)
 })
 
-const filteredOrders = computed(() => {
-	if (!searchTerm.value) return orders.value
-	const term = searchTerm.value.toLowerCase()
-	return orders.value.filter(
-		(order) => order.name.toLowerCase().includes(term) || order.customer_name?.toLowerCase().includes(term),
-	)
-})
-
-const activeList = computed(() => (activeTab.value === "invoices" ? filteredInvoices.value : filteredOrders.value))
+// Orders are searched server-side (search_term is sent as a query param above),
+// since custom_item_type filtering requires a DB join that can't be done client-side.
+const activeList = computed(() => (activeTab.value === "invoices" ? filteredInvoices.value : orders.value))
 
 function loadInvoices() {
 	invoicePage.value = 0
@@ -424,6 +405,15 @@ watch(show, (val) => {
 watch(activeTab, () => {
 	searchTerm.value = ""
 	reloadActiveTab()
+})
+
+// Orders search runs server-side (see ordersResource above), so debounce and
+// re-query on every keystroke instead of filtering the already-loaded page.
+let orderSearchDebounceTimer = null
+watch(searchTerm, () => {
+	if (activeTab.value !== "orders") return
+	clearTimeout(orderSearchDebounceTimer)
+	orderSearchDebounceTimer = setTimeout(() => loadOrders(), 300)
 })
 
 // Clear selected invoice when return dialog closes
