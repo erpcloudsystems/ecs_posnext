@@ -824,28 +824,48 @@
 								<span>{{ __('Pay') }} {{ formatCurrency(remainingAmount) }}</span>
 							</button>
 
-							<!-- Complete Payment Button -->
-							<button
+							<!-- Complete Payment Buttons -->
+							<div
 								v-if="(remainingAmount === 0 || (applyWriteOff && canWriteOff)) && (totalPaid > 0 || loyaltyRedemptionValue > 0 || reservationDeposit > 0)"
-								@click="completePayment"
-								:disabled="isSubmitting || !canComplete || isCreatingCustomer"
-								:class="[
-									'w-full font-bold rounded-lg flex items-center justify-center',
-									isSubmitting
-										? 'bg-blue-300 text-white cursor-not-allowed'
-										: 'bg-blue-500 text-white active:bg-blue-600',
-									mobileButtonSize.height, mobileButtonSize.text, mobileButtonSize.gap
-								]"
+								class="grid grid-cols-2" :class="isSmallMobile ? 'gap-1' : 'gap-1.5'"
 							>
-								<svg v-if="isSubmitting" :class="mobileButtonSize.icon" class="animate-spin" fill="none" viewBox="0 0 24 24">
-									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-								</svg>
-								<svg v-else :class="mobileButtonSize.icon" fill="currentColor" viewBox="0 0 20 20">
-									<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-								</svg>
-								<span>{{ isSubmitting ? __('Processing...') : __('Complete Payment') }}</span>
-							</button>
+								<button
+									@click="completePayment(false)"
+									:disabled="isSubmitting || !canComplete || isCreatingCustomer"
+									:class="[
+										'font-bold rounded-lg flex items-center justify-center',
+										isSubmitting
+											? 'bg-blue-300 text-white cursor-not-allowed'
+											: 'bg-blue-500 text-white active:bg-blue-600',
+										mobileButtonSize.height, mobileButtonSize.text, mobileButtonSize.gap
+									]"
+								>
+									<svg v-if="isSubmitting" :class="mobileButtonSize.icon" class="animate-spin" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+									<svg v-else :class="mobileButtonSize.icon" fill="currentColor" viewBox="0 0 20 20">
+										<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+									</svg>
+									<span class="truncate">{{ isSubmitting ? __('Processing...') : __('Complete Payment') }}</span>
+								</button>
+								<button
+									@click="completePayment(true)"
+									:disabled="isSubmitting || !canComplete || isCreatingCustomer"
+									:class="[
+										'font-bold rounded-lg flex items-center justify-center',
+										isSubmitting
+											? 'bg-blue-200 text-white cursor-not-allowed'
+											: 'bg-blue-600 text-white active:bg-blue-700',
+										mobileButtonSize.height, mobileButtonSize.text, mobileButtonSize.gap
+									]"
+								>
+									<svg :class="mobileButtonSize.icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2m-8 0h8v4H8v-4z"/>
+									</svg>
+									<span class="truncate">{{ isSubmitting ? __('Processing...') : __('Complete & Print') }}</span>
+								</button>
+							</div>
 						</div>
 					</div>
 					<!-- End Mobile Payment Section -->
@@ -877,7 +897,7 @@
 
 						<!-- Complete/Partial Payment Button -->
 						<button
-							@click="completePayment"
+							@click="completePayment(false)"
 							:disabled="!canComplete || isSubmitting || isCreatingCustomer"
 							:class="[
 								'flex-1 inline-flex items-center justify-center gap-2 transition-colors focus:outline-none',
@@ -895,6 +915,28 @@
 								<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
 							</svg>
 							<span>{{ isSubmitting ? __('Processing...') : paymentButtonText }}</span>
+						</button>
+
+						<!-- Complete Payment & Print Button -->
+						<button
+							@click="completePayment(true)"
+							:disabled="!canComplete || isSubmitting || isCreatingCustomer"
+							:class="[
+								'flex-1 inline-flex items-center justify-center gap-2 transition-colors focus:outline-none',
+								dynamicButtonHeight, 'text-sm font-semibold px-5 rounded-lg',
+								!canComplete || isSubmitting
+									? 'bg-blue-200 text-white cursor-not-allowed'
+									: 'bg-blue-700 text-white hover:bg-blue-800 active:bg-blue-900 focus-visible:ring-2 focus-visible:ring-blue-400'
+							]"
+						>
+							<svg v-if="isSubmitting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							<svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2m-8 0h8v4H8v-4z"/>
+							</svg>
+							<span>{{ isSubmitting ? __('Processing...') : __('Complete & Print') }}</span>
 						</button>
 					</div>
 				</div>
@@ -2622,7 +2664,14 @@ function onCardApproved(codes) {
 	completePayment()
 }
 
-async function completePayment() {
+// Print intent survives the OTP/card-approval gates below, which close this
+// dialog's sub-dialogs and re-call completePayment() with no argument once
+// the cashier clears them.
+const printAfterComplete = ref(false)
+
+async function completePayment(print) {
+	if (print !== undefined) printAfterComplete.value = print
+
 	// Gate: any applied discount needs OTP/password authorization.
 	if (discountRequiresAuth.value && !discountAuthorized.value) {
 		showDiscountOtp.value = true
@@ -2709,6 +2758,7 @@ async function completePayment() {
 		is_write_off: writeOffAmount.value > 0,
 		// Customer resolved from inline fields (null if using existing cart/profile customer)
 		customer: resolvedCustomer,
+		print: printAfterComplete.value,
 	}
 
 	log.debug("[PaymentDialog] Emitting payment-completed:", paymentData)
@@ -2716,6 +2766,7 @@ async function completePayment() {
 	emit("payment-completed", paymentData)
 
 	show.value = false
+	printAfterComplete.value = false
 }
 
 function formatCurrency(amount) {

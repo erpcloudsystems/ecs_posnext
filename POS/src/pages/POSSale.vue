@@ -2079,7 +2079,22 @@ async function handlePaymentCompleted(paymentData) {
 			// Get item codes from cart before clearing
 			const soldItemCodes = cartStore.invoiceItems.map((item) => item.item_code);
 
-			const result = await cartStore.submitInvoice();
+			// "Complete & Print": the draft invoice (Step 1) already has its real
+			// name and computed totals; print from that immediately instead of
+			// waiting on Step 2, which is queued on the backend and never reports
+			// back here. Tabby / insufficient-stock outcomes are only known after
+			// Step 2, so this print can't reflect those — acceptable trade-off for
+			// getting a receipt in the cashier's hand right away.
+			const result = await cartStore.submitInvoice(
+				paymentData.print
+					? (draftInvoiceDoc) => {
+							handlePrintInvoice({ name: draftInvoiceDoc.name }).catch((error) => {
+								log.error("Immediate print after draft creation failed:", error);
+								showWarning(__("Invoice created but print failed"));
+							});
+						}
+					: undefined,
+			);
 
 			if (result) {
 				// Tabby: invoice kept pending; show the payment link (QR + copy) and
@@ -2150,7 +2165,7 @@ async function handlePaymentCompleted(paymentData) {
 					log.debug("Background invoice cache refresh failed:", err)
 				);
 
-				if (shiftStore.autoPrintEnabled || posSettingsStore.silentPrint) {
+				if (paymentData.print || shiftStore.autoPrintEnabled || posSettingsStore.silentPrint) {
 					try {
 						await handlePrintInvoice({ name: invoiceName });
 						showSuccess(__("Invoice {0} created and sent to printer", [invoiceName]));
