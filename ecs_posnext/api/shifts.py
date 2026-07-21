@@ -15,6 +15,8 @@ SUPERVISOR_ROLES = {
 	"POSNext Operations Manager",
 	"Sales Manager",
 	"Branch supervisor",
+	"Assistant branch manager",
+	"Bransh Manager",
 	"System Manager",
 	"Administrator",
 }
