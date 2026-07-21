@@ -45,8 +45,12 @@ class POSCashierShiftClosing(Document):
 			self.shift_start = fig.shift_start
 		if not self.shift_end:
 			self.shift_end = now_datetime()
-		if not self.supervisor_employee:
-			self.supervisor_employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+		# Supervisor = whoever actually closes (counts) the shift. Set authoritatively
+		# here (not "only if empty"), so it reflects the closer even if a different
+		# person prepared the closing.
+		closer_employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+		if closer_employee:
+			self.supervisor_employee = closer_employee
 		self.set("payment_reconciliation", fig.payment_reconciliation)
 		self.set("pos_transactions", fig.pos_transactions)
 
