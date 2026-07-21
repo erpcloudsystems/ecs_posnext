@@ -100,7 +100,7 @@ def create_customer(
         tax_id (str): Tax ID (optional)
 
     Returns:
-        dict: Created customer document
+        dict: Created (or reactivated) customer document
     """
     # Check if user has permission to create customers
     if not frappe.has_permission("Customer", "create"):
@@ -120,6 +120,37 @@ def create_customer(
     name_parts = customer_name.strip().split(" ", 1)
     first_name = name_parts[0]
     last_name = name_parts[1] if len(name_parts) > 1 else name_parts[0]
+
+    # Disabled customers are hidden from POS search (get_customers filters
+    # disabled=0), so a cashier can't find them to re-enable manually. If a
+    # disabled customer matches this mobile number or name, reactivate it
+    # instead of trying to insert a new one (which otherwise fails or
+    # silently creates a duplicate for the same person).
+    existing_name = None
+    if mobile_no:
+        existing_name = frappe.db.get_value(
+            "Customer", {"mobile_no": mobile_no, "disabled": 1}, "name"
+        )
+    if not existing_name:
+        existing_name = frappe.db.get_value(
+            "Customer", {"customer_name": customer_name, "disabled": 1}, "name"
+        )
+
+    if existing_name:
+        customer = frappe.get_doc("Customer", existing_name)
+        customer.disabled = 0
+        customer.customer_name = customer_name
+        customer.customer_group = customer_group or customer.customer_group
+        customer.territory = territory or customer.territory
+        customer.mobile_no = mobile_no or customer.mobile_no
+        customer.email_id = email_id or customer.email_id
+        customer.tax_id = tax_id or customer.tax_id
+        customer.first_name = first_name
+        customer.last_name = last_name
+        if loyalty_program and not customer.loyalty_program:
+            customer.loyalty_program = loyalty_program
+        customer.save(ignore_permissions=True)
+        return customer.as_dict()
 
     customer = frappe.get_doc(
         {

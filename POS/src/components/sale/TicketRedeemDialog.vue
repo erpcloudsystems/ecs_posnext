@@ -223,13 +223,8 @@ function decorate(rows) {
 			_renewMop: props.paymentMethods[0] || "",
 			_busy: false,
 		}))
-		// Valid tickets first (soonest expiry first), expired ones last.
-		.sort((a, b) => {
-			const ax = isExpired(a) ? 1 : 0
-			const bx = isExpired(b) ? 1 : 0
-			if (ax !== bx) return ax - bx
-			return String(a.valid_to || "").localeCompare(String(b.valid_to || ""))
-		})
+		// Sort by expiry date, furthest expiry first (expired tickets still shown, just sorted lower).
+		.sort((a, b) => String(b.valid_to || "").localeCompare(String(a.valid_to || "")))
 }
 
 function syncRenewAmount(t) {

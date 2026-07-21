@@ -59,7 +59,7 @@ def search_tickets(search_keys):
     """Search redeemable tickets by redeem_code / customer (delegates to posawesome)."""
     from posawesome.posawesome.api.redeem_ticket import search_redeem_tickets
 
-    return search_redeem_tickets(search_keys)
+    return search_redeem_tickets(search_keys, include_expired=1)
 
 
 @frappe.whitelist()
