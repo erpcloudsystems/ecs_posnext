@@ -658,7 +658,15 @@
 			<DailyPaymentManagement v-model="showDailyPayment" :branch="shiftStore.profileBranch" :payment-methods="shiftStore.profilePaymentMethods" :pos-opening-shift="shiftStore.currentShift?.name" />
 
 			<!-- Track Invoices -->
-			<TrackInvoices v-model="showTrackInvoices" :branch="shiftStore.profileBranch" :pos-opening-shift="shiftStore.currentShift?.name" />
+			<TrackInvoices
+				v-model="showTrackInvoices"
+				:branch="shiftStore.profileBranch"
+				:pos-opening-shift="shiftStore.currentShift?.name"
+				:pos-opening-shift-date="shiftStore.currentShift?.period_start_date"
+			/>
+
+			<!-- Employee Attendance -->
+			<EmployeeAttendance v-model="showEmployeeAttendance" :company="shiftStore.profileCompany" :branch="shiftStore.profileBranch" />
 
 			<!-- Invoice Detail Dialog -->
 			<InvoiceDetailDialog
@@ -1006,6 +1014,7 @@ import POSSettings from "@/components/settings/POSSettings.vue";
 import InvoiceManagement from "@/components/invoices/InvoiceManagement.vue";
 import DailyPaymentManagement from "@/components/daily_payment/DailyPaymentManagement.vue";
 import TrackInvoices from "@/components/daily_payment/TrackInvoices.vue";
+import EmployeeAttendance from "@/components/daily_payment/EmployeeAttendance.vue";
 import InvoiceDetailDialog from "@/components/invoices/InvoiceDetailDialog.vue";
 import { useRealtimeStock } from "@/composables/useRealtimeStock";
 import { usePOSEvents } from "@/composables/usePOSEvents";
@@ -1114,6 +1123,9 @@ const showDailyPayment = ref(false);
 
 // Track Invoices dialog
 const showTrackInvoices = ref(false);
+
+// Employee Attendance dialog
+const showEmployeeAttendance = ref(false);
 
 // Invoice Detail dialog
 const showInvoiceDetail = ref(false);
@@ -2483,6 +2495,8 @@ function handleManagementMenuClick(menuItem) {
 		showDailyPayment.value = true;
 	} else if (menuItem === "track-invoices") {
 		showTrackInvoices.value = true;
+	} else if (menuItem === "employee-attendance") {
+		showEmployeeAttendance.value = true;
 	}
 }
 

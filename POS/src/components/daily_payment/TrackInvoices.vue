@@ -36,6 +36,7 @@
 							<input
 								v-model="fromDate"
 								type="date"
+								:min="minDate"
 								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
 							/>
 						</div>
@@ -46,6 +47,7 @@
 							<input
 								v-model="toDate"
 								type="date"
+								:min="minDate"
 								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
 							/>
 						</div>
@@ -143,7 +145,7 @@
 
 <script setup>
 import { call } from "frappe-ui"
-import { ref, watch } from "vue"
+import { computed, ref, watch } from "vue"
 import { useToast } from "@/composables/useToast"
 import { logger } from "@/utils/logger"
 
@@ -160,6 +162,10 @@ const props = defineProps({
 		type: String,
 		default: null,
 	},
+	posOpeningShiftDate: {
+		type: String,
+		default: null,
+	},
 })
 
 const emit = defineEmits(["update:modelValue"])
@@ -169,7 +175,14 @@ const loading = ref(false)
 const lastLoaded = ref("")
 
 const today = new Date().toISOString().split("T")[0]
-const fromDate = ref(today)
+
+// Invoices tracked here can never predate the shift the cashier opened with,
+// so the filter is bounded by (and defaults to) the shift's opening date.
+const minDate = computed(() =>
+	props.posOpeningShiftDate ? props.posOpeningShiftDate.split(" ")[0] : null,
+)
+
+const fromDate = ref(minDate.value || today)
 const toDate = ref(today)
 
 const counts = ref({ cash: 0, visa: 0, total: 0 })
@@ -179,6 +192,8 @@ watch(
 	(val) => {
 		show.value = val
 		if (val) {
+			fromDate.value = minDate.value || today
+			toDate.value = today
 			loadCounts()
 		}
 	},

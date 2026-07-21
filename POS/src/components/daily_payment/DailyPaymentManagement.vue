@@ -233,9 +233,9 @@
 
 									<!-- Amount & Mode of Payment -->
 									<div class="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100">
-										<div v-if="record.amount">
+										<div v-if="getRecordAmount(record)">
 											<div class="text-xs text-gray-500 mb-0.5">{{ __('Amount') }}</div>
-											<div class="text-sm font-bold text-emerald-700">{{ formatAmount(record.amount) }}</div>
+											<div class="text-sm font-bold text-emerald-700">{{ formatAmount(getRecordAmount(record)) }}</div>
 										</div>
 										<div v-if="record.mode_of_payment">
 											<div class="text-xs text-gray-500 mb-0.5">{{ __('Mode of Payment') }}</div>
@@ -485,6 +485,10 @@ function getDocStatusLabel(docstatus) {
 		default:
 			return __("Unknown")
 	}
+}
+
+function getRecordAmount(record) {
+	return record.expenses ? record.expenses_amount : record.amount
 }
 
 function formatAmount(amount) {

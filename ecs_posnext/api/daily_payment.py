@@ -118,6 +118,22 @@ def get_daily_payments(employee=None, from_date=None, to_date=None, branch=None,
 		limit=int(limit),
 	)
 
+	expense_names = [d.name for d in records if d.expenses]
+	if expense_names:
+		totals = frappe.db.sql(
+			"""
+			SELECT parent, SUM(amount) AS total
+			FROM `tabGeneral Expenses`
+			WHERE parent IN %(names)s
+			GROUP BY parent
+			""",
+			{"names": tuple(expense_names)},
+			as_dict=True,
+		)
+		totals_by_name = {d.parent: d.total for d in totals}
+		for record in records:
+			record["expenses_amount"] = totals_by_name.get(record.name) or 0
+
 	return records
 
 
