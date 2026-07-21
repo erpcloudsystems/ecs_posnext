@@ -156,6 +156,9 @@ def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_sh
 	if branch:
 		filters.append(["branch", "=", branch])
 
+	if pos_opening_shift:
+		filters.append(["posa_pos_opening_shift", "=", pos_opening_shift])
+
 	if from_date:
 		if to_date:
 			filters.append(["posting_date", "between", [from_date, to_date]])

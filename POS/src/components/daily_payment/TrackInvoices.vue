@@ -207,6 +207,7 @@ async function loadCounts() {
 			branch: props.branch || null,
 			from_date: fromDate.value || null,
 			to_date: toDate.value || null,
+			pos_opening_shift: props.posOpeningShift || null,
 		})
 		counts.value = result || { cash: 0, visa: 0, total: 0 }
 		const now = new Date()
