@@ -97,6 +97,12 @@ def cancel_sales_invoice_with_wastage(sales_invoice, is_wastage=False, items_to_
 
     # Get Sales Invoice details
     si_doc = frappe.get_doc("Sales Invoice", sales_invoice)
+
+    # Business-day guard — fail BEFORE creating any wastage stock entry (the cancel
+    # below is wrapped in a try/except that would otherwise swallow this block).
+    from ecs_posnext.api.business_day import assert_pos_invoice_cancellable
+    assert_pos_invoice_cancellable(si_doc)
+
     company = si_doc.company
     
     # Get default warehouse
@@ -212,6 +218,209 @@ def cancel_sales_invoice_with_wastage(sales_invoice, is_wastage=False, items_to_
         "wastage_stock_entry": wastage_stock_entry_name,
         "is_wastage": is_wastage
     }
+
+
+def _create_wastage_stock_entry(company, default_warehouse, wastage_items, stock_entry_type, employee, reference):
+    """Create + submit a stock entry that consumes wasted items out of stock.
+
+    Returns the stock entry name, or None if nothing was created.
+    """
+    rows = [w for w in (wastage_items or []) if flt(w.get("qty", 0)) > 0]
+    if not rows:
+        return None
+    if stock_entry_type == "Loaded" and not employee:
+        frappe.throw(_("Please select an employee"))
+
+    se = frappe.new_doc("Stock Entry")
+    se.stock_entry_type = stock_entry_type  # Consumptions / Loaded
+    se.posting_date = nowdate()
+    se.set_posting_time = 1
+    se.company = company
+    if hasattr(se, "custom_wastedge_type"):
+        se.custom_wastedge_type = stock_entry_type
+    if hasattr(se, "custom_wastedge_reference"):
+        se.custom_wastedge_reference = reference
+    if employee and hasattr(se, "custom_empolyee"):
+        se.custom_empolyee = employee
+    for item in rows:
+        se.append("items", {
+            "item_code": item.get("item_code"),
+            "qty": item.get("qty"),
+            "uom": item.get("uom", "Nos"),
+            "s_warehouse": item.get("warehouse") or default_warehouse,
+        })
+    if not se.items:
+        return None
+    se.flags.ignore_permissions = True
+    se.insert()
+    se.submit()
+    return se.name
+
+
+@frappe.whitelist()
+def return_sales_invoice_with_wastage(
+    sales_invoice,
+    is_wastage=False,
+    items_to_return="[]",
+    wastage_items="[]",
+    stock_entry_type="Consumptions",
+    employee=None,
+    cancelled_by_manager=None,
+    pos_opening_shift=None,
+    return_reason=None,
+):
+    """Forward-only reversal: create a Return / Credit Note (NOT a cancel) on the
+    CURRENT open shift, with the same wastage + manager-approval capabilities the
+    cancel flow had. The original invoice stays on the books; the refund is owned by
+    today's cashier (its cash counts as a Cash Refund on the current cashier shift).
+    """
+    from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
+    from ecs_posnext.api.business_day import apply_business_day_to_invoice, log_pos_event
+
+    is_wastage = is_wastage in (True, "true", "1", 1)
+    items_to_return = json.loads(items_to_return) if isinstance(items_to_return, str) else items_to_return
+    wastage_items = json.loads(wastage_items) if isinstance(wastage_items, str) else wastage_items
+
+    original = frappe.get_doc("Sales Invoice", sales_invoice)
+    if original.docstatus != 1:
+        frappe.throw(_("Only a submitted invoice can be returned."))
+    if original.is_return:
+        frappe.throw(_("Cannot create a return against a return invoice."))
+
+    # Build the credit note from the original (negative qtys, taxes, payments copied).
+    # make_sales_return -> get_mapped_doc enforces "create" permission on Sales Invoice
+    # for the SESSION user, and it honours only its own ignore_permissions argument
+    # (not frappe.flags), which make_sales_return does not expose. POS cashiers /
+    # supervisors don't hold that desk permission — the POS creates invoices with
+    # ignore_permissions. This is a manager-authorised server-side action, so build the
+    # mapped doc elevated and restore the real user immediately, before insert, so the
+    # document owner and audit trail stay accurate.
+    _session_user = frappe.session.user
+    try:
+        frappe.set_user("Administrator")
+        ret = make_sales_return(sales_invoice)
+    finally:
+        frappe.set_user(_session_user)
+
+    # Partial return: keep only the requested rows/quantities.
+    if items_to_return:
+        want = {}
+        for it in items_to_return:
+            key = it.get("sales_invoice_item") or it.get("name") or it.get("item_code")
+            want[key] = flt(it.get("return_qty") or it.get("qty") or 0)
+        kept = []
+        for row in ret.items:
+            q = want.get(row.get("sales_invoice_item")) or want.get(row.item_code)
+            if q and q > 0:
+                row.qty = -abs(q)
+                kept.append(row)
+        if kept:
+            ret.set("items", kept)
+
+    # Stamp the current open shift so the refund follows today's cashier.
+    if pos_opening_shift:
+        ret.posa_pos_opening_shift = pos_opening_shift
+    ret.update_stock = original.update_stock
+    if return_reason:
+        ret.remarks = return_reason
+
+    ret.flags.ignore_permissions = True
+    ret.run_method("set_missing_values")
+    ret.run_method("calculate_taxes_and_totals")
+
+    # Refund proportionally across the original payment modes (faithful to how the
+    # customer paid). make_sales_return copies full-invoice payments, so rescale for
+    # partial returns to match the actual return total.
+    total = flt(ret.grand_total)
+    pay_sum = sum(flt(p.amount) for p in (ret.get("payments") or []))
+    if ret.get("payments") and pay_sum:
+        scale = total / pay_sum
+        for p in ret.payments:
+            p.amount = flt(p.amount * scale)
+    if ret.is_pos:
+        ret.paid_amount = total
+
+    # Business-day stamp (stamping normally lives in the submit_invoice API path).
+    apply_business_day_to_invoice(ret)
+
+    ret.insert(ignore_permissions=True)
+    ret.submit()
+
+    # Wastage: remove wasted items from stock (net: refunded, not restocked).
+    wastage_se = None
+    if is_wastage:
+        default_warehouse = (original.items[0].warehouse if original.items else None) or \
+            frappe.db.get_single_value("Stock Settings", "default_warehouse")
+        wastage_se = _create_wastage_stock_entry(
+            original.company, default_warehouse, wastage_items, stock_entry_type, employee, sales_invoice
+        )
+
+    if cancelled_by_manager:
+        try:
+            frappe.db.set_value("Sales Invoice", ret.name, "custom_cancelled_by_manager",
+                                cancelled_by_manager, update_modified=False)
+        except Exception:
+            frappe.log_error(title="Record Return Manager Error", message=frappe.get_traceback())
+
+    log_pos_event(
+        action="Return",
+        reference_doctype="Sales Invoice",
+        reference_name=ret.name,
+        pos_profile=ret.pos_profile,
+        pos_business_day=ret.get("custom_pos_business_day"),
+        old_value=sales_invoice,
+        new_value=flt(ret.grand_total),
+        reason=return_reason,
+    )
+    # NOTE: deliberately no frappe.db.commit() here — the request lifecycle commits.
+    # An explicit commit would break atomicity when returning several invoices for one
+    # order (a later failure could leave earlier returns committed).
+
+    return {
+        "status": "success",
+        "message": _("Return {0} created for invoice {1}.").format(ret.name, sales_invoice),
+        "return_invoice": ret.name,
+        "refunded_amount": abs(total),
+        "wastage_stock_entry": wastage_se,
+    }
+
+
+@frappe.whitelist()
+def return_sales_order_and_invoices(sales_order, cancelled_by_manager=None, pos_opening_shift=None, return_reason=None):
+    """Forward-only reversal for a whole order: create a Return / Credit Note for every
+    submitted invoice linked to the Sales Order (or for the invoice itself), on the
+    CURRENT open shift. Originals stay on the books.
+    """
+    if frappe.db.exists("Sales Invoice", sales_order):
+        invoice_names = [sales_order]
+    else:
+        invoice_names = [
+            r.parent for r in frappe.get_all(
+                "Sales Invoice Item", filters={"sales_order": sales_order}, fields=["parent"]
+            )
+        ]
+
+    returns, seen = [], set()
+    for inv in invoice_names:
+        if inv in seen:
+            continue
+        seen.add(inv)
+        info = frappe.db.get_value("Sales Invoice", inv, ["docstatus", "is_return"], as_dict=True)
+        if not info or info.docstatus != 1 or info.is_return:
+            continue
+        res = return_sales_invoice_with_wastage(
+            inv,
+            is_wastage=False,
+            pos_opening_shift=pos_opening_shift,
+            cancelled_by_manager=cancelled_by_manager,
+            return_reason=return_reason,
+        )
+        returns.append(res["return_invoice"])
+
+    if not returns:
+        frappe.throw(_("No submitted invoice found to return for {0}.").format(sales_order))
+
+    return {"status": "success", "returns": returns, "count": len(returns)}
 
 
 def _is_now_in_shift(now, start_str, end_str):
@@ -602,6 +811,12 @@ def cancel_sales_order_and_invoices(sales_order, cancelled_by_manager=None):
             fields=["parent"]
         )
         invoices_to_cancel = [inv.parent for inv in linked_invoices]
+
+    # Business-day guard — check ALL invoices up front and fail cleanly before
+    # cancelling any of them (the per-invoice cancel below swallows exceptions).
+    from ecs_posnext.api.business_day import assert_pos_invoice_cancellable
+    for inv_name in invoices_to_cancel:
+        assert_pos_invoice_cancellable(inv_name)
 
     cancelled_invoices = 0
     for inv_name in invoices_to_cancel:

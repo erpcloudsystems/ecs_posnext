@@ -1,0 +1,307 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-07-16 10:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "company",
+  "pos_profile",
+  "business_date",
+  "column_break_head",
+  "status",
+  "opened_by",
+  "closed_by",
+  "closing_datetime",
+  "section_window",
+  "start_datetime",
+  "sales_cutoff_datetime",
+  "column_break_window",
+  "mandatory_closing_deadline",
+  "section_cashier_shifts",
+  "cashier_shifts",
+  "section_summary",
+  "total_sales",
+  "pos_sales",
+  "call_center_sales",
+  "cash_sales",
+  "call_center_cash_collected",
+  "visa_sales",
+  "online_payments",
+  "column_break_summary",
+  "aggregator_sales",
+  "returns",
+  "refunds",
+  "discounts",
+  "net_sales",
+  "section_issues",
+  "closing_issues",
+  "section_override",
+  "override_reason"
+ ],
+ "fields": [
+  {
+   "default": "POS-BD-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "POS-BD-.YYYY.-.#####",
+   "print_hide": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "POS Profile",
+   "options": "POS Profile",
+   "reqd": 1
+  },
+  {
+   "fieldname": "business_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Business Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Open",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Open\nClosing Required\nClosing Overdue\nReady to Close\nClosed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "opened_by",
+   "fieldtype": "Link",
+   "label": "Opened By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closed_by",
+   "fieldtype": "Link",
+   "label": "Closed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closing_datetime",
+   "fieldtype": "Datetime",
+   "label": "Closing Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_window",
+   "fieldtype": "Section Break",
+   "label": "Operational Window"
+  },
+  {
+   "fieldname": "start_datetime",
+   "fieldtype": "Datetime",
+   "label": "Start Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sales_cutoff_datetime",
+   "fieldtype": "Datetime",
+   "label": "Sales Cut-off Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_window",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "mandatory_closing_deadline",
+   "fieldtype": "Datetime",
+   "label": "Mandatory Closing Deadline",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_cashier_shifts",
+   "fieldtype": "Section Break",
+   "label": "Cashier Shifts"
+  },
+  {
+   "fieldname": "cashier_shifts",
+   "fieldtype": "Table",
+   "label": "Cashier Shifts",
+   "options": "POS Business Day Cashier Shift"
+  },
+  {
+   "fieldname": "section_summary",
+   "fieldtype": "Section Break",
+   "label": "Business Day Summary"
+  },
+  {
+   "default": "0",
+   "fieldname": "total_sales",
+   "fieldtype": "Currency",
+   "label": "Total Sales",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "pos_sales",
+   "fieldtype": "Currency",
+   "label": "POS Sales",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "call_center_sales",
+   "fieldtype": "Currency",
+   "label": "Call Center Sales",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_sales",
+   "fieldtype": "Currency",
+   "label": "Cash Sales",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "call_center_cash_collected",
+   "fieldtype": "Currency",
+   "label": "Call Center Cash Collected",
+   "description": "Cash collected by cashiers to settle Call Center / delivery orders. Kept separate from Cash Sales because the sale is not the cashier's, but the money is.",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "visa_sales",
+   "fieldtype": "Currency",
+   "label": "Visa Sales",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "online_payments",
+   "fieldtype": "Currency",
+   "label": "Online Payments",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_summary",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "aggregator_sales",
+   "fieldtype": "Currency",
+   "label": "Talabat / Aggregator Sales",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "returns",
+   "fieldtype": "Currency",
+   "label": "Returns",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "refunds",
+   "fieldtype": "Currency",
+   "label": "Refunds",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "discounts",
+   "fieldtype": "Currency",
+   "label": "Discounts",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "net_sales",
+   "fieldtype": "Currency",
+   "label": "Net Sales",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_issues",
+   "fieldtype": "Section Break",
+   "label": "Closing Issues"
+  },
+  {
+   "fieldname": "closing_issues",
+   "fieldtype": "Table",
+   "label": "Closing Issues",
+   "options": "POS Closing Issue"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_override",
+   "fieldtype": "Section Break",
+   "label": "Override"
+  },
+  {
+   "fieldname": "override_reason",
+   "fieldtype": "Small Text",
+   "label": "Override Reason",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-19 14:50:42.498572",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Business Day",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

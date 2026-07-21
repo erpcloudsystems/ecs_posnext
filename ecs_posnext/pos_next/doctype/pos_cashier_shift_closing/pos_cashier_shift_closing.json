@@ -1,0 +1,467 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-07-19 11:20:29.371601",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "pos_cashier_shift",
+  "pos_opening_shift",
+  "pos_business_day",
+  "column_break_head",
+  "pos_profile",
+  "company",
+  "cashier",
+  "employee",
+  "supervisor_employee",
+  "status",
+  "section_period",
+  "shift_start",
+  "column_break_period",
+  "shift_end",
+  "section_count",
+  "cash_200_egp",
+  "cash_100_egp",
+  "cash_50_egp",
+  "cash_20_egp",
+  "column_break_count",
+  "cash_10_egp",
+  "cash_5_egp",
+  "cash_1_egp",
+  "actual_counted_cash",
+  "actual_credit",
+  "cash_counted",
+  "section_cash_movement",
+  "opening_cash",
+  "cash_sales",
+  "column_break_movement",
+  "call_center_cash_collected",
+  "cash_refunds",
+  "section_reveal",
+  "expected_cash",
+  "difference",
+  "expected_credit",
+  "credit_difference",
+  "column_break_reveal",
+  "shortage",
+  "overage",
+  "difference_requires_approval",
+  "difference_reason",
+  "approved_by",
+  "approval_datetime",
+  "section_reconciliation",
+  "payment_reconciliation",
+  "section_transactions",
+  "pos_transactions",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "default": "POS-CSC-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "POS-CSC-.YYYY.-.#####",
+   "print_hide": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "pos_cashier_shift",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "POS Cashier Shift",
+   "options": "POS Cashier Shift",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "pos_cashier_shift.pos_opening_shift",
+   "fieldname": "pos_opening_shift",
+   "fieldtype": "Link",
+   "label": "POS Opening Shift",
+   "options": "POS Opening Shift",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pos_business_day",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "POS Business Day",
+   "options": "POS Business Day"
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "pos_cashier_shift.pos_profile",
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "POS Profile",
+   "options": "POS Profile",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "pos_cashier_shift.company",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "pos_cashier_shift.cashier_user",
+   "fieldname": "cashier",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Cashier",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "pos_cashier_shift.employee",
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "label": "Employee",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "fieldname": "supervisor_employee",
+   "fieldtype": "Link",
+   "label": "Supervisor Employee",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "default": "Awaiting Count",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Awaiting Count\nCounted\nDifference Pending Approval\nClosed\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_period",
+   "fieldtype": "Section Break",
+   "label": "Period"
+  },
+  {
+   "fieldname": "shift_start",
+   "fieldtype": "Datetime",
+   "label": "Shift Start",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_period",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "shift_end",
+   "fieldtype": "Datetime",
+   "label": "Shift End"
+  },
+  {
+   "depends_on": "eval:doc.cash_counted",
+   "fieldname": "section_cash_movement",
+   "fieldtype": "Section Break",
+   "label": "Cash Movement (revealed after count)",
+   "permlevel": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "opening_cash",
+   "fieldtype": "Currency",
+   "label": "Opening Cash",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_sales",
+   "fieldtype": "Currency",
+   "label": "POS Cash Sales",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "call_center_cash_collected",
+   "fieldtype": "Currency",
+   "label": "Call Center Cash Collected",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_refunds",
+   "fieldtype": "Currency",
+   "label": "Cash Refunds",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_movement",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Count the physical drawer and enter the notes/coins, then the total credit/card actually received. Expected figures are revealed only after you save.",
+   "fieldname": "section_count",
+   "fieldtype": "Section Break",
+   "label": "Blind Cash Count (EGP)"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_200_egp",
+   "fieldtype": "Int",
+   "label": "200 EGP Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_100_egp",
+   "fieldtype": "Int",
+   "label": "100 EGP Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_50_egp",
+   "fieldtype": "Int",
+   "label": "50 EGP Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_20_egp",
+   "fieldtype": "Int",
+   "label": "20 EGP Notes"
+  },
+  {
+   "fieldname": "column_break_count",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_10_egp",
+   "fieldtype": "Int",
+   "label": "10 EGP Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_5_egp",
+   "fieldtype": "Int",
+   "label": "5 EGP Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_1_egp",
+   "fieldtype": "Int",
+   "label": "1 EGP Coins"
+  },
+  {
+   "default": "0",
+   "fieldname": "actual_counted_cash",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Actual Counted Cash",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "actual_credit",
+   "fieldtype": "Currency",
+   "label": "Actual Credit (Card / Bank)",
+   "description": "Total credit/card/wallet actually received this shift, from the card terminal / bank."
+  },
+  {
+   "default": "0",
+   "fieldname": "cash_counted",
+   "fieldtype": "Check",
+   "label": "Cash Counted",
+   "description": "Tick to confirm the drawer has been physically counted. Required to close — an empty drawer is a valid count of 0. Reveals the expected figures."
+  },
+  {
+   "depends_on": "eval:doc.cash_counted",
+   "fieldname": "section_reveal",
+   "fieldtype": "Section Break",
+   "label": "Reconciliation (revealed after count)",
+   "permlevel": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "expected_cash",
+   "fieldtype": "Currency",
+   "label": "Expected Cash",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "difference",
+   "fieldtype": "Currency",
+   "label": "Cash Difference",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "expected_credit",
+   "fieldtype": "Currency",
+   "label": "Expected Credit",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "credit_difference",
+   "fieldtype": "Currency",
+   "label": "Credit Difference",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_reveal",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "shortage",
+   "fieldtype": "Currency",
+   "label": "Shortage",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "overage",
+   "fieldtype": "Currency",
+   "label": "Overage",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "difference_requires_approval",
+   "fieldtype": "Check",
+   "label": "Difference Requires Approval",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.difference",
+   "fieldname": "difference_reason",
+   "fieldtype": "Small Text",
+   "label": "Difference Reason",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_datetime",
+   "fieldtype": "Datetime",
+   "label": "Approval Datetime",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_reconciliation",
+   "fieldtype": "Section Break",
+   "label": "Modes of Payment",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "payment_reconciliation",
+   "fieldtype": "Table",
+   "label": "Payment Reconciliation",
+   "options": "POS Closing Shift Detail",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "section_transactions",
+   "fieldtype": "Section Break",
+   "label": "Linked Invoices",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "pos_transactions",
+   "fieldtype": "Table",
+   "label": "POS Transactions",
+   "options": "Sales Invoice Reference",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "POS Cashier Shift Closing",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-07-19 11:29:38.275913",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Cashier Shift Closing",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Sales Manager",
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

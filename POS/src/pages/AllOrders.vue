@@ -1446,21 +1446,28 @@ function printKitchen(name) {
 }
 
 // ===== PAY OUTSTANDING =====
-function payOrder(order) {
+async function payOrder(order) {
 	selectedInvoiceToPay.value = order.name
 	selectedInvoiceToPayType.value = order.custom_order_type
 	paymentOutstanding.value = parseFloat(order.outstanding_amount || 0)
-	
+
 	// Pre-fill fields if they exist
 	receiptNumber.value = order.custom_receipt_number || ""
 	uniqueNumber.value = order.custom_unique_talbat_number || ""
 	referenceNumber.value = order.custom_third_party_referance_number || ""
-	
-	setupPaymentMethods()
+
+	// Make sure the cashier's POS Profile is resolved before building the
+	// payment method list, otherwise we fall back to a generic "Cash".
+	if (!(posProfile.value?.name || posProfile.value)) {
+		await loadPosProfile()
+	}
+
+	await setupPaymentMethods()
 	showPaymentDialog.value = true
 }
 
-function setupPaymentMethods() {
+async function setupPaymentMethods() {
+	// Fast path: payment methods already preloaded by the main POS bootstrap.
 	const bootstrapStore = useBootstrapStore()
 	const methods = bootstrapStore.getPreloadedPaymentMethods()
 	if (methods && methods.length > 0) {
@@ -1470,9 +1477,35 @@ function setupPaymentMethods() {
 			custom_required_receipt: m.custom_required_receipt,
 			amount: 0,
 		}))
-	} else {
-		paymentMethods.value = [{ mode_of_payment: "Cash", amount: 0 }]
+		return
 	}
+
+	// This page does not run the POS bootstrap, so fetch the real payment
+	// methods for the current cashier's POS Profile (money follows the
+	// cashier's shift). Never hardcode "Cash" — profiles use per-branch
+	// modes like "Cash Smouha".
+	const profileName = posProfile.value?.name || posProfile.value
+	if (profileName) {
+		try {
+			const fetched = await call("ecs_posnext.api.pos_profile.get_payment_methods", {
+				pos_profile: profileName,
+			})
+			if (fetched && fetched.length > 0) {
+				paymentMethods.value = fetched.map(m => ({
+					mode_of_payment: m.mode_of_payment,
+					type: m.type,
+					custom_required_receipt: m.custom_required_receipt,
+					amount: 0,
+				}))
+				return
+			}
+		} catch (error) {
+			console.error("Failed to load payment methods for", profileName, error)
+		}
+	}
+
+	// Last-resort fallback only if the profile could not be resolved.
+	paymentMethods.value = [{ mode_of_payment: "Cash", amount: 0 }]
 }
 
 function closePaymentDialog() {
@@ -1658,7 +1691,11 @@ async function confirmWastageItems() {
 
 async function proceedWithCancellation(isWastage, itemsToReturn = [], wastageItemsList = []) {
 	try {
-		await call("ecs_posnext.api.kitchen_order.cancel_sales_invoice_with_wastage", {
+		// Forward-only reversal: create a Return / Credit Note on the CURRENT open
+		// shift instead of cancelling the original sale, so the refund is owned by
+		// today's cashier and the original invoice stays on the books.
+		const shiftName = posOpeningShift.value?.name || shiftStore.currentShift?.name || null
+		const res = await call("ecs_posnext.api.kitchen_order.return_sales_invoice_with_wastage", {
 			sales_invoice: orderToDelete.value?.name,
 			is_wastage: isWastage,
 			items_to_return: JSON.stringify(itemsToReturn),
@@ -1666,17 +1703,21 @@ async function proceedWithCancellation(isWastage, itemsToReturn = [], wastageIte
 			stock_entry_type: wastageStockEntryType.value,
 			employee: selectedEmployee.value,
 			cancelled_by_manager: approvedManager.value,
+			pos_opening_shift: shiftName,
 		})
 
-		let msg = __("Order cancelled successfully.")
+		let msg = __("Return created successfully.")
+		if (res?.return_invoice) {
+			msg = __("Return") + " " + res.return_invoice + " — " + __("refunded") + " " + res.refunded_amount
+		}
 		if (isWastage && wastageItemsList.length > 0) {
 			msg += " " + __("Stock entry created for wastage items.")
 		}
 		window.frappe?.msgprint?.(msg)
 		fetchOrders()
 	} catch (error) {
-		console.error("Cancellation failed:", error)
-		window.frappe?.show_alert?.({ message: __("Error cancelling order."), indicator: "red" })
+		console.error("Return failed:", error)
+		window.frappe?.show_alert?.({ message: __("Error creating return."), indicator: "red" })
 	} finally {
 		wastageItems.value = []
 		orderToDelete.value = null

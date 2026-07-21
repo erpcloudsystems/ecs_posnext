@@ -91,6 +91,11 @@ def _get_target_minutes(settings, order_type):
 # ---------------------------------------------------------------------------
 
 def on_sales_invoice_submit(doc, method=None):
+    # A Return / Credit Note reverses a sale — there is nothing for the kitchen to
+    # prepare, so it must never raise a KDS ticket (an un-completable ticket would
+    # otherwise block the POS Business Day from closing).
+    if doc.get("is_return"):
+        return
     if frappe.db.exists("KDS Order", {"sales_invoice": doc.name}):
         return
     try:

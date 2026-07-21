@@ -115,7 +115,24 @@ fixtures = [
 					"Sales Invoice Item-custom_selected_components",
 					"Sales Invoice Item-is_bundle",
 					"Sales Invoice Item-removed_ingredients",
-					"Pricing Rule-custom_allowed_branches"
+					"Pricing Rule-custom_allowed_branches",
+					"POS Profile-custom_business_day_section",
+					"POS Profile-custom_enable_business_day_control",
+					"POS Profile-custom_business_day_start_time",
+					"POS Profile-custom_sales_cutoff_time",
+					"POS Profile-custom_mandatory_closing_deadline_time",
+					"POS Profile-custom_block_new_pos_opening_until_prev_closed",
+					"POS Profile-custom_block_sales_after_cutoff",
+					"POS Profile-custom_require_all_cashier_shifts_closed",
+					"POS Profile-custom_require_no_unpaid_invoices",
+					"POS Profile-custom_require_no_partly_paid_invoices",
+					"POS Profile-custom_require_no_draft_orders",
+					"POS Profile-custom_require_no_on_hold_orders",
+					"POS Profile-custom_require_no_open_kds_orders",
+					"POS Profile-custom_auto_close_business_day_when_ready",
+					"POS Profile-custom_supervisor_opens_cashier_shifts",
+					"Sales Invoice-custom_pos_business_day",
+					"Sales Invoice-custom_pos_cashier_shift"
 				]
 			]
 		]
@@ -135,7 +152,7 @@ fixtures = [
     {
         "dt": "Role",
         "filters": [
-            ["role_name", "in", ["POSNext Cashier", "Kitchen"]]
+            ["role_name", "in", ["POSNext Cashier", "Kitchen", "POSNext Supervisor", "POSNext Branch Manager", "POSNext Operations Manager"]]
         ]
     },
     {
@@ -233,7 +250,10 @@ doc_events = {
 			"ecs_posnext.api.sales_invoice_hooks.validate",
 			"ecs_posnext.api.wallet.validate_wallet_payment"
 		],
-		"before_cancel": "ecs_posnext.api.sales_invoice_hooks.before_cancel",
+		"before_cancel": [
+			"ecs_posnext.api.business_day.block_closed_period_invoice_cancel",
+			"ecs_posnext.api.sales_invoice_hooks.before_cancel"
+		],
 		"on_submit": [
 			"ecs_posnext.realtime_events.emit_stock_update_event",
 			"ecs_posnext.realtime_events.emit_order_changed_event",
@@ -254,6 +274,10 @@ doc_events = {
 	},
 	"POS Profile": {
 		"on_update": "ecs_posnext.realtime_events.emit_pos_profile_updated_event"
+	},
+	"POS Opening Shift": {
+		"on_submit": "ecs_posnext.api.cashier_shift.sync_cashier_shift_on_opening",
+		"on_cancel": "ecs_posnext.api.cashier_shift.void_cashier_shift_on_opening_cancel"
 	}
 }
 
@@ -261,6 +285,11 @@ doc_events = {
 # ---------------
 
 scheduler_events = {
+	"cron": {
+		"*/15 * * * *": [
+			"ecs_posnext.api.business_day_scheduler.process_business_days",
+		],
+	},
 	"hourly": [
 		"ecs_posnext.tasks.branding_monitor.monitor_branding_integrity",
 	],

@@ -77,16 +77,17 @@ def get_item_attributes():
 # =============================================================================
 
 @frappe.whitelist()
-def bulk_create_variants(template_code, variants, template_name="", template_name_arabic="", item_group="", prices="[]"):
+def bulk_create_variants(template_code, variants, template_name="", template_name_arabic="", item_group=""):
 	"""
 	Enqueue creation of variant Items in a background job.
 	Returns immediately with {queued: true}.
 	Sends realtime event 'variants_save_done' to the requesting user when complete.
+
+	Each entry in `variants` may carry a `prices` list of {price_list, price} —
+	that variant's own rates. There is no template-level price list.
 	"""
 	if isinstance(variants, str):
 		variants = json.loads(variants)
-	if isinstance(prices, str):
-		prices = json.loads(prices)
 
 	user = frappe.session.user
 	frappe.enqueue(
@@ -99,16 +100,14 @@ def bulk_create_variants(template_code, variants, template_name="", template_nam
 		template_name=template_name,
 		template_name_arabic=template_name_arabic,
 		item_group=item_group,
-		prices=prices,
 	)
 	return {"queued": True}
 
 
-def _do_create_variants_job(user, template_code, variants, template_name="", template_name_arabic="", item_group="", prices=None):
+def _do_create_variants_job(user, template_code, variants, template_name="", template_name_arabic="", item_group=""):
 	"""
 	Background worker: create variant Items + upsert prices, then notify frontend.
 	"""
-	prices = prices or []
 	try:
 		# --- 1. Create new variant Items ---
 		requested_codes = [v["item_code"] for v in variants if v.get("item_code")]
@@ -199,17 +198,24 @@ def _do_create_variants_job(user, template_code, variants, template_name="", tem
 		frappe.db.commit()
 
 		# --- 2. Upsert Item Prices for newly created variants ---
-		if prices and created:
+		# Each variant carries its OWN per-price-list rates (set in the editor's
+		# per-variant prices dialog). A variant is only priced on the lists it
+		# was actually given — no list is filled in by default.
+		if created:
 			code_map = {c["original"]: c["created"] for c in created}
+			created_originals = {c["original"] for c in created}
 			price_entries = []
 			for v in variants:
-				final_code = code_map.get(v["item_code"], v["item_code"])
-				variant_price = flt(v.get("price", 0))
-				for p in prices:
+				if v["item_code"] not in created_originals:
+					continue
+				final_code = code_map[v["item_code"]]
+				for p in (v.get("prices") or []):
+					if not p.get("price_list"):
+						continue
 					price_entries.append({
 						"item_code": final_code,
 						"price_list": p["price_list"],
-						"price": flt(p.get("price") or variant_price),
+						"price": flt(p.get("price") or 0),
 					})
 
 			if price_entries:
@@ -446,16 +452,16 @@ def get_editor_variants(template_item):
 
 	result_variants = []
 	for v in variants:
-		v_attrs = attr_map.get(v.item_code, {})
-		v_prices = price_map.get(v.item_code, [])
-		# display price: first price list entry or standard_rate
-		display_price = v_prices[0]["price"] if v_prices else (v.standard_rate or 0)
 		result_variants.append({
 			"item_code": v.item_code,
 			"item_name": v.item_name,
-			"standard_rate": display_price,
-			"attributes": v_attrs,
-			"prices": v_prices,
+			"standard_rate": v.standard_rate or 0,
+			# Every price list this variant is priced on. This is the only source
+			# of truth for variant pricing — there is no single "display price",
+			# because collapsing the lists to one number is what silently
+			# overwrote per-list rates on save.
+			"prices": price_map.get(v.item_code, []),
+			"attributes": attr_map.get(v.item_code, {}),
 			"enabled_item_bundle": v.enabled_item_bundle,
 			"disabled": v.disabled,
 		})

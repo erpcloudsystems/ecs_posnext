@@ -431,6 +431,7 @@ const filterBranch = ref("")
 const currentPage = ref(1)
 const perPage = ref(50)
 const posProfile = ref(null)
+const posOpeningShift = ref(null)
 
 // Dialog states
 const showItemDialog = ref(false)
@@ -483,6 +484,7 @@ const checkOpeningShift = async () => {
 		})
 		if (r) {
 			posProfile.value = r.pos_profile
+			posOpeningShift.value = r.pos_opening_shift
 		}
 	} catch (error) {
 		console.error("Failed to check opening shift:", error)
@@ -770,15 +772,22 @@ const confirmDelete = async () => {
 	}
 
 	try {
-		await call("ecs_posnext.api.kitchen_order.cancel_sales_order_and_invoices", {
+		// Forward-only reversal: Return / Credit Note on the current open shift.
+		const res = await call("ecs_posnext.api.kitchen_order.return_sales_order_and_invoices", {
 			sales_order: orderToDelete.value,
 			cancelled_by_manager: manager,
+			pos_opening_shift: posOpeningShift.value?.name || null,
 		})
-		window.frappe?.show_alert?.({ message: __("Order cancelled successfully"), indicator: "green" })
+		const label = res?.returns?.length ? res.returns.join(", ") : ""
+		window.frappe?.show_alert?.({
+			message: __("Return created") + (label ? ": " + label : ""),
+			indicator: "green",
+		})
 		showPasswordDialog.value = false
 		fetchOrders()
 	} catch (error) {
-		console.error("Failed to cancel order:", error)
+		console.error("Failed to create return:", error)
+		window.frappe?.show_alert?.({ message: __("Error creating return."), indicator: "red" })
 	}
 }
 

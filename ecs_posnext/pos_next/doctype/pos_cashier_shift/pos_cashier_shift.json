@@ -1,0 +1,164 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "creation": "2026-07-16 10:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "pos_business_day",
+  "pos_opening_shift",
+  "column_break_head",
+  "pos_profile",
+  "company",
+  "status",
+  "section_cashier",
+  "cashier_user",
+  "employee",
+  "column_break_cashier",
+  "opening_datetime",
+  "opening_cash",
+  "cashier_shift_closing"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "POS-CSH-.YYYY.-.#####",
+   "default": "POS-CSH-.YYYY.-.#####",
+   "reqd": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "pos_business_day",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "POS Business Day",
+   "options": "POS Business Day",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pos_opening_shift",
+   "fieldtype": "Link",
+   "label": "POS Opening Shift",
+   "options": "POS Opening Shift",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "POS Profile",
+   "options": "POS Profile",
+   "read_only": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "default": "Open",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Open\nClosed\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_cashier",
+   "fieldtype": "Section Break",
+   "label": "Cashier"
+  },
+  {
+   "fieldname": "cashier_user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Cashier",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "label": "Employee",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_cashier",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "opening_datetime",
+   "fieldtype": "Datetime",
+   "label": "Opening Datetime",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "opening_cash",
+   "fieldtype": "Currency",
+   "label": "Opening Cash",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cashier_shift_closing",
+   "fieldtype": "Link",
+   "label": "Cashier Shift Closing",
+   "options": "POS Cashier Shift Closing",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-16 10:00:00",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Cashier Shift",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

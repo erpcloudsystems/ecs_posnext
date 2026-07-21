@@ -176,7 +176,14 @@
 						<label class="flex items-center gap-2 cursor-pointer"><input v-model="product.custom_is_pos_item" type="checkbox" class="toggle-cb"/><span class="text-xs text-gray-700">{{ __('إظهار في الـ POS') }}</span></label>
 						<label class="flex items-center gap-2 cursor-pointer"><input v-model="product.custom_fast_sell" type="checkbox" class="toggle-cb"/><span class="text-xs text-gray-700">{{ __('بيع سريع') }}</span></label>
 					</div>
-					<div class="mb-4">
+					<!-- Simple/combo items are priced here. A variant template is NOT:
+					     every variant carries its own per-price-list rates, set from
+					     the prices dialog on each variant row. -->
+					<div v-if="isVariantTemplate" class="mb-4">
+						<label class="form-lbl">{{ __('الأسعار') }}</label>
+						<p class="text-xs text-gray-400 py-2 leading-relaxed">{{ __('الأسعار تُحدد لكل متغير على حدة من زر الأسعار بجانب المتغير') }}</p>
+					</div>
+					<div v-else class="mb-4">
 						<div class="flex items-center justify-between mb-2"><label class="form-lbl mb-0">{{ __('الأسعار') }}</label><button @click="addPriceRow" class="p-1 rounded text-blue-600 hover:bg-blue-50"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg></button></div>
 						<div v-if="itemPrices.length===0" class="text-xs text-gray-400 py-2">{{ __('اضغط + لإضافة سعر') }}</div>
 						<div v-for="(pi,idx) in itemPrices" :key="idx" class="flex items-center gap-2 mb-2">
@@ -262,12 +269,12 @@
 											</div>
 											<!-- New variant: code input -->
 											<input v-if="!row.variant.isExisting" v-model="row.variant.item_code" class="form-input !py-1 text-xs w-24 flex-shrink-0" dir="ltr" :placeholder="__('الكود')"/>
-											<!-- Price -->
-											<div class="flex items-center gap-1 flex-shrink-0">
-												<input v-model.number="row.variant.price" type="number" min="0"
-													class="w-20 text-center text-xs font-semibold border border-gray-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-400 outline-none bg-gray-50"
-													dir="ltr" placeholder="0" @input="row.variant.prices=[]"/>
-												<span class="text-[10px] text-gray-400">EGP</span>
+											<!-- Prices (read-only): one rate per price list, edited
+											     only via the prices dialog so a single number can
+											     never be stamped across every list. -->
+											<div class="flex items-center gap-1 flex-shrink-0 max-w-[190px] overflow-hidden" dir="ltr">
+												<span v-if="!variantPriceSummary(row.variant)" class="text-[10px] text-amber-600 italic whitespace-nowrap">{{ __('لا يوجد سعر') }}</span>
+												<span v-else class="text-[10px] text-gray-600 font-medium truncate" :title="variantPriceSummary(row.variant)">{{ variantPriceSummary(row.variant) }}</span>
 											</div>
 											<!-- Actions -->
 											<div class="flex items-center gap-0.5 flex-shrink-0">
@@ -574,7 +581,7 @@
 							<div v-if="hasVariants&&product.variants.length" class="mt-3 pt-3 border-t border-gray-100">
 								<div class="text-[10px] font-semibold text-gray-500 uppercase mb-2">{{ __('المتغيرات') }}</div>
 								<div class="flex flex-wrap gap-1">
-									<span v-for="v in product.variants" :key="v.name" class="px-2 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-[10px] text-gray-700">{{ v.name }}: {{ v.price }} EGP</span>
+									<span v-for="v in product.variants" :key="v.name" class="px-2 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-[10px] text-gray-700">{{ v.name }}<template v-if="variantPriceSummary(v)">: {{ variantPriceSummary(v) }}</template></span>
 								</div>
 							</div>
 						</div>
@@ -797,7 +804,6 @@ const saving = ref(false)
 const savingInBackground = ref(false)
 const isEditing = ref(false)
 const hasVariants = ref(false)
-const activePriceList = ref("")
 const itemId = computed(() => route.params.itemId || null)
 const isDeskMode = new URLSearchParams(window.location.search).get("desk") === "1"
 
@@ -904,6 +910,16 @@ const productTypeLabel = computed(() => {
 })
 
 const canSave = computed(() => !!((product.item_name || product.custom_item_name_arabic) && product.item_group))
+
+const isVariantTemplate = computed(() => product.product_type === "standard" && hasVariants.value)
+
+// "Mumo 35 · Talabat 40" — empty string when the variant has no price at all.
+function variantPriceSummary(variant) {
+	return (variant.prices || [])
+		.filter((p) => p.price_list)
+		.map((p) => `${p.price_list} ${p.price ?? 0}`)
+		.join(" · ")
+}
 
 const availableAttributeNames = computed(() => availableAttributes.value.map((a) => a.name))
 
@@ -1145,7 +1161,6 @@ function generateAllVariants() {
 	let combos = [[]]
 	for (const arr of arrays) { const n = []; combos.forEach((c) => { arr.forEach((v) => { n.push([...c, v]) }) }); combos = n }
 	const baseCode = _variantBaseCode()
-	const basePrice = (itemPrices.value.length > 0 && itemPrices.value[0].price) ? itemPrices.value[0].price : (product.standard_rate || 0)
 	// Preserve already-saved variants (keyed by attribute combination) so that
 	// re-generating while EDITING only ADDS the missing combos and never wipes
 	// existing variants (with their prices / disabled state).
@@ -1171,7 +1186,9 @@ function generateAllVariants() {
 		return {
 			name: suffix,
 			attributes: product.attributes.map((a, i) => ({ attribute: a.attribute, value: combo[i] })),
-			price: basePrice,
+			price: 0,
+			// Priced explicitly per list from the variant's prices dialog.
+			prices: [],
 			item_code: code,
 			isExisting: false,
 			show_bundle: false,
@@ -1192,7 +1209,7 @@ function addVariantManually() {
 	// No attributes → simple "Type"-based blank row.
 	const base = _variantBaseCode()
 	const num = String(product.variants.length + 1).padStart(2, "0")
-	product.variants.push({ name: "", price: 0, item_code: `${base}-V${num}`, isExisting: false, show_bundle: false, attributes: [] })
+	product.variants.push({ name: "", price: 0, prices: [], item_code: `${base}-V${num}`, isExisting: false, show_bundle: false, attributes: [] })
 }
 
 function confirmNewVariant() {
@@ -1213,11 +1230,12 @@ function confirmNewVariant() {
 	const codeSuffix = combo.map((c) => String(c.value).replace(/\s+/g, "").substring(0, 4).toUpperCase()).join("-")
 	let code = `${baseCode}-${codeSuffix}`
 	if (usedCodes.has(code)) { let i = 2; while (usedCodes.has(`${code}-${i}`)) i++; code = `${code}-${i}` }
-	const basePrice = (itemPrices.value.length > 0 && itemPrices.value[0].price) ? itemPrices.value[0].price : (product.standard_rate || 0)
 	product.variants.push({
 		name: combo.map((c) => c.value).join(" - "),
 		attributes: combo,
-		price: basePrice,
+		price: 0,
+		// Priced explicitly per list from the variant's prices dialog.
+		prices: [],
 		item_code: code,
 		isExisting: false,
 		show_bundle: false,
@@ -1526,12 +1544,11 @@ async function loadProduct(id) {
 
 	if (item.enabled_item_bundle && item.combo_components) await loadComboSections(item.combo_components)
 	if (item.has_variants) {
-		// Optimized: loadVariants now handles both variants and their attributes
+		// loadVariants handles variants, their attributes, and their per-list prices.
+		// A template has no prices of its own — reading them off the first variant
+		// only ever misrepresented every other variant.
+		itemPrices.value = []
 		await loadVariants()
-		// Load item prices from first variant (templates can't have Item Prices)
-		if (product.variants.length > 0 && product.variants[0].item_code) {
-			await loadItemPrices(product.variants[0].item_code)
-		}
 	} else {
 		await loadItemPrices(item.item_code)
 	}
@@ -1646,9 +1663,10 @@ async function loadVariants() {
 			item_code: v.item_code,
 			name: cleanName || v.item_name,
 			price: v.standard_rate || 0,
-			// Don't pre-load per-list prices: keep the editable variant price
-			// authoritative on save. The per-variant $ dialog fetches them on open.
-			prices: [],
+			// Every price list this variant is priced on, loaded up-front. Blanking
+			// this was what made save fall back to stamping one number onto every
+			// price list, wiping per-list rates (and zeroing unpriced variants).
+			prices: (v.prices || []).map((p) => ({ ...p })),
 			isExisting: true,
 			attributes: v.attributes || {},
 			show_bundle: v.enabled_item_bundle === 1,
@@ -1665,39 +1683,6 @@ async function checkItemCodeExists(code) {
 		const res = await frappeCall({ method: "frappe.client.get_value", args: { doctype: "Item", filters: { item_code: code }, fieldname: "name" } })
 		return !!(res.message && res.message.name)
 	} catch { return false }
-}
-
-async function saveVariantItemPrices(variant) {
-	const variantCode = variant.item_code
-	const variantPrice = variant.price
-
-	let priceEntries = []
-	// Use variant-specific prices if set via the per-variant dialog
-	if (variant.prices && variant.prices.length > 0) {
-		priceEntries = variant.prices.filter(p => p.price_list)
-	} else {
-		// Build from template-level price list rows:
-		// • p.name is set  → row was loaded from DB (first variant's Item Price) → each variant keeps its OWN price
-		// • p.name is null → row was ADDED by the user at template level → use the price they typed, apply to all variants
-		priceEntries = itemPrices.value.filter((p) => p.price_list).map(p => ({
-			price_list: p.price_list,
-			price: p.name ? variantPrice : (p.price > 0 ? p.price : (variantPrice || 0))
-		}))
-
-		if (priceEntries.length === 0 && priceLists.value.length > 0) {
-			priceEntries = [{ price_list: priceLists.value[0].name, price: variantPrice }]
-		}
-	}
-
-	for (const p of priceEntries) {
-		const rate = p.price ?? variantPrice
-		const existing = await frappeCall({ method: "frappe.client.get_list", args: { doctype: "Item Price", filters: { item_code: variantCode, price_list: p.price_list, selling: 1 }, fields: ["name"], limit_page_length: 1 } })
-		if (existing.message && existing.message.length > 0) {
-			await frappeCall({ method: "frappe.client.set_value", args: { doctype: "Item Price", name: existing.message[0].name, fieldname: { price_list_rate: rate } } })
-		} else {
-			await frappeCall({ method: "frappe.client.insert", args: { doc: { doctype: "Item Price", item_code: variantCode, price_list: p.price_list, price_list_rate: rate, selling: 1 } } })
-		}
-	}
 }
 
 async function saveItemPrices(code) {
@@ -1846,6 +1831,11 @@ async function saveStandardWithVariants() {
 				item_code: v.item_code,
 				name: v.name,
 				price: v.price,
+				// This variant's own rates, set in its prices dialog before save.
+				prices: (v.prices || []).filter((p) => p.price_list).map((p) => ({
+					price_list: p.price_list,
+					price: Number(p.price) || 0,
+				})),
 				attributes: v.attributes.map((a) => ({ attribute: a.attribute, value: a.value })),
 			})
 		}
@@ -1853,10 +1843,6 @@ async function saveStandardWithVariants() {
 
 	// Enqueue new variant creation as a background job (returns immediately)
 	if (newVariants.length > 0) {
-		const templatePrices = itemPrices.value.filter(p => p.price_list).map(p => ({
-			price_list: p.price_list,
-			price: p.name ? null : (p.price > 0 ? p.price : null),  // null = use variant's own price
-		}))
 		await frappeCall({
 			method: "ecs_posnext.api.item_manager.bulk_create_variants",
 			args: {
@@ -1865,7 +1851,6 @@ async function saveStandardWithVariants() {
 				template_name: product.item_name,
 				template_name_arabic: product.custom_item_name_arabic || "",
 				item_group: product.item_group,
-				prices: templatePrices,
 			},
 		})
 		savingInBackground.value = true
@@ -1881,26 +1866,16 @@ async function saveStandardWithVariants() {
 }
 
 async function bulkSaveVariantPrices() {
+	// Write back ONLY the rates a variant actually has, on the lists it actually
+	// has them for. A list a variant isn't priced on is left alone rather than
+	// being filled with a fallback number — there is no template-level price list
+	// and no default list to fall back to.
 	const entries = []
-	// Target price lists = every list shown in the Prices section (fallback: default).
-	let targetLists = itemPrices.value.filter((p) => p.price_list).map((p) => p.price_list)
-	if (targetLists.length === 0 && priceLists.value.length > 0) targetLists = [priceLists.value[0].name]
-	targetLists = [...new Set(targetLists)]
-
 	for (const v of product.variants) {
 		if (!v.item_code) continue
-		const variantPrice = Number(v.price) || 0
-		// Explicit per-variant per-list prices (set via the $ dialog) take priority.
-		const explicit = (v.prices || []).filter((p) => p.price_list)
-		if (explicit.length > 0) {
-			for (const p of explicit) {
-				entries.push({ item_code: v.item_code, price_list: p.price_list, price: Number(p.price ?? variantPrice) || 0 })
-			}
-		} else {
-			// Each variant's own price → every target price list.
-			for (const pl of targetLists) {
-				entries.push({ item_code: v.item_code, price_list: pl, price: variantPrice })
-			}
+		for (const p of (v.prices || [])) {
+			if (!p.price_list) continue
+			entries.push({ item_code: v.item_code, price_list: p.price_list, price: Number(p.price) || 0 })
 		}
 	}
 	if (entries.length === 0) return
@@ -1913,42 +1888,22 @@ async function bulkSaveVariantPrices() {
 // =========================================================================
 // Variant Prices Dialog
 // =========================================================================
-async function openVariantPricesDialog(variant) {
+function openVariantPricesDialog(variant) {
 	currentVariantForPrices.value = variant
-	currentVariantPrices.value = []
+	// variant.prices is already authoritative — loaded with the variant list.
+	currentVariantPrices.value = (variant.prices || []).map((p) => ({ ...p }))
 
-	if (variant.isExisting && variant.prices && variant.prices.length > 0) {
-		currentVariantPrices.value = variant.prices.map(p => ({ ...p }))
-	} else if (variant.isExisting) {
-		const res = await frappeCall({
-			method: "frappe.client.get_list",
-			args: {
-				doctype: "Item Price",
-				fields: ["name", "price_list", "price_list_rate"],
-				filters: { item_code: variant.item_code, selling: 1 },
-				limit_page_length: 0
-			}
-		})
-		currentVariantPrices.value = (res.message || []).map(p => ({
-			name: p.name,
-			price_list: p.price_list,
-			price: p.price_list_rate
-		}))
-		variant.prices = [...currentVariantPrices.value]
-	} else {
-		currentVariantPrices.value = (variant.prices || []).map(p => ({ ...p }))
-	}
-	
 	if (currentVariantPrices.value.length === 0 && priceLists.value.length > 0) {
 		addVariantPriceRow()
 	}
-	
+
 	showVariantPricesDialog.value = true
 }
 
 function addVariantPriceRow() {
-	const defaultPrice = currentVariantForPrices.value?.price || 0
-	currentVariantPrices.value.push({ price_list: priceLists.value[0]?.name || "", price: defaultPrice })
+	// No default price list and no inherited price: the user picks both, so a
+	// rate can never land on a list they didn't choose.
+	currentVariantPrices.value.push({ price_list: "", price: 0 })
 }
 
 function removeVariantPriceRow(idx) {
@@ -1956,45 +1911,53 @@ function removeVariantPriceRow(idx) {
 }
 
 async function saveVariantPrices() {
-	if (!currentVariantForPrices.value) return
-	
-	if (currentVariantForPrices.value.isExisting) {
-		saving.value = true
-		try {
-			// Delete existing
-			const existing = await frappeCall({
-				method: "frappe.client.get_list",
-				args: { doctype: "Item Price", filters: { item_code: currentVariantForPrices.value.item_code, selling: 1 }, fields: ["name"] }
-			})
-			for (const p of (existing.message || [])) {
-				await frappeCall({ method: "frappe.client.delete", args: { doctype: "Item Price", name: p.name } })
-			}
-			// Insert new
-			for (const p of currentVariantPrices.value) {
-				if (!p.price_list) continue
-				await frappeCall({
-					method: "frappe.client.insert",
-					args: {
-						doc: {
-							doctype: "Item Price",
-							item_code: currentVariantForPrices.value.item_code,
-							price_list: p.price_list,
-							price_list_rate: p.price,
-							selling: 1
-						}
-					}
-				})
-			}
-			showMessage(__("تم حفظ أسعار المتغير بنجاح"))
-		} catch (e) {
-			console.error(e)
-			showMessage(e.message || __("خطأ في حفظ الأسعار"), "error")
-		}
-		saving.value = false
-	} else {
-		currentVariantForPrices.value.prices = currentVariantPrices.value.map(p => ({ ...p }))
+	const variant = currentVariantForPrices.value
+	if (!variant) return
+
+	const rows = currentVariantPrices.value.filter((p) => p.price_list)
+	const lists = rows.map((p) => p.price_list)
+	if (new Set(lists).size !== lists.length) {
+		showMessage(__("لا يمكن تكرار نفس قائمة الأسعار"), "error")
+		return
 	}
-	showVariantPricesDialog.value = false
+
+	// Not saved yet: hold the rates on the variant; they're created with it.
+	if (!variant.isExisting) {
+		variant.prices = rows.map((p) => ({ ...p }))
+		showVariantPricesDialog.value = false
+		return
+	}
+
+	saving.value = true
+	try {
+		// Delete only the rows the user actually removed — never clear everything
+		// first, which would lose the rates if a later write failed.
+		const removed = (variant.prices || []).filter(
+			(old) => old.name && !rows.some((p) => p.name === old.name),
+		)
+		for (const p of removed) {
+			await frappeCall({ method: "frappe.client.delete", args: { doctype: "Item Price", name: p.name } })
+		}
+		if (rows.length > 0) {
+			await frappeCall({
+				method: "ecs_posnext.api.item_manager.bulk_upsert_item_prices",
+				args: {
+					entries: rows.map((p) => ({
+						item_code: variant.item_code,
+						price_list: p.price_list,
+						price: Number(p.price) || 0,
+					})),
+				},
+			})
+		}
+		variant.prices = rows.map((p) => ({ ...p }))
+		showMessage(__("تم حفظ أسعار المتغير بنجاح"))
+		showVariantPricesDialog.value = false
+	} catch (e) {
+		console.error(e)
+		showMessage(e.message || __("خطأ في حفظ الأسعار"), "error")
+	}
+	saving.value = false
 }
 
 // =========================================================================

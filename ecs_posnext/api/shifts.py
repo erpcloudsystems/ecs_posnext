@@ -9,6 +9,39 @@ from frappe import _
 from frappe.utils import nowdate, nowtime, get_datetime
 from ecs_posnext.api.utilities import get_wallet_payment_modes
 
+SUPERVISOR_ROLES = {
+	"POSNext Supervisor",
+	"POSNext Branch Manager",
+	"POSNext Operations Manager",
+	"Sales Manager",
+	"System Manager",
+	"Administrator",
+}
+
+
+def _is_supervisor(user=None):
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & SUPERVISOR_ROLES)
+
+
+def _enforce_supervisor_open(pos_profile, user):
+	"""Block CREATING a shift from scratch when the profile requires supervisor opening.
+
+	A cashier can still START (submit) a shift a supervisor prepared for them — that
+	path is checked by the caller before this runs.
+	"""
+	if not pos_profile:
+		return
+	if not frappe.db.get_value("POS Profile", pos_profile, "custom_supervisor_opens_cashier_shifts"):
+		return
+	if not _is_supervisor(user):
+		frappe.throw(
+			_(
+				"You cannot open a shift yourself. Ask your supervisor to prepare your shift, "
+				"then you can start it."
+			),
+			title=_("Supervisor Required"),
+		)
+
 
 @frappe.whitelist()
 def get_opening_dialog_data(pos_profile=None):
@@ -143,6 +176,14 @@ def create_opening_shift(pos_profile, company, balance_details):
 
 	# Check if user already has an open or prepared shift
 	existing_shift_data = check_opening_shift(frappe.session.user)
+
+	# "Supervisor opens cashier shifts": a cashier MAY submit (start) a shift that a
+	# supervisor prepared for them, but MAY NOT create one from scratch. Only the
+	# create path is gated. The server-side flag lets internal flows (COD auto-shift)
+	# through — clients cannot set frappe.flags.
+	is_prepared_by_supervisor = bool(existing_shift_data and existing_shift_data.get("is_prepared"))
+	if not frappe.flags.get("pos_internal_shift") and not is_prepared_by_supervisor:
+		_enforce_supervisor_open(pos_profile, frappe.session.user)
 	
 	if existing_shift_data and not existing_shift_data.get("is_prepared"):
 		frappe.throw(_("You already have an open shift: {0}").format(existing_shift_data["pos_opening_shift"].name))
@@ -236,8 +277,68 @@ def submit_closing_shift(closing_shift):
 		frappe.throw(_("Error submitting closing shift: {0}").format(str(e)))
 
 @frappe.whitelist()
+def supervisor_open_shift_for_cashier(cashier, pos_profile, balance_details, company=None):
+	"""A supervisor fully opens (submits) a shift on behalf of a cashier.
+
+	The cashier then just logs in and sells — they never open a shift themselves.
+	Triggers the business-day hook, so the POS Business Day + Cashier Shift are created.
+	"""
+	if not _is_supervisor(frappe.session.user):
+		frappe.throw(_("Only a supervisor can open a shift for a cashier."))
+
+	balance_details = json.loads(balance_details) if isinstance(balance_details, str) else balance_details
+
+	existing = check_opening_shift(cashier)
+	if existing:
+		shift = existing["pos_opening_shift"]
+		name = shift.name if hasattr(shift, "name") else shift.get("name")
+		frappe.throw(_("Cashier {0} already has an active shift: {1}").format(cashier, name))
+
+	company = company or frappe.db.get_value("POS Profile", pos_profile, "company")
+	formatted = [
+		{"mode_of_payment": d.get("mode_of_payment"), "amount": d.get("opening_amount", d.get("amount", 0))}
+		for d in balance_details
+	]
+
+	doc = frappe.get_doc(
+		{
+			"doctype": "POS Opening Shift",
+			"period_start_date": get_datetime(),
+			"posting_date": nowdate(),
+			"posting_time": nowtime(),
+			"user": cashier,
+			"pos_profile": pos_profile,
+			"company": company,
+			"status": "Open",
+			"balance_details": formatted,
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	doc.submit()  # fires sync_cashier_shift_on_opening -> creates Business Day + Cashier Shift
+
+	from ecs_posnext.api.business_day import log_pos_event
+
+	log_pos_event(
+		action="Opening Shift",
+		reference_doctype="POS Opening Shift",
+		reference_name=doc.name,
+		pos_profile=pos_profile,
+		new_value="Opened for {0} by supervisor {1}".format(cashier, frappe.session.user),
+	)
+	return {"pos_opening_shift": doc.as_dict()}
+
+
+@frappe.whitelist()
 def prepare_opening_shift(user, pos_profile, cash_amount):
 	"""Prepare a new POS Opening Shift by Supervisor"""
+	# Only a supervisor may prepare a shift. Without this, a cashier could prepare
+	# their own shift and then start it, defeating "supervisor opens cashier shifts".
+	if not _is_supervisor(frappe.session.user):
+		frappe.throw(
+			_("Only a supervisor can prepare a cashier's shift."),
+			title=_("Supervisor Required"),
+		)
+
 	# Check if user already has an open or prepared shift
 	existing_shift = check_opening_shift(user)
 	if existing_shift:
@@ -292,10 +393,14 @@ def auto_process_payment_with_temp_shift(invoice, pos_profile_name, payment_meth
 
 	pos_profile = frappe.get_doc("POS Profile", pos_profile_name)
 
-	# 1. Create Opening Shift
+	# 1. Create Opening Shift (internal flow — bypass the supervisor-open gate)
 	default_pay_method = pos_profile.payments[0].mode_of_payment if pos_profile.payments else "Cash"
 	balance_details = frappe.as_json([{"mode_of_payment": default_pay_method, "opening_amount": 0}])
-	shift_data = create_opening_shift(pos_profile.name, pos_profile.company, balance_details)
+	frappe.flags.pos_internal_shift = True
+	try:
+		shift_data = create_opening_shift(pos_profile.name, pos_profile.company, balance_details)
+	finally:
+		frappe.flags.pos_internal_shift = False
 	opening_shift_name = shift_data["pos_opening_shift"]["name"]
 
 	# 2. Process Payment

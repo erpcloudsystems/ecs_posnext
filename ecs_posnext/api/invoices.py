@@ -905,10 +905,10 @@ def _prepare_invoice_doc(data):
 
                 # Link to the branch's open shift
                 # Override if in Call Center mode or if branch is explicitly changed from profile default
-                if pos_profile == "Call Center" or selected_branch != profile_branch:
-                    branch_shift = _get_branch_open_shift(selected_branch)
-                    if branch_shift:
-                        invoice_doc.posa_pos_opening_shift = branch_shift
+                # if pos_profile == "Call Center" or selected_branch != profile_branch:
+                #     branch_shift = _get_branch_open_shift(selected_branch)
+                #     if branch_shift:
+                #         invoice_doc.posa_pos_opening_shift = branch_shift
 
     # Validate return items if this is a return invoice
     return_against = invoice_doc.get("return_against")
@@ -1511,6 +1511,11 @@ def submit_invoice(invoice=None, data=None):
 
         # Cost Center follows the POS Profile linked to the invoice's POS Opening Shift
         _apply_cost_center_from_opening_shift(invoice_doc)
+
+        # Invoice follows the Business Day; stamp it + the owning cashier shift, and
+        # enforce the sales cut-off (no-op unless business-day control is enabled).
+        from ecs_posnext.api.business_day import apply_business_day_to_invoice
+        apply_business_day_to_invoice(invoice_doc)
 
         # For return invoices, set update_outstanding_for_self = 0
         if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
