@@ -1,5 +1,6 @@
 import frappe
 from frappe import _
+from frappe.utils import get_datetime, getdate
 
 
 @frappe.whitelist()
@@ -155,6 +156,13 @@ def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_sh
 
 	if branch:
 		filters.append(["branch", "=", branch])
+
+	if pos_opening_shift:
+		shift_open_date = frappe.db.get_value("POS Opening Shift", pos_opening_shift, "period_start_date")
+		if shift_open_date:
+			shift_open_date = get_datetime(shift_open_date).date()
+			if not from_date or getdate(from_date) < shift_open_date:
+				from_date = shift_open_date
 
 	if from_date:
 		if to_date:

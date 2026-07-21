@@ -37,6 +37,7 @@
 								v-model="fromDate"
 								type="date"
 								:min="minDate"
+								:max="toDate || undefined"
 								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
 							/>
 						</div>
@@ -47,7 +48,7 @@
 							<input
 								v-model="toDate"
 								type="date"
-								:min="minDate"
+								:min="fromDate || minDate"
 								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
 							/>
 						</div>
@@ -145,7 +146,7 @@
 
 <script setup>
 import { call } from "frappe-ui"
-import { computed, ref, watch } from "vue"
+import { ref, watch } from "vue"
 import { useToast } from "@/composables/useToast"
 import { logger } from "@/utils/logger"
 
@@ -162,7 +163,7 @@ const props = defineProps({
 		type: String,
 		default: null,
 	},
-	posOpeningShiftDate: {
+	posOpeningDate: {
 		type: String,
 		default: null,
 	},
@@ -175,14 +176,8 @@ const loading = ref(false)
 const lastLoaded = ref("")
 
 const today = new Date().toISOString().split("T")[0]
-
-// Invoices tracked here can never predate the shift the cashier opened with,
-// so the filter is bounded by (and defaults to) the shift's opening date.
-const minDate = computed(() =>
-	props.posOpeningShiftDate ? props.posOpeningShiftDate.split(" ")[0] : null,
-)
-
-const fromDate = ref(minDate.value || today)
+const minDate = props.posOpeningDate ? props.posOpeningDate.split(" ")[0] : null
+const fromDate = ref(minDate || today)
 const toDate = ref(today)
 
 const counts = ref({ cash: 0, visa: 0, total: 0 })
@@ -192,8 +187,6 @@ watch(
 	(val) => {
 		show.value = val
 		if (val) {
-			fromDate.value = minDate.value || today
-			toDate.value = today
 			loadCounts()
 		}
 	},
@@ -214,6 +207,7 @@ async function loadCounts() {
 			branch: props.branch || null,
 			from_date: fromDate.value || null,
 			to_date: toDate.value || null,
+			pos_opening_shift: props.posOpeningShift || null,
 		})
 		counts.value = result || { cash: 0, visa: 0, total: 0 }
 		const now = new Date()
