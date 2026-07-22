@@ -203,6 +203,11 @@ export function roundCurrency(value) {
 	return round(value, settings.currency)
 }
 
+/** Round to nearest whole number (matches POS invoice grand total rounding) */
+export function round0(value) {
+	return round(value, 0)
+}
+
 /** Round using system float precision */
 export function roundFloat(value) {
 	return round(value, settings.float)

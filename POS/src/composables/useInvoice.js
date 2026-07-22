@@ -6,7 +6,7 @@ import { usePOSSettingsStore } from "@/stores/posSettings"
 import { useItemSearchStore } from "@/stores/itemSearch"
 import { CoalescingMutex } from "@/utils/mutex"
 import { logger } from "@/utils/logger"
-import { roundCurrency } from "@/utils/currency"
+import { roundCurrency, round0 } from "@/utils/currency"
 
 const log = logger.create("Invoice")
 
@@ -235,14 +235,17 @@ export function useInvoice() {
 		const discount =
 			_cachedTotalDiscount.value + (additionalDiscount.value || 0)
 
+		// POS invoices are always rounded to the nearest whole number on save
+		// (see disable_rounded_total in ecs_posnext/api/invoices.py) - round0 here
+		// so the cart total shown to the cashier matches what gets submitted.
 		if (allowAdditionalDiscount.value) {
 			// When allowAdditionalDiscount is on: discount applies only to eligible subtotal,
 			// then add back custom_not_included items after discount
 			const eligibleBase = _cachedSubtotal.value - notIncludedTotal.value
 			if (taxInclusive.value) {
-				return roundCurrency(eligibleBase - discount + notIncludedTotal.value)
+				return round0(eligibleBase - discount + notIncludedTotal.value)
 			} else {
-				return roundCurrency(
+				return round0(
 					eligibleBase + _cachedTotalTax.value - discount + notIncludedTotal.value,
 				)
 			}
@@ -250,12 +253,10 @@ export function useInvoice() {
 
 		if (taxInclusive.value) {
 			// Tax inclusive: Subtotal already includes tax, so don't add it again
-			// Use roundCurrency to match ERPNext's currency precision (from System Settings)
-			return roundCurrency(_cachedSubtotal.value - discount)
+			return round0(_cachedSubtotal.value - discount)
 		} else {
 			// Tax exclusive: Add tax on top of subtotal
-			// Use roundCurrency to match ERPNext's currency precision (from System Settings)
-			return roundCurrency(
+			return round0(
 				_cachedSubtotal.value + _cachedTotalTax.value - discount,
 			)
 		}

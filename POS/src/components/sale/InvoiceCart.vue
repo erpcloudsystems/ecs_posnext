@@ -1245,7 +1245,7 @@ import { usePOSCartStore } from "@/stores/posCart";
 import { usePOSSettingsStore } from "@/stores/posSettings";
 import { usePOSOffersStore } from "@/stores/posOffers";
 import { useCustomerSearchStore } from "@/stores/customerSearch";
-import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "@/utils/currency";
+import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil, round0 } from "@/utils/currency";
 import { useFormatters } from "@/composables/useFormatters";
 import { useCartSort } from "@/composables/useCartSort";
 import { isOffline } from "@/utils/offline";
@@ -1588,12 +1588,16 @@ const displaySubtotal = computed(() => {
  * This ensures the math is intuitive for cashiers:
  * Grand Total = displaySubtotal + Tax - Discount
  *
+ * POS invoices are always rounded to the nearest whole number on save
+ * (see disable_rounded_total in ecs_posnext/api/invoices.py) - round0 here
+ * so the cart total shown to the cashier matches what gets submitted.
+ *
  * @returns {Number} Grand total amount to display
  */
 const displayGrandTotal = computed(() => {
 	// displaySubtotal + tax - discount + notIncludedTotal
 	// notIncludedTotal adds back custom_not_included items after discount calculation
-	return displaySubtotal.value + props.taxAmount - props.discountAmount + (props.notIncludedTotal || 0);
+	return round0(displaySubtotal.value + props.taxAmount - props.discountAmount + (props.notIncludedTotal || 0));
 });
 
 /**

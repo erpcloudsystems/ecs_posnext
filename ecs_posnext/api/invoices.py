@@ -22,13 +22,11 @@ FIELD_ITEM_CODE = "item_code"
 FIELD_DISCOUNT_PERCENTAGE = "discount_percentage"
 FIELD_ALLOW_USER_TO_EDIT_RATE = "allow_user_to_edit_rate"
 FIELD_MAX_DISCOUNT_ALLOWED = "max_discount_allowed"
-FIELD_DISABLE_ROUNDED_TOTAL = "disable_rounded_total"
 FIELD_ALLOW_NEGATIVE_STOCK = "allow_negative_stock"
 
 # Doctypes
 DOCTYPE_SALES_INVOICE = "Sales Invoice"
 DOCTYPE_POS_SETTINGS = "POS Settings"
-DOCTYPE_POS_PROFILE = "POS Profile"
 DOCTYPE_COMMENT = "Comment"
 
 
@@ -857,16 +855,6 @@ def update_invoice(data):
                 ],
                 as_dict=True
             )
-            # disable_rounded_total is on POS Profile, not POS Settings
-            pos_profile_rounded = frappe.db.get_value(
-                DOCTYPE_POS_PROFILE,
-                pos_profile,
-                FIELD_DISABLE_ROUNDED_TOTAL
-            )
-            if pos_settings_cache:
-                pos_settings_cache[FIELD_DISABLE_ROUNDED_TOTAL] = pos_profile_rounded
-            else:
-                pos_settings_cache = {FIELD_DISABLE_ROUNDED_TOTAL: pos_profile_rounded}
 
         # ========================================================================
         # DISCOUNT CALCULATION - CRITICAL LOGIC
@@ -939,21 +927,15 @@ def update_invoice(data):
         # ========================================================================
         # ROUNDING CONFIGURATION
         # ========================================================================
-        # Load rounding preference from POS Settings (use cached value)
-        # When disabled (0): ERPNext rounds to nearest whole number
-        # When enabled (1): Shows exact amount without rounding
+        # POS invoices always round the grand total to the nearest whole number,
+        # regardless of POS Profile configuration.
         # ========================================================================
-        disable_rounded = 1  # Default: disable rounding for POS (show exact amounts)
-
-        if pos_settings_cache and pos_settings_cache.get(FIELD_DISABLE_ROUNDED_TOTAL) is not None:
-            disable_rounded = cint(pos_settings_cache.get(FIELD_DISABLE_ROUNDED_TOTAL))
-
-        invoice_doc.disable_rounded_total = disable_rounded
+        invoice_doc.disable_rounded_total = 0
 
         # Populate missing fields (company, currency, accounts, etc.)
         invoice_doc.set_missing_values()
 
-        # Calculate totals and apply discounts (with rounding disabled)
+        # Calculate totals and apply discounts (rounded to nearest whole number)
         invoice_doc.calculate_taxes_and_totals()
         if invoice_doc.grand_total is None:
             invoice_doc.grand_total = 0.0
