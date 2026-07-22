@@ -1056,6 +1056,31 @@ def update_invoice(data):
         if invoice_doc.base_grand_total is None:
             invoice_doc.base_grand_total = 0.0
 
+        # A ~100% discount combined with an inclusive tax can leave a tiny
+        # negative grand_total (rounding in ERPNext's inclusive-tax
+        # reconciliation). Core re-runs calculate_taxes_and_totals() during
+        # submit and rejects any negative base_grand_total, so the correction
+        # has to live in discount_amount itself (persisted to the draft) or
+        # it gets recomputed away and fails again at submit time.
+        grand_total_rounding_tolerance = 0.05
+        for _ in range(3):
+            if flt(invoice_doc.grand_total) >= 0:
+                break
+            shortfall = abs(flt(invoice_doc.grand_total))
+            if shortfall > grand_total_rounding_tolerance:
+                break  # not a rounding artifact; let normal validation surface it
+            invoice_doc.discount_amount = flt(
+                max(0, flt(invoice_doc.discount_amount) - shortfall),
+                invoice_doc.precision("discount_amount"),
+            )
+            invoice_doc.additional_discount_percentage = 0
+            invoice_doc.calculate_taxes_and_totals()
+
+        if invoice_doc.grand_total is None:
+            invoice_doc.grand_total = 0.0
+        if invoice_doc.base_grand_total is None:
+            invoice_doc.base_grand_total = 0.0
+
         # Set accounts for payment methods before saving
         for payment in invoice_doc.payments:
             mode_of_payment = payment.get("mode_of_payment")
