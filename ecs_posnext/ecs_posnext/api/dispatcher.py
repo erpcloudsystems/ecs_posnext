@@ -132,7 +132,7 @@ def get_unassigned_orders():
 		"""
 		SELECT order_reference FROM `tabDelivery Assignment`
 		WHERE order_doctype = 'Sales Invoice'
-		  AND status NOT IN ('Returned', 'Failed')
+		  AND status NOT IN ('Failed')
 		  AND docstatus != 2
 		"""
 	)
