@@ -13,7 +13,7 @@ frappe.ui.form.on("POS Cashier Shift Closing", {
 
 		if (frm.doc.docstatus === 0 && frm.doc.difference_requires_approval && !frm.doc.approved_by) {
 			const roles = frappe.user_roles || [];
-			if (roles.some((r) => ["POSNext Branch Manager","Assistant branch manager","Branch supervisor", "Bransh Manager", "POSNext Operations Manager", "System Manager"].includes(r))) {
+			if (roles.some((r) => ["Deputy Call Center Manager","Call center supervisor","Call center manager","POSNext Branch Manager","Assistant branch manager","Branch supervisor", "Bransh Manager", "POSNext Operations Manager", "System Manager"].includes(r))) {
 				frm.add_custom_button(__("Approve Difference"), () => {
 					frappe.prompt(
 						[{ fieldname: "reason", fieldtype: "Small Text", label: __("Reason"), reqd: 1 }],
