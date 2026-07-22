@@ -68,6 +68,23 @@
 									</div>
 									<span class="text-sm font-medium text-gray-800">{{ __('Expenses') }}</span>
 								</label>
+
+								<!-- Deduction -->
+								<label class="flex items-center gap-3 cursor-pointer select-none group">
+									<div
+										@click="form.deduction = !form.deduction"
+										:class="[
+											'w-11 h-6 rounded-full transition-colors relative flex-shrink-0',
+											form.deduction ? 'bg-red-500' : 'bg-gray-300'
+										]"
+									>
+										<div :class="[
+											'absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform',
+											form.deduction ? 'translate-x-5' : 'translate-x-0'
+										]"></div>
+									</div>
+									<span class="text-sm font-medium text-gray-800">{{ __('Deduction') }}</span>
+								</label>
 							</div>
 						</div>
 
@@ -177,6 +194,73 @@
 											:placeholder="__('Select loan product...')"
 										/>
 										<p v-if="errors.loan_product" class="text-xs text-red-500 mt-1">{{ errors.loan_product }}</p>
+									</div>
+								</div>
+							</div>
+						</Transition>
+
+						<!-- Deduction Section (conditional) -->
+						<Transition name="slide-down">
+							<div v-if="form.deduction" class="border border-red-200 rounded-xl p-4 bg-red-50/40">
+								<p class="text-xs font-semibold text-red-600 uppercase tracking-wide mb-4">{{ __('Deduction Details') }}</p>
+								<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+									<!-- Employee -->
+									<div>
+										<label class="block text-sm font-semibold text-gray-700 mb-1.5">
+											{{ __('Employee') }}
+											<span class="text-red-500 ms-0.5">*</span>
+										</label>
+										<LinkInput
+											v-model="form.employee"
+											doctype="Employee"
+											query="ecs_posnext.api.daily_payment.employee_query"
+											:filters="branch ? { branch } : null"
+											:placeholder="__('Search by ID or name...')"
+											@select="onEmployeeSelect"
+										/>
+										<p v-if="errors.deductionEmployee" class="text-xs text-red-500 mt-1">{{ errors.deductionEmployee }}</p>
+									</div>
+
+									<!-- Employee Name (read-only) -->
+									<div>
+										<label class="block text-sm font-semibold text-gray-700 mb-1.5">{{ __('Employee Name') }}</label>
+										<input
+											v-model="form.employee_name"
+											type="text"
+											readonly
+											class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-600 cursor-not-allowed"
+											:placeholder="__('Auto-filled from employee')"
+										/>
+									</div>
+
+									<!-- Amount -->
+									<div>
+										<label class="block text-sm font-semibold text-gray-700 mb-1.5">
+											{{ __('Amount') }}
+											<span class="text-red-500 ms-0.5">*</span>
+										</label>
+										<input
+											v-model.number="form.amount"
+											type="number"
+											min="0"
+											step="0.01"
+											class="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+											:class="{ 'border-red-400': errors.deductionAmount }"
+											:placeholder="__('Enter amount')"
+										/>
+										<p v-if="errors.deductionAmount" class="text-xs text-red-500 mt-1">{{ errors.deductionAmount }}</p>
+									</div>
+
+									<!-- Salary Component -->
+									<div>
+										<label class="block text-sm font-semibold text-gray-700 mb-1.5">
+											{{ __('Salary Component') }}
+										</label>
+										<LinkInput
+											v-model="form.salary_component"
+											doctype="Salary Component"
+											:placeholder="__('Select salary component...')"
+										/>
 									</div>
 								</div>
 							</div>
@@ -336,11 +420,13 @@ const form = reactive({
 	mode_of_payment: "",
 	payment_to_employees: false,
 	expenses: false,
+	deduction: false,
 	employee: "",
 	employee_name: "",
 	company: "",
 	amount: null,
 	loan_product: "سلفة من الراتب",
+	salary_component: "خصم من الراتب",
 	general_expenses: [],
 })
 
@@ -371,11 +457,13 @@ function resetForm() {
 	form.mode_of_payment = ""
 	form.payment_to_employees = false
 	form.expenses = false
+	form.deduction = false
 	form.employee = ""
 	form.employee_name = ""
 	form.company = ""
 	form.amount = null
 	form.loan_product = "سلفة من الراتب"
+	form.salary_component = "خصم من الراتب"
 	form.general_expenses = []
 	Object.keys(errors).forEach((k) => delete errors[k])
 }
@@ -435,6 +523,16 @@ function validate() {
 			valid = false
 		}
 	}
+	if (form.deduction) {
+		if (!form.employee) {
+			errors.deductionEmployee = __("Employee is required")
+			valid = false
+		}
+		if (!form.amount || form.amount <= 0) {
+			errors.deductionAmount = __("Amount is required")
+			valid = false
+		}
+	}
 	return valid
 }
 
@@ -448,9 +546,11 @@ async function handleSave() {
 			mode_of_payment: form.mode_of_payment || null,
 			payment_to_employees: form.payment_to_employees ? 1 : 0,
 			expenses: form.expenses ? 1 : 0,
-			employee: form.payment_to_employees ? (form.employee || null) : null,
-			amount: form.payment_to_employees ? (form.amount || null) : null,
+			deduction: form.deduction ? 1 : 0,
+			employee: (form.payment_to_employees || form.deduction) ? (form.employee || null) : null,
+			amount: (form.payment_to_employees || form.deduction) ? (form.amount || null) : null,
 			loan_product: form.payment_to_employees ? (form.loan_product || null) : null,
+			salary_component: form.deduction ? (form.salary_component || null) : null,
 			general_expenses: form.expenses ? JSON.stringify(form.general_expenses) : null,
 			pos_opening_shift: props.posOpeningShift || null,
 		})

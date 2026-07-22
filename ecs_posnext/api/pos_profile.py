@@ -361,10 +361,53 @@ def get_sales_persons(pos_profile=None):
 			except:
 				sp.custom_nickname = ""
 
+		sales_persons_list = _hide_unmarked_craftsmen(sales_persons_list)
+
 		return sales_persons_list
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Get Sales Persons Error")
 		return []
+
+
+# Designation for which a Sales Person must be marked Present today to appear in POS
+CRAFTSMAN_DESIGNATION = "صنايعى"
+
+
+def _hide_unmarked_craftsmen(sales_persons_list):
+	"""Exclude Sales Persons whose Employee Designation is CRAFTSMAN_DESIGNATION
+	and who have not been marked Present in Attendance for today."""
+	employee_ids = [sp.employee for sp in sales_persons_list if sp.get("employee")]
+	if not employee_ids:
+		return sales_persons_list
+
+	designations = {
+		emp.name: emp.designation
+		for emp in frappe.get_list(
+			"Employee",
+			filters={"name": ["in", employee_ids]},
+			fields=["name", "designation"],
+		)
+	}
+
+	present_today = set(
+		frappe.get_list(
+			"Attendance",
+			filters={
+				"employee": ["in", employee_ids],
+				"attendance_date": frappe.utils.today(),
+				"status": "Present",
+				"docstatus": 1,
+			},
+			pluck="employee",
+		)
+	)
+
+	return [
+		sp
+		for sp in sales_persons_list
+		if designations.get(sp.get("employee")) != CRAFTSMAN_DESIGNATION
+		or sp.employee in present_today
+	]
 
 @frappe.whitelist()
 def get_create_pos_profile(*args, **kwargs):

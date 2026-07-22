@@ -106,6 +106,8 @@ def get_daily_payments(employee=None, from_date=None, to_date=None, branch=None,
 		"loan_product",
 		"expenses",
 		"payment_to_employees",
+		"deduction",
+		"salary_component",
 		"docstatus",
 	]
 
@@ -227,7 +229,8 @@ def get_daily_payment_detail(name):
 @frappe.whitelist()
 def create_daily_payment(date, branch, employee=None, amount=None, mode_of_payment=None,
 						  payment_to_employees=0, expenses=0, loan_product=None,
-						  general_expenses=None, pos_opening_shift=None):
+						  general_expenses=None, pos_opening_shift=None,
+						  deduction=0, salary_component=None):
 	"""Create a new Daily Payment record."""
 	import json
 
@@ -242,6 +245,13 @@ def create_daily_payment(date, branch, employee=None, amount=None, mode_of_payme
 		doc.employee = employee
 		doc.amount = amount
 		doc.loan_product = loan_product
+
+	if frappe.parse_json(deduction) if isinstance(deduction, str) else deduction:
+		doc.deduction = 1
+		doc.employee = employee
+		doc.amount = amount
+		if salary_component:
+			doc.salary_component = salary_component
 
 	if frappe.parse_json(expenses) if isinstance(expenses, str) else expenses:
 		doc.expenses = 1

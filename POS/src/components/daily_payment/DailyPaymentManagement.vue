@@ -251,6 +251,9 @@
 										<span v-if="record.expenses" class="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">
 											{{ __('Expenses') }}
 										</span>
+										<span v-if="record.deduction" class="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full font-medium">
+											{{ __('Deduction') }}
+										</span>
 									</div>
 								</div>
 

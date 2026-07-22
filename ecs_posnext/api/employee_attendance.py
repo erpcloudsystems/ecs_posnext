@@ -8,7 +8,7 @@ import datetime
 import frappe
 from frappe import _
 
-ALLOWED_STATUSES = ("Present", "Absent")
+ALLOWED_STATUSES = ("Present", "Absent", "Half Day")
 
 
 @frappe.whitelist()
@@ -26,17 +26,24 @@ def get_employees(date: str | datetime.date, company: str | None = None, branch:
 		filters=filters,
 		order_by="employee_name",
 	)
+	employee_names = [entry.employee for entry in employee_list]
 
-	attendance_filters = {"attendance_date": date, "docstatus": 1}
-	if company:
-		attendance_filters["company"] = company
+	attendance_list = []
+	if employee_names:
+		attendance_filters = {
+			"attendance_date": date,
+			"docstatus": 1,
+			"employee": ["in", employee_names],
+		}
+		if company:
+			attendance_filters["company"] = company
 
-	attendance_list = frappe.get_list(
-		"Attendance",
-		fields=["employee", "employee_name", "status"],
-		filters=attendance_filters,
-		order_by="employee_name",
-	)
+		attendance_list = frappe.get_list(
+			"Attendance",
+			fields=["employee", "employee_name", "status"],
+			filters=attendance_filters,
+			order_by="employee_name",
+		)
 
 	marked_employees = {entry.employee for entry in attendance_list}
 	unmarked = [entry for entry in employee_list if entry.employee not in marked_employees]

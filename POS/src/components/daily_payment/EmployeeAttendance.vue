@@ -71,7 +71,7 @@
 										<span class="text-sm text-gray-800">{{ entry.employee }} : {{ entry.employee_name }}</span>
 										<span
 											class="text-xs font-semibold px-2 py-0.5 rounded"
-											:class="entry.status === 'Present' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+											:class="statusBadgeClass(entry.status)"
 										>
 											{{ entry.status }}
 										</span>
@@ -118,6 +118,7 @@
 											<option value="">{{ __('Select Status') }}</option>
 											<option value="Present">{{ __('Present') }}</option>
 											<option value="Absent">{{ __('Absent') }}</option>
+											<option value="Half Day">{{ __('Half Day') }}</option>
 										</select>
 									</div>
 									<button
@@ -214,6 +215,12 @@ function resetState() {
 
 function handleClose() {
 	show.value = false
+}
+
+function statusBadgeClass(status) {
+	if (status === "Present") return "bg-green-100 text-green-700"
+	if (status === "Half Day") return "bg-amber-100 text-amber-700"
+	return "bg-red-100 text-red-700"
 }
 
 function toggleSelectAll() {
