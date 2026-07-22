@@ -480,7 +480,10 @@ def create_payment_entries_for_invoice(invoice_doc):
             created.append(pe.name)
             existing_pe_modes.add(mode_of_payment)
         except frappe.ValidationError as e:
-            if "already been fully paid" in str(e):
+            if (
+                "already been fully paid" in str(e)
+                or "cannot be greater than outstanding amount" in str(e)
+            ):
                 pe.references = []
                 pe.insert(ignore_permissions=True)
                 pe.submit()
