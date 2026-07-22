@@ -216,7 +216,8 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 
 	// Computed - Sales Persons
 	const enableSalesPersons = computed(() =>
-		settings.value.enable_sales_persons !== "Disabled"
+		settings.value.enable_sales_persons === "Single" ||
+		settings.value.enable_sales_persons === "Multiple"
 	)
 	const salesPersonsMode = computed(() =>
 		settings.value.enable_sales_persons || "Disabled"

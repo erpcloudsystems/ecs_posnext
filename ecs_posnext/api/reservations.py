@@ -18,7 +18,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import flt, nowdate
 
 from ecs_posnext.api.invoices import submit_invoice, update_invoice
 
@@ -219,7 +219,14 @@ def load_sales_order_into_cart(sales_order, pos_profile=None):
 
 
 @frappe.whitelist()
-def create_deposit_invoice(sales_order, pos_profile=None, amount=None, payments=None):
+def create_deposit_invoice(
+    sales_order,
+    pos_profile=None,
+    amount=None,
+    payments=None,
+    posting_date=None,
+    mode_of_payment=None,
+):
     """Create + submit a paid POS deposit (down-payment) Sales Invoice for a reservation.
 
     The deposit invoice is a single line of the dedicated "Party Deposit" item at the
@@ -230,8 +237,12 @@ def create_deposit_invoice(sales_order, pos_profile=None, amount=None, payments=
         sales_order: the reservation Sales Order.
         pos_profile: active POS Profile (for company, branch, default payment).
         amount: deposit amount; defaults to the SO's advance_amount.
-        payments: optional list of {mode_of_payment, amount}; defaults to the
-                  profile's default mode of payment for the full amount.
+        payments: optional list of {mode_of_payment, amount}; takes precedence
+                  over `mode_of_payment` when given.
+        posting_date: invoice posting date; defaults to today.
+        mode_of_payment: single mode of payment for the full amount; ignored
+                         if `payments` is given; defaults to the profile's
+                         default mode of payment.
     """
     so = frappe.get_doc("Sales Order", sales_order)
     amount = flt(amount) or flt(so.get("advance_amount"))
@@ -263,11 +274,17 @@ def create_deposit_invoice(sales_order, pos_profile=None, amount=None, payments=
         "is_pos": 1,
         "update_stock": 0,
         "extended_order_no": sales_order,
+        "posting_date": posting_date or nowdate(),
         "items": [
             {"item_code": item_code, "qty": 1, "rate": amount, "sales_order": sales_order}
         ],
         "payments": payments
-        or [{"mode_of_payment": _default_mode_of_payment(pos_profile_doc), "amount": amount}],
+        or [
+            {
+                "mode_of_payment": mode_of_payment or _default_mode_of_payment(pos_profile_doc),
+                "amount": amount,
+            }
+        ],
     }
 
     draft = update_invoice(invoice_data)

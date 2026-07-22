@@ -841,15 +841,20 @@ export function useInvoice() {
 	 */
 	function computeBackendRate(item) {
 		const qty = item.quantity || item.qty || 1
-		const priceListRate = item.price_list_rate || item.rate || 0
+		// If rate was manually edited, use the edited rate (may legitimately be 0);
+		// otherwise fall back to the catalog price-list rate.
+		const isManuallyEdited = item.is_rate_manually_edited === 1
+		const effectiveRate = isManuallyEdited
+			? item.rate
+			: (item.price_list_rate ?? item.rate ?? 0)
 		const discountAmount = item.discount_amount || 0
 
 		if (taxInclusive.value) {
 			// Gross rate: price minus per-unit discount
-			return roundCurrency(priceListRate - discountAmount / qty)
+			return roundCurrency(effectiveRate - discountAmount / qty)
 		}
 		// Net rate: total amount divided by quantity
-		return qty > 0 ? roundCurrency((item.amount || 0) / qty) : item.rate || 0
+		return qty > 0 ? roundCurrency((item.amount ?? 0) / qty) : (item.rate ?? 0)
 	}
 
 	/**

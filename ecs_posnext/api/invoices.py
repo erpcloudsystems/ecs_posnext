@@ -108,11 +108,11 @@ def validate_manual_rate_edit(item, pos_profile=None, pos_settings_cache=None):
     item_rate = flt(item.get(FIELD_RATE) or 0)
     original_rate = flt(item.get(FIELD_ORIGINAL_RATE) or item.get(FIELD_PRICE_LIST_RATE) or 0)
 
-    # Validate rate is positive
-    if item_rate <= 0:
+    # Validate rate is not negative (zero is allowed, e.g. free items)
+    if item_rate < 0:
         return {
             "valid": False,
-            "message": _("Rate for item {0} must be greater than zero").format(item_code)
+            "message": _("Rate for item {0} cannot be negative").format(item_code)
         }
 
     # POS Profile is required for manual rate edit validation
@@ -968,6 +968,20 @@ def update_invoice(data):
                 original_rate = flt(item.get(FIELD_ORIGINAL_RATE) or item.get(FIELD_PRICE_LIST_RATE) or 0)
                 if original_rate > 0:
                     item.price_list_rate = original_rate
+
+                # ERPNext's core calculate_item_values() treats rate == 0 as "not yet
+                # computed" (Python falsy) and recalculates it from
+                # price_list_rate * (1 - discount_percentage/100) whenever price_list_rate
+                # is set, silently clobbering a legitimate manual rate of 0 (e.g. a free
+                # item) back to the price-list rate. Set discount_percentage to match the
+                # manual rate so that recalculation reproduces the same value instead of
+                # overwriting it (100% discount for rate=0 hits ERPNext's own
+                # discount_percentage == 100 -> rate = 0.0 branch first).
+                if item.price_list_rate:
+                    item.discount_percentage = flt(
+                        (1 - (item_rate / item.price_list_rate)) * 100,
+                        item.precision("discount_percentage"),
+                    )
 
                 # Validate manual rate edit against business rules (uses cached settings)
                 validation = validate_manual_rate_edit(item, pos_profile, pos_settings_cache)

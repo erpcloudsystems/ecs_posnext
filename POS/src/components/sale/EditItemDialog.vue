@@ -687,9 +687,9 @@ function updateItem() {
 	// RATE EDIT VALIDATION
 	// ========================================================================
 	if ((settingsStore.allowUserToEditRate || itemAllowsRateEdit.value) && isRateManuallyEdited) {
-		// Validate rate is positive
-		if (localRate.value <= 0) {
-			showError(__('Rate must be greater than zero'))
+		// Validate rate is not negative (zero is allowed, e.g. free items)
+		if (localRate.value < 0) {
+			showError(__('Rate cannot be negative'))
 			return
 		}
 

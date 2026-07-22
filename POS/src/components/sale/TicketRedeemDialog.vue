@@ -29,10 +29,45 @@
 				{{ __('No tickets found for "{0}"', [lastQuery]) }}
 			</div>
 
+			<!-- Tabs -->
+			<div v-else-if="tickets.length" class="flex items-center gap-1 border-b border-gray-200 mb-3">
+				<button
+					type="button"
+					@click="activeTab = 'active'"
+					:class="[
+						'px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px',
+						activeTab === 'active'
+							? 'border-indigo-600 text-indigo-600'
+							: 'border-transparent text-gray-500 hover:text-gray-700',
+					]"
+				>
+					{{ __("Active") }} ({{ activeTickets.length }})
+				</button>
+				<button
+					type="button"
+					@click="activeTab = 'expired'"
+					:class="[
+						'px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px',
+						activeTab === 'expired'
+							? 'border-indigo-600 text-indigo-600'
+							: 'border-transparent text-gray-500 hover:text-gray-700',
+					]"
+				>
+					{{ __("Expired") }} ({{ expiredTickets.length }})
+				</button>
+			</div>
+
+			<div
+				v-if="searched && tickets.length && displayedTickets.length === 0"
+				class="py-10 text-center text-sm text-gray-500"
+			>
+				{{ activeTab === "active" ? __("No active tickets") : __("No expired tickets") }}
+			</div>
+
 			<!-- Ticket cards -->
 			<div class="space-y-3 max-h-[65vh] overflow-y-auto">
 				<div
-					v-for="t in tickets"
+					v-for="t in displayedTickets"
 					:key="t.name"
 					class="border border-gray-200 rounded-xl p-4 bg-gray-50"
 				>
@@ -103,6 +138,14 @@
 							>
 								{{ __("Redeem & Print") }}
 							</button>
+							<button
+								type="button"
+								class="h-9 px-4 text-xs font-semibold rounded-lg bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-50"
+								:disabled="t._busy"
+								@click="printTicket(t.name)"
+							>
+								{{ __("Print") }}
+							</button>
 						</div>
 					</div>
 
@@ -130,9 +173,17 @@
 								type="button"
 								class="h-9 px-4 text-xs font-semibold rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
 								:disabled="t._busy || !t._renewUses || t._renewUses < 1 || !t._renewAmount || t._renewAmount <= 0"
-								@click="confirmRenew(t)"
+								@click="confirmRenew(t, false)"
 							>
 								{{ t._busy ? __("Processing...") : __("Renew") }}
+							</button>
+							<button
+								type="button"
+								class="h-9 px-4 text-xs font-semibold rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
+								:disabled="t._busy || !t._renewUses || t._renewUses < 1 || !t._renewAmount || t._renewAmount <= 0"
+								@click="confirmRenew(t, true)"
+							>
+								{{ t._busy ? __("Processing...") : __("Renew & Print") }}
 							</button>
 						</div>
 					</div>
@@ -177,6 +228,8 @@ import { computed, nextTick, ref, watch } from "vue"
 import { call } from "@/utils/apiWrapper"
 import { useToast } from "@/composables/useToast"
 import { parseError } from "@/utils/errorHandler"
+import { usePOSSettingsStore } from "@/stores/posSettings"
+import { printInvoiceByName, printWithSilentFallback } from "@/utils/printInvoice"
 
 const props = defineProps({
 	modelValue: Boolean,
@@ -191,6 +244,7 @@ const props = defineProps({
 const emit = defineEmits(["update:modelValue"])
 
 const { showSuccess, showError } = useToast()
+const posSettingsStore = usePOSSettingsStore()
 
 const query = ref("")
 const lastQuery = ref("")
@@ -200,6 +254,8 @@ const searched = ref(false)
 const searchInput = ref(null)
 const showRenewConfirm = ref(false)
 const ticketToRenew = ref(null)
+const renewShouldPrint = ref(false)
+const activeTab = ref("active")
 
 const show = computed({
 	get: () => props.modelValue,
@@ -210,6 +266,17 @@ function isExpired(t) {
 	if (!t.valid_to) return false
 	return new Date(t.valid_to) < new Date(new Date().toDateString())
 }
+
+// A ticket is expired for tab purposes if its valid-to date has passed OR it has no uses left.
+function isTicketExpired(t) {
+	return isExpired(t) || Number(t.remaining_usage) <= 0
+}
+
+const activeTickets = computed(() => tickets.value.filter((t) => !isTicketExpired(t)))
+const expiredTickets = computed(() => tickets.value.filter((t) => isTicketExpired(t)))
+const displayedTickets = computed(() =>
+	activeTab.value === "active" ? activeTickets.value : expiredTickets.value,
+)
 
 function decorate(rows) {
 	return (rows || [])
@@ -240,6 +307,7 @@ async function runSearch() {
 	searching.value = true
 	searched.value = true
 	lastQuery.value = q
+	activeTab.value = "active"
 	try {
 		// Try by ticket/redeem code first; fall back to customer.
 		let rows = await call("ecs_posnext.api.tickets.search_tickets", {
@@ -299,20 +367,22 @@ async function doRedeem(t, print) {
 	}
 }
 
-function confirmRenew(t) {
+function confirmRenew(t, print = false) {
 	ticketToRenew.value = t
+	renewShouldPrint.value = print
 	showRenewConfirm.value = true
 }
 
 async function proceedRenew() {
 	showRenewConfirm.value = false
 	if (ticketToRenew.value) {
-		await doRenew(ticketToRenew.value)
+		await doRenew(ticketToRenew.value, renewShouldPrint.value)
 		ticketToRenew.value = null
+		renewShouldPrint.value = false
 	}
 }
 
-async function doRenew(t) {
+async function doRenew(t, print) {
 	if (t._busy) return
 	t._busy = true
 	try {
@@ -331,12 +401,28 @@ async function doRenew(t) {
 				data?.valid_to || "",
 			]),
 		)
+		if (print && data?.renewal_invoice) {
+			await printRenewalInvoice(data.renewal_invoice)
+		}
 		await refresh()
 	} catch (e) {
 		console.error("Renew failed", e)
 		showError(parseError(e).message || __("Renew failed"))
 	} finally {
 		t._busy = false
+	}
+}
+
+async function printRenewalInvoice(invoiceName) {
+	try {
+		if (posSettingsStore.silentPrint) {
+			await printWithSilentFallback({ name: invoiceName, doctype: "Sales Invoice" })
+		} else {
+			await printInvoiceByName(invoiceName)
+		}
+	} catch (e) {
+		console.error("Renewal invoice print failed", e)
+		showError(parseError(e).message || __("Print failed"))
 	}
 }
 
@@ -351,6 +437,7 @@ watch(
 			tickets.value = []
 			searched.value = false
 			lastQuery.value = ""
+			activeTab.value = "active"
 		}
 	},
 )

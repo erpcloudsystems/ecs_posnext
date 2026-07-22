@@ -68,7 +68,7 @@ class CustomSalesInvoice(SalesInvoice):
 				if skip_change_gl_entries and payment_mode.account == self.account_for_change_amount:
 					payment_mode.base_amount -= flt(self.change_amount)
 
-				if payment_mode.amount:
+				if payment_mode.base_amount:
 					# POS, make payment entries
 					# Credit entry to debit_to (customer receivable)
 					gl_entries.append(

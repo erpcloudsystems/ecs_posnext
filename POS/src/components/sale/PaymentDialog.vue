@@ -81,11 +81,11 @@
 									<div class="flex-1 min-w-0 text-start">
 										<div class="font-medium text-sm text-gray-900 truncate">{{ item.item_name || item.item_code }}</div>
 										<div class="text-xs text-gray-500 mt-0.5">
-											{{ formatCurrency(item.rate || item.price_list_rate) }} × {{ item.qty || item.quantity }}
+											{{ formatCurrency(item.rate ?? item.price_list_rate) }} × {{ item.qty || item.quantity }}
 										</div>
 									</div>
 									<div class="text-sm font-semibold text-gray-900 text-end">
-										{{ formatCurrency(item.amount || ((item.qty || item.quantity) * (item.rate || item.price_list_rate))) }}
+										{{ formatCurrency(item.amount ?? ((item.qty || item.quantity) * (item.rate ?? item.price_list_rate))) }}
 									</div>
 								</div>
 							</div>
@@ -2038,6 +2038,12 @@ const canComplete = computed(() => {
 	// Check exact amount validation
 	if (!isExactAmountValid.value) {
 		return false
+	}
+
+	// Nothing to pay at all (free/comped invoice) — always completable once the
+	// checks above pass, regardless of partial-payment/write-off mode.
+	if (payableTotal.value === 0) {
+		return true
 	}
 
 	// If partial payment is allowed, can complete with any amount > 0
