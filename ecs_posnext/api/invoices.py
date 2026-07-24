@@ -880,7 +880,7 @@ def update_invoice(data):
                             mode_of_payment, company
                         )
                         if account_info:
-                            payment.account = account_info.get("account")
+                            payment.update({"account": account_info.get("account")})
                     except Exception as e:
                         frappe.log_error(
                             f"Failed to get payment account for {mode_of_payment}: {e}",
@@ -1090,7 +1090,7 @@ def update_invoice(data):
                         mode_of_payment, invoice_doc.company
                     )
                     if account_info:
-                        payment.account = account_info.get("account")
+                        payment.update({"account": account_info.get("account")})
                 except Exception as e:
                     frappe.log_error(
                         f"Failed to get payment account for {mode_of_payment}: {e}",
@@ -1507,7 +1507,7 @@ def _submit_invoice(invoice=None, data=None):
                         payment.mode_of_payment, invoice_doc.company
                     )
                     if account_info:
-                        payment.account = account_info.get("account")
+                        payment.update({"account": account_info.get("account")})
 
         # Handle sales team (multiple sales persons)
         sales_team_data = invoice.get("sales_team") or data.get("sales_team")

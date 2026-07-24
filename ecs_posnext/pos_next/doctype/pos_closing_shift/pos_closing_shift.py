@@ -683,7 +683,7 @@ def _create_cash_transfer_payment_entry(closing_shift_doc):
         pos_settings = frappe.db.get_value(
             "POS Settings",
             {"pos_profile": pos_profile, "enabled": 1},
-            ["enable_auto_cash_transfer", "branch_cash_account", "branch_manager_cash_account"],
+            ["enable_auto_cash_transfer"],
             as_dict=True,
         )
 
@@ -692,12 +692,7 @@ def _create_cash_transfer_payment_entry(closing_shift_doc):
 
         company = closing_shift_doc.company
 
-        # Use manually configured accounts if set, otherwise auto-detect
-        branch_cash_account = pos_settings.branch_cash_account
-        manager_cash_account = pos_settings.branch_manager_cash_account
-
-        if not branch_cash_account or not manager_cash_account:
-            branch_cash_account, manager_cash_account = _auto_detect_cash_accounts(pos_profile, company)
+        branch_cash_account, manager_cash_account = _auto_detect_cash_accounts(pos_profile, company)
 
         if not branch_cash_account or not manager_cash_account:
             frappe.log_error(
