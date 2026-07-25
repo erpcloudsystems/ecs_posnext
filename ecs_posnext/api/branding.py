@@ -8,6 +8,7 @@ Provides secure branding configuration and validation endpoints
 
 import frappe
 from frappe import _
+from frappe.utils import cint
 import json
 import base64
 import hashlib
@@ -184,7 +185,7 @@ def log_tampering_attempt(doc, details):
 	"""Internal function to log tampering attempts"""
 	try:
 		# Increment tampering counter
-		current_attempts = frappe.db.get_value("BrainWise Branding", doc.name, "tampering_attempts") or 0
+		current_attempts = cint(frappe.db.get_value("BrainWise Branding", doc.name, "tampering_attempts"))
 		frappe.db.set_value("BrainWise Branding", doc.name, "tampering_attempts", current_attempts + 1)
 		frappe.db.commit()
 
@@ -194,7 +195,7 @@ def log_tampering_attempt(doc, details):
 			message=json.dumps(details, indent=2, default=str)
 		)
 	except Exception as e:
-		frappe.log_error(f"Error logging tampering: {str(e)}", "BrainWise Branding")
+		frappe.log_error("BrainWise Branding", f"Error logging tampering: {str(e)}")
 
 
 @frappe.whitelist(allow_guest=False)

@@ -1131,6 +1131,9 @@ def update_invoice(data):
                 # Store coupon code on invoice for tracking
                 invoice_doc.coupon_code = coupon_code
 
+        if not invoice_doc.get("items"):
+            frappe.throw(_("Cannot save invoice with no items"))
+
         # Save as draft
         invoice_doc.flags.ignore_permissions = True
         frappe.flags.ignore_account_permission = True

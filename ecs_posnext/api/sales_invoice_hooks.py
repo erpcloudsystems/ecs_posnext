@@ -276,7 +276,10 @@ def create_payment_entry_on_submit(doc, method=None):
 				pe.insert(ignore_permissions=True)
 				pe.submit()
 			except frappe.ValidationError as e:
-				if "already been fully paid" in str(e):
+				if (
+					"already been fully paid" in str(e)
+					or "Allocated Amount cannot be greater than outstanding amount" in str(e)
+				):
 					pe.references = []
 					pe.insert(ignore_permissions=True)
 					pe.submit()
