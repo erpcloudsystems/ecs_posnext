@@ -128,11 +128,16 @@ def get_unassigned_orders():
 	if shift:
 		branch = frappe.db.get_value("POS Profile", shift, "branch") or None
 
+	# An order is "still assigned" only while an assignment holds it: in progress
+	# (Assigned / Picked Up / Out for Delivery) or already Delivered. A 'Failed' or
+	# 'Returned' assignment releases the order back to the pool, so those must NOT count
+	# here — otherwise clicking "Return" on an assignment would never bring the order
+	# back to the unassigned board for re-dispatch.
 	assigned_refs = frappe.db.sql_list(
 		"""
 		SELECT order_reference FROM `tabDelivery Assignment`
 		WHERE order_doctype = 'Sales Invoice'
-		  AND status NOT IN ('Failed')
+		  AND status NOT IN ('Failed', 'Returned')
 		  AND docstatus != 2
 		"""
 	)
@@ -696,8 +701,18 @@ def get_failed_delivery_orders():
 	Return Failed delivery assignments with their invoice details for Need My Action.
 	Only returns assignments whose invoice is not yet cancelled.
 	"""
+	# Branch must be resolved the SAME way as the rest of the dispatcher desk — from the
+	# current user's open POS Opening Shift → POS Profile → branch. Using Employee.branch
+	# here (as before) silently hid Failed orders whenever the dispatcher's Employee branch
+	# differed from the branch they are actually operating (e.g. Employee=Smouha but the
+	# open shift's profile is Miami), and showed ALL branches when Employee.branch was empty.
 	user = frappe.session.user
-	branch = frappe.db.get_value("Employee", {"user_id": user}, "branch") or ""
+	open_shift = frappe.db.get_value(
+		"POS Opening Shift",
+		{"user": user, "status": "Open", "docstatus": 1},
+		"pos_profile",
+	)
+	branch = (frappe.db.get_value("POS Profile", open_shift, "branch") if open_shift else "") or ""
 
 	assignments = frappe.db.sql("""
 		SELECT
