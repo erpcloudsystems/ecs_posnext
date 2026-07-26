@@ -234,6 +234,7 @@ import { printInvoiceByName, printWithSilentFallback } from "@/utils/printInvoic
 const props = defineProps({
 	modelValue: Boolean,
 	posProfile: String,
+	posOpeningShift: String,
 	currency: String,
 	company: String,
 	branch: String,
@@ -392,6 +393,7 @@ async function doRenew(t, print) {
 			amount: t._renewAmount,
 			pos_profile: props.posProfile,
 			mode_of_payment: t._renewMop || undefined,
+			pos_opening_shift: props.posOpeningShift,
 		})
 		const data = res?.message || res
 		showSuccess(

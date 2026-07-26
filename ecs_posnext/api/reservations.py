@@ -226,6 +226,7 @@ def create_deposit_invoice(
     payments=None,
     posting_date=None,
     mode_of_payment=None,
+    pos_opening_shift=None,
 ):
     """Create + submit a paid POS deposit (down-payment) Sales Invoice for a reservation.
 
@@ -243,6 +244,8 @@ def create_deposit_invoice(
         mode_of_payment: single mode of payment for the full amount; ignored
                          if `payments` is given; defaults to the profile's
                          default mode of payment.
+        pos_opening_shift: the cashier's active POS Opening Shift, so the deposit
+                            shows up in that shift's cash reconciliation.
     """
     so = frappe.get_doc("Sales Order", sales_order)
     amount = flt(amount) or flt(so.get("advance_amount"))
@@ -275,6 +278,7 @@ def create_deposit_invoice(
         "update_stock": 0,
         "extended_order_no": sales_order,
         "posting_date": posting_date or nowdate(),
+        "posa_pos_opening_shift": pos_opening_shift,
         "items": [
             {"item_code": item_code, "qty": 1, "rate": amount, "sales_order": sales_order}
         ],

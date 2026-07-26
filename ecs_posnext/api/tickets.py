@@ -92,7 +92,13 @@ def redeem_ticket(
 
 @frappe.whitelist()
 def renew_ticket(
-    ticket_name, added_uses, amount, pos_profile, mode_of_payment=None, extend_days=None
+    ticket_name,
+    added_uses,
+    amount,
+    pos_profile,
+    mode_of_payment=None,
+    extend_days=None,
+    pos_opening_shift=None,
 ):
     """Recharge the SAME ticket: extend validity + add uses, billed as a paid invoice.
 
@@ -127,6 +133,7 @@ def renew_ticket(
         "is_pos": 1,
         "update_stock": 0,
         "custom_is_wordpress": 1,
+        "posa_pos_opening_shift": pos_opening_shift,
         "items": [{"item_code": item_code, "qty": 1, "rate": amount}],
         "payments": [
             {

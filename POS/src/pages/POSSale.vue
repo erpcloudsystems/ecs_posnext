@@ -645,6 +645,7 @@
 			<TicketRedeemDialog
 				v-model="showTicketRedeem"
 				:pos-profile="shiftStore.profileName"
+				:pos-opening-shift="cartStore.posOpeningShift"
 				:currency="shiftStore.profileCurrency"
 				:company="shiftStore.profileCompany"
 				:branch="shiftStore.profileBranch"

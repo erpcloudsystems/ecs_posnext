@@ -198,6 +198,7 @@
 						v-if="settingsStore.allowSelectSalesOrder"
 						class="mt-2"
 						:pos-profile="cartStore.posProfile"
+						:pos-opening-shift="cartStore.posOpeningShift"
 						:customer="customer"
 						:currency="currency"
 						@select-order="onSelectReservation"

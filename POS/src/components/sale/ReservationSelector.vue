@@ -118,6 +118,7 @@ import { useToast } from "@/composables/useToast"
 
 const props = defineProps({
 	posProfile: String,
+	posOpeningShift: String,
 	customer: Object,
 	currency: { type: String, default: DEFAULT_CURRENCY },
 })
@@ -179,6 +180,7 @@ async function confirmDeposit() {
 	try {
 		await call("ecs_posnext.api.reservations.create_deposit_invoice", {
 			pos_profile: props.posProfile,
+			pos_opening_shift: props.posOpeningShift,
 			sales_order: so.name,
 			amount,
 			payments: JSON.stringify([{ mode_of_payment: modeOfPayment, amount }]),
