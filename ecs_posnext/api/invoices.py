@@ -4,6 +4,7 @@
 
 from __future__ import unicode_literals
 import json
+import time
 import frappe
 from frappe import _
 from frappe.utils import flt, cint, nowdate, nowtime, get_datetime, cstr
@@ -272,8 +273,8 @@ def _pricing_rule_to_string(value):
     except (json.JSONDecodeError, TypeError, ValueError):
         # Malformed JSON that looks like array - clear it to prevent issues
         frappe.log_error(
-            f"Invalid pricing_rules JSON: {stripped[:100]}",
-            "Pricing Rules Normalization"
+            title="Pricing Rules Normalization",
+            message=f"Invalid pricing_rules JSON: {stripped[:100]}"
         )
         return ""
 
@@ -883,8 +884,8 @@ def update_invoice(data):
                             payment.update({"account": account_info.get("account")})
                     except Exception as e:
                         frappe.log_error(
-                            f"Failed to get payment account for {mode_of_payment}: {e}",
-                            "Payment Account Lookup"
+                            title="Payment Account Lookup",
+                            message=f"Failed to get payment account for {mode_of_payment}: {e}"
                         )
 
         # Validate return items if this is a return invoice
@@ -917,7 +918,10 @@ def update_invoice(data):
                 invoice_doc.customer = cust.name
                 invoice_doc.customer_name = cust.customer_name
             except Exception as e:
-                frappe.log_error(f"Failed to create customer {customer_name}: {e}")
+                frappe.log_error(
+                    title="POS Auto-create Customer Error",
+                    message=f"Failed to create customer {customer_name}: {e}"
+                )
 
         # Disable automatic pricing rules (we handle discounts manually from POS)
         invoice_doc.ignore_pricing_rule = 1
@@ -1093,8 +1097,8 @@ def update_invoice(data):
                         payment.update({"account": account_info.get("account")})
                 except Exception as e:
                     frappe.log_error(
-                        f"Failed to get payment account for {mode_of_payment}: {e}",
-                        "Payment Account Lookup"
+                        title="Payment Account Lookup",
+                        message=f"Failed to get payment account for {mode_of_payment}: {e}"
                     )
 
         # For return invoices, ensure payments are negative
@@ -1138,7 +1142,7 @@ def update_invoice(data):
         invoice_doc.flags.ignore_permissions = True
         frappe.flags.ignore_account_permission = True
         invoice_doc.docstatus = 0
-        invoice_doc.save()
+        _with_deadlock_retry(invoice_doc.save)
 
         # Re-apply payment amounts after save.
         # ERPNext's set_pos_fields (called inside save → set_missing_values) clears
@@ -1371,13 +1375,47 @@ def check_offline_invoice_synced(offline_id):
 
 @frappe.whitelist()
 def submit_invoice(invoice=None, data=None):
-    """Enqueue submission of the invoice (Step 2)."""
+    """Enqueue submission of the invoice (Step 2).
+
+    enqueue_after_commit=True is required here: the draft invoice referenced by
+    `invoice["name"]` is typically created earlier in this same request (e.g. by
+    update_invoice()) and is not yet visible to other DB connections until this
+    request's transaction commits. Without this flag, the background worker can
+    pick up the job and call frappe.db.exists()/get_doc() before that commit
+    happens, see the draft as not existing, and blow up with a
+    "Sales Invoice ... not found" DoesNotExistError.
+    """
     frappe.enqueue(
         _submit_invoice,
         queue="short",
         invoice=invoice,
         data=data,
+        enqueue_after_commit=True,
     )
+
+
+def _with_deadlock_retry(fn, max_attempts=3):
+    """Call fn() and retry on a MariaDB deadlock (error 1213).
+
+    frappe.QueryDeadlockError is a plain Exception subclass, not
+    frappe.db.InternalError, so it is NOT actually covered by frappe's own
+    background-job deadlock-retry logic in execute_job() (background_jobs.py)
+    even though that code's except clause and comments suggest it handles
+    deadlocks — the two exception classes don't share a base, so that except
+    clause never matches and the job fails on the very first deadlock. This
+    matters here because invoice_doc.save()/submit() writes child tables (e.g.
+    Packed Item for bundle items), which can deadlock under concurrent writes
+    to the same invoice; without a retry the invoice is left stuck as an
+    unsubmitted draft with no automatic recovery.
+    """
+    for attempt in range(max_attempts):
+        try:
+            return fn()
+        except frappe.QueryDeadlockError:
+            frappe.db.rollback()
+            if attempt == max_attempts - 1:
+                raise
+            time.sleep(0.5 * (attempt + 1))
 
 
 def _submit_invoice(invoice=None, data=None):
@@ -1498,8 +1536,8 @@ def _submit_invoice(invoice=None, data=None):
             except Exception as e:
                 # Branch is optional, log and continue
                 frappe.log_error(
-                    f"Failed to set branch from POS Profile {pos_profile}: {e}",
-                    "POS Profile Branch"
+                    title="POS Profile Branch",
+                    message=f"Failed to set branch from POS Profile {pos_profile}: {e}"
                 )
 
         # Set accounts for all payment methods before saving
@@ -1570,8 +1608,8 @@ def _submit_invoice(invoice=None, data=None):
                         invoice_doc.base_write_off_amount = write_off_amount  # Assuming same currency
                 except Exception as e:
                     frappe.log_error(
-                        f"Failed to apply write-off from POS Profile {pos_profile}: {e}",
-                        "POS Write-Off Error"
+                        title="POS Write-Off Error",
+                        message=f"Failed to apply write-off from POS Profile {pos_profile}: {e}"
                     )
 
         # Check if POS Settings allows negative stock
@@ -1600,7 +1638,7 @@ def _submit_invoice(invoice=None, data=None):
                     invoice_doc.posa_pending_stock = 1
                     invoice_doc.flags.ignore_permissions = True
                     frappe.flags.ignore_account_permission = True
-                    invoice_doc.save()
+                    _with_deadlock_retry(invoice_doc.save)
                     _reapply_payment_amounts(
                         invoice_doc, invoice.get("payments"), doctype
                     )
@@ -1618,7 +1656,7 @@ def _submit_invoice(invoice=None, data=None):
         # Save before submit
         invoice_doc.flags.ignore_permissions = True
         frappe.flags.ignore_account_permission = True
-        invoice_doc.save()
+        _with_deadlock_retry(invoice_doc.save)
 
         # Tabby (Paymob QuickLink): keep the invoice as a pending draft, create the
         # payment link, SMS it to the customer, and return the link — do NOT submit
@@ -1627,8 +1665,11 @@ def _submit_invoice(invoice=None, data=None):
         if is_tabby and doctype == "Sales Invoice":
             try:
                 invoice_doc.db_set("payment_status", "Pending", update_modified=False)
-            except Exception:
-                pass
+            except Exception as e:
+                frappe.log_error(
+                    title="Tabby Payment Status Update Error",
+                    message=f"Invoice: {invoice_doc.name}, Error: {str(e)}\n{frappe.get_traceback()}"
+                )
             from ecs_posnext.api.payments import create_tabby_link
 
             link_result = create_tabby_link(invoice_doc.name)
@@ -1649,7 +1690,7 @@ def _submit_invoice(invoice=None, data=None):
         _reapply_payment_amounts(invoice_doc, invoice.get("payments"), doctype)
 
         # Submit invoice
-        invoice_doc.submit()
+        _with_deadlock_retry(invoice_doc.submit)
         invoice_submitted = True
 
         # Explicitly create Payment Entries for POS invoices
@@ -1938,8 +1979,8 @@ def cleanup_old_drafts(pos_profile=None, max_age_hours=24):
             deleted_count += 1
         except Exception as e:
             frappe.log_error(
-                f"Failed to delete draft {draft['name']}: {str(e)}",
-                "Draft Cleanup Error",
+                title="Draft Cleanup Error",
+                message=f"Failed to delete draft {draft['name']}: {str(e)}",
             )
 
     return {
@@ -2881,8 +2922,8 @@ def apply_offers(invoice_data, selected_offers=None):
             except Exception as e:
                 # Customer lookup failed, will use defaults
                 frappe.log_error(
-                    f"Failed to fetch customer data for {customer}: {e}",
-                    "Customer Data Lookup"
+                    title="Customer Data Lookup",
+                    message=f"Failed to fetch customer data for {customer}: {e}"
                 )
 
         # If still no customer_group, use default
@@ -3180,7 +3221,10 @@ def process_return_by_cancel(invoice_name, returned_items, pos_opening_shift=Non
     try:
         original.cancel()
     except Exception as e:
-        frappe.log_error(f"Failed to cancel invoice {invoice_name}: {str(e)}")
+        frappe.log_error(
+            title="Process Return by Cancel Error",
+            message=f"Failed to cancel invoice {invoice_name}: {str(e)}\n{frappe.get_traceback()}"
+        )
         frappe.throw(_("Failed to cancel invoice {0}: {1}").format(invoice_name, str(e)))
 
     new_invoice_name = None

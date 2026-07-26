@@ -140,7 +140,7 @@ class BrainWiseBranding(Document):
 			return False
 
 		except Exception as e:
-			frappe.log_error(f"Master key validation error: {str(e)}", "BrainWise Branding")
+			frappe.log_error("BrainWise Branding", f"Master key validation error: {str(e)}")
 			return False
 
 	def generate_signature(self):
@@ -191,7 +191,7 @@ class BrainWiseBranding(Document):
 
 			return True
 		except Exception as e:
-			frappe.log_error(f"Branding validation error: {str(e)}", "BrainWise Branding")
+			frappe.log_error("BrainWise Branding", f"Branding validation error: {str(e)}")
 			return False
 
 	def log_tampering(self, details):
@@ -237,7 +237,7 @@ def get_branding_config():
 
 		return config
 	except Exception as e:
-		frappe.log_error(f"Error fetching branding config: {str(e)}", "BrainWise Branding")
+		frappe.log_error("BrainWise Branding", f"Error fetching branding config: {str(e)}")
 		# Return default config even on error
 		return {
 			"_t": base64.b64encode("Powered by".encode()).decode(),
@@ -290,7 +290,7 @@ def validate_branding(client_signature=None, brand_name=None, brand_url=None):
 			"timestamp": frappe.utils.now()
 		}
 	except Exception as e:
-		frappe.log_error(f"Error validating branding: {str(e)}", "BrainWise Branding")
+		frappe.log_error("BrainWise Branding", f"Error validating branding: {str(e)}")
 		return {"valid": False, "enabled": True, "error": str(e)}
 
 
@@ -322,7 +322,7 @@ def log_client_event(event_type=None, details=None):
 
 		return {"logged": True}
 	except Exception as e:
-		frappe.log_error(f"Error logging client event: {str(e)}", "BrainWise Branding")
+		frappe.log_error("BrainWise Branding", f"Error logging client event: {str(e)}")
 		return {"logged": False, "error": str(e)}
 
 
@@ -370,7 +370,7 @@ def verify_master_key(master_key_input):
 		}
 
 	except Exception as e:
-		frappe.log_error(f"Master key verification error: {str(e)}", "BrainWise Branding")
+		frappe.log_error("BrainWise Branding", f"Master key verification error: {str(e)}")
 		return {
 			"valid": False,
 			"error": str(e)

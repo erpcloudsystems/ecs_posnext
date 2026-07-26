@@ -308,8 +308,8 @@ def get_or_create_wallet(customer, company, pos_settings=None):
 
 	if not wallet_account:
 		frappe.log_error(
-			f"Cannot create wallet for {customer}: No wallet account configured",
-			"Wallet Creation Error"
+			title="Wallet Creation Error",
+			message=f"Cannot create wallet for {customer}: No wallet account configured"
 		)
 		return None
 
@@ -328,8 +328,8 @@ def get_or_create_wallet(customer, company, pos_settings=None):
 
 	except Exception as e:
 		frappe.log_error(
-			f"Failed to create wallet for {customer}: {str(e)}",
-			"Wallet Creation Error"
+			title="Wallet Creation Error",
+			message=f"Failed to create wallet for {customer}: {str(e)}"
 		)
 		return None
 

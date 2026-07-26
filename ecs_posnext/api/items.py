@@ -235,8 +235,8 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
 				exchange_rate = get_exchange_rate(price_list_currency, company_currency, today)
 			except Exception:
 				frappe.log_error(
-					f"Missing exchange rate from {price_list_currency} to {company_currency}",
 					"POS Next",
+					f"Missing exchange rate from {price_list_currency} to {company_currency}",
 				)
 
 		item["price_list_currency"] = price_list_currency
@@ -1371,8 +1371,8 @@ def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20,
 			has_bundles = frappe.db.exists("Product Bundle", {"new_item_code": ["in", item_codes]})
 			if has_bundles:
 				frappe.log_error(
-					"POS Profile missing warehouse - Product Bundles will show as unavailable",
-					"Bundle Availability Warning"
+					"Bundle Availability Warning",
+					"POS Profile missing warehouse - Product Bundles will show as unavailable"
 				)
 
 		# Variant attributes (only when variants are included)

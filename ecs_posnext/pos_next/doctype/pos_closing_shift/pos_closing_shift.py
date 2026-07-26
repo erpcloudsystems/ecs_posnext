@@ -696,10 +696,10 @@ def _create_cash_transfer_payment_entry(closing_shift_doc):
 
         if not branch_cash_account or not manager_cash_account:
             frappe.log_error(
+                "POS Cash Transfer",
                 f"Cash Transfer skipped for shift {closing_shift_doc.name}: "
                 f"Could not find cash accounts for POS Profile '{pos_profile}'. "
                 f"Detected: branch='{branch_cash_account}', manager='{manager_cash_account}'",
-                "POS Cash Transfer",
             )
             return
 

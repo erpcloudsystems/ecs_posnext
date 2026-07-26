@@ -54,7 +54,7 @@ def get_branding_config():
 
 		return config
 	except Exception as e:
-		frappe.log_error(f"Error fetching branding config: {str(e)}", "BrainWise Branding API")
+		frappe.log_error("BrainWise Branding API", f"Error fetching branding config: {str(e)}")
 		return get_default_config()
 
 
@@ -125,7 +125,7 @@ def validate_branding(client_signature=None, brand_name=None, brand_url=None):
 			"message": "Validation successful" if is_valid else "Branding mismatch detected"
 		}
 	except Exception as e:
-		frappe.log_error(f"Error validating branding: {str(e)}", "BrainWise Branding Validation")
+		frappe.log_error("BrainWise Branding Validation", f"Error validating branding: {str(e)}")
 		return {"valid": False, "error": str(e)}
 
 
@@ -177,7 +177,7 @@ def log_client_event(event_type=None, details=None):
 
 		return {"logged": False, "message": f"Unknown event type: {event_type}"}
 	except Exception as e:
-		frappe.log_error(f"Error logging client event: {str(e)}", "BrainWise Branding Event Log")
+		frappe.log_error("BrainWise Branding Event Log", f"Error logging client event: {str(e)}")
 		return {"logged": False, "error": str(e)}
 
 
@@ -218,5 +218,5 @@ def get_tampering_stats():
 			"logging_enabled": doc.log_tampering_attempts
 		}
 	except Exception as e:
-		frappe.log_error(f"Error getting tampering stats: {str(e)}", "BrainWise Branding Stats")
+		frappe.log_error("BrainWise Branding Stats", f"Error getting tampering stats: {str(e)}")
 		return {"error": str(e)}

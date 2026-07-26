@@ -420,7 +420,7 @@ def get_offers(pos_profile: str) -> List[Dict]:
 		return [offer.to_dict() for offer in offers]
 
 	except Exception as e:
-		frappe.log_error(f"Error fetching offers: {str(e)}", "Offers API")
+		frappe.log_error("Offers API", f"Error fetching offers: {str(e)}")
 		return []
 
 
