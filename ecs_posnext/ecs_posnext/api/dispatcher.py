@@ -140,6 +140,7 @@ def get_unassigned_orders():
 	filters = {
 		"docstatus": 1,
 		"custom_order_type": ["in", ["Delivery", "Talabat"]],
+		"is_return": 0,  # a returned order is not a delivery to dispatch
 	}
 	if branch:
 		filters["branch"] = branch
@@ -162,6 +163,21 @@ def get_unassigned_orders():
 		return []
 
 	invoice_names = [inv["name"] for inv in invoices]
+
+	# Also drop any order that HAS been returned (a submitted Return points at it) — a
+	# returned/rejected order must not be dispatched, even though it is is_return=0.
+	returned_originals = set(
+		frappe.get_all(
+			"Sales Invoice",
+			filters={"return_against": ["in", invoice_names], "is_return": 1, "docstatus": 1},
+			pluck="return_against",
+		)
+	)
+	if returned_originals:
+		invoices = [inv for inv in invoices if inv["name"] not in returned_originals]
+		if not invoices:
+			return []
+		invoice_names = [inv["name"] for inv in invoices]
 
 	# Fetch KDS status for each invoice
 	kds_rows = frappe.db.sql(
@@ -519,7 +535,7 @@ def get_active_assignments(shift=None):
 		branch_refs = set(
 			frappe.get_all(
 				"Sales Invoice",
-				filters={"name": ["in", ref_names], "branch": branch},
+				filters={"name": ["in", ref_names], "branch": branch, "is_return": 0},
 				pluck="name",
 			)
 		) if ref_names else set()

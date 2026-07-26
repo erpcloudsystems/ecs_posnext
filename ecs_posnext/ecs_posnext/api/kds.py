@@ -294,6 +294,30 @@ def get_settings(branch=None):
     return {"settings": settings, "stations": stations}
 
 
+def _drop_return_orders(orders):
+    """Remove orders whose linked Sales Invoice is a Return / Credit Note.
+
+    A return reverses a sale — the kitchen/assembly/dispatch should never see it. New
+    returns no longer create KDS tickets, but this also hides any that were created
+    before that fix (and any that slip through another path)."""
+    inv_names = [o.get("sales_invoice") for o in orders if o.get("sales_invoice")]
+    if not inv_names:
+        return orders
+    # Hide an order if its invoice IS a return, OR has been returned (a submitted
+    # Return points at it) — a returned/rejected order has nothing left to prepare.
+    hidden = set(
+        frappe.get_all("Sales Invoice", filters={"name": ["in", inv_names], "is_return": 1}, pluck="name")
+    )
+    hidden |= set(
+        frappe.get_all(
+            "Sales Invoice",
+            filters={"return_against": ["in", inv_names], "is_return": 1, "docstatus": 1},
+            pluck="return_against",
+        )
+    )
+    return [o for o in orders if o.get("sales_invoice") not in hidden]
+
+
 @frappe.whitelist()
 def get_active_orders(branch=None):
     filters = {"status": ["in", ["Pending", "Preparing", "Ready"]]}
@@ -310,6 +334,7 @@ def get_active_orders(branch=None):
         order_by="order_time asc",
         limit=200,
     )
+    orders = _drop_return_orders(orders)
 
     for order in orders:
         order["items"] = frappe.get_all(
@@ -384,6 +409,7 @@ def get_station_orders(station, branch=None):
         order_by="order_time asc",
         limit=200,
     )
+    orders = _drop_return_orders(orders)
 
     for order in orders:
         order["items"] = frappe.get_all(
