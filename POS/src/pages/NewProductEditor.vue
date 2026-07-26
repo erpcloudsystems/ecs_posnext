@@ -1393,9 +1393,15 @@ async function saveRecipe() {
 	try {
 		const validItems = recipe.ingredients.filter((ing) => ing.item_code)
 		if (validItems.length === 0) { showMessage(__("أضف مكوّن صحيح واحد على الأقل"), "error"); savingRecipe.value = false; return }
-		if (recipe.bundle_name) await frappeCall({ method: "frappe.client.delete", args: { doctype: "Product Bundle", name: recipe.bundle_name } })
-		const doc = { doctype: "Product Bundle", new_item_code: currentRecipeItem.value, items: validItems.map((ing) => ({ item_code: ing.item_code, qty: ing.qty, uom: ing.uom, description: ing.item_name, show_in_pos: ing.show_in_pos ? 1 : 0 })) }
-		const res = await frappeCall({ method: "frappe.client.insert", args: { doc } })
+		// Update the bundle IN PLACE (never delete) so editing ingredients works even
+		// when the item has already been sold (a linked bundle cannot be deleted).
+		const res = await frappeCall({
+			method: "ecs_posnext.api.item_manager.upsert_product_bundle",
+			args: {
+				new_item_code: currentRecipeItem.value,
+				items: validItems.map((ing) => ({ item_code: ing.item_code, qty: ing.qty, uom: ing.uom, description: ing.item_name, show_in_pos: ing.show_in_pos ? 1 : 0 })),
+			},
+		})
 		recipe.bundle_name = res.message.name
 		showMessage(__("\u062A\u0645 \u062D\u0641\u0638 \u0627\u0644\u0645\u0643\u0648\u0646\u0627\u062A"))
 		showRecipeDialog.value = false
@@ -1425,11 +1431,10 @@ async function duplicateRecipeToAllVariants() {
 	savingRecipe.value = true
 	try {
 		for (const v of targets) {
-			const ex = await frappeCall({ method: "frappe.client.get_list", args: { doctype: "Product Bundle", filters: { new_item_code: v.item_code }, fields: ["name"], limit_page_length: 1 } })
-			if (ex.message && ex.message.length) {
-				await frappeCall({ method: "frappe.client.delete", args: { doctype: "Product Bundle", name: ex.message[0].name } })
-			}
-			await frappeCall({ method: "frappe.client.insert", args: { doc: { doctype: "Product Bundle", new_item_code: v.item_code, items } } })
+			await frappeCall({
+				method: "ecs_posnext.api.item_manager.upsert_product_bundle",
+				args: { new_item_code: v.item_code, items },
+			})
 		}
 		showMessage(__("\u062A\u0645 \u0646\u0633\u062E \u0627\u0644\u0645\u0643\u0648\u0646\u0627\u062A \u0625\u0644\u0649 {0} \u0645\u062A\u063A\u064A\u0631", [targets.length]))
 		showRecipeDialog.value = false

@@ -975,3 +975,41 @@ def _generate_variant_name(template_name, attrs):
 	"""Generate a variant item name like 'Burger (Small, Red)'."""
 	suffix = ", ".join(str(v) for v in attrs.values())
 	return f"{template_name} ({suffix})"
+
+
+@frappe.whitelist()
+def upsert_product_bundle(new_item_code, items):
+	"""Create or UPDATE-IN-PLACE the Product Bundle for an item.
+
+	The POS ingredient editor used to delete + recreate the bundle, which fails once
+	the bundle has been used on a submitted Sales Invoice (ERPNext blocks deleting a
+	linked Product Bundle). Updating the existing bundle's items in place avoids the
+	delete entirely, so editing ingredients works even for items that have already sold.
+	"""
+	items = json.loads(items) if isinstance(items, str) else (items or [])
+	rows = [
+		{
+			"item_code": it.get("item_code"),
+			"qty": flt(it.get("qty")) or 1,
+			"uom": it.get("uom") or None,
+			"description": it.get("description") or it.get("item_name") or it.get("item_code"),
+			"show_in_pos": 1 if it.get("show_in_pos") else 0,
+		}
+		for it in items
+		if it.get("item_code")
+	]
+	if not rows:
+		frappe.throw(_("Add at least one valid ingredient."))
+
+	existing = frappe.db.get_value("Product Bundle", {"new_item_code": new_item_code}, "name")
+	if existing:
+		doc = frappe.get_doc("Product Bundle", existing)
+		doc.set("items", [])
+		for r in rows:
+			doc.append("items", r)
+	else:
+		doc = frappe.get_doc({"doctype": "Product Bundle", "new_item_code": new_item_code, "items": rows})
+
+	doc.flags.ignore_permissions = True
+	doc.save(ignore_permissions=True)
+	return {"name": doc.name}
