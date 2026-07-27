@@ -12,6 +12,26 @@ ALLOWED_STATUSES = ("Present", "Absent", "Half Day")
 
 
 @frappe.whitelist()
+def get_shift_types() -> dict:
+	"""Return the available Shift Types along with the last one created.
+
+	Mirrors the shift selection of HR's Employee Attendance Tool so attendance
+	marked from POS carries the same shift information. Shift Type is not
+	company-scoped, so every shift is returned.
+	"""
+	shift_types = frappe.get_list(
+		"Shift Type",
+		fields=["name", "start_time", "end_time"],
+		order_by="creation desc",
+	)
+
+	# "Last" shift type = the most recently created one, used as the default selection
+	last_shift = shift_types[0].name if shift_types else None
+
+	return {"shift_types": shift_types, "last_shift": last_shift}
+
+
+@frappe.whitelist()
 def get_employees(date: str | datetime.date, company: str | None = None, branch: str | None = None) -> dict[str, list]:
 	"""Fetch active employees for a company/branch and split them into marked/unmarked for the given date."""
 	filters = {"status": "Active", "date_of_joining": ["<=", date]}
@@ -40,7 +60,7 @@ def get_employees(date: str | datetime.date, company: str | None = None, branch:
 
 		attendance_list = frappe.get_list(
 			"Attendance",
-			fields=["employee", "employee_name", "status"],
+			fields=["employee", "employee_name", "status", "shift"],
 			filters=attendance_filters,
 			order_by="employee_name",
 		)
@@ -57,6 +77,7 @@ def mark_employee_attendance(
 	status: str,
 	date: str | datetime.date,
 	company: str | None = None,
+	shift: str | None = None,
 ) -> None:
 	"""Mark Present/Absent attendance for the given employees on the given date."""
 	import json
@@ -70,6 +91,9 @@ def mark_employee_attendance(
 	if not employee_list:
 		frappe.throw(_("Please select at least one employee."))
 
+	if shift and not frappe.db.exists("Shift Type", shift):
+		frappe.throw(_("Shift Type {0} does not exist").format(shift))
+
 	for employee in employee_list:
 		attendance = frappe.get_doc(
 			{
@@ -78,6 +102,7 @@ def mark_employee_attendance(
 				"attendance_date": frappe.utils.getdate(date),
 				"status": status,
 				"company": company,
+				"shift": shift,
 			}
 		)
 		attendance.insert(ignore_permissions=True)

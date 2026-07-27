@@ -560,17 +560,6 @@
 					<div :class="isSmallMobile ? 'mb-1' : 'mb-1.5 lg:mb-3'">
 						<div :class="['flex items-center justify-between', isSmallMobile ? 'mb-0.5' : 'mb-1 lg:mb-2']">
 							<div :class="['text-start font-semibold text-gray-500 uppercase tracking-wide', isSmallMobile ? 'text-[10px]' : 'text-xs']">{{ __('Payment Method') }}</div>
-							<!-- Clear All Payments Button -->
-							<button
-								v-if="paymentEntries.length > 0"
-								@click="clearAll"
-								:class="['text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors', isSmallMobile ? 'p-1' : 'p-1.5']"
-								:title="__('Clear all payments')"
-							>
-								<svg :class="isSmallMobile ? 'w-4 h-4' : 'w-5 h-5'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-								</svg>
-							</button>
 						</div>
 						<div v-if="loadingPaymentMethods" class="flex items-center gap-2">
 							<div :class="['animate-spin rounded-full border-b-2 border-blue-500', isSmallMobile ? 'h-4 w-4' : 'h-5 w-5']"></div>
@@ -2013,8 +2002,57 @@ watch(
 // Uses composable for clean, reusable press handling
 // ===========================================
 
+// Move the single existing payment to another method.
+// Returns false when the switch is rejected (caller keeps the current entry).
+function switchPaymentMethod(method) {
+	const current = paymentEntries.value[0]
+	let amt = current.amount || 0
+
+	// Wallet target: cap at redeemable points. The entry being replaced no longer
+	// counts against the balance, so use the raw wallet balance here.
+	if (isWalletPaymentMethod(method.mode_of_payment)) {
+		const walletAvailable = roundCurrency(walletInfo.value.wallet_balance || 0)
+		if (walletAvailable <= 0) {
+			showWarning(__("No redeemable points available"))
+			return false
+		}
+		if (amt > walletAvailable) amt = walletAvailable
+	}
+
+	// Non-cash payments must match the invoice total exactly in exact amount mode
+	// (drops any change the previous cash payment carried)
+	if (isExactAmountModeActive.value && !isCashPaymentMethod(method)) {
+		amt = roundCurrency(props.grandTotal)
+	}
+
+	paymentEntries.value.splice(0, 1, {
+		mode_of_payment: method.mode_of_payment,
+		amount: roundCurrency(amt),
+		type: method.type || __("Cash"),
+		is_wallet_payment: isWalletPaymentMethod(method.mode_of_payment),
+	})
+	log.debug(
+		"[PaymentDialog] Switched payment method:",
+		current.mode_of_payment,
+		"->",
+		method.mode_of_payment,
+	)
+	return true
+}
+
 // Select payment method (tap action)
 function selectPaymentMethod(method) {
+	// Invoice already covered by a single method: tapping another one moves the
+	// payment over instead of requiring the entry to be cleared first
+	if (
+		remainingAmount.value <= 0 &&
+		paymentEntries.value.length === 1 &&
+		!paymentEntries.value[0].is_customer_credit &&
+		paymentEntries.value[0].mode_of_payment !== method.mode_of_payment
+	) {
+		if (!switchPaymentMethod(method)) return
+	}
+
 	lastSelectedMethod.value = method
 	log.debug("[PaymentDialog] Selected payment method:", method.mode_of_payment)
 	if (remainingAmount.value > 0) {
@@ -2077,7 +2115,11 @@ function addPayment(method) {
 
 // Quick add payment (long press action)
 function quickAddPayment(method) {
-	if (remainingAmount.value <= 0) return
+	if (remainingAmount.value <= 0) {
+		// Nothing left to add — treat it as a method switch (no-op if not applicable)
+		selectPaymentMethod(method)
+		return
+	}
 
 	lastSelectedMethod.value = method
 
@@ -2325,11 +2367,6 @@ function addCreditAccountPayment() {
 	)
 	emit("payment-completed", paymentData)
 	show.value = false
-}
-
-function clearAll() {
-	paymentEntries.value = []
-	customAmount.value = ""
 }
 
 async function completePayment() {

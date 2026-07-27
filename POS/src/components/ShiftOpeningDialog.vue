@@ -11,9 +11,9 @@
             <div v-if="profilesResource.loading" class="text-center py-4">
               <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
             </div>
-            <div v-else-if="profilesResource.data && profilesResource.data.length > 0" class="grid grid-cols-1 gap-3">
+            <div v-else-if="profiles.length > 0" class="grid grid-cols-1 gap-3">
               <div
-                v-for="profile in profilesResource.data"
+                v-for="profile in profiles"
                 :key="profile.name"
                 @click="selectPosProfile(profile)"
                 :class="[
@@ -172,7 +172,7 @@
             variant="solid"
             theme="blue"
             @click="openShift"
-            :loading="createShiftResource.loading"
+            :loading="createShiftResource.loading || creatingOffline"
           >
             {{ __('Open Shift') }}
           </Button>
@@ -193,6 +193,7 @@
 import { Button, Dialog, Input } from "frappe-ui"
 import { createResource } from "frappe-ui"
 import { computed, ref, watch } from "vue"
+import { isOffline } from "@/utils/offline/sync"
 import { useShift } from "../composables/useShift"
 import { useFormatters } from "../composables/useFormatters"
 import ShiftClosingDialog from "./ShiftClosingDialog.vue"
@@ -209,8 +210,14 @@ const open = computed({
 	set: (value) => emit("update:modelValue", value),
 })
 
-const { createOpeningShift, getOpeningDialogData, checkOpeningShift } =
-	useShift()
+const {
+	createOpeningShift,
+	getOpeningDialogData,
+	checkOpeningShift,
+	cacheOpeningDialogData,
+	getCachedOpeningDialogData,
+	createOpeningShiftOffline,
+} = useShift()
 const { formatDateTime } = useFormatters()
 
 const step = ref(1)
@@ -220,6 +227,11 @@ const existingShift = ref(null)
 const showClosingDialog = ref(false)
 const closingExistingShift = ref(false)
 const restartProfileName = ref(null)
+
+// Offline state: profiles + payment methods read from the cached
+// get_opening_dialog_data payload instead of the server.
+const offlineDialogData = ref(null)
+const creatingOffline = ref(false)
 
 // Get POS Profiles
 const profilesResource = createResource({
@@ -236,11 +248,24 @@ const dialogDataResource = createResource({
 // Create shift resource
 const createShiftResource = createOpeningShift
 
-// Computed payment methods for selected profile
-const paymentMethods = computed(() => {
-	if (!dialogDataResource.data || !selectedProfile.value) return []
+// POS profiles list — from the server when online, from cache when offline
+const profiles = computed(() => {
+	if (isOffline()) {
+		return offlineDialogData.value?.pos_profiles_data || []
+	}
+	return profilesResource.data || []
+})
 
-	return (dialogDataResource.data.payments_method || []).filter(
+// Computed payment methods for selected profile (offline reads from cache)
+const paymentMethods = computed(() => {
+	if (!selectedProfile.value) return []
+
+	const source = isOffline()
+		? offlineDialogData.value
+		: dialogDataResource.data
+	if (!source) return []
+
+	return (source.payments_method || []).filter(
 		(method) => method.parent === selectedProfile.value.name,
 	)
 })
@@ -274,9 +299,36 @@ async function initDialog() {
 	openingBalances.value = {}
 	dialogDataResource.reset()
 
+	// -------- Offline: everything comes from cache / localStorage --------
+	if (isOffline()) {
+		try {
+			offlineDialogData.value = await getCachedOpeningDialogData()
+
+			// Detect an existing open shift from local storage
+			const cached = localStorage.getItem("pos_shift_data")
+			if (cached) {
+				const parsed = JSON.parse(cached)
+				if (parsed?.pos_opening_shift) {
+					existingShift.value = parsed
+					step.value = 3
+				}
+			}
+		} catch (error) {
+			console.error("Error initializing offline shift dialog:", error)
+		}
+		return
+	}
+
+	// -------- Online --------
 	try {
 		// Await profile fetch to ensure data is loaded before proceeding
 		await profilesResource.fetch()
+
+		// Cache opening-dialog data (profiles + payment methods) for offline use
+		dialogDataResource
+			.fetch()
+			.then((data) => cacheOpeningDialogData(data))
+			.catch(() => {})
 
 		// Check if user already has an open shift
 		const checkResult = await checkOpeningShift.fetch()
@@ -306,7 +358,10 @@ function selectPosProfile(profile) {
 
 async function nextStep() {
 	if (step.value === 1 && selectedProfile.value) {
-		await dialogDataResource.fetch()
+		// Offline: payment methods already available from cache
+		if (!isOffline()) {
+			await dialogDataResource.fetch()
+		}
 		step.value = 2
 	}
 }
@@ -322,6 +377,27 @@ async function openShift() {
 		),
 	}))
 
+	// -------- Offline: queue the opening and set local shift state --------
+	if (isOffline()) {
+		creatingOffline.value = true
+		try {
+			await createOpeningShiftOffline({
+				pos_profile: selectedProfile.value.name,
+				company: selectedProfile.value.company,
+				balance_details,
+				profile: selectedProfile.value,
+			})
+			emit("shift-opened")
+			closeDialog("shift-opened")
+		} catch (error) {
+			console.error("Error opening shift offline:", error)
+		} finally {
+			creatingOffline.value = false
+		}
+		return
+	}
+
+	// -------- Online --------
 	try {
 		await createShiftResource.submit({
 			pos_profile: selectedProfile.value.name,
@@ -363,14 +439,16 @@ async function handleExistingShiftClosed() {
 	step.value = 1
 	openingBalances.value = {}
 
-	await checkOpeningShift.fetch()
+	if (!isOffline()) {
+		await checkOpeningShift.fetch()
 
-	if (!profilesResource.data || profilesResource.data.length === 0) {
-		await profilesResource.fetch()
+		if (!profilesResource.data || profilesResource.data.length === 0) {
+			await profilesResource.fetch()
+		}
 	}
 
 	if (profileToRestore) {
-		const matchedProfile = profilesResource.data?.find(
+		const matchedProfile = profiles.value?.find(
 			(profile) => profile.name === profileToRestore,
 		)
 

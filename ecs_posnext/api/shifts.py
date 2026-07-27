@@ -100,10 +100,93 @@ def check_opening_shift(user=None):
 	return data
 
 
+def _get_last_open_shift(pos_profile=None, user=None):
+	"""Return the name of the latest POS Opening Shift that is still Open.
+
+	Prefers the current user's own open shift; falls back to the latest open
+	shift of the given POS Profile so the lookup never spans other profiles.
+	"""
+	base_filters = {
+		"pos_closing_shift": ["is", "not set"],
+		"docstatus": 1,
+		"status": "Open",
+	}
+	if pos_profile:
+		base_filters["pos_profile"] = pos_profile
+
+	for extra in ({"user": user or frappe.session.user}, {}):
+		shifts = frappe.db.get_all(
+			"POS Opening Shift",
+			filters={**base_filters, **extra},
+			fields=["name"],
+			order_by="period_start_date desc",
+			limit=1,
+		)
+		if shifts:
+			return shifts[0].name
+
+	return None
+
+
 @frappe.whitelist()
-def create_opening_shift(pos_profile, company, balance_details):
-	"""Create a new POS Opening Shift"""
+def get_shift_invoices(pos_profile=None, pos_opening_shift=None, limit=5):
+	"""Return the most recent Sales Invoices of the last open POS Opening Shift.
+
+	Used by the POS invoice history for non-admin users, which must never show
+	invoices from other shifts. When no open shift can be resolved, an empty
+	list is returned rather than falling back to an unscoped query.
+	"""
+	limit = frappe.utils.cint(limit) or 5
+
+	shift = pos_opening_shift or _get_last_open_shift(pos_profile)
+	if not shift:
+		return {"pos_opening_shift": None, "invoices": []}
+
+	invoices = frappe.get_all(
+		"Sales Invoice",
+		filters={"is_pos": 1, "posa_pos_opening_shift": shift},
+		fields=[
+			"name",
+			"customer",
+			"customer_name",
+			"posting_date",
+			"posting_time",
+			"grand_total",
+			"status",
+			"docstatus",
+			"is_return",
+		],
+		order_by="creation desc",
+		limit=limit,
+	)
+
+	return {"pos_opening_shift": shift, "invoices": invoices}
+
+
+@frappe.whitelist()
+def create_opening_shift(pos_profile, company, balance_details, op_id=None, period_start_date=None):
+	"""Create a new POS Opening Shift.
+
+	Supports offline creation: when an ``op_id`` is supplied (from the offline
+	operation queue) creation is idempotent — re-syncing the same op returns the
+	already-created shift instead of raising a duplicate. ``period_start_date``
+	lets the client pass the real offline start time.
+	"""
+	from ecs_posnext.api.offline_ops import create_op_sync_record, ensure_op_once
+
 	balance_details = json.loads(balance_details) if isinstance(balance_details, str) else balance_details
+
+	# Idempotency: this offline op already produced a shift — return it as-is
+	if op_id:
+		existing_name = ensure_op_once(op_id, "open_shift")
+		if existing_name and frappe.db.exists("POS Opening Shift", existing_name):
+			doc = frappe.get_doc("POS Opening Shift", existing_name)
+			return {
+				"name": doc.name,
+				"pos_opening_shift": doc.as_dict(),
+				"pos_profile": frappe.get_doc("POS Profile", doc.pos_profile),
+				"company": frappe.get_doc("Company", doc.company),
+			}
 
 	# Check if user already has an open shift
 	existing_shift = check_opening_shift(frappe.session.user)
@@ -113,7 +196,7 @@ def create_opening_shift(pos_profile, company, balance_details):
 	new_pos_opening = frappe.get_doc(
 		{
 			"doctype": "POS Opening Shift",
-			"period_start_date": get_datetime(),
+			"period_start_date": get_datetime(period_start_date) if period_start_date else get_datetime(),
 			"posting_date": nowdate(),
 			"posting_time": nowtime(),
 			"user": frappe.session.user,
@@ -135,7 +218,12 @@ def create_opening_shift(pos_profile, company, balance_details):
 	new_pos_opening.insert(ignore_permissions=True)
 	new_pos_opening.submit()
 
+	# Record the offline op so re-syncs are idempotent
+	if op_id:
+		create_op_sync_record(op_id, "open_shift", "POS Opening Shift", new_pos_opening.name)
+
 	data = {}
+	data["name"] = new_pos_opening.name
 	data["pos_opening_shift"] = new_pos_opening.as_dict()
 	data["pos_profile"] = frappe.get_doc("POS Profile", pos_profile)
 	data["company"] = frappe.get_doc("Company", company)
@@ -167,9 +255,22 @@ def get_closing_shift_data(opening_shift):
 
 
 @frappe.whitelist()
-def submit_closing_shift(closing_shift):
-	"""Submit closing shift"""
+def submit_closing_shift(closing_shift, op_id=None):
+	"""Submit closing shift.
+
+	Supports offline closing: with an ``op_id`` from the offline operation queue,
+	submission is idempotent — re-syncing returns the already-created closing.
+	The referenced opening shift must exist (offline temp names are resolved to
+	real names client-side before this is called).
+	"""
+	from ecs_posnext.api.offline_ops import create_op_sync_record, ensure_op_once
 	from ecs_posnext.pos_next.doctype.pos_closing_shift.pos_closing_shift import submit_closing_shift as submit_shift
+
+	# Idempotency: this offline op already produced a closing — return it as-is
+	if op_id:
+		existing_name = ensure_op_once(op_id, "close_shift")
+		if existing_name:
+			return {"name": existing_name, "status": "success"}
 
 	try:
 		# closing_shift is already a JSON string from frontend
@@ -177,7 +278,19 @@ def submit_closing_shift(closing_shift):
 		if isinstance(closing_shift, dict):
 			closing_shift = json.dumps(closing_shift)
 
+		# Guard: the opening shift must exist on the server. When syncing offline
+		# ops, the open_shift op is flushed first; if it hasn't landed yet, signal
+		# an in-progress state so the client retries instead of failing hard.
+		parsed = json.loads(closing_shift) if isinstance(closing_shift, str) else closing_shift
+		opening = parsed.get("pos_opening_shift") if isinstance(parsed, dict) else None
+		if opening and not frappe.db.exists("POS Opening Shift", opening):
+			frappe.throw(_("SYNC_IN_PROGRESS: opening shift {0} not found yet").format(opening))
+
 		result = submit_shift(closing_shift)
+
+		if op_id:
+			create_op_sync_record(op_id, "close_shift", "POS Closing Shift", result)
+
 		return {"name": result, "status": "success"}
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Submit Closing Shift Error")

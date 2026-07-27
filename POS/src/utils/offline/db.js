@@ -42,6 +42,12 @@ const CURRENT_SCHEMA = {
 	// offline_id is a unique UUID for deduplication across syncs
 	invoice_queue: "++id, &offline_id, timestamp, synced",
 
+	// Generic queue for non-invoice offline write operations
+	// (open_shift, close_shift, attendance, daily_payment, customer, ...)
+	// op_id is a unique UUID for server-side deduplication; type routes it to
+	// the matching sync handler registered in syncOps.js
+	operation_queue: "++id, &op_id, type, timestamp, synced",
+
 	// Items cache with searchable fields
 	// variant_of index allows querying variants by their template item
 	items: "&item_code, item_name, item_group, variant_of, *barcodes",

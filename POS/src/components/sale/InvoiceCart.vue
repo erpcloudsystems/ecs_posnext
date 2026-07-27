@@ -571,8 +571,9 @@
 
 				<!-- Quick Actions Grid -->
 				<div class="grid grid-cols-2 gap-2 sm:gap-2.5 w-full max-w-lg">
-					<!-- View Shift -->
+					<!-- View Shift (Administrator only) -->
 					<button
+						v-if="isAdministrator"
 						type="button"
 						@click="$emit('view-shift')"
 						class="flex flex-col items-center justify-center p-3 sm:p-4 bg-white border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 active:bg-blue-100 transition-colors shadow-sm hover:shadow touch-manipulation group"
@@ -606,8 +607,9 @@
 						}}</span>
 					</button>
 
-					<!-- Draft Invoices -->
+					<!-- Draft Invoices (Administrator only) -->
 					<button
+						v-if="isAdministrator"
 						type="button"
 						@click="$emit('show-drafts')"
 						class="flex flex-col items-center justify-center p-3 sm:p-4 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 active:bg-purple-100 transition-colors shadow-sm hover:shadow touch-manipulation group"
@@ -664,8 +666,9 @@
 						}}</span>
 					</button>
 
-					<!-- Return Invoice -->
+					<!-- Return Invoice (Administrator only) -->
 					<button
+						v-if="isAdministrator"
 						type="button"
 						@click="$emit('show-return')"
 						class="flex flex-col items-center justify-center p-3 sm:p-4 bg-white border border-gray-200 rounded-lg hover:border-red-300 hover:bg-red-50 active:bg-red-100 transition-colors shadow-sm hover:shadow touch-manipulation group"
@@ -722,8 +725,9 @@
 						}}</span>
 					</button>
 
-					<!-- Create Customer -->
+					<!-- Create Customer (Administrator only) -->
 					<button
+						v-if="isAdministrator"
 						type="button"
 						@click="$emit('create-customer', '')"
 						class="flex flex-col items-center justify-center p-3 sm:p-4 bg-white border border-gray-200 rounded-lg hover:border-green-300 hover:bg-green-50 active:bg-green-100 transition-colors shadow-sm hover:shadow touch-manipulation group"
@@ -1279,6 +1283,7 @@ import { usePOSOffersStore } from "@/stores/posOffers";
 import { usePOSSalesPersonStore } from "@/stores/posSalesPerson";
 import { usePOSUIStore } from "@/stores/posUI";
 import { useCustomerSearchStore } from "@/stores/customerSearch";
+import { isAdministrator } from "@/data/session";
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "@/utils/currency";
 import { useFormatters } from "@/composables/useFormatters";
 import { useCartSort } from "@/composables/useCartSort";

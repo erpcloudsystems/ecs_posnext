@@ -38,6 +38,21 @@
 							/>
 						</div>
 
+						<!-- Shift -->
+						<div class="min-w-[180px]">
+							<label class="block text-xs font-medium text-gray-600 mb-1">{{ __('Shift') }}</label>
+							<select
+								v-model="shift"
+								:disabled="loadingShifts"
+								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 disabled:bg-gray-100"
+							>
+								<option value="">{{ loadingShifts ? __('Loading...') : __('No Shift') }}</option>
+								<option v-for="entry in shiftTypes" :key="entry.name" :value="entry.name">
+									{{ entry.name }}
+								</option>
+							</select>
+						</div>
+
 						<!-- Get Employees Button -->
 						<button
 							@click="loadEmployees"
@@ -69,12 +84,20 @@
 										class="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-50"
 									>
 										<span class="text-sm text-gray-800">{{ entry.employee }} : {{ entry.employee_name }}</span>
-										<span
-											class="text-xs font-semibold px-2 py-0.5 rounded"
-											:class="statusBadgeClass(entry.status)"
-										>
-											{{ entry.status }}
-										</span>
+										<div class="flex items-center gap-2">
+											<span
+												v-if="entry.shift"
+												class="text-xs font-medium px-2 py-0.5 rounded bg-blue-100 text-blue-700"
+											>
+												{{ entry.shift }}
+											</span>
+											<span
+												class="text-xs font-semibold px-2 py-0.5 rounded"
+												:class="statusBadgeClass(entry.status)"
+											>
+												{{ entry.status }}
+											</span>
+										</div>
 									</div>
 								</div>
 							</div>
@@ -189,12 +212,18 @@ const selectedEmployees = ref([])
 const selectAll = ref(false)
 const status = ref("")
 
+// Shift selection — same list HR's Employee Attendance Tool offers
+const shiftTypes = ref([])
+const shift = ref("")
+const loadingShifts = ref(false)
+
 watch(
 	() => props.modelValue,
 	(val) => {
 		show.value = val
 		if (val) {
 			resetState()
+			loadShiftTypes()
 			loadEmployees()
 		}
 	},
@@ -225,6 +254,22 @@ function statusBadgeClass(status) {
 
 function toggleSelectAll() {
 	selectedEmployees.value = selectAll.value ? unmarked.value.map((e) => e.employee) : []
+}
+
+async function loadShiftTypes() {
+	loadingShifts.value = true
+	try {
+		const result = await call("ecs_posnext.api.employee_attendance.get_shift_types")
+		shiftTypes.value = result?.shift_types || []
+		// Default to the last existing shift type (most recently created)
+		shift.value = result?.last_shift || ""
+	} catch (error) {
+		log.error("Error loading shift types:", error)
+		shiftTypes.value = []
+		shift.value = ""
+	} finally {
+		loadingShifts.value = false
+	}
 }
 
 async function loadEmployees() {
@@ -259,6 +304,7 @@ async function markAttendance() {
 			status: status.value,
 			date: date.value,
 			company: props.company || null,
+			shift: shift.value || null,
 		})
 		showSuccess(__("Attendance marked successfully"))
 		await loadEmployees()

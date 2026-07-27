@@ -1,4 +1,8 @@
-import { syncOfflineInvoices } from "@/utils/offline"
+import {
+	getPendingOperationCount,
+	syncOfflineInvoices,
+	syncOfflineOperations,
+} from "@/utils/offline"
 import { offlineState } from "@/utils/offline/offlineState"
 import { offlineWorker } from "@/utils/offline/workerClient"
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
@@ -7,6 +11,7 @@ export function useOffline() {
 	// Reactive state that syncs with centralized offlineState
 	const isOffline = ref(offlineState.isOffline)
 	const pendingInvoicesCount = ref(0)
+	const pendingOperationsCount = ref(0)
 	const isSyncing = ref(false)
 	const connectionQuality = ref(offlineState.getConnectionQuality())
 
@@ -26,6 +31,30 @@ export function useOffline() {
 			pendingInvoicesCount.value = await offlineWorker.getOfflineInvoiceCount()
 		} catch (error) {
 			console.error("[useOffline] Error getting pending count:", error)
+		}
+	}
+
+	// Update pending (non-invoice) operations count
+	const updatePendingOpCount = async () => {
+		try {
+			pendingOperationsCount.value = await getPendingOperationCount()
+		} catch (error) {
+			console.error("[useOffline] Error getting pending op count:", error)
+		}
+	}
+
+	// Sync queued non-invoice operations (shift/attendance/daily-payment/customer)
+	const syncPendingOperations = async () => {
+		if (isOffline.value) {
+			throw new Error("Cannot sync while offline")
+		}
+		try {
+			const result = await syncOfflineOperations()
+			await updatePendingOpCount()
+			return result
+		} catch (error) {
+			console.error("[useOffline] Error syncing operations:", error)
+			throw error
 		}
 	}
 
@@ -118,10 +147,20 @@ export function useOffline() {
 		// Detect transition from offline to online
 		if (wasOffline && !nowOffline) {
 			console.log("[useOffline] Transition to online detected, syncing...")
+			isSyncing.value = true
+			try {
+				// Operations first: shifts/customers must exist server-side before
+				// invoices that reference them are pushed.
+				await syncPendingOperations()
+			} catch (error) {
+				console.error("[useOffline] Auto-sync (operations) failed:", error)
+			}
 			try {
 				await syncPending()
 			} catch (error) {
-				console.error("[useOffline] Auto-sync failed:", error)
+				console.error("[useOffline] Auto-sync (invoices) failed:", error)
+			} finally {
+				isSyncing.value = false
 			}
 		}
 
@@ -146,6 +185,7 @@ export function useOffline() {
 		// Initial state sync
 		updateOfflineStatus()
 		updatePendingCount()
+		updatePendingOpCount()
 
 		// Subscribe to centralized state changes
 		unsubscribe = offlineState.subscribe(handleStateChange)
@@ -169,10 +209,12 @@ export function useOffline() {
 	return {
 		isOffline,
 		pendingInvoicesCount,
+		pendingOperationsCount,
 		isSyncing,
 		connectionQuality,
 		saveInvoiceOffline,
 		syncPending,
+		syncPendingOperations,
 		getPending,
 		deletePending,
 		cacheData,
@@ -183,5 +225,6 @@ export function useOffline() {
 		checkConnectivity,
 		updateOfflineStatus,
 		updatePendingCount,
+		updatePendingOpCount,
 	}
 }

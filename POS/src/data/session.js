@@ -60,3 +60,7 @@ export const session = reactive({
 	user: sessionUser(),
 	isLoggedIn: computed(() => !!session.user),
 })
+
+// UI-level check only (server permissions still apply): some POS shortcuts are
+// reserved for the Administrator and stay hidden for regular cashiers.
+export const isAdministrator = computed(() => session.user === "Administrator")

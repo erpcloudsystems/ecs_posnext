@@ -5,6 +5,10 @@
 	>
 		<template #body-content>
 			<div class="flex flex-col gap-4">
+				<p v-if="!isAdministrator" class="text-xs text-gray-500 text-start">
+					{{ __('Last {0} invoices of the open shift', [SHIFT_PAGE_SIZE]) }}
+				</p>
+
 				<!-- Filters -->
 				<div class="flex items-center gap-2">
 					<div class="flex-1">
@@ -24,7 +28,7 @@
 					<Button
 						variant="subtle"
 						@click="loadInvoices"
-						:loading="invoicesResource.loading"
+						:loading="activeResource.loading"
 						:title="__('Refresh')"
 					>
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -34,7 +38,7 @@
 				</div>
 
 				<!-- Invoices List -->
-				<div v-if="invoicesResource.loading" class="text-center py-8">
+				<div v-if="activeResource.loading" class="text-center py-8">
 					<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
 					<p class="mt-3 text-xs text-gray-500">{{ __('Loading invoices...') }}</p>
 				</div>
@@ -122,8 +126,8 @@
 					</div>
 				</div>
 
-				<!-- Load More -->
-				<div v-if="hasMore && !invoicesResource.loading" class="text-center">
+				<!-- Load More (Administrator only) -->
+				<div v-if="hasMore && !activeResource.loading" class="text-center">
 					<Button variant="subtle" @click="loadMore">
 						{{ __('Load More') }}
 					</Button>
@@ -150,6 +154,7 @@
 
 <script setup>
 import { useToast } from "@/composables/useToast"
+import { isAdministrator } from "@/data/session"
 import { DEFAULT_CURRENCY, DEFAULT_LOCALE, formatCurrency as formatCurrencyUtil } from "@/utils/currency"
 import { getInvoiceStatusColor } from "@/utils/invoice"
 import { Button, Dialog, Input, createResource } from "frappe-ui"
@@ -177,9 +182,14 @@ const emit = defineEmits(["update:modelValue", "create-return", "view-invoice", 
 const show = ref(props.modelValue)
 const invoices = ref([])
 const searchTerm = ref("")
+
+// Cashiers only see the last 5 invoices of the last open shift; the Administrator
+// keeps the full, paginated history across shifts.
+const SHIFT_PAGE_SIZE = 5
+const FULL_PAGE_SIZE = 20
+const pageSize = computed(() => (isAdministrator.value ? FULL_PAGE_SIZE : SHIFT_PAGE_SIZE))
 const page = ref(0)
-const pageSize = 20
-const hasMore = ref(true)
+const hasMore = ref(false)
 
 // Return dialog state
 const showReturnDialog = ref(false)
@@ -188,7 +198,34 @@ const selectedInvoiceForReturn = ref(null)
 // Track if we're loading more (appending) vs fresh load (replacing)
 const isLoadingMore = ref(false)
 
-// Create resource for loading invoices
+// Non-admin history: last 5 invoices of the last open shift, resolved on the
+// server so a missing shift prop can never widen the query to every shift.
+const shiftInvoicesResource = createResource({
+	url: "ecs_posnext.api.shifts.get_shift_invoices",
+	makeParams() {
+		return {
+			pos_profile: props.posProfile || null,
+			pos_opening_shift: props.posOpeningShift || null,
+			limit: SHIFT_PAGE_SIZE,
+		}
+	},
+	auto: false,
+	onSuccess(data) {
+		invoices.value = (data?.invoices || []).map((inv) => ({
+			...inv,
+			items_count: 0,
+		}))
+		hasMore.value = false
+		isLoadingMore.value = false
+	},
+	onError(error) {
+		console.error("Error loading shift invoices:", error)
+		showError(__("Failed to load invoices"))
+		isLoadingMore.value = false
+	},
+})
+
+// Administrator history: full list across shifts, paginated
 const invoicesResource = createResource({
 	url: "frappe.client.get_list",
 	makeParams() {
@@ -209,9 +246,9 @@ const invoicesResource = createResource({
 				"docstatus",
 				"is_return",
 			],
-			order_by: "modified desc",
-			start: page.value * pageSize,
-			page_length: pageSize,
+			order_by: "creation desc",
+			start: page.value * pageSize.value,
+			page_length: pageSize.value,
 		}
 	},
 	auto: false,
@@ -230,8 +267,7 @@ const invoicesResource = createResource({
 				invoices.value = newInvoices
 			}
 
-			// Check if there are more results
-			hasMore.value = data.length === pageSize
+			hasMore.value = data.length === pageSize.value
 			isLoadingMore.value = false
 		}
 	},
@@ -242,12 +278,17 @@ const invoicesResource = createResource({
 	},
 })
 
+// The resource backing the list depends on who is logged in
+const activeResource = computed(() =>
+	isAdministrator.value ? invoicesResource : shiftInvoicesResource,
+)
+
 watch(
 	() => props.modelValue,
 	(val) => {
 		show.value = val
-		if (val && props.posProfile) {
-			invoicesResource.reload()
+		if (val) {
+			loadInvoices()
 		}
 	},
 )
@@ -275,12 +316,12 @@ const filteredInvoices = computed(() => {
 })
 
 function loadInvoices() {
-	if (props.posProfile) {
-		// Reset to first page for fresh load
-		page.value = 0
-		isLoadingMore.value = false
-		invoicesResource.reload()
-	}
+	if (isAdministrator.value && !props.posProfile) return
+
+	// Reset to first page for fresh load
+	page.value = 0
+	isLoadingMore.value = false
+	activeResource.value.reload()
 }
 
 function loadMore() {
@@ -316,7 +357,7 @@ function openReturnModal(invoice) {
 
 function handleReturnCreated(returnInvoice) {
 	// Refresh the invoice list to show updated statuses
-	invoicesResource.reload()
+	loadInvoices()
 	// Emit the event to parent
 	emit("return-created", returnInvoice)
 }

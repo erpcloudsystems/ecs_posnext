@@ -23,6 +23,7 @@ import {
 	onCSRFTokenRefresh,
 } from "./utils/csrf"
 import { logger } from "./utils/logger"
+import { registerOfflineOpHandlers } from "./utils/offline/opHandlers"
 import { offlineWorker } from "./utils/offline/workerClient"
 import translationPlugin from "./utils/translation"
 import { initSocket } from "./socket"
@@ -106,6 +107,9 @@ async function syncCSRFTokenToWorker() {
 async function initializeApp() {
 	const app = createApp(App)
 	const pinia = createPinia()
+
+	// Register offline operation sync handlers (shift/attendance/daily-payment/...)
+	registerOfflineOpHandlers()
 
 	// Keep worker in sync when CSRF token refreshes
 	onCSRFTokenRefresh((newToken) => {

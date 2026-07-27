@@ -47,6 +47,23 @@ export {
 	clearCustomersCache,
 } from "./items"
 
+// Generic offline operation queue + sync engine
+export {
+	enqueueOperation,
+	getPendingOperations,
+	getPendingOperationCount,
+	markOperationSynced,
+	handleOperationFailure,
+	deleteOperation,
+	resetOperationFailure,
+} from "./operations"
+
+export {
+	registerOpHandler,
+	getRegisteredOpTypes,
+	syncOfflineOperations,
+} from "./syncOps"
+
 // New cache system exports (excluding setManualOffline/toggleManualOffline - use offlineState instead)
 export {
 	memory,
