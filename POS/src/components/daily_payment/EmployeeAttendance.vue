@@ -180,9 +180,16 @@ import { FeatherIcon, call } from "frappe-ui"
 import { ref, watch } from "vue"
 import { useToast } from "@/composables/useToast"
 import { logger } from "@/utils/logger"
+import { getSetting, setSetting } from "@/utils/offline/db"
+import { enqueueOperation } from "@/utils/offline/operations"
+import { isOffline } from "@/utils/offline/sync"
 
 const log = logger.create("EmployeeAttendance")
 const { showSuccess, showError } = useToast()
+
+// Settings-store keys for offline caches
+const EMPLOYEES_CACHE_KEY = "attendance_employees"
+const SHIFT_TYPES_CACHE_KEY = "attendance_shift_types"
 
 const props = defineProps({
 	modelValue: Boolean,
@@ -259,10 +266,18 @@ function toggleSelectAll() {
 async function loadShiftTypes() {
 	loadingShifts.value = true
 	try {
+		if (isOffline()) {
+			const cached = await getSetting(SHIFT_TYPES_CACHE_KEY, null)
+			shiftTypes.value = cached?.shift_types || []
+			shift.value = cached?.last_shift || ""
+			return
+		}
 		const result = await call("ecs_posnext.api.employee_attendance.get_shift_types")
 		shiftTypes.value = result?.shift_types || []
 		// Default to the last existing shift type (most recently created)
 		shift.value = result?.last_shift || ""
+		// Cache for offline use
+		await setSetting(SHIFT_TYPES_CACHE_KEY, result)
 	} catch (error) {
 		log.error("Error loading shift types:", error)
 		shiftTypes.value = []
@@ -278,6 +293,20 @@ async function loadEmployees() {
 	selectAll.value = false
 	status.value = ""
 	try {
+		if (isOffline()) {
+			// Offline: server can't tell us who is already marked, so present the
+			// cached roster as selectable (unmarked). Re-marking is idempotent on sync.
+			const cached = await getSetting(EMPLOYEES_CACHE_KEY, null)
+			const roster = [
+				...(cached?.unmarked || []),
+				...(cached?.marked || []),
+			]
+			marked.value = []
+			unmarked.value = roster
+			loaded.value = true
+			return
+		}
+
 		const result = await call("ecs_posnext.api.employee_attendance.get_employees", {
 			date: date.value,
 			company: props.company || null,
@@ -286,6 +315,8 @@ async function loadEmployees() {
 		marked.value = result?.marked || []
 		unmarked.value = result?.unmarked || []
 		loaded.value = true
+		// Cache the roster for offline marking
+		await setSetting(EMPLOYEES_CACHE_KEY, result)
 	} catch (error) {
 		log.error("Error loading employees:", error)
 		showError(error.message || __("Failed to load employees"))
@@ -299,6 +330,22 @@ async function markAttendance() {
 
 	marking.value = true
 	try {
+		if (isOffline()) {
+			// Queue for sync; server dedups per (employee, date) on flush
+			await enqueueOperation("attendance", {
+				employee_list: [...selectedEmployees.value],
+				status: status.value,
+				date: date.value,
+				company: props.company || null,
+				shift: shift.value || null,
+			})
+			showSuccess(
+				__("Attendance queued — will sync when back online"),
+			)
+			await loadEmployees()
+			return
+		}
+
 		await call("ecs_posnext.api.employee_attendance.mark_employee_attendance", {
 			employee_list: selectedEmployees.value,
 			status: status.value,

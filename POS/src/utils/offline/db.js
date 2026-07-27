@@ -64,9 +64,6 @@ const CURRENT_SCHEMA = {
 	// Payment methods cache
 	payment_methods: "&mode_of_payment, pos_profile",
 
-	// Payment queue for offline payments
-	payment_queue: "++id, timestamp, synced",
-
 	// Drafts (already handled by draftManager, but keeping for consistency)
 	drafts: "++id, draft_id, timestamp",
 
@@ -87,54 +84,26 @@ const CURRENT_SCHEMA = {
 }
 
 /**
- * Generates a 32-bit hash of the schema for change detection.
- * Uses djb2 algorithm for fast, deterministic hashing.
- * @param {Object} schema - Schema object to hash
- * @returns {number} Positive 32-bit integer hash
- * @private
- */
-function getSchemaHash(schema) {
-	const schemaString = JSON.stringify(schema)
-	let hash = 0
-	for (let i = 0; i < schemaString.length; i++) {
-		const char = schemaString.charCodeAt(i)
-		hash = (hash << 5) - hash + char
-		hash = hash & hash // Convert to 32-bit integer
-	}
-	return Math.abs(hash)
-}
-
-/**
- * Determines the current schema version using localStorage tracking.
- * Compares stored hash against current schema hash to detect changes.
- * Auto-increments version when schema changes are detected.
+ * Fixed schema version (manual-bump convention).
  *
- * @returns {number} Current schema version number
- * @private
+ * Previously the version was derived from a hash of CURRENT_SCHEMA stored in
+ * localStorage and auto-incremented. That was fragile: if localStorage was
+ * cleared while the IndexedDB still existed, the version reset to 1 and Dexie
+ * threw VersionError, which the recovery path handled by NUKING the database —
+ * silently destroying the unsynced invoice/operation queues.
+ *
+ * A fixed constant removes that data-loss trigger entirely (the standard Dexie
+ * pattern). The base is deliberately large so it sits safely above any version
+ * a legacy client could have reached under the old auto-increment scheme;
+ * Dexie upgrades such clients to this version, preserving their data.
+ *
+ * When you change CURRENT_SCHEMA, bump this number by 1.
+ * @constant {number}
  */
-function getSchemaVersion() {
-	const schemaHash = getSchemaHash(CURRENT_SCHEMA)
-	const storedHash = localStorage.getItem("ecs_posnext_schema_hash")
-	const storedVersion = Number.parseInt(
-		localStorage.getItem("ecs_posnext_schema_version") || "1",
-	)
+const DB_VERSION = 1001
 
-	if (storedHash !== schemaHash.toString()) {
-		// Schema changed, increment version
-		const newVersion = storedVersion + 1
-		log.info(`Schema changed detected. Upgrading from v${storedVersion} to v${newVersion}`)
-		localStorage.setItem("ecs_posnext_schema_hash", schemaHash.toString())
-		localStorage.setItem("ecs_posnext_schema_version", newVersion.toString())
-		return newVersion
-	}
-
-	return storedVersion
-}
-
-// Apply schema with auto-versioning
-const schemaVersion = getSchemaVersion()
-log.debug(`Initializing database with schema version: ${schemaVersion}`)
-db.version(schemaVersion).stores(CURRENT_SCHEMA)
+log.debug(`Initializing database with schema version: ${DB_VERSION}`)
+db.version(DB_VERSION).stores(CURRENT_SCHEMA)
 
 /**
  * Opens the database connection.
@@ -249,7 +218,7 @@ export const clearCachedData = async (options = {}) => {
 		item_prices: 0,
 		payment_methods: 0,
 		invoices: 0,
-		payments: 0,
+		operations: 0,
 		drafts: 0,
 		settings: 0,
 	}
@@ -262,10 +231,10 @@ export const clearCachedData = async (options = {}) => {
 		results.item_prices = await db.item_prices.clear()
 		results.payment_methods = await db.payment_methods.clear()
 
-		// Conditionally clear invoice and payment queues
+		// Conditionally clear invoice and operation queues
 		if (!preserveInvoices) {
 			results.invoices = await db.invoice_queue.clear()
-			results.payments = await db.payment_queue.clear()
+			results.operations = await db.operation_queue.clear()
 		}
 
 		// Conditionally clear drafts
@@ -303,10 +272,6 @@ export const nukeDatabase = async () => {
 		// Delete entire database
 		await Dexie.delete("ecs_posnext_offline")
 
-		// Clear localStorage schema tracking
-		localStorage.removeItem("ecs_posnext_schema_hash")
-		localStorage.removeItem("ecs_posnext_schema_version")
-
 		// Recreate database
 		await db.open()
 
@@ -333,12 +298,12 @@ export const clearBrowserCache = () => {
 		const keysToRemove = []
 		for (let i = 0; i < localStorage.length; i++) {
 			const key = localStorage.key(i)
-			if (key?.startsWith('ecs_posnext_') || key?.startsWith('frappe_')) {
+			if (key?.startsWith("ecs_posnext_") || key?.startsWith("frappe_")) {
 				keysToRemove.push(key)
 			}
 		}
 
-		keysToRemove.forEach(key => {
+		keysToRemove.forEach((key) => {
 			localStorage.removeItem(key)
 			results.localStorage++
 		})
@@ -347,12 +312,12 @@ export const clearBrowserCache = () => {
 		const sessionKeys = []
 		for (let i = 0; i < sessionStorage.length; i++) {
 			const key = sessionStorage.key(i)
-			if (key?.startsWith('ecs_posnext_') || key?.startsWith('frappe_')) {
+			if (key?.startsWith("ecs_posnext_") || key?.startsWith("frappe_")) {
 				sessionKeys.push(key)
 			}
 		}
 
-		sessionKeys.forEach(key => {
+		sessionKeys.forEach((key) => {
 			sessionStorage.removeItem(key)
 			results.sessionStorage++
 		})

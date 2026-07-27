@@ -78,9 +78,17 @@ def mark_employee_attendance(
 	date: str | datetime.date,
 	company: str | None = None,
 	shift: str | None = None,
+	op_id: str | None = None,
 ) -> None:
-	"""Mark Present/Absent attendance for the given employees on the given date."""
+	"""Mark Present/Absent attendance for the given employees on the given date.
+
+	Offline-safe: with an ``op_id`` (from the offline operation queue) a re-sync
+	is a no-op, and employees who already have attendance for the date are
+	skipped so the operation is idempotent per (employee, date).
+	"""
 	import json
+
+	from ecs_posnext.api.offline_ops import create_op_sync_record, ensure_op_once
 
 	if status not in ALLOWED_STATUSES:
 		frappe.throw(_("Status must be one of {0}").format(", ".join(ALLOWED_STATUSES)))
@@ -91,15 +99,33 @@ def mark_employee_attendance(
 	if not employee_list:
 		frappe.throw(_("Please select at least one employee."))
 
+	# Idempotency: this offline op already ran
+	if op_id and ensure_op_once(op_id, "attendance"):
+		return
+
 	if shift and not frappe.db.exists("Shift Type", shift):
 		frappe.throw(_("Shift Type {0} does not exist").format(shift))
 
+	attendance_date = frappe.utils.getdate(date)
+	marked_count = 0
+
 	for employee in employee_list:
+		# Skip if attendance already exists for this employee/date (dedup on re-sync)
+		if frappe.db.exists(
+			"Attendance",
+			{
+				"employee": employee,
+				"attendance_date": attendance_date,
+				"docstatus": ["<", 2],
+			},
+		):
+			continue
+
 		attendance = frappe.get_doc(
 			{
 				"doctype": "Attendance",
 				"employee": employee,
-				"attendance_date": frappe.utils.getdate(date),
+				"attendance_date": attendance_date,
 				"status": status,
 				"company": company,
 				"shift": shift,
@@ -107,5 +133,10 @@ def mark_employee_attendance(
 		)
 		attendance.insert(ignore_permissions=True)
 		attendance.submit()
+		marked_count += 1
+
+	# Record the offline op so re-syncs short-circuit above
+	if op_id:
+		create_op_sync_record(op_id, "attendance", "Attendance", f"{marked_count} marked")
 
 	frappe.db.commit()

@@ -846,6 +846,7 @@ import {
 	roundCurrency,
 } from "@/utils/currency"
 import { getPaymentIcon } from "@/utils/payment"
+import { enqueueOperation } from "@/utils/offline/operations"
 import { offlineWorker } from "@/utils/offline/workerClient"
 import { logger } from "@/utils/logger"
 import { Dialog, createResource, call } from "frappe-ui"
@@ -2399,18 +2400,29 @@ async function completePayment() {
 
 			let newCust
 			if (props.isOffline) {
-				// Offline: create local customer and cache it for later sync
+				// Offline: queue a customer operation and cache the customer under a
+				// temporary name. The queued invoice references this temp name; the
+				// customer op syncs first and remaps invoices to the real name.
+				const { op_id } = await enqueueOperation("customer", {
+					customer_name: trimmedName,
+					mobile_no: mobile,
+					customer_type: "Individual",
+					customer_group: "أفراد",
+					territory: "All Territories",
+				})
+				const localName = `OFFLINE-CUST-${op_id}`
 				newCust = {
-					name: trimmedName,
+					name: localName,
 					customer_name: trimmedName,
 					mobile_no: mobile,
 					customer_type: "Individual",
 					customer_group: "أفراد",
 					territory: "All Territories",
 					offline_created: true,
+					_op_id: op_id,
 				}
 				await customerSearchStore.addCustomerToCache(newCust)
-				log.debug("[PaymentDialog] Offline customer cached:", newCust)
+				log.debug("[PaymentDialog] Offline customer queued + cached:", newCust)
 			} else {
 				newCust = await call("frappe.client.insert", {
 					doc: {

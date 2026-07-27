@@ -230,9 +230,21 @@ def get_daily_payment_detail(name):
 def create_daily_payment(date, branch, employee=None, amount=None, mode_of_payment=None,
 						  payment_to_employees=0, expenses=0, loan_product=None,
 						  general_expenses=None, pos_opening_shift=None,
-						  deduction=0, salary_component=None):
-	"""Create a new Daily Payment record."""
+						  deduction=0, salary_component=None, op_id=None):
+	"""Create a new Daily Payment record.
+
+	Offline-safe: with an ``op_id`` (from the offline operation queue) a re-sync
+	returns the already-created record instead of duplicating it.
+	"""
 	import json
+
+	from ecs_posnext.api.offline_ops import create_op_sync_record, ensure_op_once
+
+	# Idempotency: this offline op already produced a record
+	if op_id:
+		existing_name = ensure_op_once(op_id, "daily_payment")
+		if existing_name:
+			return {"name": existing_name, "status": "submitted"}
 
 	doc = frappe.new_doc("Daily Payment")
 	doc.date = date
@@ -269,6 +281,11 @@ def create_daily_payment(date, branch, employee=None, amount=None, mode_of_payme
 
 	doc.insert(ignore_permissions=True)
 	doc.submit()
+
+	# Record the offline op so re-syncs short-circuit above
+	if op_id:
+		create_op_sync_record(op_id, "daily_payment", "Daily Payment", doc.name)
+
 	frappe.db.commit()
 
 	return {"name": doc.name, "status": "submitted"}

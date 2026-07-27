@@ -63,14 +63,81 @@ async function resolvePrintSettings(posProfile, printFormat, letterhead) {
 }
 
 // ============================================================================
-// Browser printing (renders server print HTML in a new window)
+// Browser printing (renders server print HTML in a hidden iframe)
 // ============================================================================
 
 /**
- * Fetch server-rendered print HTML/style for the invoice and open it in a new
- * browser window, triggering the OS print dialog automatically.
- * Falls back to the hardcoded receipt template if the popup is blocked or the
- * server render fails.
+ * Print an HTML document without opening a visible browser window.
+ *
+ * The receipt is rendered into an off-screen, same-origin iframe and printed
+ * from there, so the cashier never sees an extra `about:blank` tab. The browser
+ * itself still owns the print dialog: when Chrome runs with `--kiosk-printing`
+ * this prints straight to the default printer with no dialog at all, otherwise
+ * the OS/Chrome preview appears over the POS instead of in a popup window.
+ * For fully driverless silent printing use the QZ Tray path below.
+ *
+ * @param {string} fullHTML complete HTML document to print
+ * @returns {Promise<boolean>} resolves once printing finished (or timed out)
+ */
+function printHTMLInHiddenIframe(fullHTML) {
+	return new Promise((resolve, reject) => {
+		if (typeof document === "undefined") {
+			reject(new Error("No document available for printing"))
+			return
+		}
+
+		const iframe = document.createElement("iframe")
+		iframe.setAttribute("aria-hidden", "true")
+		iframe.setAttribute("tabindex", "-1")
+		iframe.style.cssText =
+			"position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none;"
+
+		let settled = false
+		const finish = (fn, value) => {
+			if (settled) return
+			settled = true
+			clearTimeout(watchdog)
+			// Keep the iframe alive briefly — removing it while the print job is
+			// still spooling cancels the job in some browsers.
+			setTimeout(() => iframe.remove(), 1000)
+			fn(value)
+		}
+
+		// Safety net: some browsers never fire `afterprint` (e.g. the user leaves
+		// the dialog open). Resolve anyway so the caller is not blocked forever.
+		const watchdog = setTimeout(() => finish(resolve, true), 60000)
+
+		iframe.onload = () => {
+			const frameWindow = iframe.contentWindow
+			if (!frameWindow) {
+				finish(reject, new Error("Print iframe has no content window"))
+				return
+			}
+
+			frameWindow.onafterprint = () => finish(resolve, true)
+
+			// Give fonts/images a tick to settle before handing off to the printer.
+			setTimeout(() => {
+				try {
+					frameWindow.focus()
+					frameWindow.print()
+				} catch (err) {
+					finish(reject, err)
+				}
+			}, 150)
+		}
+
+		iframe.onerror = () => finish(reject, new Error("Failed to load print iframe"))
+
+		iframe.srcdoc = fullHTML
+		document.body.appendChild(iframe)
+	})
+}
+
+/**
+ * Fetch server-rendered print HTML/style for the invoice and print it from a
+ * hidden iframe — no popup window, no manual click.
+ * Falls back to the hardcoded receipt template if the server render fails.
  */
 export async function printInvoice(invoiceData, printFormat = null, letterhead = null) {
 	try {
@@ -82,23 +149,13 @@ export async function printInvoice(invoiceData, printFormat = null, letterhead =
 			noLetterhead: letterhead ? 0 : 1,
 		})
 
-		const printWindow = window.open("", "_blank", "width=800,height=600")
-		if (!printWindow) {
-			throw new Error("Popup blocked — check your browser settings.")
-		}
-
 		const fullHTML = `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><style>${style}</style></head>
 <body>${html}</body>
 </html>`
 
-		printWindow.document.write(fullHTML)
-		printWindow.document.close()
-		printWindow.onload = () => {
-			printWindow.onafterprint = () => printWindow.close()
-			setTimeout(() => printWindow.print(), 250)
-		}
+		await printHTMLInHiddenIframe(fullHTML)
 		return true
 	} catch (error) {
 		log.error("Browser print failed:", error)
@@ -153,39 +210,45 @@ export async function silentPrintInvoice(invoiceName, printFormat = null) {
  * Try silent print, fall back to browser print on failure.
  * silentPrintInvoice → qzPrintHTML → connect() handles auto-reconnect
  * internally, so no separate connection logic is needed here.
+ *
+ * When the silent path fails the caller gets `reason` — the browser print
+ * dialog reappearing is otherwise indistinguishable from silent print being
+ * switched off, which makes a misconfigured till hard to spot on the floor.
+ *
+ * @returns {Promise<{method: "silent"|"browser", success: boolean, reason?: string}>}
  */
 export async function printWithSilentFallback(invoiceData, printFormat = null) {
 	const invoiceName = invoiceData?.name
 	if (!invoiceName) throw new Error("Invalid invoice data — missing name")
 
+	let reason
 	try {
 		await silentPrintInvoice(invoiceName, printFormat)
 		return { method: "silent", success: true }
 	} catch (err) {
-		log.warn("Silent print failed, falling back to browser:", err?.message || err)
+		reason = err?.message || String(err)
+		log.warn("Silent print failed, falling back to browser:", reason)
 	}
 
 	try {
 		await printInvoiceByName(invoiceName, printFormat)
-		return { method: "browser", success: true }
+		return { method: "browser", success: true, reason }
 	} catch (err) {
 		log.error("Browser print fallback also failed:", err)
-		return { method: "browser", success: false }
+		return { method: "browser", success: false, reason }
 	}
 }
 
 // ============================================================================
-// Hardcoded receipt fallback (used only when /printview popup is blocked)
+// Hardcoded receipt fallback (used when the server print render fails)
 // ============================================================================
 
 /**
  * Last-resort receipt renderer. Builds a complete HTML document from the
- * invoice data and writes it into a new window. Only triggered when the
- * popup is blocked or the server-rendered print HTML request fails.
+ * invoice data and prints it from a hidden iframe. Only triggered when the
+ * server-rendered print HTML request fails.
  */
 export function printInvoiceCustom(invoiceData) {
-	const printWindow = window.open("", "_blank", "width=350,height=600")
-
 	const printContent = `
 		<!DOCTYPE html>
 		<html>
@@ -293,18 +356,13 @@ export function printInvoiceCustom(invoiceData) {
 					<div style="font-size: 10px;">Powered by <a href="https://nexus.brainwise.me" target="_blank" style="color: #3b82f6; text-decoration: none; font-weight: 600;">BrainWise</a></div>
 				</div>
 			</div>
-
-			<div class="no-print" style="text-align: center; margin-top: 20px;">
-				<button onclick="window.print()" style="padding: 10px 20px; font-size: 14px; cursor: pointer;">${__("Print Receipt")}</button>
-				<button onclick="window.close()" style="padding: 10px 20px; font-size: 14px; cursor: pointer; margin-left: 10px;">${__("Close")}</button>
-			</div>
 		</body>
 		</html>`
 
-	printWindow.document.write(printContent)
-	printWindow.document.close()
-	printWindow.onload = () => {
-		printWindow.onafterprint = () => printWindow.close()
-		setTimeout(() => printWindow.print(), 250)
-	}
+	return printHTMLInHiddenIframe(printContent)
+		.then(() => true)
+		.catch((error) => {
+			log.error("Fallback receipt print failed:", error)
+			return false
+		})
 }

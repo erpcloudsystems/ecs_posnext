@@ -62,7 +62,7 @@ def get_customers(search_term="", pos_profile=None, limit=20, modified_since=Non
 
 
 @frappe.whitelist()
-def create_customer(customer_name, mobile_no=None, email_id=None, customer_group="أفراد", territory="All Territories", company=None):
+def create_customer(customer_name, mobile_no=None, email_id=None, customer_group="أفراد", territory="All Territories", company=None, op_id=None):
     """
     Create a new customer from POS.
 
@@ -73,16 +73,25 @@ def create_customer(customer_name, mobile_no=None, email_id=None, customer_group
         customer_group (str): Customer group (default: أفراد)
         territory (str): Territory (default: All Territories)
         company (str): Company (optional, used to auto-assign loyalty program)
+        op_id (str): Offline operation id — makes creation idempotent on re-sync
 
     Returns:
         dict: Created customer document
     """
+    from ecs_posnext.api.offline_ops import create_op_sync_record, ensure_op_once
+
     # Check if user has permission to create customers
     if not frappe.has_permission("Customer", "create"):
         frappe.throw(_("You don't have permission to create customers"), frappe.PermissionError)
 
     if not customer_name:
         frappe.throw(_("Customer name is required"))
+
+    # Idempotency: this offline op already created a customer — return it
+    if op_id:
+        existing_name = ensure_op_once(op_id, "customer")
+        if existing_name and frappe.db.exists("Customer", existing_name):
+            return frappe.get_doc("Customer", existing_name).as_dict()
 
     # Auto-assign loyalty program based on company
     loyalty_program = None
@@ -103,6 +112,9 @@ def create_customer(customer_name, mobile_no=None, email_id=None, customer_group
     )
 
     customer.insert()
+
+    if op_id:
+        create_op_sync_record(op_id, "customer", "Customer", customer.name)
 
     return customer.as_dict()
 

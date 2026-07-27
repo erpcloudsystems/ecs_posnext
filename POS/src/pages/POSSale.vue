@@ -2006,8 +2006,20 @@ async function handlePaymentCompleted(paymentData) {
 
 				if (shiftStore.autoPrintEnabled || posSettingsStore.silentPrint) {
 					try {
-						await handlePrintInvoice({ name: invoiceName });
-						showSuccess(__("Invoice {0} created and sent to printer", [invoiceName]));
+						const printResult = await handlePrintInvoice({ name: invoiceName });
+						// Silent print was requested but QZ Tray could not take the job —
+						// say so, otherwise the reappearing browser dialog looks like a bug
+						// rather than a printer that needs attention.
+						if (posSettingsStore.silentPrint && printResult?.method === "browser") {
+							showWarning(
+								__("Invoice {0} created. Silent print unavailable ({1}) — using browser print.", [
+									invoiceName,
+									printResult.reason || __("QZ Tray not reachable"),
+								])
+							);
+						} else {
+							showSuccess(__("Invoice {0} created and sent to printer", [invoiceName]));
+						}
 					} catch (error) {
 						log.error("Auto-print error:", error);
 						showWarning(__("Invoice {0} created but print failed", [invoiceName]));
@@ -2566,14 +2578,15 @@ async function handlePrintInvoice(invoiceData) {
 		if (posSettingsStore.silentPrint) {
 			const result = await printWithSilentFallback(invoiceData);
 			if (result.method === "browser") {
-				log.info("Used browser print fallback");
+				log.warn("Silent print unavailable, used browser fallback:", result.reason);
 			}
-			return;
+			return result;
 		}
 
 		// Standard browser print path — always fetch full invoice by name so
 		// sales_team and other child tables are available in the custom fallback too
 		await printInvoiceByName(invoiceData.name);
+		return { method: "browser", success: true };
 	} catch (error) {
 		log.error("Error printing invoice:", error);
 		window.frappe?.msgprint({

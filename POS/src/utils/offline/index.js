@@ -22,7 +22,6 @@ export {
 	deleteOfflineInvoice,
 	updateLocalStock,
 	getLocalStock,
-	saveOfflinePayment,
 	cacheInvoiceHistory,
 	getCachedInvoiceHistory,
 	clearInvoiceHistoryCache,

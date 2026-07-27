@@ -382,6 +382,9 @@ import { call } from "frappe-ui"
 import { computed, defineComponent, h, nextTick, reactive, ref, watch } from "vue"
 import { useToast } from "@/composables/useToast"
 import { logger } from "@/utils/logger"
+import { getSetting } from "@/utils/offline/db"
+import { enqueueOperation } from "@/utils/offline/operations"
+import { isOffline } from "@/utils/offline/sync"
 
 const log = logger.create("DailyPaymentForm")
 const { showSuccess, showError } = useToast()
@@ -478,6 +481,19 @@ async function onEmployeeSelect(value) {
 		form.company = ""
 		return
 	}
+	// Offline: resolve the name from the cached roster instead of the server
+	if (isOffline()) {
+		try {
+			const cached = await getSetting("attendance_employees", null)
+			const roster = [...(cached?.unmarked || []), ...(cached?.marked || [])]
+			const match = roster.find((e) => e.employee === value)
+			form.employee_name = match?.employee_name || ""
+			form.company = props.company || form.company || ""
+		} catch (e) {
+			log.error("Error resolving employee from cache:", e)
+		}
+		return
+	}
 	try {
 		const result = await call("frappe.client.get_value", {
 			doctype: "Employee",
@@ -540,7 +556,7 @@ async function handleSave() {
 	if (!validate()) return
 	saving.value = true
 	try {
-		await call("ecs_posnext.api.daily_payment.create_daily_payment", {
+		const payload = {
 			date: form.date,
 			branch: form.branch,
 			mode_of_payment: form.mode_of_payment || null,
@@ -553,7 +569,17 @@ async function handleSave() {
 			salary_component: form.deduction ? (form.salary_component || null) : null,
 			general_expenses: form.expenses ? JSON.stringify(form.general_expenses) : null,
 			pos_opening_shift: props.posOpeningShift || null,
-		})
+		}
+
+		if (isOffline()) {
+			await enqueueOperation("daily_payment", payload)
+			showSuccess(__("Daily Payment queued — will sync when back online"))
+			emit("saved")
+			handleClose()
+			return
+		}
+
+		await call("ecs_posnext.api.daily_payment.create_daily_payment", payload)
 		showSuccess(__("Daily Payment created successfully"))
 		emit("saved")
 		handleClose()
@@ -592,6 +618,34 @@ const LinkInput = defineComponent({
 		async function search(txt) {
 			searching.value = true
 			try {
+				// Offline: server link search is unavailable. For Employees, fall
+				// back to the roster cached by the attendance screen; other doctypes
+				// simply offer no suggestions (the field stays free-text).
+				if (isOffline()) {
+					if (props.doctype === "Employee") {
+						const cached = await getSetting("attendance_employees", null)
+						const roster = [
+							...(cached?.unmarked || []),
+							...(cached?.marked || []),
+						]
+						const q = (txt || "").toLowerCase()
+						results.value = roster
+							.filter(
+								(e) =>
+									!q ||
+									`${e.employee} ${e.employee_name || ""}`
+										.toLowerCase()
+										.includes(q),
+							)
+							.slice(0, 20)
+							.map((e) => ({ value: e.employee, description: e.employee_name }))
+					} else {
+						results.value = []
+					}
+					open.value = results.value.length > 0
+					return
+				}
+
 				const params = {
 					txt: txt || "",
 					doctype: props.doctype,

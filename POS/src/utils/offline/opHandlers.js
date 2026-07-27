@@ -40,8 +40,7 @@ const remapQueuedInvoicesOpeningShift = async (localName, realName) => {
 	try {
 		const modified = await db.invoice_queue
 			.filter(
-				(inv) =>
-					!inv.synced && inv.data?.posa_pos_opening_shift === localName,
+				(inv) => !inv.synced && inv.data?.posa_pos_opening_shift === localName,
 			)
 			.modify((inv) => {
 				inv.data.posa_pos_opening_shift = realName
@@ -90,9 +89,34 @@ const resolveOpeningShiftName = async (localName, opId) => {
 	// Not yet resolvable — throw so the close_shift op stays queued and retries
 	// after the open_shift op syncs, rather than creating a closing for a
 	// non-existent opening.
-	throw new Error(
-		`SYNC_IN_PROGRESS: opening shift ${localName} not yet synced`,
-	)
+	throw new Error(`SYNC_IN_PROGRESS: opening shift ${localName} not yet synced`)
+}
+
+/**
+ * Rewrite the customer reference on queued (unsynced) invoices from a temporary
+ * offline customer name to the real server name, so invoices reference a
+ * customer that exists after the customer op has synced.
+ * @param {string} localName
+ * @param {string} realName
+ */
+const remapQueuedInvoicesCustomer = async (localName, realName) => {
+	if (!localName || !realName || localName === realName) return
+	try {
+		const modified = await db.invoice_queue
+			.filter((inv) => !inv.synced && inv.data?.customer === localName)
+			.modify((inv) => {
+				inv.data.customer = realName
+			})
+		if (modified) {
+			log.info("Remapped customer on queued invoices", {
+				localName,
+				realName,
+				count: modified,
+			})
+		}
+	} catch (error) {
+		log.error("Failed to remap queued invoices' customer", error)
+	}
 }
 
 let registered = false
@@ -139,14 +163,75 @@ export const registerOfflineOpHandlers = () => {
 	registerOpHandler("close_shift", {
 		method: "ecs_posnext.api.shifts.submit_closing_shift",
 		buildParams: async (data) => {
-			const closing = { ...(data.closing_shift || {}) }
-			// Ensure the closing references the real opening-shift name
+			const offlineClosing = data.closing_shift || {}
+
+			// Resolve the real (server) opening-shift name
 			const realOpening = await resolveOpeningShiftName(
-				closing.pos_opening_shift || data.opening_shift_local_name,
+				offlineClosing.pos_opening_shift || data.opening_shift_local_name,
 				data.opening_op_id,
 			)
-			closing.pos_opening_shift = realOpening
-			return { closing_shift: JSON.stringify(closing) }
+
+			const { call } = await import("@/utils/apiWrapper")
+
+			// Rebuild the authoritative closing structure from the server (correct
+			// child-table shape + server-computed expected amounts), then overlay
+			// the amounts the cashier actually counted offline.
+			const serverClosing = await call(
+				"ecs_posnext.api.shifts.get_closing_shift_data",
+				{ opening_shift: realOpening },
+			)
+
+			const countedByMode = {}
+			for (const p of offlineClosing.payment_reconciliation || []) {
+				if (p?.mode_of_payment != null) {
+					countedByMode[p.mode_of_payment] = p.closing_amount
+				}
+			}
+			if (serverClosing?.payment_reconciliation) {
+				for (const p of serverClosing.payment_reconciliation) {
+					if (countedByMode[p.mode_of_payment] != null) {
+						p.closing_amount = countedByMode[p.mode_of_payment]
+					}
+				}
+			}
+
+			return { closing_shift: JSON.stringify(serverClosing) }
+		},
+	})
+
+	// --- attendance -------------------------------------------------------
+	registerOpHandler("attendance", {
+		method: "ecs_posnext.api.employee_attendance.mark_employee_attendance",
+		buildParams: (data) => ({
+			employee_list: JSON.stringify(data.employee_list || []),
+			status: data.status,
+			date: data.date,
+			company: data.company || null,
+			shift: data.shift || null,
+		}),
+	})
+
+	// --- daily_payment ----------------------------------------------------
+	registerOpHandler("daily_payment", {
+		method: "ecs_posnext.api.daily_payment.create_daily_payment",
+		buildParams: (data) => ({ ...data }),
+	})
+
+	// --- customer ---------------------------------------------------------
+	registerOpHandler("customer", {
+		method: "ecs_posnext.api.customers.create_customer",
+		buildParams: (data) => ({
+			customer_name: data.customer_name,
+			mobile_no: data.mobile_no || null,
+			email_id: data.email_id || null,
+			customer_group: data.customer_group || undefined,
+			territory: data.territory || undefined,
+			company: data.company || null,
+		}),
+		onSynced: async (op, refName) => {
+			// The temp name used on invoices is derived deterministically from op_id
+			const localName = `OFFLINE-CUST-${op.op_id}`
+			await remapQueuedInvoicesCustomer(localName, refName)
 		},
 	})
 

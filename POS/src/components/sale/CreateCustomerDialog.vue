@@ -186,7 +186,10 @@
 import { usePOSPermissions } from "@/composables/usePermissions"
 import { useToast } from "@/composables/useToast"
 import { useCountriesStore } from "@/stores/countries"
+import { useCustomerSearchStore } from "@/stores/customerSearch"
 import { logger } from "@/utils/logger"
+import { enqueueOperation } from "@/utils/offline/operations"
+import { isOffline } from "@/utils/offline/sync"
 import { Button, Dialog, Input, createResource } from "frappe-ui"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 
@@ -197,6 +200,7 @@ const log = logger.create("CreateCustomerDialog")
 // =============================================================================
 
 const countriesStore = useCountriesStore()
+const customerSearchStore = useCustomerSearchStore()
 const { canCreateCustomer } = usePOSPermissions()
 const { showSuccess, showError } = useToast()
 
@@ -449,6 +453,41 @@ const handleCreate = async () => {
 	if (!customerData.value.customer_name) {
 		return showError(__("Customer Name is required"))
 	}
+
+	// Offline: editing an existing server customer isn't supported; new customers
+	// are queued and cached under a temp name (remapped onto invoices on sync).
+	if (isOffline()) {
+		if (isEditMode.value) {
+			return showError(__("Editing customers is unavailable offline"))
+		}
+		const { op_id } = await enqueueOperation("customer", {
+			customer_name: customerData.value.customer_name,
+			mobile_no: customerData.value.mobile_no || "",
+			email_id: customerData.value.email_id || "",
+			customer_group: customerData.value.customer_group || "أفراد",
+			territory: customerData.value.territory || "All Territories",
+		})
+		const newCust = {
+			name: `OFFLINE-CUST-${op_id}`,
+			customer_name: customerData.value.customer_name,
+			mobile_no: customerData.value.mobile_no || "",
+			email_id: customerData.value.email_id || "",
+			customer_group: customerData.value.customer_group || "أفراد",
+			territory: customerData.value.territory || "All Territories",
+			offline_created: true,
+			_op_id: op_id,
+		}
+		try {
+			await customerSearchStore.addCustomerToCache(newCust)
+		} catch (err) {
+			log.error("Failed to cache offline customer", err)
+		}
+		showSuccess(__("Customer queued — will sync when back online"))
+		emit("customer-created", newCust)
+		show.value = false
+		return
+	}
+
 	if (isEditMode.value) {
 		await updateCustomerResource.submit()
 	} else {

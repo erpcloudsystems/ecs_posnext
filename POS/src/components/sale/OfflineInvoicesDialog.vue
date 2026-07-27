@@ -1,5 +1,5 @@
 <template>
-	<Dialog v-model="show" :options="{ title: __('Offline Invoices'), size: 'xl' }">
+	<Dialog v-model="show" :options="{ title: __('Pending Sync'), size: 'xl' }">
 		<template #body-content>
 			<div class="flex flex-col gap-3 sm:flex flex-col gap-4">
 				<!-- Header Info -->
@@ -14,7 +14,7 @@
 						</div>
 					</div>
 					<Button
-						v-if="!isOffline && invoices.length > 0"
+						v-if="!isOffline && (invoices.length > 0 || operations.length > 0)"
 						@click="syncAll"
 						:loading="isSyncing"
 						variant="solid"
@@ -35,15 +35,15 @@
 				</div>
 
 				<!-- Empty State -->
-				<div v-else-if="invoices.length === 0" class="text-center py-12">
+				<div v-else-if="invoices.length === 0 && operations.length === 0" class="text-center py-12">
 					<svg class="w-16 h-16 mx-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
 					</svg>
-					<p class="mt-4 text-gray-500">{{ __('No pending offline invoices') }}</p>
+					<p class="mt-4 text-gray-500">{{ __('Nothing pending sync') }}</p>
 				</div>
 
 				<!-- Invoices List -->
-				<div v-else class="flex flex-col gap-2 sm:flex flex-col gap-3 max-h-[60vh] sm:max-h-96 overflow-y-auto">
+				<div v-else-if="invoices.length > 0" class="flex flex-col gap-2 sm:flex flex-col gap-3 max-h-[60vh] sm:max-h-96 overflow-y-auto">
 					<div
 						v-for="invoice in invoices"
 						:key="invoice.id"
@@ -110,6 +110,56 @@
 									:title="__('Delete')"
 								>
 									<svg class="w-4 h-4 sm:w-5 sm:h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+									</svg>
+								</button>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<!-- Queued Operations (shift / attendance / daily payment / customer) -->
+				<div v-if="operations.length > 0" class="flex flex-col gap-2">
+					<h3 class="text-sm font-semibold text-gray-900">
+						{{ __('{0} Pending Operation(s)', [operations.length]) }}
+					</h3>
+					<div class="flex flex-col gap-2 max-h-64 overflow-y-auto">
+						<div
+							v-for="op in operations"
+							:key="op.id"
+							class="border border-gray-200 rounded-lg p-3 flex items-center justify-between gap-3"
+						>
+							<div class="min-w-0">
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="font-medium text-gray-900 text-sm truncate">{{ opTitle(op) }}</span>
+									<span
+										v-if="op.sync_failed"
+										class="text-[10px] px-2 py-0.5 bg-red-100 text-red-700 rounded-full flex-shrink-0"
+									>
+										{{ __('{0} failed', [op.retry_count]) }}
+									</span>
+								</div>
+								<p v-if="op.last_error" class="text-[10px] text-red-500 truncate mt-0.5">{{ op.last_error }}</p>
+								<p class="text-[10px] text-gray-500 mt-0.5">{{ formatDate(op.timestamp) }}</p>
+							</div>
+							<div class="flex items-center gap-1 flex-shrink-0">
+								<button
+									v-if="!isOffline"
+									@click="retryOperation(op)"
+									:disabled="retryingOpId === op.id"
+									class="p-1.5 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+									:title="__('Retry')"
+								>
+									<svg class="w-4 h-4 text-blue-600" :class="retryingOpId === op.id ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+									</svg>
+								</button>
+								<button
+									@click="deleteOp(op)"
+									class="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+									:title="__('Delete')"
+								>
+									<svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
 									</svg>
 								</button>
@@ -220,7 +270,16 @@
 </template>
 
 <script setup>
-import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "@/utils/currency"
+import {
+	DEFAULT_CURRENCY,
+	formatCurrency as formatCurrencyUtil,
+} from "@/utils/currency"
+import {
+	deleteOperation,
+	getPendingOperations,
+	resetOperationFailure,
+	syncOfflineOperations,
+} from "@/utils/offline"
 import { Button, Dialog } from "frappe-ui"
 import { computed, ref, watch } from "vue"
 
@@ -264,17 +323,70 @@ const showDetails = ref(false)
 const showDeleteConfirm = ref(false)
 const invoiceToDelete = ref(null)
 
+// Queued non-invoice operations (shift / attendance / daily payment / customer)
+const operations = ref([])
+const retryingOpId = ref(null)
+
 // Load invoices when dialog opens
 watch(show, async (newVal) => {
 	if (newVal) {
 		await loadInvoices()
+		await loadOperations()
 	}
 })
 
+async function loadOperations() {
+	try {
+		operations.value = await getPendingOperations()
+	} catch (error) {
+		console.error("Error loading pending operations:", error)
+		operations.value = []
+	}
+}
+
+const OP_LABELS = {
+	open_shift: () => __("Open shift"),
+	close_shift: () => __("Close shift"),
+	attendance: (d) =>
+		__("Attendance — {0} employee(s) · {1}", [
+			d.employee_list?.length || 0,
+			d.status || "",
+		]),
+	daily_payment: (d) => __("Daily payment — {0}", [d.branch || ""]),
+	customer: (d) => __("New customer — {0}", [d.customer_name || ""]),
+}
+
+function opTitle(op) {
+	const fn = OP_LABELS[op.type]
+	return fn ? fn(op.data || {}) : op.type
+}
+
+async function retryOperation(op) {
+	if (props.isOffline) return
+	retryingOpId.value = op.id
+	try {
+		await resetOperationFailure(op.id)
+		await syncOfflineOperations()
+	} catch (error) {
+		console.error("Error retrying operation:", error)
+	} finally {
+		retryingOpId.value = null
+		await loadOperations()
+	}
+}
+
+async function deleteOp(op) {
+	await deleteOperation(op.id)
+	await loadOperations()
+}
+
 // Watch for prop changes (e.g., after delete or sync)
-watch(() => props.pendingInvoices, (newInvoices) => {
-	invoices.value = newInvoices
-})
+watch(
+	() => props.pendingInvoices,
+	(newInvoices) => {
+		invoices.value = newInvoices
+	},
+)
 
 async function loadInvoices() {
 	loading.value = true
@@ -299,9 +411,9 @@ function formatDate(timestamp) {
 
 	if (diffInSeconds < 60) return __("Just now")
 	if (diffInSeconds < 3600)
-		return __('{0} minutes ago', [Math.floor(diffInSeconds / 60)])
+		return __("{0} minutes ago", [Math.floor(diffInSeconds / 60)])
 	if (diffInSeconds < 86400)
-		return __('{0} hours ago', [Math.floor(diffInSeconds / 3600)])
+		return __("{0} hours ago", [Math.floor(diffInSeconds / 3600)])
 
 	return date.toLocaleDateString() + " " + date.toLocaleTimeString()
 }
@@ -316,8 +428,16 @@ function editInvoice(invoice) {
 	show.value = false
 }
 
-function syncAll() {
-	emit("sync-all")
+async function syncAll() {
+	emit("sync-all") // parent flushes the invoice queue
+	if (!props.isOffline) {
+		try {
+			await syncOfflineOperations()
+		} catch (error) {
+			console.error("Error syncing operations:", error)
+		}
+		await loadOperations()
+	}
 }
 
 function deleteInvoice(invoice) {

@@ -49,7 +49,10 @@ export const pingServer = async () => {
 
 	try {
 		const controller = new AbortController()
-		const timeoutId = setTimeout(() => controller.abort(), SYNC_CONFIG.PING_TIMEOUT_MS)
+		const timeoutId = setTimeout(
+			() => controller.abort(),
+			SYNC_CONFIG.PING_TIMEOUT_MS,
+		)
 
 		const response = await fetch("/api/method/ecs_posnext.api.ping", {
 			method: "GET",
@@ -182,7 +185,8 @@ export const checkOfflineIdSynced = async (offlineId) => {
  * @returns {{isDuplicate: boolean, invoiceName: string|null}}
  */
 const checkDuplicateError = (error) => {
-	const errorMessage = error?.message || error?.exc || error?.title || String(error)
+	const errorMessage =
+		error?.message || error?.exc || error?.title || String(error)
 	const isDuplicate = DUPLICATE_ERROR_PATTERNS.some((pattern) =>
 		errorMessage.includes(pattern),
 	)
@@ -199,7 +203,8 @@ const checkDuplicateError = (error) => {
  * @returns {boolean}
  */
 const isSyncInProgressError = (error) => {
-	const errorMessage = error?.message || error?.exc || error?.title || String(error)
+	const errorMessage =
+		error?.message || error?.exc || error?.title || String(error)
 	return SYNC_IN_PROGRESS_PATTERNS.some((pattern) =>
 		errorMessage.includes(pattern),
 	)
@@ -210,7 +215,7 @@ const isSyncInProgressError = (error) => {
  * @param {number} ms - Milliseconds to wait
  * @returns {Promise<void>}
  */
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // ============================================================================
 // SYNC OPERATIONS
@@ -250,21 +255,23 @@ const handleSyncFailure = async (invoice, errorMessage) => {
  * Returns empty string for invalid/malformed values.
  */
 const stringifyPricingRules = (value) => {
-	if (!value) return ''
-	if (Array.isArray(value)) return value.filter(Boolean).join(',')
-	if (typeof value !== 'string') return ''
+	if (!value) return ""
+	if (Array.isArray(value)) return value.filter(Boolean).join(",")
+	if (typeof value !== "string") return ""
 
 	const stripped = value.trim()
-	if (!stripped.startsWith('[')) return stripped
+	if (!stripped.startsWith("[")) return stripped
 
 	try {
 		const parsed = JSON.parse(stripped)
-		if (Array.isArray(parsed)) return parsed.filter(Boolean).join(',')
+		if (Array.isArray(parsed)) return parsed.filter(Boolean).join(",")
 	} catch (e) {
-		log.warn('Invalid pricing_rules JSON, clearing value', { value: stripped.slice(0, 100) })
-		return ''
+		log.warn("Invalid pricing_rules JSON, clearing value", {
+			value: stripped.slice(0, 100),
+		})
+		return ""
 	}
-	return ''
+	return ""
 }
 
 /**
@@ -290,7 +297,7 @@ const normalizeInvoiceForSync = (invoiceData, offlineId) => ({
  */
 const syncInvoiceToServer = async (invoice, retryCount = 0) => {
 	const MAX_IN_PROGRESS_RETRIES = 3
-	const IN_PROGRESS_WAIT_MS = 2000  // Wait 2 seconds between retries
+	const IN_PROGRESS_WAIT_MS = 2000 // Wait 2 seconds between retries
 
 	const offlineId = invoice.offline_id || invoice.data?.offline_id
 
@@ -384,7 +391,9 @@ export const syncOfflineInvoices = async () => {
 				const { isDuplicate, invoiceName } = checkDuplicateError(error)
 				if (isDuplicate) {
 					await markInvoiceSynced(invoice.id, invoiceName)
-					log.debug("Invoice is duplicate, marked as synced", { id: invoice.id })
+					log.debug("Invoice is duplicate, marked as synced", {
+						id: invoice.id,
+					})
 					result.skipped++
 					continue
 				}
@@ -471,32 +480,13 @@ export const getLocalStock = async (itemCode, warehouse) => {
 		const stock = await db.stock.get({ item_code: itemCode, warehouse })
 		return stock?.qty || 0
 	} catch (error) {
-		log.error("Failed to get local stock", { item_code: itemCode, warehouse, error })
+		log.error("Failed to get local stock", {
+			item_code: itemCode,
+			warehouse,
+			error,
+		})
 		return 0
 	}
-}
-
-// ============================================================================
-// OFFLINE PAYMENT OPERATIONS
-// ============================================================================
-
-/**
- * Save payment to offline queue
- * @param {Object} paymentData - Payment data
- * @returns {Promise<boolean>}
- */
-export const saveOfflinePayment = async (paymentData) => {
-	const cleanData = JSON.parse(JSON.stringify(paymentData))
-
-	await db.payment_queue.add({
-		data: cleanData,
-		timestamp: Date.now(),
-		synced: false,
-		retry_count: 0,
-	})
-
-	log.info("Payment saved to offline queue")
-	return true
 }
 
 // ============================================================================
@@ -569,8 +559,12 @@ export const getCachedInvoiceHistory = async (posProfile, options = {}) => {
 
 		// Sort by posting_date descending (newest first)
 		invoices.sort((a, b) => {
-			const dateA = new Date(b.posting_date + " " + (b.posting_time || "00:00:00"))
-			const dateB = new Date(a.posting_date + " " + (a.posting_time || "00:00:00"))
+			const dateA = new Date(
+				b.posting_date + " " + (b.posting_time || "00:00:00"),
+			)
+			const dateB = new Date(
+				a.posting_date + " " + (a.posting_time || "00:00:00"),
+			)
 			return dateA - dateB
 		})
 
@@ -658,15 +652,15 @@ export const getCachedUnpaidInvoices = async (posProfile, options = {}) => {
 			return []
 		}
 
-		let invoices = await db.unpaid_invoices
+		const invoices = await db.unpaid_invoices
 			.where("pos_profile")
 			.equals(posProfile)
 			.toArray()
 
 		// Sort by outstanding_amount descending (highest first)
 		invoices.sort((a, b) => {
-			const amountA = parseFloat(b.outstanding_amount || 0)
-			const amountB = parseFloat(a.outstanding_amount || 0)
+			const amountA = Number.parseFloat(b.outstanding_amount || 0)
+			const amountB = Number.parseFloat(a.outstanding_amount || 0)
 			return amountA - amountB
 		})
 

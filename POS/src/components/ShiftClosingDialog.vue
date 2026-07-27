@@ -1,8 +1,8 @@
 <template>
-  <Dialog v-model="open" :options="{ title: __('Close POS Shift mahmoud'), size: '4xl' }">
+  <Dialog v-model="open" :options="{ title: __('Close POS Shift'), size: '4xl' }">
     <template #body-content>
       <div class="flex flex-col gap-3 md:gap-6">
-        <div v-if="closingDataResource.loading" class="text-center py-8 md:py-12">
+        <div v-if="isLoadingData" class="text-center py-8 md:py-12">
           <div class="inline-block animate-spin rounded-full h-12 w-12 md:h-16 md:w-16 border-b-4 border-blue-600">
           </div>
           <p class="mt-3 md:mt-4 text-base md:text-lg font-medium text-gray-600">{{ __('Loading shift data...') }}</p>
@@ -251,7 +251,7 @@
                     <div class="w-40 md:w-48">
                       <Input :id="`payment-${idx}`" :modelValue="payment.closing_amount"
                         @update:modelValue="(value) => updateClosingAmount(payment, value)" type="number" step="10"
-                        min="0" placeholder="0.00" :disabled="submitResource.loading"
+                        min="0" placeholder="0.00" :disabled="isSubmitting"
                         :aria-label="__('Enter actual amount for {0}', [payment.mode_of_payment])"
                         class="text-base md:text-lg text-center font-semibold" />
                     </div>
@@ -333,7 +333,7 @@
                       </label>
                       <Input :modelValue="payment.closing_amount"
                         @update:modelValue="(value) => updateClosingAmount(payment, value)" type="number" step="0.01"
-                        min="0" placeholder="0.00" :disabled="showSuccessReport || submitResource.loading"
+                        min="0" placeholder="0.00" :disabled="showSuccessReport || isSubmitting"
                         :aria-label="`Enter actual amount for ${payment.mode_of_payment}`"
                         class="text-base md:text-lg" />
                       <div class="text-xs text-gray-500 mt-0.5 md:mt-1 hidden sm:block">
@@ -468,7 +468,7 @@
     <template #actions>
       <div class="flex flex-col sm:flex-row justify-between w-full items-stretch sm:items-center gap-2 sm:gap-0">
         <!-- Left side - Cancel/Close button -->
-        <Button variant="subtle" @click="closeDialog" :disabled="submitResource.loading" class="order-2 sm:order-1">
+        <Button variant="subtle" @click="closeDialog" :disabled="isSubmitting" class="order-2 sm:order-1">
           {{ showSuccessReport ? __('Close') : __('Cancel') }}
         </Button>
 
@@ -486,8 +486,8 @@
 
           <!-- Submit/Close button (only shown in entry mode) -->
           <Button v-if="!showSuccessReport" variant="solid" theme="blue" @click="submitClosing"
-            :loading="submitResource.loading" :disabled="!canSubmit">
-            {{ submitResource.loading ? __('Closing Shift...') : __('Close Shift') }}
+            :loading="isSubmitting" :disabled="!canSubmit">
+            {{ isSubmitting ? __('Closing Shift...') : __('Close Shift') }}
           </Button>
         </div>
       </div>
@@ -499,6 +499,7 @@
 import { Button, Dialog, Input } from "frappe-ui"
 import { storeToRefs } from "pinia"
 import { computed, reactive, ref, watch } from "vue"
+import { isOffline } from "@/utils/offline/sync"
 import { useFormatters } from "../composables/useFormatters"
 import { useShift } from "../composables/useShift"
 import { usePOSSettingsStore } from "../stores/posSettings"
@@ -523,7 +524,12 @@ const open = computed({
   set: (value) => emit("update:modelValue", value),
 })
 
-const { getClosingShiftData, submitClosingShift } = useShift()
+const {
+  getClosingShiftData,
+  submitClosingShift,
+  buildOfflineClosingData,
+  submitClosingShiftOffline,
+} = useShift()
 const { formatCurrency, formatQuantity, formatDateTime, formatTime } = useFormatters()
 const posSettingsStore = usePOSSettingsStore()
 const { hideExpectedAmount } = storeToRefs(posSettingsStore)
@@ -534,6 +540,12 @@ const submitResource = submitClosingShift
 const showInvoiceDetails = ref(false)
 const showSuccessReport = ref(false) // Track if shift is closed and showing report
 const errorMessage = ref('') // User-friendly error message
+
+// Offline loading/submit state (the createResources aren't used offline)
+const offlineLoading = ref(false)
+const offlineSubmitting = ref(false)
+const isLoadingData = computed(() => closingDataResource.loading || offlineLoading.value)
+const isSubmitting = computed(() => submitResource.loading || offlineSubmitting.value)
 
 // Watch dialog open state
 watch(open, async (isOpen) => {
@@ -548,9 +560,19 @@ async function loadClosingData() {
   try {
     errorMessage.value = '' // Clear any previous errors
 
-    const data = await closingDataResource.submit({
-      opening_shift: props.openingShift,
-    })
+    let data
+    if (isOffline()) {
+      offlineLoading.value = true
+      try {
+        data = await buildOfflineClosingData(props.openingShift)
+      } finally {
+        offlineLoading.value = false
+      }
+    } else {
+      data = await closingDataResource.submit({
+        opening_shift: props.openingShift,
+      })
+    }
 
     // Make payment_reconciliation reactive
     if (data.payment_reconciliation) {
@@ -619,12 +641,23 @@ async function submitClosing() {
       })
     }
 
-    // Submit to server
-    const result = await submitResource.submit({ closing_shift: closingData.value })
+    if (isOffline()) {
+      // Offline: queue the closing and render the Z-report locally
+      offlineSubmitting.value = true
+      try {
+        await submitClosingShiftOffline(closingData.value)
+      } finally {
+        offlineSubmitting.value = false
+      }
+      printClosingShiftLocal(closingData.value)
+    } else {
+      // Submit to server
+      const result = await submitResource.submit({ closing_shift: closingData.value })
 
-    // Print closing shift
-    if (result && result.name) {
-      printClosingShift(result.name)
+      // Print closing shift
+      if (result && result.name) {
+        printClosingShift(result.name)
+      }
     }
 
     // If hideExpectedAmount is enabled, show success report before closing
@@ -656,6 +689,67 @@ function printClosingShift(name) {
     _t: Date.now(),
   })
   window.open(`/printview?${params.toString()}`, '_blank', 'width=800,height=600')
+}
+
+// Render a Z-report locally when closing offline (the server regenerates the
+// official document on sync). Opens a printable window built from local totals.
+function printClosingShiftLocal(data) {
+  try {
+    const rows = (data.payment_reconciliation || [])
+      .map(
+        (p) => `<tr>
+          <td>${p.mode_of_payment}</td>
+          <td class="num">${formatCurrency(p.opening_amount)}</td>
+          <td class="num">${formatCurrency(p.expected_amount)}</td>
+          <td class="num">${formatCurrency(p.closing_amount || 0)}</td>
+          <td class="num">${formatCurrency((Number(p.closing_amount) || 0) - Number(p.expected_amount || 0))}</td>
+        </tr>`,
+      )
+      .join("")
+
+    const html = `<!doctype html><html><head><meta charset="utf-8">
+      <title>${__("Shift Closing (Offline)")}</title>
+      <style>
+        body{font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#111;padding:16px;max-width:420px;margin:0 auto}
+        h2{text-align:center;margin:0 0 4px}
+        .muted{color:#666;text-align:center;margin:0 0 12px;font-size:11px}
+        table{width:100%;border-collapse:collapse;margin:8px 0}
+        th,td{border-bottom:1px solid #ddd;padding:5px 6px;text-align:left}
+        th{background:#f3f4f6}
+        .num{text-align:right;font-variant-numeric:tabular-nums}
+        .tot{display:flex;justify-content:space-between;padding:4px 6px;font-weight:bold}
+        .badge{display:inline-block;background:#fde68a;color:#92400e;border-radius:4px;padding:2px 8px;font-size:10px}
+      </style></head><body>
+      <h2>${__("Shift Closing (Z-Report)")}</h2>
+      <p class="muted">
+        <span class="badge">${__("OFFLINE — pending sync")}</span><br>
+        ${data.pos_profile || ""}<br>
+        ${data.period_start_date ? formatDateTime(data.period_start_date) : ""}
+      </p>
+      <div class="tot"><span>${__("Gross Sales")}</span><span>${formatCurrency(data.sales_total || data.grand_total || 0)}</span></div>
+      <div class="tot"><span>${__("Net Sales")}</span><span>${formatCurrency(data.grand_total || 0)}</span></div>
+      <div class="tot"><span>${__("Invoices")}</span><span>${data.sales_count || 0}</span></div>
+      <table>
+        <thead><tr>
+          <th>${__("Method")}</th><th class="num">${__("Opening")}</th>
+          <th class="num">${__("Expected")}</th><th class="num">${__("Actual")}</th>
+          <th class="num">${__("Diff")}</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="muted">${__("Official figures are confirmed when this shift syncs to the server.")}</p>
+      <script>window.onload=function(){window.print()}<\/script>
+      </body></html>`
+
+    const win = window.open("", "_blank", "width=480,height=640")
+    if (win) {
+      win.document.open()
+      win.document.write(html)
+      win.document.close()
+    }
+  } catch (error) {
+    console.error("Error rendering offline Z-report:", error)
+  }
 }
 
 function closeDialog() {
