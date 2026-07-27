@@ -39,7 +39,7 @@ def _send_telegram(message):
         response = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message})
         response.raise_for_status()
     except Exception:
-        frappe.log_error(frappe.get_traceback(), "POS OTP Telegram Send Error")
+        frappe.log_error("POS OTP Telegram Send Error", frappe.get_traceback())
 
 
 def _generate_and_send(context, pos_profile, message_lines):
@@ -53,6 +53,7 @@ def _generate_and_send(context, pos_profile, message_lines):
     frappe.cache().set_value(cooldown_key, "1", expires_in_sec=RESEND_COOLDOWN_SEC)
 
     _send_telegram("\n".join([*message_lines, f"OTP: {otp}"]))
+
     return {"sent": True}
 
 

@@ -1062,10 +1062,12 @@ def update_invoice(data):
 
         # A ~100% discount combined with an inclusive tax can leave a tiny
         # negative grand_total (rounding in ERPNext's inclusive-tax
-        # reconciliation). Core re-runs calculate_taxes_and_totals() during
-        # submit and rejects any negative base_grand_total, so the correction
-        # has to live in discount_amount itself (persisted to the draft) or
-        # it gets recomputed away and fails again at submit time.
+        # reconciliation). This first pass catches the common case, but
+        # core reruns set_missing_values(for_validate=True) + calculate_
+        # taxes_and_totals() again inside save()'s own validate(), which can
+        # shift the rounding again after this point — see
+        # _save_with_grand_total_correction below for the safety net that
+        # actually fixes this at submit-time.
         grand_total_rounding_tolerance = 0.05
         for _ in range(3):
             if flt(invoice_doc.grand_total) >= 0:
@@ -1142,7 +1144,7 @@ def update_invoice(data):
         invoice_doc.flags.ignore_permissions = True
         frappe.flags.ignore_account_permission = True
         invoice_doc.docstatus = 0
-        _with_deadlock_retry(invoice_doc.save)
+        _save_with_grand_total_correction(invoice_doc)
 
         # Re-apply payment amounts after save.
         # ERPNext's set_pos_fields (called inside save → set_missing_values) clears
@@ -1418,6 +1420,38 @@ def _with_deadlock_retry(fn, max_attempts=3):
             time.sleep(0.5 * (attempt + 1))
 
 
+def _save_with_grand_total_correction(invoice_doc, max_attempts=5, tolerance=0.5):
+    """Save invoice_doc, self-healing a tiny negative grand total.
+
+    invoice_doc.calculate_taxes_and_totals() is called once before save() to
+    pre-correct the common case, but Document.insert() -> validate() reruns
+    set_missing_values(for_validate=True) and calculate_taxes_and_totals()
+    itself right before checking base_grand_total >= 0, so a near-100%
+    discount can still land a hair negative by the time that check runs —
+    after our own pre-save pass already looked fine. Rather than guess at
+    that recomputation, retry against the doc's own post-failure totals:
+    on that specific failure, shave the shortfall off discount_amount and
+    retry save() (which recalculates from scratch), bounded by tolerance so
+    a real (non-rounding) negative total still surfaces to the caller.
+    """
+    for attempt in range(max_attempts):
+        try:
+            return _with_deadlock_retry(invoice_doc.save)
+        except frappe.ValidationError:
+            base_total = flt(invoice_doc.base_grand_total)
+            if base_total >= 0:
+                raise
+            shortfall = abs(base_total)
+            if shortfall > tolerance or attempt == max_attempts - 1:
+                raise
+            conversion_rate = flt(invoice_doc.conversion_rate) or 1
+            invoice_doc.discount_amount = flt(
+                max(0, flt(invoice_doc.discount_amount) - shortfall / conversion_rate),
+                invoice_doc.precision("discount_amount"),
+            )
+            invoice_doc.additional_discount_percentage = 0
+
+
 def _submit_invoice(invoice=None, data=None):
     """Submit the invoice (Step 2)."""
     # Handle different calling conventions
@@ -1638,7 +1672,7 @@ def _submit_invoice(invoice=None, data=None):
                     invoice_doc.posa_pending_stock = 1
                     invoice_doc.flags.ignore_permissions = True
                     frappe.flags.ignore_account_permission = True
-                    _with_deadlock_retry(invoice_doc.save)
+                    _save_with_grand_total_correction(invoice_doc)
                     _reapply_payment_amounts(
                         invoice_doc, invoice.get("payments"), doctype
                     )
@@ -1656,7 +1690,7 @@ def _submit_invoice(invoice=None, data=None):
         # Save before submit
         invoice_doc.flags.ignore_permissions = True
         frappe.flags.ignore_account_permission = True
-        _with_deadlock_retry(invoice_doc.save)
+        _save_with_grand_total_correction(invoice_doc)
 
         # Tabby (Paymob QuickLink): keep the invoice as a pending draft, create the
         # payment link, SMS it to the customer, and return the link — do NOT submit
