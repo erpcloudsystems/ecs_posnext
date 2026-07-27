@@ -2553,38 +2553,19 @@ function clearAll() {
 const showDiscountOtp = ref(false)
 const discountAuthorized = ref(false)
 
-// Authorization is required whenever ANY discount is applied — cart additional
-// discount (percentage OR amount) or any item-level discount — regardless of the
-// max_discount_allowed limit.
+// Authorization is required only when the cart-level Additional Discount
+// percentage is a full 100% — e.g. a coupon that zeroes out the total via
+// discountAmount should NOT trigger this gate.
 const discountRequiresAuth = computed(() => {
-	if ((Number(localAdditionalDiscount.value) || 0) > 0) return true
-	if ((Number(props.additionalDiscount) || 0) > 0) return true
-	if ((Number(props.discountAmount) || 0) > 0) return true
-	return (props.items || []).some(
-		(i) =>
-			(Number(i.discount_percentage) || 0) > 0 ||
-			(Number(i.discount_amount) || 0) > 0,
-	)
+	if ((Number(localAdditionalDiscount.value) || 0) === 100) return true
+	if ((Number(props.additionalDiscount) || 0) === 100) return true
+	return false
 })
 
 // A short description for the supervisors' Telegram message.
 const discountDescription = computed(() => {
-	if ((Number(localAdditionalDiscount.value) || 0) > 0) {
-		return `${localAdditionalDiscount.value}%`
-	}
-	const amount =
-		Number(props.additionalDiscount) || 0 || Number(props.discountAmount) || 0
-	if (amount > 0) return formatCurrency(amount)
-	const item = (props.items || []).find(
-		(i) =>
-			(Number(i.discount_percentage) || 0) > 0 ||
-			(Number(i.discount_amount) || 0) > 0,
-	)
-	if (item) {
-		return item.discount_percentage
-			? `${item.item_name}: ${item.discount_percentage}%`
-			: `${item.item_name}: ${formatCurrency(item.discount_amount)}`
-	}
+	if ((Number(localAdditionalDiscount.value) || 0) === 100) return "100%"
+	if ((Number(props.additionalDiscount) || 0) === 100) return "100%"
 	return ""
 })
 
