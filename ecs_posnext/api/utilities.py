@@ -40,6 +40,16 @@ def get_csrf_token():
 	}
 
 
+@frappe.whitelist()
+def has_role(role):
+	"""Whether the current user has the given role.
+
+	Used by the POS frontend to gate actions that should only be available
+	to specific roles (e.g. Complete & Print requiring System Manager).
+	"""
+	return role in frappe.get_roles()
+
+
 def _parse_list_parameter(value, param_name="parameter"):
 	"""
 	Parse a list parameter that may come as JSON string or list.

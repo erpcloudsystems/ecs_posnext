@@ -9,7 +9,33 @@ import { computed, ref } from "vue"
 // Cache permissions to avoid repeated API calls
 const permissionCache = ref({})
 
+// Cache role checks separately, keyed by role name (cleared together with permissionCache)
+const roleCache = ref({})
+
 export function usePermissions() {
+	/**
+	 * Check if the current user has a specific role (e.g. "System Manager")
+	 * @param {string} role - The role to check
+	 * @returns {Promise<boolean>} - True if user has the role
+	 */
+	async function checkRole(role) {
+		try {
+			if (roleCache.value[role] !== undefined) {
+				return roleCache.value[role]
+			}
+
+			const hasRole = Boolean(
+				await call("ecs_posnext.api.utilities.has_role", { role }),
+			)
+
+			roleCache.value[role] = hasRole
+			return hasRole
+		} catch (error) {
+			console.error(`Error checking role ${role}`, error)
+			return false
+		}
+	}
+
 	/**
 	 * Check if the current user has a specific permission for a doctype
 	 * @param {string} doctype - The doctype to check (e.g., 'Customer', 'Promotional Scheme')
@@ -100,6 +126,7 @@ export function usePermissions() {
 	 */
 	function clearCache() {
 		permissionCache.value = {}
+		roleCache.value = {}
 	}
 
 	/**
@@ -123,6 +150,7 @@ export function usePermissions() {
 
 	return {
 		checkPermission,
+		checkRole,
 		checkMultiplePermissions,
 		usePermissionCheck,
 		clearCache,
@@ -134,7 +162,7 @@ export function usePermissions() {
  * Permission helper for common POS operations
  */
 export function usePOSPermissions() {
-	const { checkPermission, preloadCommonPermissions } = usePermissions()
+	const { checkPermission, checkRole, preloadCommonPermissions } = usePermissions()
 
 	// Customer permissions
 	const canCreateCustomer = async () =>
@@ -160,6 +188,7 @@ export function usePOSPermissions() {
 		await checkPermission("Sales Invoice", "create")
 	const canSubmitInvoice = async () =>
 		await checkPermission("Sales Invoice", "submit")
+	const canCompleteAndPrint = async () => await checkRole("System Manager")
 
 	// Settings permissions
 	const canEditSettings = async () =>
@@ -175,6 +204,7 @@ export function usePOSPermissions() {
 		canApplyCoupon,
 		canCreateInvoice,
 		canSubmitInvoice,
+		canCompleteAndPrint,
 		canEditSettings,
 		preloadCommonPermissions,
 	}
