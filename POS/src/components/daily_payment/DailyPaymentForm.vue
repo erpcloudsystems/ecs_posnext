@@ -119,16 +119,15 @@
 								/>
 							</div>
 
-							<!-- Mode of Payment -->
+							<!-- Mode of Payment (always Cash, not editable) -->
 							<div class="sm:col-span-2">
 								<label class="block text-sm font-semibold text-gray-700 mb-1.5">{{ __('Mode of Payment') }}</label>
-								<select
-									v-model="form.mode_of_payment"
-									class="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
-								>
-									<option value="">{{ __('-- Select --') }}</option>
-									<option v-for="m in paymentMethodOptions" :key="m" :value="m">{{ m }}</option>
-								</select>
+								<input
+									:value="form.mode_of_payment || __('Cash')"
+									type="text"
+									readonly
+									class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-600 cursor-not-allowed"
+								/>
 							</div>
 						</div>
 
@@ -382,7 +381,7 @@ import { call } from "frappe-ui"
 import { computed, defineComponent, h, nextTick, reactive, ref, watch } from "vue"
 import { useToast } from "@/composables/useToast"
 import { logger } from "@/utils/logger"
-import { getSetting } from "@/utils/offline/db"
+import { db, getSetting } from "@/utils/offline/db"
 import { enqueueOperation } from "@/utils/offline/operations"
 import { isOffline } from "@/utils/offline/sync"
 
@@ -439,6 +438,7 @@ watch(
 		show.value = val
 		if (val) {
 			resetForm()
+			resolveCashMode()
 		}
 	},
 )
@@ -453,6 +453,47 @@ watch(
 		form.branch = val || ""
 	},
 )
+
+// Daily Payments always go out of the cash drawer — the Cash-type Mode of
+// Payment of this POS Profile. It is resolved here (never picked by the user)
+// so the field can stay read-only.
+async function resolveCashMode() {
+	const allowed = paymentMethodOptions.value
+
+	// Offline-safe: the cached payment-method table carries the Mode of Payment type
+	try {
+		const cached = await db.payment_methods.toArray()
+		const match = cached.find(
+			(m) =>
+				(m.type || "").trim().toLowerCase() === "cash" &&
+				(!allowed.length || allowed.includes(m.mode_of_payment)),
+		)
+		if (match) {
+			form.mode_of_payment = match.mode_of_payment
+			return
+		}
+	} catch (e) {
+		log.error("Error reading cached payment methods:", e)
+	}
+
+	if (!isOffline()) {
+		try {
+			const mode = await call("ecs_posnext.api.daily_payment.get_cash_mode_of_payment", {
+				pos_opening_shift: props.posOpeningShift || null,
+				modes: allowed.length ? JSON.stringify(allowed) : null,
+			})
+			if (mode) {
+				form.mode_of_payment = mode
+				return
+			}
+		} catch (e) {
+			log.error("Error resolving cash mode of payment:", e)
+		}
+	}
+
+	// Last resort: a profile with a single method can only be the cash one
+	if (allowed.length === 1) form.mode_of_payment = allowed[0]
+}
 
 function resetForm() {
 	form.date = todayStr()

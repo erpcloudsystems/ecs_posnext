@@ -226,6 +226,37 @@ def get_daily_payment_detail(name):
 	return doc.as_dict()
 
 
+def _resolve_cash_mode(pos_opening_shift=None, modes=None):
+	"""Pick the Cash-type Mode of Payment among ``modes``.
+
+	Falls back to the payment methods of the POS Profile behind
+	``pos_opening_shift`` when no explicit list is given.
+	"""
+	if isinstance(modes, str):
+		modes = frappe.parse_json(modes)
+
+	if not modes and pos_opening_shift:
+		pos_profile = frappe.db.get_value("POS Opening Shift", pos_opening_shift, "pos_profile")
+		if pos_profile:
+			modes = [
+				row.mode_of_payment
+				for row in frappe.get_doc("POS Profile", pos_profile).payments
+				if row.mode_of_payment
+			]
+
+	for mode in modes or []:
+		if (frappe.db.get_value("Mode of Payment", mode, "type") or "").strip().lower() == "cash":
+			return mode
+
+	return None
+
+
+@frappe.whitelist()
+def get_cash_mode_of_payment(pos_opening_shift=None, modes=None):
+	"""Cash-type Mode of Payment to use for Daily Payments (read-only in POS)."""
+	return _resolve_cash_mode(pos_opening_shift, modes)
+
+
 @frappe.whitelist()
 def create_daily_payment(date, branch, employee=None, amount=None, mode_of_payment=None,
 						  payment_to_employees=0, expenses=0, loan_product=None,
@@ -276,8 +307,11 @@ def create_daily_payment(date, branch, employee=None, amount=None, mode_of_payme
 					"description": row.get("description") or "",
 				})
 
-	if mode_of_payment:
-		doc.mode_of_payment = mode_of_payment
+	# Daily Payments are always paid in cash — ignore anything else sent in
+	cash_mode = _resolve_cash_mode(pos_opening_shift, [mode_of_payment] if mode_of_payment else None)
+	if not cash_mode:
+		cash_mode = _resolve_cash_mode(pos_opening_shift)
+	doc.mode_of_payment = cash_mode or mode_of_payment
 
 	doc.insert(ignore_permissions=True)
 	doc.submit()
