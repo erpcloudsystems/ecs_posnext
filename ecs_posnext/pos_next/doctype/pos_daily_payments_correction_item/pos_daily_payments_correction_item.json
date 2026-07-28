@@ -10,11 +10,16 @@
   "branch",
   "pos_profile",
   "period_start_date",
-  "section_break_amounts",
+  "fields_to_update",
+  "section_break_daily_payments",
   "stored_total_daily_payments",
   "correct_total_daily_payments",
   "difference",
-  "column_break_actual",
+  "column_break_tip",
+  "stored_total_tip",
+  "correct_total_tip",
+  "tip_difference",
+  "section_break_actual",
   "stored_actual_amount",
   "correct_actual_amount"
  ],
@@ -60,23 +65,27 @@
    "read_only": 1
   },
   {
-   "fieldname": "section_break_amounts",
-   "fieldtype": "Section Break"
-  },
-  {
-   "columns": 2,
-   "fieldname": "stored_total_daily_payments",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Stored Total Daily Payments",
+   "description": "Which fields this row will write.",
+   "fieldname": "fields_to_update",
+   "fieldtype": "Data",
+   "label": "Fields to Update",
    "read_only": 1
   },
   {
-   "columns": 2,
+   "fieldname": "section_break_daily_payments",
+   "fieldtype": "Section Break",
+   "label": "Total Daily Payments"
+  },
+  {
+   "fieldname": "stored_total_daily_payments",
+   "fieldtype": "Currency",
+   "label": "Stored",
+   "read_only": 1
+  },
+  {
    "fieldname": "correct_total_daily_payments",
    "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Correct Total Daily Payments",
+   "label": "Correct",
    "read_only": 1
   },
   {
@@ -84,12 +93,38 @@
    "fieldname": "difference",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Difference",
+   "label": "Daily Payments Diff",
    "read_only": 1
   },
   {
-   "fieldname": "column_break_actual",
-   "fieldtype": "Column Break"
+   "fieldname": "column_break_tip",
+   "fieldtype": "Column Break",
+   "label": "Total Tip"
+  },
+  {
+   "fieldname": "stored_total_tip",
+   "fieldtype": "Currency",
+   "label": "Stored Tip",
+   "read_only": 1
+  },
+  {
+   "fieldname": "correct_total_tip",
+   "fieldtype": "Currency",
+   "label": "Correct Tip",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "tip_difference",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Tip Diff",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_actual",
+   "fieldtype": "Section Break",
+   "label": "Actual Amount"
   },
   {
    "fieldname": "stored_actual_amount",
@@ -98,8 +133,10 @@
    "read_only": 1
   },
   {
+   "columns": 2,
    "fieldname": "correct_actual_amount",
    "fieldtype": "Currency",
+   "in_list_view": 1,
    "label": "Correct Actual Amount",
    "read_only": 1
   }

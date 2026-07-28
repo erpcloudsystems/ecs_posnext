@@ -15,6 +15,15 @@ from ecs_posnext.pos_next.doctype.pos_closing_shift.pos_closing_shift import (
 # Amounts are compared at currency display precision so float noise is not read as drift.
 PRECISION = 2
 
+# Mirrors the mode of payment hardcoded in the Actual Amount formula in pos_closing_shift.py.
+VISA_MODE_OF_PAYMENT = "بنك CIB فيزا"
+
+FIELD_LABELS = {
+	"total_daily_payments": "Total Daily Payments",
+	"total_tip": "Total Tip",
+	"actual_amount": "Actual Amount",
+}
+
 
 class POSDailyPaymentsCorrection(Document):
 	pass
@@ -26,12 +35,7 @@ def _guard():
 
 
 def _get_candidates(branch=None, pos_closing_shift=None):
-	"""Submitted closing shifts that could possibly be wrong.
-
-	A shift can only drift if its opening shift has Daily Payments, or if it
-	already stores a non-zero total. Everything else is 0 == 0 and is skipped
-	before the per-shift recomputation.
-	"""
+	"""Every submitted closing shift in scope, with Branch resolved via its POS Profile."""
 	conditions = ["cs.docstatus = 1"]
 	values = {}
 
@@ -46,19 +50,11 @@ def _get_candidates(branch=None, pos_closing_shift=None):
 	return frappe.db.sql(
 		"""
 		SELECT cs.name, cs.pos_profile, cs.pos_opening_shift, cs.period_start_date,
-		       pp.branch,
-		       cs.total_daily_payments AS stored_total_daily_payments,
-		       cs.actual_amount AS stored_actual_amount
+		       pp.branch, cs.grand_total,
+		       cs.total_daily_payments, cs.total_tip, cs.actual_amount
 		FROM `tabPOS Closing Shift` cs
 		LEFT JOIN `tabPOS Profile` pp ON pp.name = cs.pos_profile
 		WHERE {conditions}
-		  AND (
-		    IFNULL(cs.total_daily_payments, 0) != 0
-		    OR EXISTS (
-		      SELECT 1 FROM `tabDaily Payment` dp
-		      WHERE dp.pos_opening_shift = cs.pos_opening_shift AND dp.docstatus = 1
-		    )
-		  )
 		ORDER BY cs.period_start_date DESC
 		""".format(conditions=" AND ".join(conditions)),
 		values,
@@ -66,48 +62,91 @@ def _get_candidates(branch=None, pos_closing_shift=None):
 	)
 
 
-def _get_drift(candidate):
-	"""Return a correction row for `candidate`, or None if it is already correct."""
-	correct = flt(
-		_get_opening_shift_totals(candidate.pos_opening_shift)["total_daily_payments"],
-		PRECISION,
-	)
-	stored = flt(candidate.stored_total_daily_payments, PRECISION)
+def _get_visa_amounts(names):
+	"""Visa portion per closing shift, on the same basis as the Actual Amount formula."""
+	if not names:
+		return {}
 
-	if correct == stored:
+	rows = frappe.db.sql(
+		"""
+		SELECT parent, COALESCE(SUM(COALESCE(expected_amount, 0) - COALESCE(opening_amount, 0)), 0) AS visa
+		FROM `tabPOS Closing Shift Detail`
+		WHERE parenttype = 'POS Closing Shift'
+		  AND mode_of_payment = %(mop)s
+		  AND parent IN %(names)s
+		GROUP BY parent
+		""",
+		{"mop": VISA_MODE_OF_PAYMENT, "names": names},
+		as_dict=True,
+	)
+
+	return {r.parent: flt(r.visa) for r in rows}
+
+
+def _evaluate(candidate, visa):
+	"""Return a correction row for `candidate`, or None if it needs no correction.
+
+	A shift qualifies on a wrong Total Daily Payments or a wrong Total Tip only.
+	Actual Amount is derived from those two, so it is always recalculated from the
+	corrected values rather than being a reason to correct a shift on its own.
+	"""
+	totals = _get_opening_shift_totals(candidate.pos_opening_shift)
+
+	stored_daily = flt(candidate.total_daily_payments, PRECISION)
+	correct_daily = flt(totals["total_daily_payments"], PRECISION)
+	stored_tip = flt(candidate.total_tip, PRECISION)
+	correct_tip = flt(totals["total_tip"], PRECISION)
+	stored_actual = flt(candidate.actual_amount, PRECISION)
+
+	changes = []
+	if correct_daily != stored_daily:
+		changes.append("total_daily_payments")
+	if correct_tip != stored_tip:
+		changes.append("total_tip")
+
+	if not changes:
 		return None
 
-	difference = flt(correct - stored, PRECISION)
+	correct_actual = flt(
+		flt(candidate.grand_total) - flt(visa) - correct_daily - correct_tip, PRECISION
+	)
+
+	if correct_actual != stored_actual:
+		changes.append("actual_amount")
 
 	return {
 		"pos_closing_shift": candidate.name,
 		"branch": candidate.branch,
 		"pos_profile": candidate.pos_profile,
 		"period_start_date": candidate.period_start_date,
-		"stored_total_daily_payments": stored,
-		"correct_total_daily_payments": correct,
-		"difference": difference,
-		"stored_actual_amount": flt(candidate.stored_actual_amount, PRECISION),
-		# Actual Amount is only moved by the Daily Payments difference. Recomputing it
-		# from scratch would silently absorb any drift in grand total, visa or tip too.
-		"correct_actual_amount": flt(
-			flt(candidate.stored_actual_amount, PRECISION) - difference, PRECISION
-		),
+		"fields_to_update": ", ".join(_(FIELD_LABELS[f]) for f in changes),
+		"changes": changes,
+		"stored_total_daily_payments": stored_daily,
+		"correct_total_daily_payments": correct_daily,
+		"difference": flt(correct_daily - stored_daily, PRECISION),
+		"stored_total_tip": stored_tip,
+		"correct_total_tip": correct_tip,
+		"tip_difference": flt(correct_tip - stored_tip, PRECISION),
+		"stored_actual_amount": stored_actual,
+		"correct_actual_amount": correct_actual,
 	}
 
 
 def _get_drifted_shifts(branch=None, pos_closing_shift=None):
+	candidates = _get_candidates(branch=branch, pos_closing_shift=pos_closing_shift)
+	visa_amounts = _get_visa_amounts([c.name for c in candidates])
+
 	rows = []
-	for candidate in _get_candidates(branch=branch, pos_closing_shift=pos_closing_shift):
-		drift = _get_drift(candidate)
-		if drift:
-			rows.append(drift)
+	for candidate in candidates:
+		row = _evaluate(candidate, visa_amounts.get(candidate.name, 0.0))
+		if row:
+			rows.append(row)
 	return rows
 
 
 @frappe.whitelist()
 def get_problem_shifts(branch=None, pos_closing_shift=None):
-	"""Closing shifts whose stored Total Daily Payments does not match the recomputed value."""
+	"""Closing shifts with a wrong stored Total Daily Payments or Total Tip."""
 	_guard()
 	return _get_drifted_shifts(branch=branch, pos_closing_shift=pos_closing_shift)
 
@@ -129,10 +168,8 @@ def problem_shift_query(doctype, txt, searchfield, start, page_len, filters):
 	return [
 		[
 			r["pos_closing_shift"],
-			"{branch} | {stored} → {correct}".format(
-				branch=r["branch"] or _("No Branch"),
-				stored=r["stored_total_daily_payments"],
-				correct=r["correct_total_daily_payments"],
+			"{branch} | {fields}".format(
+				branch=r["branch"] or _("No Branch"), fields=r["fields_to_update"]
 			),
 		]
 		for r in rows[start : start + page_len]
@@ -140,7 +177,7 @@ def problem_shift_query(doctype, txt, searchfield, start, page_len, filters):
 
 
 @frappe.whitelist()
-def apply_corrections(shifts, update_actual_amount=1):
+def apply_corrections(shifts):
 	"""Write the corrected totals onto the given closing shifts.
 
 	`shifts` carries only the selection; every amount is recomputed here so a
@@ -150,8 +187,6 @@ def apply_corrections(shifts, update_actual_amount=1):
 
 	if isinstance(shifts, str):
 		shifts = json.loads(shifts)
-
-	update_actual_amount = cint(update_actual_amount)
 
 	names = [
 		row.get("pos_closing_shift")
@@ -166,37 +201,41 @@ def apply_corrections(shifts, update_actual_amount=1):
 
 	for name in names:
 		candidates = _get_candidates(pos_closing_shift=name)
-		drift = _get_drift(candidates[0]) if candidates else None
 
-		if not drift:
+		if not candidates:
+			skipped.append(name)
+			continue
+
+		row = _evaluate(candidates[0], _get_visa_amounts([name]).get(name, 0.0))
+
+		if not row:
 			skipped.append(name)
 			continue
 
 		doc = frappe.get_doc("POS Closing Shift", name)
-		# db_set keeps `modified` untouched so the original submission trail survives;
-		# the change is recorded as a comment on the document instead.
-		doc.db_set(
-			"total_daily_payments",
-			drift["correct_total_daily_payments"],
-			update_modified=False,
-		)
+		messages = []
 
-		message = _("Total Daily Payments corrected from {0} to {1}").format(
-			drift["stored_total_daily_payments"], drift["correct_total_daily_payments"]
-		)
-
-		if update_actual_amount:
-			doc.db_set(
-				"actual_amount", drift["correct_actual_amount"], update_modified=False
-			)
-			message += ". " + _("Actual Amount corrected from {0} to {1}").format(
-				drift["stored_actual_amount"], drift["correct_actual_amount"]
+		for field in row["changes"]:
+			stored, correct = _values_for(row, field)
+			# db_set keeps `modified` untouched so the original submission trail
+			# survives; the change is recorded as a comment instead.
+			doc.db_set(field, correct, update_modified=False)
+			messages.append(
+				_("{0} corrected from {1} to {2}").format(_(FIELD_LABELS[field]), stored, correct)
 			)
 
 		doc.add_comment(
 			"Comment",
-			text=message + ". " + _("Applied via POS Daily Payments Correction."),
+			text=_("Applied via POS Daily Payments Correction") + ": " + "; ".join(messages) + ".",
 		)
-		updated.append(drift)
+		updated.append(row)
 
 	return {"updated": updated, "skipped": skipped}
+
+
+def _values_for(row, field):
+	if field == "total_daily_payments":
+		return row["stored_total_daily_payments"], row["correct_total_daily_payments"]
+	if field == "total_tip":
+		return row["stored_total_tip"], row["correct_total_tip"]
+	return row["stored_actual_amount"], row["correct_actual_amount"]

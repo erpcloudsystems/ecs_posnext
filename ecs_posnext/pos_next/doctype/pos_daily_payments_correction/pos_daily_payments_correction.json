@@ -7,9 +7,8 @@
  "field_order": [
   "section_break_filters",
   "branch",
-  "correction_mode",
   "column_break_filters",
-  "update_actual_amount",
+  "correction_mode",
   "section_break_single",
   "pos_closing_shift",
   "section_break_shifts",
@@ -29,24 +28,17 @@
    "options": "Branch"
   },
   {
+   "fieldname": "column_break_filters",
+   "fieldtype": "Column Break"
+  },
+  {
    "default": "Single Shift",
-   "description": "Single Shift: pick one closing shift to correct. All Problem Shifts: fetch every closing shift whose Total Daily Payments is wrong.",
+   "description": "Single Shift: pick one closing shift to correct. All Problem Shifts: fetch every closing shift with a wrong Total Daily Payments or Total Tip. Actual Amount is always recalculated alongside them.",
    "fieldname": "correction_mode",
    "fieldtype": "Select",
    "label": "Correction Mode",
    "options": "Single Shift\nAll Problem Shifts",
    "reqd": 1
-  },
-  {
-   "fieldname": "column_break_filters",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "1",
-   "description": "Actual Amount is derived from Total Daily Payments, so it goes stale unless it moves by the same difference. Uncheck only if you want to hold Actual Amount at its current value.",
-   "fieldname": "update_actual_amount",
-   "fieldtype": "Check",
-   "label": "Also Update Actual Amount"
   },
   {
    "depends_on": "eval:doc.correction_mode == \"Single Shift\"",
@@ -56,7 +48,7 @@
   },
   {
    "depends_on": "eval:doc.correction_mode == \"Single Shift\"",
-   "description": "Only closing shifts with a wrong Total Daily Payments are listed.",
+   "description": "Only closing shifts with a wrong Total Daily Payments or Total Tip are listed.",
    "fieldname": "pos_closing_shift",
    "fieldtype": "Link",
    "label": "POS Closing Shift",

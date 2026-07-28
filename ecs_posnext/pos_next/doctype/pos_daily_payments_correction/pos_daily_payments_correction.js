@@ -39,21 +39,16 @@ frappe.ui.form.on("POS Daily Payments Correction", {
 });
 
 function set_intro(frm) {
-	frm.set_intro(null);
-
-	if (frm.doc.correction_mode === "All Problem Shifts") {
-		frm.set_intro(
-			__(
-				"Fetch every submitted POS Closing Shift whose Total Daily Payments is wrong, review the table, then apply."
-			),
-			"blue"
-		);
-	} else {
-		frm.set_intro(
-			__("Pick one POS Closing Shift to review and correct. Only wrong shifts are listed."),
-			"blue"
-		);
-	}
+	frm.set_intro(
+		frm.doc.correction_mode === "All Problem Shifts"
+			? __(
+					"Fetch every submitted POS Closing Shift with a wrong Total Daily Payments or Total Tip, review the table, then apply. Actual Amount is always recalculated from the corrected values."
+			  )
+			: __(
+					"Pick one POS Closing Shift to review and correct. Only shifts with a wrong Total Daily Payments or Total Tip are listed, and Actual Amount is always recalculated."
+			  ),
+		"blue"
+	);
 }
 
 function set_buttons(frm) {
@@ -64,7 +59,7 @@ function set_buttons(frm) {
 	}
 
 	if ((frm.doc.shifts || []).length) {
-		frm.add_custom_button(__("Update Total Daily Payments"), () => {
+		frm.add_custom_button(__("Apply Corrections"), () => {
 			confirm_and_apply(frm);
 		}).addClass("btn-primary");
 	}
@@ -102,7 +97,9 @@ function load_shifts(frm, args, notify_when_empty) {
 			if (!(r.message || []).length && notify_when_empty) {
 				frappe.msgprint({
 					title: __("Nothing to Correct"),
-					message: __("No closing shift has a wrong Total Daily Payments for this filter."),
+					message: __(
+						"No closing shift has a wrong Total Daily Payments or Total Tip for this filter."
+					),
 					indicator: "green",
 				});
 			}
@@ -118,14 +115,10 @@ function confirm_and_apply(frm) {
 		return;
 	}
 
-	const actual_note = frm.doc.update_actual_amount
-		? __("Actual Amount will be moved by the same difference.")
-		: __("Actual Amount will be left unchanged and will no longer match its own formula.");
-
 	frappe.confirm(
-		`${__("Correct Total Daily Payments on {0} submitted closing shift(s)?", [
-			selected.length,
-		])}<br><br>${actual_note}`,
+		`${__("Correct {0} submitted closing shift(s)?", [selected.length])}<br><br>${__(
+			"Actual Amount will be recalculated on every corrected shift."
+		)}`,
 		() => apply(frm, selected)
 	);
 }
@@ -133,10 +126,7 @@ function confirm_and_apply(frm) {
 function apply(frm, selected) {
 	frappe.call({
 		method: `${METHOD_PATH}.apply_corrections`,
-		args: {
-			shifts: selected,
-			update_actual_amount: frm.doc.update_actual_amount ? 1 : 0,
-		},
+		args: { shifts: selected },
 		freeze: true,
 		freeze_message: __("Applying corrections..."),
 		callback(r) {
@@ -144,10 +134,7 @@ function apply(frm, selected) {
 
 			const { updated = [], skipped = [] } = r.message;
 			const lines = updated.map(
-				(row) =>
-					`<li>${row.pos_closing_shift}: ${format_currency(
-						row.stored_total_daily_payments
-					)} → <b>${format_currency(row.correct_total_daily_payments)}</b></li>`
+				(row) => `<li>${row.pos_closing_shift}: ${row.fields_to_update}</li>`
 			);
 
 			let message = updated.length
