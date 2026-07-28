@@ -1,0 +1,116 @@
+{
+ "actions": [],
+ "creation": "2026-07-28 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "pos_closing_shift",
+  "branch",
+  "posting_date",
+  "current_total_daily_payments",
+  "correct_total_daily_payments",
+  "difference",
+  "updated",
+  "section_break_actual",
+  "grand_total",
+  "current_actual_amount",
+  "correct_actual_amount"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "pos_closing_shift",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "POS Closing Shift",
+   "options": "POS Closing Shift",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Branch",
+   "options": "Branch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "current_total_daily_payments",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Current Total Daily Payments",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "correct_total_daily_payments",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Correct Total Daily Payments",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "difference",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Difference",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "updated",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Updated",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_actual",
+   "fieldtype": "Section Break",
+   "label": "Actual Amount"
+  },
+  {
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_actual_amount",
+   "fieldtype": "Currency",
+   "label": "Current Actual Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "correct_actual_amount",
+   "fieldtype": "Currency",
+   "label": "Correct Actual Amount",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Closing Shift Daily Payment Update Item",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

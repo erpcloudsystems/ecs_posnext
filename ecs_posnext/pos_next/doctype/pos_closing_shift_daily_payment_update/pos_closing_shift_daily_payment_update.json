@@ -1,0 +1,178 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-07-28 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "column_break_scope",
+  "branch",
+  "column_break_mode",
+  "update_mode",
+  "section_break_options",
+  "update_actual_amount",
+  "section_break_single",
+  "pos_closing_shift",
+  "column_break_single",
+  "current_total_daily_payments",
+  "correct_total_daily_payments",
+  "difference",
+  "section_break_bulk",
+  "get_affected_shifts",
+  "affected_shifts",
+  "section_break_result",
+  "status",
+  "column_break_result",
+  "shifts_updated"
+ ],
+ "fields": [
+  {
+   "default": "POS-CS-DPU-.YYYY.-",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "POS-CS-DPU-.YYYY.-",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "column_break_scope",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Filters POS Closing Shifts by the Branch set on their POS Profile. Leave empty for all branches.",
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "label": "Branch",
+   "options": "Branch"
+  },
+  {
+   "fieldname": "column_break_mode",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Single Closing Shift",
+   "fieldname": "update_mode",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Update Mode",
+   "options": "Single Closing Shift\nAll Affected Closing Shifts",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_options",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "0",
+   "description": "Also recalculate Actual Amount as Grand Total - Visa - Total Daily Payments - Total Tip. Leave unchecked to correct Total Daily Payments only.",
+   "fieldname": "update_actual_amount",
+   "fieldtype": "Check",
+   "label": "Update Actual Amount As Well"
+  },
+  {
+   "depends_on": "eval:doc.update_mode == \"Single Closing Shift\"",
+   "fieldname": "section_break_single",
+   "fieldtype": "Section Break",
+   "label": "Closing Shift To Update"
+  },
+  {
+   "description": "Only submitted POS Closing Shifts whose stored Total Daily Payments does not match the recalculated value are listed.",
+   "fieldname": "pos_closing_shift",
+   "fieldtype": "Link",
+   "label": "POS Closing Shift",
+   "options": "POS Closing Shift"
+  },
+  {
+   "fieldname": "column_break_single",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "current_total_daily_payments",
+   "fieldtype": "Currency",
+   "label": "Current Total Daily Payments",
+   "read_only": 1
+  },
+  {
+   "fieldname": "correct_total_daily_payments",
+   "fieldtype": "Currency",
+   "label": "Correct Total Daily Payments",
+   "read_only": 1
+  },
+  {
+   "fieldname": "difference",
+   "fieldtype": "Currency",
+   "label": "Difference",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.update_mode == \"All Affected Closing Shifts\"",
+   "fieldname": "section_break_bulk",
+   "fieldtype": "Section Break",
+   "label": "Affected Closing Shifts"
+  },
+  {
+   "fieldname": "get_affected_shifts",
+   "fieldtype": "Button",
+   "label": "Get Affected Closing Shifts"
+  },
+  {
+   "fieldname": "affected_shifts",
+   "fieldtype": "Table",
+   "label": "Affected Closing Shifts",
+   "options": "POS Closing Shift Daily Payment Update Item"
+  },
+  {
+   "fieldname": "section_break_result",
+   "fieldtype": "Section Break",
+   "label": "Result"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Pending\nCompleted",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_result",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "shifts_updated",
+   "fieldtype": "Int",
+   "label": "Shifts Updated",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-07-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Closing Shift Daily Payment Update",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
