@@ -1385,10 +1385,13 @@ def submit_invoice(invoice=None, data=None):
     request's transaction commits. Without this flag, the background worker can
     pick up the job and call frappe.db.exists()/get_doc() before that commit
     happens, see the draft as not existing, and blow up with a
-    "Sales Invoice ... not found" DoesNotExistError.
+    "Sales Invoice ... not found" DoesNotExistError. _submit_invoice_with_retry
+    additionally retries the visibility check and, failing that, the whole
+    submit step, so a residual race or transient DB error doesn't leave the
+    invoice permanently stuck as an unsubmitted draft.
     """
     frappe.enqueue(
-        _submit_invoice,
+        _submit_invoice_with_retry,
         queue="short",
         invoice=invoice,
         data=data,
@@ -1450,6 +1453,44 @@ def _save_with_grand_total_correction(invoice_doc, max_attempts=5, tolerance=0.5
                 invoice_doc.precision("discount_amount"),
             )
             invoice_doc.additional_discount_percentage = 0
+
+
+def _wait_for_draft_visible(doctype, invoice_name, attempts=5, base_delay=0.3):
+    """Retry frappe.db.exists() for a draft created earlier in Step 1.
+
+    A rollback (safe: no writes have happened yet) is issued between
+    attempts to close out the current transaction, since REPEATABLE READ
+    would otherwise keep returning the same stale snapshot no matter how
+    long we sleep.
+    """
+    for attempt in range(attempts):
+        if frappe.db.exists(doctype, invoice_name):
+            return True
+        if attempt == attempts - 1:
+            return False
+        time.sleep(base_delay * (attempt + 1))
+        frappe.db.rollback()
+    return False
+
+
+def _submit_invoice_with_retry(invoice=None, data=None, max_attempts=3):
+    """Run _submit_invoice, retrying the whole step on any failure.
+
+    A transient error (deadlock past its own retries, a momentary DB blip,
+    or any other unexpected exception) previously killed the background job
+    outright, leaving the invoice permanently stuck as an unsubmitted draft
+    with no automatic recovery. Each attempt is a fresh, independent call —
+    _submit_invoice's own error logging/cleanup runs unchanged on every
+    attempt; this only decides whether to try again afterwards.
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return _submit_invoice(invoice=invoice, data=data)
+        except Exception:
+            frappe.db.rollback()
+            if attempt == max_attempts:
+                raise
+            time.sleep(1.5 * attempt)
 
 
 def _submit_invoice(invoice=None, data=None):
@@ -1530,8 +1571,22 @@ def _submit_invoice(invoice=None, data=None):
     try:
         invoice_name = invoice.get("name")
 
-        # Get or create invoice
-        if not invoice_name or not frappe.db.exists(doctype, invoice_name):
+        # Get or create invoice.
+        # When invoice_name is already set, Step 1 (update_invoice) already
+        # created this draft in an earlier request — a failed exists() check
+        # here almost always means this worker's DB connection just hasn't
+        # caught up yet (MariaDB's default REPEATABLE READ isolation means a
+        # stale snapshot won't see the commit no matter how long we wait
+        # without starting a new transaction), not that the draft is missing.
+        # Retry with a fresh snapshot before falling back to recreating it —
+        # recreating here previously meant re-loading a doc that (from this
+        # connection's point of view) "doesn't exist", which itself threw
+        # DoesNotExistError and permanently killed the job, leaving the
+        # invoice stuck as an orphaned, never-submitted draft.
+        if invoice_name and _wait_for_draft_visible(doctype, invoice_name):
+            invoice_doc = frappe.get_doc(doctype, invoice_name)
+            invoice_doc.update(invoice)
+        else:
             created = update_invoice(json.dumps(invoice))
             if not created or not isinstance(created, dict):
                 frappe.throw(_("Failed to create invoice draft"))
@@ -1539,9 +1594,6 @@ def _submit_invoice(invoice=None, data=None):
             if not invoice_name:
                 frappe.throw(_("Failed to get invoice name from draft"))
             invoice_doc = frappe.get_doc(doctype, invoice_name)
-        else:
-            invoice_doc = frappe.get_doc(doctype, invoice_name)
-            invoice_doc.update(invoice)
 
         # Ensure POS flags are set for Sales Invoice
         if doctype == "Sales Invoice":
