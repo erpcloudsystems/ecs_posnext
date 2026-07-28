@@ -10,6 +10,9 @@ from frappe import _
 
 ALLOWED_STATUSES = ("Present", "Absent", "Half Day")
 
+# Attendance has no core Branch field; sites carry it as this custom field
+BRANCH_FIELD = "custom_branch"
+
 
 @frappe.whitelist()
 def get_shift_types() -> dict:
@@ -78,6 +81,7 @@ def mark_employee_attendance(
 	date: str | datetime.date,
 	company: str | None = None,
 	shift: str | None = None,
+	branch: str | None = None,
 	op_id: str | None = None,
 ) -> None:
 	"""Mark Present/Absent attendance for the given employees on the given date.
@@ -106,7 +110,12 @@ def mark_employee_attendance(
 	if shift and not frappe.db.exists("Shift Type", shift):
 		frappe.throw(_("Shift Type {0} does not exist").format(shift))
 
+	if branch and not frappe.db.exists("Branch", branch):
+		frappe.throw(_("Branch {0} does not exist").format(branch))
+
 	attendance_date = frappe.utils.getdate(date)
+	# Branch lives on a custom field, so only write it where the field is installed
+	branch_field = BRANCH_FIELD if frappe.get_meta("Attendance").has_field(BRANCH_FIELD) else None
 	marked_count = 0
 
 	for employee in employee_list:
@@ -131,6 +140,12 @@ def mark_employee_attendance(
 				"shift": shift,
 			}
 		)
+		if branch_field:
+			# Prefer the POS profile's branch; fall back to the employee's own branch
+			attendance.set(
+				branch_field,
+				branch or frappe.db.get_value("Employee", employee, "branch"),
+			)
 		attendance.insert(ignore_permissions=True)
 		attendance.submit()
 		marked_count += 1

@@ -338,6 +338,7 @@ async function markAttendance() {
 				date: date.value,
 				company: props.company || null,
 				shift: shift.value || null,
+				branch: props.branch || null,
 			})
 			showSuccess(
 				__("Attendance queued — will sync when back online"),
@@ -352,6 +353,7 @@ async function markAttendance() {
 			date: date.value,
 			company: props.company || null,
 			shift: shift.value || null,
+			branch: props.branch || null,
 		})
 		showSuccess(__("Attendance marked successfully"))
 		await loadEmployees()

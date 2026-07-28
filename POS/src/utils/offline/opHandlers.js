@@ -208,6 +208,7 @@ export const registerOfflineOpHandlers = () => {
 			date: data.date,
 			company: data.company || null,
 			shift: data.shift || null,
+			branch: data.branch || null,
 		}),
 	})
 
