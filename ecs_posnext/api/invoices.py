@@ -1137,6 +1137,18 @@ def update_invoice(data):
                 # Store coupon code on invoice for tracking
                 invoice_doc.coupon_code = coupon_code
 
+                # The frontend computes discount_amount against the coupon's own
+                # apply_on base (Grand Total = tax-inclusive price, matching what the
+                # cashier/customer sees). The POS Profile's apply_discount_on can be
+                # set to "Net Total" independently (most profiles are), which would
+                # instead apply that same flat amount against the smaller pre-tax
+                # net_total — overshooting by the tax portion and driving the invoice
+                # into a real negative grand_total, not just a rounding artifact.
+                # Force the invoice to use the coupon's own base so the two agree.
+                coupon_doc = coupon_result.get("coupon")
+                if coupon_doc and coupon_doc.get("apply_on"):
+                    invoice_doc.apply_discount_on = coupon_doc.apply_on
+
         if not invoice_doc.get("items"):
             frappe.throw(_("Cannot save invoice with no items"))
 
