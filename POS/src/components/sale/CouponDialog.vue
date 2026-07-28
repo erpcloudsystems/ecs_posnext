@@ -23,7 +23,7 @@
 						{{ __('Coupon Code') }}
 					</label>
 					<div class="flex gap-2">
-						<Input v-model="couponCode" type="text" :placeholder="__('ENTER-CODE-HERE')" class="flex-1 uppercase"
+						<Input v-model="couponCode" type="text" :placeholder="__('ENTER-CODE-HERE')" class="flex-1"
 							@keyup.enter="applyCoupon" :disabled="applying" />
 						<Button @click="applyCoupon" :loading="applying" theme="blue" variant="solid" class="flex-shrink-0">
 							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
