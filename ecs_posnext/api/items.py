@@ -11,6 +11,46 @@ from frappe import _
 from frappe.query_builder import DocType, Order, functions as fn
 from frappe.utils import flt, nowdate
 
+# Normalizes common Arabic spelling variants so search treats them as equal:
+# alef forms (أ/إ/آ/ٱ -> ا), ya/alef-maksura (ى -> ي), hamza carriers (ؤ/ئ -> و/ي),
+# ta marbuta (ة -> ه), tatweel and harakat (removed). Applied to both the search
+# term and the compared SQL column so e.g. "على" and "علي" match each other.
+ARABIC_NORMALIZE_MAP = {
+	"أ": "ا",
+	"إ": "ا",
+	"آ": "ا",
+	"ٱ": "ا",
+	"ى": "ي",
+	"ئ": "ي",
+	"ؤ": "و",
+	"ة": "ه",
+	"ـ": "",
+	"ً": "",
+	"ٌ": "",
+	"ٍ": "",
+	"َ": "",
+	"ُ": "",
+	"ِ": "",
+	"ّ": "",
+	"ْ": "",
+}
+
+
+def _normalize_arabic_text(text):
+	if not text:
+		return text
+	for src, dst in ARABIC_NORMALIZE_MAP.items():
+		text = text.replace(src, dst)
+	return text
+
+
+def _normalize_arabic_sql(column_expr):
+	expr = column_expr
+	for src, dst in ARABIC_NORMALIZE_MAP.items():
+		expr = f"REPLACE({expr}, '{src}', '{dst}')"
+	return expr
+
+
 ITEM_RESULT_FIELDS = [
 	"name as item_code",
 	"item_name",
@@ -1126,8 +1166,11 @@ def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20,
 			# Split search term into words for fuzzy matching
 			search_words = [word.strip() for word in effective_search_term.split() if word.strip()]
 
-			# Word-order independent: all words must appear somewhere in item fields
-			search_text = "CONCAT(COALESCE(i.name, ''), ' ', COALESCE(i.item_name, ''), ' ', COALESCE(i.description, ''))"
+			# Word-order independent: all words must appear somewhere in item fields.
+			# Normalize Arabic spelling variants on both sides so e.g. "على" and
+			# "علي" are treated as the same word.
+			raw_search_text = "CONCAT(COALESCE(i.name, ''), ' ', COALESCE(i.item_name, ''), ' ', COALESCE(i.description, ''))"
+			search_text = _normalize_arabic_sql(raw_search_text)
 			word_conditions = " AND ".join([f"{search_text} LIKE %s"] * len(search_words))
 
 			# Also match if barcode contains the search term
@@ -1135,7 +1178,7 @@ def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20,
 
 			# Combine: match item fields OR match barcode
 			conditions.append(f"(({word_conditions}) OR {barcode_condition})")
-			params.extend([f"%{word}%" for word in search_words])
+			params.extend([f"%{_normalize_arabic_text(word)}%" for word in search_words])
 			params.append(effective_search_term)  # For barcode matching
 
 			# Relevance scoring with case-insensitive comparison
