@@ -90,6 +90,19 @@ export function useSalesPersons(posProfile) {
 	}
 
 	/**
+	 * Force a refetch even when the list is already populated. The server hides
+	 * craftsmen who are not marked Present for the running shift, so the list can
+	 * change on its own — e.g. right after attendance is marked.
+	 */
+	function refreshSalesPersons() {
+		if (!posProfile.value) return
+		if (!settingsStore.enableSalesPersons) return
+
+		loadingSalesPersons.value = true
+		salesPersonsResource.fetch()
+	}
+
+	/**
 	 * Add a sales person to the selection
 	 * @param {Object} person - Sales person to add
 	 */
@@ -191,6 +204,7 @@ export function useSalesPersons(posProfile) {
 
 		// Actions
 		loadSalesPersons,
+		refreshSalesPersons,
 		addSalesPerson,
 		removeSalesPerson,
 		clearSalesPersons,

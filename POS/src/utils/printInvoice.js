@@ -1,6 +1,6 @@
 import { call } from "@/utils/apiWrapper"
 import { logger } from "@/utils/logger"
-import { printHTML as qzPrintHTML } from "@/utils/qzTray"
+import { printHTML as qzPrintHTML, resolvePrinter } from "@/utils/qzTray"
 
 const log = logger.create("PrintInvoice")
 
@@ -189,7 +189,7 @@ export async function printInvoiceByName(invoiceName, printFormat = null, letter
  * formats that rely on Bootstrap layout classes may render differently.
  * Paper size and margins are controlled by the QZ Tray config in qzTray.js.
  */
-export async function silentPrintInvoice(invoiceName, printFormat = null) {
+export async function silentPrintInvoice(invoiceName, printFormat = null, printerName = null) {
 	const { html, style } = await fetchPrintHTML(invoiceName, {
 		printFormat: printFormat || DEFAULT_PRINT_FORMAT,
 		noLetterhead: 1,
@@ -201,7 +201,7 @@ export async function silentPrintInvoice(invoiceName, printFormat = null) {
 <body>${html}</body>
 </html>`
 
-	await qzPrintHTML(fullHTML)
+	await qzPrintHTML(fullHTML, printerName)
 	log.info(`Silent print sent for ${invoiceName}`)
 	return true
 }
@@ -236,6 +236,107 @@ export async function printWithSilentFallback(invoiceData, printFormat = null) {
 	} catch (err) {
 		log.error("Browser print fallback also failed:", err)
 		return { method: "browser", success: false, reason }
+	}
+}
+
+// ============================================================================
+// PDF download (used when no printer can be reached)
+// ============================================================================
+
+/**
+ * Fetch the invoice as a server-rendered PDF and save it to the browser's
+ * download location.
+ *
+ * This is the no-printer path for auto-print: the cashier still ends up with a
+ * receipt file they can print or file later, and crucially no dialog appears and
+ * nothing has to be clicked.
+ *
+ * @param {string} invoiceName
+ * @param {string|null} [printFormat]
+ * @param {string|null} [letterhead]
+ * @returns {Promise<string>} the downloaded filename
+ */
+export async function downloadInvoicePDF(invoiceName, printFormat = null, letterhead = null) {
+	if (!invoiceName) throw new Error("Invalid invoice name")
+
+	const result = await call("ecs_posnext.api.invoices.get_invoice_print_pdf", {
+		invoice_name: invoiceName,
+		print_format: printFormat || DEFAULT_PRINT_FORMAT,
+		letterhead,
+		no_letterhead: letterhead ? 0 : 1,
+	})
+
+	const payload = result?.message || result
+	const content = payload?.content
+	if (!content) throw new Error("Server returned no PDF content")
+
+	const filename = payload.filename || `${invoiceName}.pdf`
+
+	// Decode to a Blob rather than using a data: href — receipt PDFs comfortably
+	// exceed the URL length limit that a data: URI download would hit.
+	const binary = atob(content)
+	const bytes = new Uint8Array(binary.length)
+	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+
+	const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }))
+	const link = document.createElement("a")
+	link.href = url
+	link.download = filename
+	link.style.display = "none"
+	document.body.appendChild(link)
+	link.click()
+
+	// Revoke late — revoking straight away cancels the download in some browsers.
+	setTimeout(() => {
+		link.remove()
+		URL.revokeObjectURL(url)
+	}, 10000)
+
+	log.info(`Invoice ${invoiceName} saved as ${filename}`)
+	return filename
+}
+
+// ============================================================================
+// Fully automatic printing (no dialog, no clicks)
+// ============================================================================
+
+/**
+ * Print a just-created invoice with zero cashier interaction.
+ *
+ * 1. Detect a physical printer and print silently through QZ Tray.
+ * 2. If no printer can be reached, download the receipt as a PDF instead.
+ *
+ * Deliberately never falls through to the browser print dialog: that dialog
+ * requires someone to click Print, which is exactly what auto-print exists to
+ * avoid. Manual print buttons still use `printInvoiceByName` and keep the dialog.
+ *
+ * @param {{name: string}} invoiceData
+ * @param {string|null} [printFormat]
+ * @returns {Promise<{method: "silent"|"download", success: boolean, printer?: string, filename?: string, reason?: string}>}
+ */
+export async function autoPrintInvoice(invoiceData, printFormat = null) {
+	const invoiceName = invoiceData?.name
+	if (!invoiceName) throw new Error("Invalid invoice data — missing name")
+
+	let reason
+	try {
+		const printer = await resolvePrinter()
+		if (!printer) throw new Error("No printer found on this machine")
+
+		await silentPrintInvoice(invoiceName, printFormat, printer)
+		return { method: "silent", success: true, printer }
+	} catch (err) {
+		reason = err?.message || String(err)
+		log.warn("Silent print unavailable, saving receipt instead:", reason)
+	}
+
+	try {
+		const filename = await downloadInvoicePDF(invoiceName, printFormat)
+		return { method: "download", success: true, filename, reason }
+	} catch (err) {
+		const downloadReason = err?.message || String(err)
+		log.error("PDF download fallback also failed:", downloadReason)
+		return { method: "download", success: false, reason: downloadReason }
 	}
 }
 

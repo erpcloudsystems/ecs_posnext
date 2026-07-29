@@ -88,6 +88,20 @@ function formatPercentage(value, decimals = 2) {
 }
 
 /**
+ * Format a date as YYYY-MM-DD in the BROWSER's timezone.
+ * Date.toISOString() is UTC, so it names the wrong day for part of every evening
+ * on an ahead-of-UTC site — never use it to derive a calendar date.
+ * @param {Date} date - The date to format (default: now)
+ * @returns {string} Local date as YYYY-MM-DD
+ */
+export function localDateString(date = new Date()) {
+	const year = date.getFullYear()
+	const month = String(date.getMonth() + 1).padStart(2, "0")
+	const day = String(date.getDate()).padStart(2, "0")
+	return `${year}-${month}-${day}`
+}
+
+/**
  * Composable function to use formatters
  * @returns {Object} Object containing all formatter functions
  */
@@ -99,5 +113,6 @@ export function useFormatters() {
 		formatTime,
 		formatDate,
 		formatPercentage,
+		localDateString,
 	}
 }

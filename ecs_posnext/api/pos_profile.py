@@ -369,13 +369,14 @@ def get_sales_persons(pos_profile=None):
 		return []
 
 
-# Designation for which a Sales Person must be marked Present today to appear in POS
+# Designation for which a Sales Person must be marked Present for the running shift
+# to appear in POS
 CRAFTSMAN_DESIGNATION = "صنايعى"
 
 
 def _hide_unmarked_craftsmen(sales_persons_list):
 	"""Exclude Sales Persons whose Employee Designation is CRAFTSMAN_DESIGNATION
-	and who have not been marked Present in Attendance for today."""
+	and who have not been marked Present in Attendance for the running shift."""
 	employee_ids = [sp.employee for sp in sales_persons_list if sp.get("employee")]
 	if not employee_ids:
 		return sales_persons_list
@@ -389,25 +390,62 @@ def _hide_unmarked_craftsmen(sales_persons_list):
 		)
 	}
 
-	present_today = set(
-		frappe.get_list(
-			"Attendance",
-			filters={
-				"employee": ["in", employee_ids],
-				"attendance_date": frappe.utils.today(),
-				"status": "Present",
-				"docstatus": 1,
-			},
-			pluck="employee",
-		)
-	)
+	craftsman_ids = [
+		emp for emp, designation in designations.items() if designation == CRAFTSMAN_DESIGNATION
+	]
+	if not craftsman_ids:
+		return sales_persons_list
+
+	present = _get_employees_present_now(craftsman_ids)
 
 	return [
 		sp
 		for sp in sales_persons_list
 		if designations.get(sp.get("employee")) != CRAFTSMAN_DESIGNATION
-		or sp.employee in present_today
+		or sp.employee in present
 	]
+
+
+def _get_employees_present_now(employee_ids):
+	"""Employees marked Present for the shift that is currently running.
+
+	Filtering on today's date alone breaks overnight shifts: attendance for a
+	09:00 -> 03:00 shift is stamped on the day the shift STARTED, so after midnight
+	today() no longer matches it and the employee would vanish mid-shift. Yesterday's
+	rows are therefore included too, and kept only while their Shift Type window
+	still covers now.
+
+	A row dated today always counts - that keeps same-day shifts, and rows with no
+	shift recorded, behaving exactly as before.
+	"""
+	from ecs_posnext.api.employee_attendance import get_shift_window
+
+	now = frappe.utils.now_datetime()
+	today = frappe.utils.getdate(now)
+
+	attendance_rows = frappe.get_list(
+		"Attendance",
+		filters={
+			"employee": ["in", employee_ids],
+			"attendance_date": ["between", [frappe.utils.add_days(today, -1), today]],
+			"status": "Present",
+			"docstatus": 1,
+		},
+		fields=["employee", "attendance_date", "shift"],
+	)
+
+	present = set()
+	for row in attendance_rows:
+		attendance_date = frappe.utils.getdate(row.attendance_date)
+		if attendance_date == today:
+			present.add(row.employee)
+			continue
+
+		window = get_shift_window(row.shift, attendance_date)
+		if window and window[0] <= now <= window[1]:
+			present.add(row.employee)
+
+	return present
 
 @frappe.whitelist()
 def get_create_pos_profile(*args, **kwargs):

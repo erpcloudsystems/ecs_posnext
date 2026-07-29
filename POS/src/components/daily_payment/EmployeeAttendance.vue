@@ -38,19 +38,15 @@
 							/>
 						</div>
 
-						<!-- Shift -->
+						<!-- Shift — system-determined (the default Shift Type), not a user choice -->
 						<div class="min-w-[180px]">
 							<label class="block text-xs font-medium text-gray-600 mb-1">{{ __('Shift') }}</label>
-							<select
-								v-model="shift"
-								:disabled="loadingShifts"
-								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 disabled:bg-gray-100"
+							<div
+								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-700 truncate"
+								:title="shift || ''"
 							>
-								<option value="">{{ loadingShifts ? __('Loading...') : __('No Shift') }}</option>
-								<option v-for="entry in shiftTypes" :key="entry.name" :value="entry.name">
-									{{ entry.name }}
-								</option>
-							</select>
+								{{ loadingShifts ? __('Loading...') : shift || __('No Shift') }}
+							</div>
 						</div>
 
 						<!-- Get Employees Button -->
@@ -178,6 +174,7 @@
 <script setup>
 import { FeatherIcon, call } from "frappe-ui"
 import { ref, watch } from "vue"
+import { localDateString } from "@/composables/useFormatters"
 import { useToast } from "@/composables/useToast"
 import { logger } from "@/utils/logger"
 import { getSetting, setSetting } from "@/utils/offline/db"
@@ -203,15 +200,18 @@ const props = defineProps({
 	},
 })
 
-const emit = defineEmits(["update:modelValue"])
+const emit = defineEmits(["update:modelValue", "marked"])
 
 const show = ref(props.modelValue)
 const loading = ref(false)
 const marking = ref(false)
 const loaded = ref(false)
 
-const today = new Date().toISOString().split("T")[0]
-const date = ref(today)
+// The shift's business date, resolved by the server on every open (see loadShiftTypes).
+// Overnight shifts are stamped with the day the shift STARTED, so after midnight this
+// is yesterday — a plain calendar date would mark attendance on the wrong day.
+// Left editable so attendance can still be back-marked.
+const date = ref(localDateString())
 
 const marked = ref([])
 const unmarked = ref([])
@@ -219,18 +219,20 @@ const selectedEmployees = ref([])
 const selectAll = ref(false)
 const status = ref("")
 
-// Shift selection — same list HR's Employee Attendance Tool offers
+// Shift — system-determined (the Shift Type flagged as default), never user-picked.
+// Only ever written from the server response in loadShiftTypes().
 const shiftTypes = ref([])
 const shift = ref("")
 const loadingShifts = ref(false)
 
 watch(
 	() => props.modelValue,
-	(val) => {
+	async (val) => {
 		show.value = val
 		if (val) {
 			resetState()
-			loadShiftTypes()
+			// Resolves the shift and its business date, which loadEmployees() needs
+			await loadShiftTypes()
 			loadEmployees()
 		}
 	},
@@ -263,25 +265,59 @@ function toggleSelectAll() {
 	selectedEmployees.value = selectAll.value ? unmarked.value.map((e) => e.employee) : []
 }
 
+function timeToSeconds(value) {
+	// Frappe serialises Time fields as "H:MM:SS", so the hour is not zero-padded
+	// and the strings cannot be compared directly
+	const parts = String(value ?? "").split(":").map(Number)
+	if (parts.length < 2 || parts.some(Number.isNaN)) return null
+	return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0)
+}
+
+/**
+ * Offline mirror of the server's business-date rule: while an overnight shift
+ * (end <= start) has not ended yet, we are still on the shift that started
+ * yesterday, so attendance belongs to yesterday.
+ */
+function offlineBusinessDate(shiftEntry) {
+	const now = new Date()
+	const start = timeToSeconds(shiftEntry?.start_time)
+	const end = timeToSeconds(shiftEntry?.end_time)
+	if (start === null || end === null || end > start) return localDateString(now)
+
+	const nowSeconds = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()
+	if (nowSeconds > end) return localDateString(now)
+
+	const yesterday = new Date(now)
+	yesterday.setDate(yesterday.getDate() - 1)
+	return localDateString(yesterday)
+}
+
 async function loadShiftTypes() {
 	loadingShifts.value = true
 	try {
 		if (isOffline()) {
 			const cached = await getSetting(SHIFT_TYPES_CACHE_KEY, null)
 			shiftTypes.value = cached?.shift_types || []
-			shift.value = cached?.last_shift || ""
+			shift.value = cached?.default_shift || cached?.last_shift || ""
+			// A cached business_date would be stale, so derive it from the shift's times
+			date.value = offlineBusinessDate(
+				shiftTypes.value.find((entry) => entry.name === shift.value),
+			)
 			return
 		}
 		const result = await call("ecs_posnext.api.employee_attendance.get_shift_types")
 		shiftTypes.value = result?.shift_types || []
-		// Default to the last existing shift type (most recently created)
-		shift.value = result?.last_shift || ""
+		// The shift is system-determined, not a user choice
+		shift.value = result?.default_shift || ""
+		// Server-resolved so it always agrees with the POS craftsman gate
+		date.value = result?.business_date || result?.server_date || localDateString()
 		// Cache for offline use
 		await setSetting(SHIFT_TYPES_CACHE_KEY, result)
 	} catch (error) {
 		log.error("Error loading shift types:", error)
 		shiftTypes.value = []
 		shift.value = ""
+		date.value = localDateString()
 	} finally {
 		loadingShifts.value = false
 	}
@@ -356,6 +392,8 @@ async function markAttendance() {
 			branch: props.branch || null,
 		})
 		showSuccess(__("Attendance marked successfully"))
+		// Craftsmen become visible in POS only once they are marked Present
+		emit("marked")
 		await loadEmployees()
 	} catch (error) {
 		log.error("Error marking attendance:", error)

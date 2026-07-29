@@ -795,7 +795,8 @@ async function saveSettings() {
 // ============================================================================
 
 async function handleQzConnect() {
-	const ok = await qzConnect()
+	// force — the cashier clicked Retry, so bypass the post-failure cooldown
+	const ok = await qzConnect({ force: true })
 	if (ok) {
 		await handleRefreshPrinters()
 	}
@@ -804,6 +805,9 @@ async function handleQzConnect() {
 async function handleRefreshPrinters() {
 	loadingPrinters.value = true
 	try {
+		// force — an explicit refresh should retry immediately even if a recent
+		// background connect failed and put us in the cooldown window
+		await qzConnect({ force: true })
 		qzPrinters.value = await findPrinters()
 		// Auto-select if only one printer or restore saved selection
 		const saved = getSavedPrinterName()

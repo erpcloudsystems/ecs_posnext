@@ -1,0 +1,89 @@
+{
+ "actions": [],
+ "creation": "2026-07-30 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_filters",
+  "target_shift",
+  "only_missing_shift",
+  "column_break_filters",
+  "from_date",
+  "to_date",
+  "section_break_records",
+  "records"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_filters",
+   "fieldtype": "Section Break",
+   "label": "Filters"
+  },
+  {
+   "description": "The Shift Type flagged as Default. Attendance is always corrected to this shift, so it cannot be changed here.",
+   "fieldname": "target_shift",
+   "fieldtype": "Link",
+   "label": "Target Shift",
+   "options": "Shift Type",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "description": "Leave ticked to only fill in Attendance that has no Shift at all. Untick to also rewrite records pointing at a different Shift Type.",
+   "fieldname": "only_missing_shift",
+   "fieldtype": "Check",
+   "label": "Only Records With No Shift"
+  },
+  {
+   "fieldname": "column_break_filters",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Optional. Leave both dates empty to cover every submitted Attendance record.",
+   "fieldname": "from_date",
+   "fieldtype": "Date",
+   "label": "From Date"
+  },
+  {
+   "fieldname": "to_date",
+   "fieldtype": "Date",
+   "label": "To Date"
+  },
+  {
+   "fieldname": "section_break_records",
+   "fieldtype": "Section Break",
+   "label": "Attendance to Correct"
+  },
+  {
+   "fieldname": "records",
+   "fieldtype": "Table",
+   "label": "Records",
+   "options": "POS Attendance Shift Correction Item"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-07-30 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Attendance Shift Correction",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

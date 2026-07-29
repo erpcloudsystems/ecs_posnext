@@ -1649,6 +1649,56 @@ def get_invoice_print_html(invoice_name, print_format=None, letterhead=None, no_
 
 
 @frappe.whitelist()
+def get_invoice_print_pdf(invoice_name, print_format=None, letterhead=None, no_letterhead=1):
+	"""
+	Render a Sales Invoice as a PDF and return it base64-encoded.
+
+	Used by the POS app's auto-print when no printer can be reached: rather than
+	falling back to the browser print dialog (which needs a cashier to click
+	Print) the receipt is downloaded so there is still a copy to print or file
+	later. Permission handling is inherited from `get_invoice_print_html` — see
+	there for why core printview is bypassed.
+
+	Deliberately A4 rather than the 80mm roll width: this file only exists when
+	no thermal printer was reachable, so it gets opened and printed on whatever
+	ordinary printer is around. (wkhtmltopdf also rejects the "Custom" page size
+	that frappe.utils.pdf.prepare_options needs to honour an explicit
+	page-width, so a narrow roll size cannot be requested through get_pdf.)
+	"""
+	import base64
+
+	from frappe.utils.pdf import get_pdf
+
+	rendered = get_invoice_print_html(
+		invoice_name,
+		print_format=print_format,
+		letterhead=letterhead,
+		no_letterhead=no_letterhead,
+	)
+
+	html = """<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><style>{style}</style></head>
+<body>{body}</body>
+</html>""".format(style=rendered["style"], body=rendered["html"])
+
+	pdf = get_pdf(
+		html,
+		options={
+			"margin-top": "5mm",
+			"margin-bottom": "5mm",
+			"margin-left": "5mm",
+			"margin-right": "5mm",
+		},
+	)
+
+	return {
+		"filename": "{0}.pdf".format(invoice_name),
+		"content": base64.b64encode(pdf).decode(),
+	}
+
+
+@frappe.whitelist()
 def get_invoices(pos_profile, limit=100):
 	"""
 	Get list of invoices for a POS Profile.

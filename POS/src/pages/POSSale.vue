@@ -661,7 +661,7 @@
 			<TrackInvoices v-model="showTrackInvoices" :branch="shiftStore.profileBranch" :pos-opening-shift="shiftStore.currentShift?.name" :pos-opening-shift-date="shiftStore.currentShift?.posting_date" />
 
 			<!-- Employee Attendance -->
-			<EmployeeAttendance v-model="showEmployeeAttendance" :company="shiftStore.profileCompany" :branch="shiftStore.profileBranch" />
+			<EmployeeAttendance v-model="showEmployeeAttendance" :company="shiftStore.profileCompany" :branch="shiftStore.profileBranch" @marked="handleAttendanceMarked" />
 
 			<!-- Invoice Detail Dialog -->
 			<InvoiceDetailDialog
@@ -1018,7 +1018,7 @@ import { useUserData } from "@/data/user";
 import { parseError } from "@/utils/errorHandler";
 import { offlineWorker } from "@/utils/offline/workerClient";
 import { cacheInvoiceHistory, getCachedInvoiceHistory } from "@/utils/offline/sync";
-import { printInvoice, printInvoiceByName, printWithSilentFallback } from "@/utils/printInvoice";
+import { autoPrintInvoice, printInvoice, printInvoiceByName, printWithSilentFallback } from "@/utils/printInvoice";
 import { qzConnected, connect as qzConnect, disconnect as qzDisconnect } from "@/utils/qzTray";
 
 import { Button, Dialog, createResource } from "frappe-ui";
@@ -1318,18 +1318,12 @@ onMounted(async () => {
 		await posSettingsStore.reloadSettings();
 	});
 
-	// QZ Tray lifecycle — lazy connect when silent print is enabled
-	watch(
-		() => posSettingsStore.silentPrint,
-		async (enabled) => {
-			if (enabled) {
-				await qzConnect();
-			} else {
-				await qzDisconnect();
-			}
-		},
-		{ immediate: true }
-	);
+	// QZ Tray lifecycle — connect regardless of the silent-print setting: auto-print now
+	// always tries QZ first so it can avoid the browser print dialog. Connecting up
+	// front keeps the first receipt of the shift from waiting on the handshake; if
+	// QZ is not installed the attempt fails once here and the connect cooldown in
+	// qzTray.js suppresses repeats.
+	qzConnect();
 
 	// Store cleanup function for unmount
 	onUnmounted(() => {
@@ -2006,19 +2000,29 @@ async function handlePaymentCompleted(paymentData) {
 
 				if (shiftStore.autoPrintEnabled || posSettingsStore.silentPrint) {
 					try {
-						const printResult = await handlePrintInvoice({ name: invoiceName });
-						// Silent print was requested but QZ Tray could not take the job —
-						// say so, otherwise the reappearing browser dialog looks like a bug
-						// rather than a printer that needs attention.
-						if (posSettingsStore.silentPrint && printResult?.method === "browser") {
+						// autoPrintInvoice never opens the browser print dialog: it prints
+						// silently to a detected printer, or saves the receipt as a PDF when
+						// the till has none. Nothing for the cashier to click either way.
+						const printResult = await autoPrintInvoice({ name: invoiceName });
+
+						if (printResult.method === "silent") {
+							showSuccess(__("Invoice {0} created and sent to printer", [invoiceName]));
+						} else if (printResult.success) {
+							// No printer reachable — say where the receipt went, otherwise a
+							// till with a broken printer looks like it silently skipped printing.
 							showWarning(
-								__("Invoice {0} created. Silent print unavailable ({1}) — using browser print.", [
+								__("Invoice {0} created. No printer found — receipt saved to Downloads as {1}", [
 									invoiceName,
-									printResult.reason || __("QZ Tray not reachable"),
+									printResult.filename,
 								])
 							);
 						} else {
-							showSuccess(__("Invoice {0} created and sent to printer", [invoiceName]));
+							showWarning(
+								__("Invoice {0} created but printing failed: {1}", [
+									invoiceName,
+									printResult.reason || __("Unknown error"),
+								])
+							);
 						}
 					} catch (error) {
 						log.error("Auto-print error:", error);
@@ -2505,6 +2509,12 @@ function handleManagementMenuClick(menuItem) {
 	} else if (menuItem === "employee-attendance") {
 		showEmployeeAttendance.value = true;
 	}
+}
+
+// Craftsmen are hidden from the sales person list until they are marked Present for
+// the running shift, so the cached list has to be refetched once attendance is marked
+function handleAttendanceMarked() {
+	salesPersonStore.refreshSalesPersons(shiftStore.profileName);
 }
 
 // Load invoice history data

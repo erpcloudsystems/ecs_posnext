@@ -71,6 +71,17 @@ export const usePOSSalesPersonStore = defineStore("posSalesPerson", () => {
 		}
 	}
 
+	// Force a refetch even when the list is already populated. The server hides
+	// craftsmen who are not marked Present for the running shift, so the list
+	// changes without the cart changing — e.g. right after marking attendance.
+	function refreshSalesPersons(profileName = null) {
+		if (profileName) posProfile.value = profileName
+		if (!posProfile.value) return
+		if (loading.value) return
+		loading.value = true
+		salesPersonsResource.fetch()
+	}
+
 	function setEnabled(value) {
 		enabled.value = !!value
 		if (enabled.value) {
@@ -187,6 +198,7 @@ export const usePOSSalesPersonStore = defineStore("posSalesPerson", () => {
 
 		// Actions
 		loadSalesPersons,
+		refreshSalesPersons,
 		setEnabled,
 		addSalesPerson,
 		removeSalesPerson,
