@@ -1171,6 +1171,7 @@ def update_invoice(data):
 
 
 PENDING_TIMEOUT_MINUTES = 5  # Pending records older than this are considered stale
+MIN_DRAFT_CLEANUP_AGE_HOURS = 6  # cleanup_old_drafts refuses to run below this age
 
 
 def _is_pending_expired(modified_time):
@@ -1389,26 +1390,16 @@ def check_offline_invoice_synced(offline_id):
 
 @frappe.whitelist()
 def submit_invoice(invoice=None, data=None):
-    """Enqueue submission of the invoice (Step 2).
+    """Submit the invoice (Step 2), synchronously.
 
-    enqueue_after_commit=True is required here: the draft invoice referenced by
-    `invoice["name"]` is typically created earlier in this same request (e.g. by
-    update_invoice()) and is not yet visible to other DB connections until this
-    request's transaction commits. Without this flag, the background worker can
-    pick up the job and call frappe.db.exists()/get_doc() before that commit
-    happens, see the draft as not existing, and blow up with a
-    "Sales Invoice ... not found" DoesNotExistError. _submit_invoice_with_retry
-    additionally retries the visibility check and, failing that, the whole
-    submit step, so a residual race or transient DB error doesn't leave the
-    invoice permanently stuck as an unsubmitted draft.
+    This used to enqueue _submit_invoice_with_retry and return None
+    immediately, so the frontend could never distinguish a failed
+    background submit from a successful one. Running it inline means the
+    HTTP response carries the real result (or raises the real error) back
+    to the cashier's screen. _submit_invoice_with_retry still retries on
+    deadlock/transient failure within this same request.
     """
-    frappe.enqueue(
-        _submit_invoice_with_retry,
-        queue="short",
-        invoice=invoice,
-        data=data,
-        enqueue_after_commit=True,
-    )
+    return _submit_invoice_with_retry(invoice=invoice, data=data)
 
 
 def _with_deadlock_retry(fn, max_attempts=3):
@@ -1595,9 +1586,29 @@ def _submit_invoice(invoice=None, data=None):
         # connection's point of view) "doesn't exist", which itself threw
         # DoesNotExistError and permanently killed the job, leaving the
         # invoice stuck as an orphaned, never-submitted draft.
-        if invoice_name and _wait_for_draft_visible(doctype, invoice_name):
+        if invoice_name:
+            if not _wait_for_draft_visible(doctype, invoice_name):
+                # Previously fell back to update_invoice(), which — since
+                # `name` is set here — either raises DoesNotExistError, or
+                # (if it somehow doesn't) risks recreating item rows without
+                # the income-account resolution the original draft got,
+                # both failing while burning an invoice number. Fail loudly
+                # instead and let _submit_invoice_with_retry's outer retry
+                # loop try the whole step again — by then the draft is
+                # essentially always visible.
+                frappe.throw(
+                    _("Draft invoice {0} is not yet visible to this worker; will retry.").format(invoice_name)
+                )
             invoice_doc = frappe.get_doc(doctype, invoice_name)
-            invoice_doc.update(invoice)
+            # `invoice` is the client's Step-1 payload round-tripped back to
+            # us; it carries doc-identity/timestamp fields (modified, owner,
+            # creation, ...) captured when the draft was first created.
+            # Applying those onto this freshly loaded doc can overwrite a
+            # `modified` that has since moved on, tripping check_if_latest()
+            # with a spurious TimestampMismatchError. Apply only actual
+            # invoice data, not the doc's own bookkeeping fields.
+            stale_fields = ("modified", "modified_by", "creation", "owner", "docstatus", "name")
+            invoice_doc.update({k: v for k, v in invoice.items() if k not in stale_fields})
         else:
             created = update_invoice(json.dumps(invoice))
             if not created or not isinstance(created, dict):
@@ -1787,6 +1798,12 @@ def _submit_invoice(invoice=None, data=None):
         # so the submitted invoice has the correct paid_amount and status = "Paid".
         _reapply_payment_amounts(invoice_doc, invoice.get("payments"), doctype)
 
+        # _reapply_payment_amounts wrote directly via db_set (bypassing this
+        # in-memory doc), and invoice_doc's own `modified` may still trail
+        # the row's true current value. Reload so submit()'s
+        # check_if_latest() compares against the actual current row.
+        invoice_doc.reload()
+
         # Submit invoice
         _with_deadlock_retry(invoice_doc.submit)
         invoice_submitted = True
@@ -1911,6 +1928,22 @@ def get_invoice(invoice_name, doctype="Sales Invoice"):
 	invoice = frappe.get_doc(doctype, invoice_name)
 
 	return invoice.as_dict()
+
+
+@frappe.whitelist()
+def mark_invoice_printed(invoice_name, doctype="Sales Invoice"):
+	"""Mark an invoice as printed after a successful receipt print.
+
+	Uses db_set(update_modified=False) so this never disturbs a concurrent
+	background submit's check_if_latest() comparison for the same invoice.
+	Only Sales Invoice carries posa_is_printed; other doctypes are a no-op.
+	"""
+	if doctype != "Sales Invoice" or not frappe.db.has_column(doctype, "posa_is_printed"):
+		return
+	if not frappe.db.exists(doctype, invoice_name):
+		frappe.throw(_("{0} {1} does not exist").format(doctype, invoice_name))
+
+	frappe.db.set_value(doctype, invoice_name, "posa_is_printed", 1, update_modified=False)
 
 
 @frappe.whitelist()
@@ -2043,17 +2076,28 @@ def delete_invoice(invoice):
 @frappe.whitelist()
 def cleanup_old_drafts(pos_profile=None, max_age_hours=24):
     """
-    Clean up old draft invoices to prevent stock reservation issues.
-    Deletes drafts older than max_age_hours (default 24 hours).
+    Clean up old, unpaid draft invoices to prevent stock reservation issues.
+    Deletes drafts older than max_age_hours (default, and minimum, 24 hours).
+
+    Never deletes a draft that has money on it (paid_amount, a non-zero
+    payment row, or a pending-stock backorder flag) — those are completed,
+    paid sales waiting on the background submit job, not abandoned carts.
     """
     from datetime import datetime, timedelta
 
     doctype = "Sales Invoice"
-    cutoff_time = datetime.now() - timedelta(hours=int(max_age_hours))
+    max_age_hours = int(max_age_hours)
+    if max_age_hours < MIN_DRAFT_CLEANUP_AGE_HOURS:
+        frappe.throw(
+            _("max_age_hours must be at least {0} hours").format(MIN_DRAFT_CLEANUP_AGE_HOURS)
+        )
+
+    cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
 
     filters = {
         "docstatus": 0,  # Draft only
         "modified": ["<", cutoff_time.strftime("%Y-%m-%d %H:%M:%S")],
+        "posa_pending_stock": ["!=", 1],
     }
 
     # Optionally filter by POS profile
@@ -2064,12 +2108,21 @@ def cleanup_old_drafts(pos_profile=None, max_age_hours=24):
     old_drafts = frappe.get_all(
         doctype,
         filters=filters,
-        fields=["name", "modified"],
+        fields=["name", "modified", "paid_amount"],
         limit_page_length=100,  # Safety limit
     )
 
+    skipped = []
     deleted_count = 0
     for draft in old_drafts:
+        if flt(draft.get("paid_amount")) > 0:
+            skipped.append(draft["name"])
+            continue
+
+        if frappe.db.exists("Sales Invoice Payment", {"parent": draft["name"], "amount": [">", 0]}):
+            skipped.append(draft["name"])
+            continue
+
         try:
             frappe.delete_doc(
                 doctype, draft["name"], force=True, ignore_permissions=True
@@ -2081,9 +2134,16 @@ def cleanup_old_drafts(pos_profile=None, max_age_hours=24):
                 message=f"Failed to delete draft {draft['name']}: {str(e)}",
             )
 
+    if skipped:
+        frappe.log_error(
+            title="Draft Cleanup Skipped Paid Drafts",
+            message=f"Skipped {len(skipped)} draft(s) with money on them: {', '.join(skipped)}",
+        )
+
     return {
         "deleted": deleted_count,
-        "message": f"Cleaned up {deleted_count} old draft invoices",
+        "skipped": len(skipped),
+        "message": f"Cleaned up {deleted_count} old draft invoices, skipped {len(skipped)} with payments",
     }
 
 

@@ -1002,12 +1002,12 @@ export function useInvoice() {
 		targetDoctype = "Sales Invoice",
 		deliveryDate = null,
 		writeOffAmount = 0,
-		onDraftCreated = null,
 	) {
 		/**
 		 * Two-step submission process with mutex protection:
 		 * 1. Create/update draft invoice
-		 * 2. Validate stock and submit
+		 * 2. Validate stock and submit (synchronous — result reflects the
+		 *    real submitted invoice, or throws on failure)
 		 *
 		 * The mutex prevents duplicate invoice creation from:
 		 * - Rapid double-clicks on payment buttons
@@ -1017,8 +1017,6 @@ export function useInvoice() {
 		 * @param {string} targetDoctype - The document type to create (Sales Invoice or Sales Order)
 		 * @param {string|null} deliveryDate - Delivery date for Sales Orders
 		 * @param {number} writeOffAmount - Amount to write off (small remaining balances)
-		 * @param {Function|null} onDraftCreated - Called with the draft invoice doc right
-		 *   after Step 1, before Step 2 (queued, result not returned to the caller) starts
 		 */
 		return await submitMutex.withLock(async () => {
 			// Check if already submitting (belt and suspenders with mutex)
@@ -1096,19 +1094,6 @@ export function useInvoice() {
 					throw new Error(
 						"Failed to create draft invoice - no invoice name returned",
 					)
-				}
-
-				// Draft already has its real name + computed totals at this point.
-				// Step 2 below (actual submit/stock/GL) is queued on the backend and
-				// its result never reaches us, so callers that need something the
-				// instant checkout completes (e.g. printing) hook in here instead of
-				// waiting on it.
-				if (onDraftCreated) {
-					try {
-						onDraftCreated(invoiceDoc)
-					} catch (callbackError) {
-						log.error("onDraftCreated callback failed:", callbackError)
-					}
 				}
 
 				const submitData = {
@@ -1397,13 +1382,13 @@ export function useInvoice() {
 		// Set default customer from POS Profile if available
 		setDefaultCustomer()
 
-		// Cleanup old draft invoices (older than 1 hour) in background
+		// Cleanup old, unpaid draft invoices (backend enforces a 24h+ minimum
+		// age and never touches a draft with money on it) in the background
 		// Skip if offline to avoid network errors
 		if (!isOffline()) {
 			try {
 				await cleanupDraftsResource.submit({
 					pos_profile: posProfile.value,
-					max_age_hours: 1,
 				})
 			} catch (error) {
 				// Silent fail - don't block cart clearing

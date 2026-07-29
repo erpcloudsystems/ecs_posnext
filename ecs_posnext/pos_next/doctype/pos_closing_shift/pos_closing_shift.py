@@ -10,7 +10,7 @@ from erpnext.accounts.doctype.pos_invoice_merge_log.pos_invoice_merge_log import
 )
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 
 def get_base_value(doc, fieldname, base_fieldname=None, conversion_rate=None):
@@ -187,23 +187,35 @@ class POSClosingShift(Document):
         )
 
     def delete_draft_invoices(self):
-        if frappe.get_value("POS Profile", self.pos_profile, "posa_allow_delete"):
-            doctype = "Sales Invoice"
-            data = frappe.db.sql(
-                f"""
-		select
-		    name
-		from
-		    `tab{doctype}`
-		where
-		    docstatus = 0 and posa_is_printed = 0 and posa_pos_opening_shift = %s
-		""",
-                (self.pos_opening_shift),
-                as_dict=1,
-            )
+        if not frappe.get_value("POS Profile", self.pos_profile, "posa_allow_delete"):
+            return
 
-            for invoice in data:
-                frappe.delete_doc(doctype, invoice.name, force=1)
+        doctype = "Sales Invoice"
+        candidates = frappe.get_all(
+            doctype,
+            filters={
+                "docstatus": 0,
+                "posa_is_printed": 0,
+                "posa_pos_opening_shift": self.pos_opening_shift,
+            },
+            fields=["name", "paid_amount", "posa_pending_stock"],
+        )
+
+        skipped = []
+        for invoice in candidates:
+            if flt(invoice.paid_amount) > 0 or cint(invoice.posa_pending_stock):
+                skipped.append(invoice.name)
+                continue
+            if frappe.db.exists("Sales Invoice Payment", {"parent": invoice.name, "amount": [">", 0]}):
+                skipped.append(invoice.name)
+                continue
+            frappe.delete_doc(doctype, invoice.name, force=1)
+
+        if skipped:
+            frappe.log_error(
+                title="Closing Shift Skipped Paid Drafts",
+                message=f"POS Closing Shift {self.name}: skipped {len(skipped)} draft(s) with money on them: {', '.join(skipped)}",
+            )
 
     @frappe.whitelist()
     def get_payment_reconciliation_details(self):
@@ -762,6 +774,13 @@ def _create_cash_transfer_payment_entry(closing_shift_doc):
 
 
 def submit_printed_invoices(pos_opening_shift, doctype):
+    """Auto-submit printed-but-unsubmitted drafts at closing time.
+
+    Each invoice is isolated in its own try/except — previously one bad
+    invoice threw and aborted the whole closing-shift screen (this runs
+    before get_pos_invoices lists anything), silently leaving every other
+    printed draft unsubmitted too.
+    """
     invoices_list = frappe.get_all(
         doctype,
         filters={
@@ -770,6 +789,28 @@ def submit_printed_invoices(pos_opening_shift, doctype):
             "posa_is_printed": 1,
         },
     )
+
+    failures = []
     for invoice in invoices_list:
-        invoice_doc = frappe.get_doc(doctype, invoice.name)
-        invoice_doc.submit()
+        try:
+            invoice_doc = frappe.get_doc(doctype, invoice.name)
+            invoice_doc.submit()
+            frappe.db.commit()
+        except Exception as e:
+            frappe.db.rollback()
+            frappe.log_error(
+                title="Submit Printed Invoice Failed",
+                message=f"{doctype} {invoice.name} (shift {pos_opening_shift}): {str(e)}\n{frappe.get_traceback()}",
+            )
+            failures.append(invoice.name)
+
+    if failures:
+        frappe.msgprint(
+            _("Failed to auto-submit {0} printed invoice(s) at closing: {1}. Check Error Log.").format(
+                len(failures), ", ".join(failures)
+            ),
+            alert=True,
+            indicator="orange",
+        )
+
+    return failures

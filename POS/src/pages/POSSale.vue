@@ -2080,22 +2080,10 @@ async function handlePaymentCompleted(paymentData) {
 			// Get item codes from cart before clearing
 			const soldItemCodes = cartStore.invoiceItems.map((item) => item.item_code);
 
-			// "Complete & Print": the draft invoice (Step 1) already has its real
-			// name and computed totals; print from that immediately instead of
-			// waiting on Step 2, which is queued on the backend and never reports
-			// back here. Tabby / insufficient-stock outcomes are only known after
-			// Step 2, so this print can't reflect those — acceptable trade-off for
-			// getting a receipt in the cashier's hand right away.
-			const result = await cartStore.submitInvoice(
-				paymentData.print
-					? (draftInvoiceDoc) => {
-							handlePrintInvoice({ name: draftInvoiceDoc.name }).catch((error) => {
-								log.error("Immediate print after draft creation failed:", error);
-								showWarning(__("Invoice created but print failed"));
-							});
-						}
-					: undefined,
-			);
+			// Step 2 (submit) now runs synchronously, so `result` reflects the
+			// real submitted invoice. Printing happens further below, after a
+			// confirmed submit, instead of from the unsubmitted draft.
+			const result = await cartStore.submitInvoice();
 
 			if (result) {
 				// Tabby: invoice kept pending; show the payment link (QR + copy) and

@@ -87,6 +87,23 @@ export async function printInvoice(invoiceData, printFormat = null, letterhead =
 }
 
 /**
+ * Mark an invoice as printed on the server after a successful print.
+ * Only Sales Invoice carries posa_is_printed, so this is a no-op otherwise.
+ * Failures are swallowed — this must never block or fail the print itself.
+ */
+async function markPrinted(invoiceName, doctype) {
+	if (doctype !== "Sales Invoice") return
+	try {
+		await call("ecs_posnext.api.invoices.mark_invoice_printed", {
+			invoice_name: invoiceName,
+			doctype,
+		})
+	} catch (err) {
+		log.warn("Failed to mark invoice as printed:", err)
+	}
+}
+
+/**
  * Fetch an invoice by name, resolve its POS Profile print settings,
  * then open the browser print window.
  */
@@ -98,7 +115,9 @@ export async function printInvoiceByName(invoiceName, printFormat = null, letter
 	if (!invoiceDoc) throw new Error("Invoice not found")
 
 	const settings = await resolvePrintSettings(invoiceDoc.pos_profile, printFormat, letterhead, doctype)
-	return printInvoice(invoiceDoc, settings.printFormat, settings.letterhead)
+	const printed = await printInvoice(invoiceDoc, settings.printFormat, settings.letterhead)
+	if (printed) await markPrinted(invoiceName, doctype)
+	return printed
 }
 
 // ============================================================================
@@ -135,6 +154,7 @@ export async function silentPrintInvoice(invoiceName, printFormat = null, doctyp
 
 	await qzPrintHTML(fullHTML)
 	log.info(`Silent print sent for ${invoiceName}`)
+	await markPrinted(invoiceName, doctype)
 	return true
 }
 
