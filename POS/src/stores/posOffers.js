@@ -15,6 +15,7 @@ const defaultSnapshot = () => ({
 	itemGroupQuantities: {}, // { item_group: qty }
 	brandQuantities: {},     // { brand: qty }
 	branch: null,            // branch the sale belongs to (for branch-restricted offers)
+	priceList: null,         // price list items are currently priced against (for for_price_list-restricted offers)
 })
 
 function getDiscountSortValue(offer) {
@@ -65,6 +66,7 @@ export const usePOSOffersStore = defineStore("posOffers", () => {
 			itemGroupQuantities,
 			brandQuantities,
 			branch: snapshot.branch || null,
+			priceList: snapshot.priceList || null,
 		}
 	}
 
@@ -162,6 +164,20 @@ export const usePOSOffersStore = defineStore("posOffers", () => {
 			return {
 				eligible: false,
 				reason: __("This offer is not available at {0}", [branch]),
+			}
+		}
+
+		// Price list restriction (Pricing Rule.for_price_list). Mirrors ERPNext's
+		// own pricing engine, which only matches a rule against the price list the
+		// cart is actually priced with — an offer scoped to one price list must not
+		// auto-apply while the cart is priced against a different one.
+		if (offer?.for_price_list) {
+			const priceList = cartSnapshot.value.priceList || null
+			if (offer.for_price_list !== priceList) {
+				return {
+					eligible: false,
+					reason: __("This offer is not available for the selected price list"),
+				}
 			}
 		}
 

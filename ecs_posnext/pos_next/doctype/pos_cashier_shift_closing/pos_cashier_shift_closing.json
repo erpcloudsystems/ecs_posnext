@@ -124,6 +124,7 @@
    "fetch_from": "pos_cashier_shift.employee",
    "fieldname": "employee",
    "fieldtype": "Link",
+   "ignore_user_permissions": 1,
    "label": "Employee",
    "options": "Employee",
    "read_only": 1
@@ -131,6 +132,7 @@
   {
    "fieldname": "supervisor_employee",
    "fieldtype": "Link",
+   "ignore_user_permissions": 1,
    "label": "Supervisor Employee",
    "options": "Employee",
    "read_only": 1
@@ -270,17 +272,17 @@
   },
   {
    "default": "0",
+   "description": "Total credit/card/wallet actually received this shift, from the card terminal / bank.",
    "fieldname": "actual_credit",
    "fieldtype": "Currency",
-   "label": "Actual Credit (Card / Bank)",
-   "description": "Total credit/card/wallet actually received this shift, from the card terminal / bank."
+   "label": "Actual Credit (Card / Bank)"
   },
   {
    "default": "0",
+   "description": "Tick to confirm the drawer has been physically counted. Required to close \u2014 an empty drawer is a valid count of 0. Reveals the expected figures.",
    "fieldname": "cash_counted",
    "fieldtype": "Check",
-   "label": "Cash Counted",
-   "description": "Tick to confirm the drawer has been physically counted. Required to close — an empty drawer is a valid count of 0. Reveals the expected figures."
+   "label": "Cash Counted"
   },
   {
    "depends_on": "eval:doc.cash_counted",
@@ -410,7 +412,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-07-19 11:29:38.275913",
+ "modified": "2026-07-22 13:00:51.017542",
  "modified_by": "Administrator",
  "module": "POS Next",
  "name": "POS Cashier Shift Closing",

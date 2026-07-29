@@ -8,9 +8,9 @@ from frappe.utils import getdate, get_datetime, add_days
 
 SHIFT_WINDOWS = {
     "Morning": (9, 0, 20, 0),
-    "Evening": (20, 0, 6, 0),
+    "Evening": (20, 0, 9, 0),
     # Whole Day for this business: same working window spanning the two shifts
-    "Whole Day": (9, 0, 6, 0),
+    "Whole Day": (9, 0, 9, 0),
 }
 
 
@@ -32,13 +32,9 @@ def get_sales_by_working_day(filters=None):
     mops = _normalize(filters.get("modes_of_payment"))
     price_lists = _normalize(filters.get("price_lists"))
 
-    pos_profile_for_window = _normalize(filters.get("pos_profile_for_window"))
-    if pos_profile_for_window:
-        pos_profile_for_window = pos_profile_for_window[0]
-    else:
-        pos_profile_for_window = None
-
-    shift_overrides = filters.get("shift_overrides") or {}
+    # Shift hours are fixed business-wide (SHIFT_WINDOWS) and never read from the
+    # POS Profile, so the window is the same whether a profile is selected or not.
+    # The client still sends `pos_profile_for_window` / `shift_overrides`; both are ignored.
 
     # Compute time window based on mode
     if mode == "date_range":
@@ -47,9 +43,7 @@ def get_sales_by_working_day(filters=None):
         start_dt = get_datetime(f"{from_date} 00:00:00")
         end_dt = get_datetime(f"{to_date} 23:59:59")
     else:
-        start_dt, end_dt = _compute_window(
-            working_day, shift, pos_profiles, pos_profile_for_window, shift_overrides=shift_overrides
-        )
+        start_dt, end_dt = _compute_window(working_day, shift)
     params = {
         "start_dt": start_dt,
         "end_dt": end_dt,
@@ -155,7 +149,8 @@ def get_sales_by_working_day(filters=None):
         as_dict=True,
     )
 
-    return_where = [f"(({time_cond}) OR ({date_only_cond}))", "si.docstatus = 2"]
+    # Returns are submitted credit notes (is_return = 1), not cancelled invoices.
+    return_where = [f"(({time_cond}) OR ({date_only_cond}))", "si.docstatus = 1", "si.is_return = 1"]
     if branches and branch_col:
         return_where.append(f"si.`{branch_col}` in %(branches)s")
     if pos_profiles:
@@ -656,29 +651,13 @@ def _normalize(val):
     return [val]
 
 
-def _compute_window(working_day, shift, pos_profiles=None, explicit_profile=None, shift_overrides=None):
-    shift_overrides = shift_overrides or {}
-    # Resolve shift times: prefer POS Profile custom fields, fallback to static defaults
-    custom = _get_shift_times(pos_profiles, explicit_profile)
-    default = SHIFT_WINDOWS.get(shift, SHIFT_WINDOWS["Morning"])
-    def pick(key, fallback):
-        # order: override -> custom -> fallback
-        override_val = _parse_time_parts(shift_overrides.get(key))
-        if override_val:
-            return override_val
-        if custom.get(key):
-            return custom[key]
-        return fallback
+def _compute_window(working_day, shift):
+    """Resolve the shift window from the fixed business-wide SHIFT_WINDOWS.
 
-    if shift == "Morning":
-        start_h, start_m = pick("s1_start", default[:2])
-        end_h, end_m = pick("s1_end", default[2:])
-    elif shift == "Evening":
-        start_h, start_m = pick("s2_start", default[:2])
-        end_h, end_m = pick("s2_end", default[2:])
-    else:  # Whole Day
-        start_h, start_m = pick("s1_start", SHIFT_WINDOWS["Morning"][:2])
-        end_h, end_m = pick("s2_end", SHIFT_WINDOWS["Evening"][2:])
+    Shift hours are intentionally NOT read from the POS Profile: every branch
+    reports on the same working day, so the window depends only on the shift.
+    """
+    start_h, start_m, end_h, end_m = SHIFT_WINDOWS.get(shift, SHIFT_WINDOWS["Whole Day"])
 
     base = get_datetime(f"{working_day} 00:00:00")
     start_dt = base.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
@@ -694,42 +673,3 @@ def _branch_column():
     if frappe.db.has_column("Sales Invoice", "custom_branch"):
         return "custom_branch"
     return None
-
-
-def _parse_time_parts(val):
-    if not val:
-        return None
-    try:
-        # If it's already a time object
-        h, m, s = val.hour, val.minute, val.second
-        return h, m
-    except Exception:
-        pass
-    if isinstance(val, str):
-        parts = val.strip().split(":")
-        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
-            return int(parts[0]), int(parts[1])
-    return None
-
-
-def _get_shift_times(pos_profiles=None, explicit_profile=None):
-    if explicit_profile:
-        candidates = [explicit_profile]
-    else:
-        candidates = list(pos_profiles or [])
-    if not candidates:
-        candidates = frappe.get_all("POS Profile", filters={"disabled": 0}, pluck="name") or []
-    if not candidates:
-        candidates = frappe.get_all("POS Profile", pluck="name") or []
-    fields = ["posa_shift_1_start", "posa_shift_1_end", "posa_shift_2_start", "posa_shift_2_end"]
-    for profile in candidates:
-        data = frappe.db.get_value("POS Profile", profile, fields, as_dict=True) or {}
-        parsed = {
-            "s1_start": _parse_time_parts(data.get("posa_shift_1_start")),
-            "s1_end": _parse_time_parts(data.get("posa_shift_1_end")),
-            "s2_start": _parse_time_parts(data.get("posa_shift_2_start")),
-            "s2_end": _parse_time_parts(data.get("posa_shift_2_end")),
-        }
-        if any(parsed.values()):
-            return parsed
-    return {}

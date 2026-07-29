@@ -78,6 +78,8 @@ class Offer:
 	eligible_items: List[str]
 	eligible_item_groups: List[str]
 	eligible_brands: List[str]
+	# Price list this offer is restricted to (Pricing Rule.for_price_list). None means every price list.
+	for_price_list: Optional[str] = None
 	# Free item fields for product discounts
 	free_item: Optional[str] = None
 	free_qty: float = 0
@@ -376,7 +378,8 @@ class OfferBuilder:
 			is_recursive=1 if slab.get("is_recursive") and not is_price_discount else 0,
 			recurse_for=flt(slab.get("recurse_for", 0)) if not is_price_discount else 0,
 			apply_recursion_over=flt(slab.get("apply_recursion_over", 0)) if not is_price_discount else 0,
-			allowed_branches=allowed_branches or []
+			allowed_branches=allowed_branches or [],
+			for_price_list=rule.get("for_price_list")
 		)
 
 	@staticmethod
@@ -426,7 +429,8 @@ class OfferBuilder:
 			eligible_items=eligible_items,
 			eligible_item_groups=eligible_item_groups,
 			eligible_brands=eligible_brands,
-			allowed_branches=allowed_branches or []
+			allowed_branches=allowed_branches or [],
+			for_price_list=rule.get("for_price_list")
 		)
 
 
@@ -474,7 +478,7 @@ def _get_promotional_scheme_offers(company: str, date: str) -> List[Offer]:
 		SELECT
 			name, title, apply_on, selling, promotional_scheme,
 			promotional_scheme_id, coupon_code_based,
-			price_or_product_discount, priority, valid_from, valid_upto
+			price_or_product_discount, priority, valid_from, valid_upto, for_price_list
 		FROM `tabPricing Rule`
 		WHERE
 			disable = 0
@@ -532,7 +536,7 @@ def _get_standalone_pricing_rule_offers(company: str, date: str) -> List[Offer]:
 			coupon_code_based, price_or_product_discount,
 			rate_or_discount, rate, discount_amount, discount_percentage,
 			min_qty, max_qty, min_amt, max_amt,
-			priority, valid_from, valid_upto
+			priority, valid_from, valid_upto, for_price_list
 		FROM `tabPricing Rule`
 		WHERE
 			disable = 0

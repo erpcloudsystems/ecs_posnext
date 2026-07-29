@@ -1563,6 +1563,8 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			}
 		}
 
+		const itemStore = useItemSearchStore()
+
 		return {
 			subtotal: subtotal.value,
 			itemCount: totalQty,
@@ -1574,6 +1576,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			itemGroupQuantities,
 			brandQuantities,
 			branch: effectiveBranch.value,
+			priceList: itemStore.getPriceListParam() || null,
 		}
 	}
 
@@ -1812,6 +1815,8 @@ export const usePOSCartStore = defineStore("posCart", () => {
 				return sum + (item.quantity || 0)
 			}, 0)
 
+			const itemStore = useItemSearchStore()
+
 			offersStore.updateCartSnapshot({
 				subtotal: subtotal.value,
 				itemCount: totalQty, // Total quantity, not number of line items
@@ -1822,6 +1827,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 				itemGroupQuantities: cachedItemGroupQuantities,
 				brandQuantities: cachedBrandQuantities,
 				branch: effectiveBranch.value,
+				priceList: itemStore.getPriceListParam() || null,
 			})
 		}
 	}

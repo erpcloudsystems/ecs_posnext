@@ -168,7 +168,7 @@ function render_app() {
           </div>
           <div>
             <div class="text-muted text-uppercase small">{{ __("Return Invoices Total") }}</div>
-            <div class="h5">{{ format_currency(return_totals.grand_total) }}</div>
+            <div class="h5">{{ format_signed_currency(return_totals.grand_total) }}</div>
           </div>
           <div>
             <div class="text-muted text-uppercase small">{{ __("Outstanding Total") }}</div>
@@ -375,8 +375,8 @@ function render_app() {
                 <td>{{ row.branch || __("Unknown") }}</td>
                 <td>{{ row.pos_profile }}</td>
                 <td>{{ row.customer }}</td>
-                <td>{{ format_currency(row.grand_total) }}</td>
-                <td>{{ format_currency(row.net_total) }}</td>
+                <td>{{ format_signed_currency(row.grand_total) }}</td>
+                <td>{{ format_signed_currency(row.net_total) }}</td>
                 <td>{{ row.total_qty }}</td>
               </tr>
             </tbody>
@@ -689,6 +689,12 @@ function render_app() {
         const tmp = document.createElement("div");
         tmp.innerHTML = raw;
         return tmp.textContent || tmp.innerText || "";
+      },
+      format_signed_currency(v) {
+        const n = Number(v) || 0;
+        const text = this.format_currency(Math.abs(n));
+        if (!n) return text;
+        return `${n < 0 ? "-" : "+"}${text}`;
       },
       format_percentage(value, total) {
         const safeValue = Number(value) || 0;

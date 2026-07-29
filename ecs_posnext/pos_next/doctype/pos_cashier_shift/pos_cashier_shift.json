@@ -1,6 +1,5 @@
 {
  "actions": [],
- "allow_rename": 0,
  "autoname": "naming_series:",
  "creation": "2026-07-16 10:00:00",
  "doctype": "DocType",
@@ -24,13 +23,13 @@
  ],
  "fields": [
   {
+   "default": "POS-CSH-.YYYY.-.#####",
    "fieldname": "naming_series",
    "fieldtype": "Select",
    "label": "Series",
    "options": "POS-CSH-.YYYY.-.#####",
-   "default": "POS-CSH-.YYYY.-.#####",
-   "reqd": 1,
-   "print_hide": 1
+   "print_hide": 1,
+   "reqd": 1
   },
   {
    "fieldname": "pos_business_day",
@@ -95,6 +94,7 @@
   {
    "fieldname": "employee",
    "fieldtype": "Link",
+   "ignore_user_permissions": 1,
    "label": "Employee",
    "options": "Employee",
    "read_only": 1
@@ -126,7 +126,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-16 10:00:00",
+ "modified": "2026-07-22 13:00:03.467170",
  "modified_by": "Administrator",
  "module": "POS Next",
  "name": "POS Cashier Shift",
@@ -157,6 +157,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

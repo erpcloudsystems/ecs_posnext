@@ -7,6 +7,8 @@ import { CoalescingMutex } from "@/utils/mutex"
 import { logger } from "@/utils/logger"
 import { roundCurrency } from "@/utils/currency"
 import { usePOSCartStore } from "@/stores/posCart"
+import { useItemSearchStore } from "@/stores/itemSearch"
+import { usePOSShiftStore } from "@/stores/posShift"
 
 const log = logger.create("Invoice")
 
@@ -22,6 +24,21 @@ export function useInvoice() {
 	const serialStore = useSerialNumberStore()
 	const settingsStore = usePOSSettingsStore()
 	const cartStore = usePOSCartStore()
+	const itemSearchStore = useItemSearchStore()
+	const shiftStore = usePOSShiftStore()
+
+	// Same resolution the cart uses to evaluate offers (breadcrumb selection ->
+	// branch price list -> profile default), so the price list actually priced
+	// against is the one persisted on the submitted invoice. Without this,
+	// `for_price_list`-scoped Pricing Rules resolve against the wrong list
+	// server-side because the invoice never carries a selling_price_list.
+	function resolveSellingPriceList() {
+		return (
+			itemSearchStore.getPriceListParam() ||
+			shiftStore.currentProfile?.selling_price_list ||
+			null
+		)
+	}
 
 	// Reactive computed from settings store - always in sync
 	const allowAdditionalDiscount = computed(
@@ -1033,6 +1050,7 @@ export function useInvoice() {
 			pos_profile: posProfile.value,
 			posa_pos_opening_shift: posOpeningShift.value,
 			customer: customer.value?.name || customer.value,
+			selling_price_list: resolveSellingPriceList(),
 			custom_order_type: customOrderType,
 			custom_table_number: cartStore.selectedTable || null,
 			custom_number_of_guests: cartStore.numberOfGuests || null,
@@ -1109,6 +1127,7 @@ export function useInvoice() {
 					...(cartStore.customerAddress
 						? { customer_address: cartStore.customerAddress }
 						: {}),
+					selling_price_list: resolveSellingPriceList(),
 					items: formatItemsForSubmission(rawItems),
 					packed_items: getPackedItemsForSubmission(rawItems),
 					payments: rawPayments.map((p) => ({
