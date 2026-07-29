@@ -22,8 +22,12 @@ def get_shift_window(shift_type: str, on_date: str | datetime.date) -> tuple | N
 	"""Start/end datetimes of ``shift_type`` for a shift that STARTED on ``on_date``.
 
 	An overnight shift (end_time <= start_time, e.g. 09:00 -> 03:00) ends on the
-	following day, so its window cannot be expressed as a calendar date. The
-	window is widened by the check-in/check-out grace margins, matching HRMS.
+	following day, so its window cannot be expressed as a calendar date.
+
+	The window is the shift's own start and end only. HRMS widens the equivalent
+	window by begin_check_in_before_shift_start_time / allow_check_out_after_shift_
+	end_time, but those are check-in margins: a sales person should be selectable
+	for the shift itself, not for an hour past its end.
 
 	Unlike HRMS's ``get_shift_timings``, the start day is already known here (it is
 	the attendance date), so no day resolution is needed. Returns None when the
@@ -33,15 +37,7 @@ def get_shift_window(shift_type: str, on_date: str | datetime.date) -> tuple | N
 		return None
 
 	shift = frappe.get_cached_value(
-		"Shift Type",
-		shift_type,
-		[
-			"start_time",
-			"end_time",
-			"begin_check_in_before_shift_start_time",
-			"allow_check_out_after_shift_end_time",
-		],
-		as_dict=True,
+		"Shift Type", shift_type, ["start_time", "end_time"], as_dict=True
 	)
 	if not shift or shift.start_time is None or shift.end_time is None:
 		return None
@@ -53,9 +49,6 @@ def get_shift_window(shift_type: str, on_date: str | datetime.date) -> tuple | N
 	if shift.end_time <= shift.start_time:
 		# Shift spans midnight: it ends on the day after it started
 		end += datetime.timedelta(days=1)
-
-	start -= datetime.timedelta(minutes=shift.begin_check_in_before_shift_start_time or 0)
-	end += datetime.timedelta(minutes=shift.allow_check_out_after_shift_end_time or 0)
 
 	return start, end
 
