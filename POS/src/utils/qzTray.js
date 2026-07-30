@@ -1,5 +1,6 @@
 import qz from "qz-tray"
 import { ref } from "vue"
+import { call } from "@/utils/apiWrapper"
 import { logger } from "@/utils/logger"
 
 const log = logger.create("QZTray")
@@ -19,6 +20,7 @@ export const qzConnecting = ref(false)
 // ============================================================================
 
 const PRINTER_STORAGE_KEY = "pos_qz_printer_name"
+const SIGNING_STORAGE_KEY = "pos_qz_signing_material"
 
 export function getSavedPrinterName() {
 	try {
@@ -40,12 +42,25 @@ export function savePrinterName(name) {
 // Security Setup (once)
 // ============================================================================
 
-let _securityInitialized = false
+/** Set up once per page session; concurrent connects share the same promise. */
+let _securityPromise = null
 
+/**
+ * QZ Tray only serves a request silently when it can verify who sent it. Requests
+ * signed with the site's certificate are trusted (once that certificate is
+ * installed on the till), so the cashier never sees the "Anonymous request /
+ * Untrusted website" dialog.
+ *
+ * Every failure here falls back to unsigned requests — the till still prints,
+ * exactly as before, it just gets the dialog again.
+ */
 function setupSecurity() {
-	if (_securityInitialized) return
-	_securityInitialized = true
+	if (!_securityPromise) _securityPromise = _initSecurity()
+	return _securityPromise
+}
 
+/** Unsigned requests: QZ Tray prompts the cashier for each one. */
+function useUnsignedRequests() {
 	qz.security.setCertificatePromise((resolve) => {
 		resolve()
 	})
@@ -56,6 +71,125 @@ function setupSecurity() {
 			resolve()
 		}
 	})
+}
+
+/**
+ * Fetch the site's certificate (and signing key) from the server, remembering it
+ * so a till that opens the POS offline still signs its print jobs.
+ * @returns {Promise<Object|null>}
+ */
+async function loadSigningMaterial() {
+	let cached = null
+	try {
+		cached = JSON.parse(localStorage.getItem(SIGNING_STORAGE_KEY) || "null")
+	} catch {
+		cached = null
+	}
+
+	try {
+		const material = await call("ecs_posnext.api.qz_signing.get_signing_material")
+		if (material?.certificate) {
+			try {
+				localStorage.setItem(SIGNING_STORAGE_KEY, JSON.stringify(material))
+			} catch (e) {
+				log.warn("Could not cache QZ Tray signing material:", e)
+			}
+			return material
+		}
+		log.warn("Server returned no QZ Tray certificate")
+	} catch (err) {
+		// Offline, or an older backend without the endpoint.
+		log.warn("Could not fetch QZ Tray signing material:", err?.message || err)
+	}
+
+	return cached?.certificate ? cached : null
+}
+
+/** Decode a PEM block into the raw DER bytes WebCrypto expects. */
+function pemToBytes(pem) {
+	const base64 = pem.replace(/-----[^-]*-----/g, "").replace(/\s+/g, "")
+	const binary = atob(base64)
+	const bytes = new Uint8Array(binary.length)
+	for (let i = 0; i < binary.length; i++) {
+		bytes[i] = binary.charCodeAt(i)
+	}
+	return bytes
+}
+
+/**
+ * Import the signing key for in-browser signing.
+ * @returns {Promise<CryptoKey|null>} null when the browser can't do it — WebCrypto
+ *   is unavailable on pages served over plain http, for instance.
+ */
+async function importSigningKey(privateKeyPem) {
+	if (!globalThis.crypto?.subtle) {
+		log.warn("WebCrypto unavailable — QZ Tray requests will be signed server-side")
+		return null
+	}
+
+	try {
+		return await crypto.subtle.importKey(
+			"pkcs8",
+			pemToBytes(privateKeyPem),
+			{ name: "RSASSA-PKCS1-v1_5", hash: "SHA-512" },
+			false,
+			["sign"],
+		)
+	} catch (err) {
+		log.warn("Could not import QZ Tray signing key:", err?.message || err)
+		return null
+	}
+}
+
+async function signLocally(key, message) {
+	const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(message))
+	let binary = ""
+	for (const byte of new Uint8Array(signature)) {
+		binary += String.fromCharCode(byte)
+	}
+	return btoa(binary)
+}
+
+async function signOnServer(message) {
+	return await call("ecs_posnext.api.qz_signing.sign_message", { request: message })
+}
+
+async function _initSecurity() {
+	const material = await loadSigningMaterial()
+	if (!material?.certificate) {
+		useUnsignedRequests()
+		return
+	}
+
+	let key = material.private_key ? await importSigningKey(material.private_key) : null
+
+	// Prove the key actually signs before committing to signed requests. A key QZ
+	// Tray can't verify would block printing outright, where unsigned only prompts.
+	if (key) {
+		try {
+			await signLocally(key, "qz-tray-signing-probe")
+		} catch (err) {
+			log.warn("QZ Tray signing key failed a test signature:", err?.message || err)
+			key = null
+		}
+	}
+
+	qz.security.setCertificatePromise((resolve) => {
+		resolve(material.certificate)
+	})
+
+	qz.security.setSignatureAlgorithm("SHA512")
+	qz.security.setSignaturePromise((toSign) => {
+		return (resolve, reject) => {
+			const signing = key ? signLocally(key, toSign) : signOnServer(toSign)
+			signing.then(resolve).catch((err) => {
+				log.error("Could not sign QZ Tray request:", err?.message || err)
+				reject(err)
+			})
+		}
+	})
+
+	log.info(`QZ Tray requests will be signed ${key ? "in the browser" : "on the server"}`)
 }
 
 // ============================================================================
@@ -109,7 +243,7 @@ export async function connect({ force = false } = {}) {
 }
 
 async function _doConnect() {
-	setupSecurity()
+	await setupSecurity()
 
 	qz.websocket.setClosedCallbacks(() => {
 		log.info("QZ Tray connection closed")
