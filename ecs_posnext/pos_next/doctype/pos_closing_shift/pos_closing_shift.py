@@ -798,6 +798,7 @@ def _create_cash_transfer_payment_entry(closing_shift_doc):
         pe = frappe.new_doc("Payment Entry")
         pe.payment_type = "Internal Transfer"
         pe.company = company
+        pe.custom_pos = 1
         pe.posting_date = frappe.utils.today()
         pe.paid_from = branch_cash_account
         pe.paid_to = manager_cash_account
