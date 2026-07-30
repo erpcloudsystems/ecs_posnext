@@ -1004,10 +1004,14 @@ export function useInvoice() {
 		writeOffAmount = 0,
 	) {
 		/**
-		 * Two-step submission process with mutex protection:
-		 * 1. Create/update draft invoice
-		 * 2. Validate stock and submit (synchronous — result reflects the
-		 *    real submitted invoice, or throws on failure)
+		 * Single-request submission with mutex protection: create the invoice
+		 * and submit it in one call to submit_invoice, which creates the draft
+		 * itself (via update_invoice) when no invoice.name is given. Collapsing
+		 * this from two sequential calls into one means the server keeps
+		 * running the request to completion (and commits) even if the
+		 * cashier's device is interrupted right after sending it — there is no
+		 * longer a gap between "draft created" and "submit sent" where a
+		 * dropped connection leaves a paid draft that never gets submitted.
 		 *
 		 * The mutex prevents duplicate invoice creation from:
 		 * - Rapid double-clicks on payment buttons
@@ -1077,25 +1081,6 @@ export function useInvoice() {
 					}))
 				}
 
-				const draftInvoice = await updateInvoiceResource.submit({
-					data: invoiceData,
-				})
-
-				let invoiceDoc = draftInvoice
-				if (
-					draftInvoice &&
-					typeof draftInvoice === "object" &&
-					"data" in draftInvoice
-				) {
-					invoiceDoc = draftInvoice.data
-				}
-
-				if (!invoiceDoc || !invoiceDoc.name) {
-					throw new Error(
-						"Failed to create draft invoice - no invoice name returned",
-					)
-				}
-
 				const submitData = {
 					change_amount:
 						remainingAmount.value < 0 ? Math.abs(remainingAmount.value) : 0,
@@ -1105,7 +1090,7 @@ export function useInvoice() {
 
 				try {
 					const result = await submitInvoiceResource.submit({
-						invoice: invoiceDoc,
+						invoice: invoiceData,
 						data: submitData,
 					})
 
