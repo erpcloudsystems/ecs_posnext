@@ -773,19 +773,21 @@ def _create_cash_transfer_payment_entry(closing_shift_doc):
 
         # Get the current total balance of the branch cash account from GL
         # balance = SUM(debit) - SUM(credit) across all time (all voucher types)
-        gl_result = frappe.db.sql(
-            """
-            SELECT SUM(debit) - SUM(credit) AS balance
-            FROM `tabGL Entry`
-            WHERE account = %s
-              AND company = %s
-              AND is_cancelled = 0
-            """,
-            (branch_cash_account, company),
-            as_dict=True,
-        )
+        # gl_result = frappe.db.sql(
+        #     """
+        #     SELECT SUM(debit) - SUM(credit) AS balance
+        #     FROM `tabGL Entry`
+        #     WHERE account = %s
+        #       AND company = %s
+        #       AND is_cancelled = 0
+        #     """,
+        #     (branch_cash_account, company),
+        #     as_dict=True,
+        # )
 
-        cash_amount = flt(gl_result[0].balance) if gl_result and gl_result[0].balance else 0
+        # cash_amount = flt(gl_result[0].balance) if gl_result and gl_result[0].balance else 0
+
+        cash_amount =closing_shift_doc.actual_amount
 
         if cash_amount <= 0:
             return
