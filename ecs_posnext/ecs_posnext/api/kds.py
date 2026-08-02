@@ -1,6 +1,21 @@
 import frappe
 import json
-from frappe.utils import now_datetime, add_to_date, flt
+from frappe import _
+from frappe.utils import now_datetime, add_to_date, flt, get_datetime, cint, time_diff_in_seconds
+
+DEFAULT_RETURN_GRACE_MINUTES = 2
+
+
+def get_return_grace_minutes(branch=None):
+	"""Minutes after an order reaches the KDS during which it may be returned freely.
+	Read from the branch KDS Settings, then the default record, else the fallback."""
+	val = None
+	if branch:
+		val = frappe.db.get_value("KDS Settings", {"branch": branch}, "return_grace_minutes")
+	if val is None:
+		val = frappe.db.get_value("KDS Settings", {"is_default": 1}, "return_grace_minutes")
+	val = cint(val)
+	return val if val > 0 else DEFAULT_RETURN_GRACE_MINUTES
 
 
 # ---------------------------------------------------------------------------
@@ -45,8 +60,12 @@ def _get_item_kds_station(item_code):
     return station
 
 
+# Used when an order type has no target of its own. Mirrors
+# FALLBACK_TARGET_MINUTES in the KDS Settings doctype controller.
+FALLBACK_TARGET_MINUTES = 15
+
 _SETTINGS_FIELDS = [
-    "default_target_minutes", "warning_threshold_pct",
+    "warning_threshold_pct",
     "pickup_target_minutes", "delivery_target_minutes",
     "dine_in_target_minutes", "talabat_target_minutes",
 ]
@@ -64,14 +83,14 @@ def _get_settings_for_branch(branch):
             "KDS Settings", {"is_default": 1}, _SETTINGS_FIELDS, as_dict=True,
         )
     return settings or {
-        "default_target_minutes": 15, "warning_threshold_pct": 70,
+        "warning_threshold_pct": 70,
         "pickup_target_minutes": 0, "delivery_target_minutes": 0,
         "dine_in_target_minutes": 0, "talabat_target_minutes": 0,
     }
 
 
 def _get_target_minutes(settings, order_type):
-    """Pick the per-order-type target, falling back to default_target_minutes."""
+    """Pick the per-order-type target, falling back to FALLBACK_TARGET_MINUTES."""
     mapping = {
         "Pickup":   "pickup_target_minutes",
         "Delivery": "delivery_target_minutes",
@@ -83,18 +102,118 @@ def _get_target_minutes(settings, order_type):
         val = settings.get(field) or 0
         if val > 0:
             return val
-    return settings.get("default_target_minutes") or 15
+    return FALLBACK_TARGET_MINUTES
 
 
 # ---------------------------------------------------------------------------
 # Sales Invoice on_submit hook — creates KDS Order
 # ---------------------------------------------------------------------------
 
+def assert_return_within_grace(original_name, branch_approved=False):
+	"""Guard: a return is free only within the branch's grace window after the order hit
+	the KDS. Past that, prepared food is likely wasted, so a branch manager must approve.
+	No KDS ticket (kitchen never involved) or already within grace → allowed."""
+	if branch_approved:
+		return
+	ko = frappe.db.get_value(
+		"KDS Order", {"sales_invoice": original_name},
+		["order_time", "branch", "status"], as_dict=True,
+	)
+	if not ko or not ko.order_time:
+		return  # kitchen never made a ticket — nothing to waste
+	grace = get_return_grace_minutes(ko.branch)
+	elapsed_min = time_diff_in_seconds(now_datetime(), ko.order_time) / 60.0
+	if elapsed_min > grace:
+		frappe.throw(
+			_("RETURN_NEEDS_BRANCH_APPROVAL: This order reached the kitchen {0} min ago "
+			  "(grace {1} min). A branch manager must approve the return.").format(
+				int(elapsed_min), grace
+			),
+			title=_("Branch Approval Required"),
+		)
+
+
+def _notify_kds_reversal(action, invoice_name, source=None, reason=None):
+    """Push a visible KDS alert when an order is returned / cancelled, so the kitchen
+    stops preparing it. `invoice_name` is the ORIGINAL order (the one the kitchen knows)."""
+    info = frappe.db.get_value(
+        "Sales Invoice", invoice_name,
+        ["custom_number_order", "branch", "pos_profile"], as_dict=True,
+    ) or {}
+    frappe.publish_realtime(
+        "kds_update",
+        {
+            "action": action,
+            "invoice": invoice_name,
+            "number": info.get("custom_number_order"),
+            "branch": info.get("branch"),
+            "is_call_center": "call center" in (info.get("pos_profile") or "").lower(),
+            "returned_source": source,
+            "return_reason": reason,
+        },
+        after_commit=True,
+    )
+
+
+def _mark_kds_returned(original_name, source=None, reason=None):
+    """When an order is returned, flag its still-active KDS ticket as 'Returned' and
+    stamp who returned it + why + when. The ticket stays on the kitchen screens (shown
+    red with an alarm) until a cook dismisses it. Completed / Cancelled tickets are left
+    untouched — only NOT-completed tickets are flagged."""
+    orders = frappe.get_all(
+        "KDS Order",
+        filters={"sales_invoice": original_name, "status": ["in", ["Pending", "Preparing", "Ready"]]},
+        pluck="name",
+    )
+    for order in orders:
+        try:
+            frappe.db.set_value(
+                "KDS Order", order,
+                {
+                    "status": "Returned",
+                    "returned_source": source or "User",
+                    "return_reason": reason,
+                    "returned_at": now_datetime(),
+                },
+            )
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "KDS Order Return Failed")
+    return orders
+
+
+@frappe.whitelist()
+def dismiss_returned_order(kds_order):
+    """A cook acknowledges a returned order — take it off the board (status Cancelled)."""
+    row = frappe.db.get_value("KDS Order", kds_order, ["status", "branch"], as_dict=True)
+    if not row:
+        frappe.throw(_("KDS Order {0} not found.").format(kds_order))
+    if row.status == "Returned":
+        frappe.db.set_value("KDS Order", kds_order, "status", "Cancelled")
+        frappe.publish_realtime(
+            "kds_update",
+            {"action": "returned_dismissed", "order": kds_order, "branch": row.branch},
+            after_commit=True,
+        )
+    return {"status": "Cancelled"}
+
+
 def on_sales_invoice_submit(doc, method=None):
     # A Return / Credit Note reverses a sale — there is nothing for the kitchen to
     # prepare, so it must never raise a KDS ticket (an un-completable ticket would
-    # otherwise block the POS Business Day from closing).
+    # otherwise block the POS Business Day from closing). But the kitchen still needs
+    # to know a live order was reversed — flag the original's not-completed ticket
+    # (shown red + alarm) and alert the KDS referencing the ORIGINAL order.
     if doc.get("is_return"):
+        if doc.get("return_against"):
+            source = doc.get("custom_return_source") or "User"
+            # A return raised on the Call Center POS profile is a call-center return no
+            # matter which button was used — reflect that on the KDS label.
+            orig_profile = frappe.db.get_value("Sales Invoice", doc.get("return_against"), "pos_profile") or ""
+            if "call center" in (doc.get("pos_profile") or "").lower() or "call center" in orig_profile.lower():
+                source = "Call Center"
+            reason = doc.get("remarks")
+            _mark_kds_returned(doc.get("return_against"), source, reason)
+            _notify_kds_reversal("order_returned", doc.get("return_against"), source, reason)
         return
     if frappe.db.exists("KDS Order", {"sales_invoice": doc.name}):
         return
@@ -124,7 +243,9 @@ def on_sales_invoice_cancel(doc, method=None):
             {
                 "action": "order_cancelled",
                 "invoice": doc.name,
+                "number": doc.get("custom_number_order"),
                 "branch": doc.get("branch"),
+                "is_call_center": "call center" in (doc.get("pos_profile") or "").lower(),
             },
             after_commit=True,
         )
@@ -295,32 +416,23 @@ def get_settings(branch=None):
 
 
 def _drop_return_orders(orders):
-    """Remove orders whose linked Sales Invoice is a Return / Credit Note.
+    """Remove tickets whose OWN linked Sales Invoice is a Return / Credit Note.
 
-    A return reverses a sale — the kitchen/assembly/dispatch should never see it. New
-    returns no longer create KDS tickets, but this also hides any that were created
-    before that fix (and any that slip through another path)."""
+    A credit note has nothing to prepare and should never raise a ticket. The ORIGINAL
+    order that was returned is NOT dropped here anymore — it is surfaced on the board with
+    KDS status 'Returned' (shown red + alarm) so the kitchen notices, until dismissed."""
     inv_names = [o.get("sales_invoice") for o in orders if o.get("sales_invoice")]
     if not inv_names:
         return orders
-    # Hide an order if its invoice IS a return, OR has been returned (a submitted
-    # Return points at it) — a returned/rejected order has nothing left to prepare.
     hidden = set(
         frappe.get_all("Sales Invoice", filters={"name": ["in", inv_names], "is_return": 1}, pluck="name")
-    )
-    hidden |= set(
-        frappe.get_all(
-            "Sales Invoice",
-            filters={"return_against": ["in", inv_names], "is_return": 1, "docstatus": 1},
-            pluck="return_against",
-        )
     )
     return [o for o in orders if o.get("sales_invoice") not in hidden]
 
 
 @frappe.whitelist()
 def get_active_orders(branch=None):
-    filters = {"status": ["in", ["Pending", "Preparing", "Ready"]]}
+    filters = {"status": ["in", ["Pending", "Preparing", "Ready", "Returned"]]}
     if branch:
         filters["branch"] = branch
 
@@ -330,6 +442,7 @@ def get_active_orders(branch=None):
         fields=[
             "name", "order_no", "custom_number_order", "sales_invoice", "branch",
             "order_time", "target_minutes", "expected_ready_time", "status", "order_type",
+            "returned_source", "return_reason", "returned_at",
         ],
         order_by="order_time asc",
         limit=200,
@@ -394,7 +507,7 @@ def get_station_orders(station, branch=None):
 
     filters = {
         "name": ["in", matching_parents],
-        "status": ["in", ["Pending", "Preparing", "Ready"]],
+        "status": ["in", ["Pending", "Preparing", "Ready", "Returned"]],
     }
     if branch:
         filters["branch"] = branch
@@ -405,6 +518,7 @@ def get_station_orders(station, branch=None):
         fields=[
             "name", "order_no", "custom_number_order", "sales_invoice", "branch",
             "order_time", "target_minutes", "expected_ready_time", "status",
+            "returned_source", "return_reason", "returned_at",
         ],
         order_by="order_time asc",
         limit=200,

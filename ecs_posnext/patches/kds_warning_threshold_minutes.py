@@ -15,6 +15,12 @@ def execute():
     if not frappe.db.has_column("KDS Settings", "warning_threshold_minutes"):
         frappe.reload_doc("pos_next", "doctype", "kds_settings")
 
+    # default_target_minutes has since been dropped from the DocType. The column
+    # survives on sites that predate the removal, which is exactly where this
+    # back-fill still has work to do; anywhere it's gone there is nothing to read.
+    if not frappe.db.has_column("KDS Settings", "default_target_minutes"):
+        return
+
     rows = frappe.get_all(
         "KDS Settings",
         fields=["name", "default_target_minutes", "warning_threshold_pct", "warning_threshold_minutes"],

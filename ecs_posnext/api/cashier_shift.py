@@ -13,7 +13,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, now_datetime
 
-from ecs_posnext.api.business_day import is_business_day_enabled, log_pos_event
+from ecs_posnext.api.business_day import collected_on_original, is_business_day_enabled, log_pos_event
 from ecs_posnext.pos_next.doctype.pos_business_day.pos_business_day import get_or_create_for
 from ecs_posnext.pos_next.doctype.pos_closing_shift.pos_closing_shift import (
 	_get_cash_mode_of_payment,
@@ -162,6 +162,21 @@ def compute_cash_figures(opening_shift_name):
 	for inv in invoices:
 		cr = inv.get("conversion_rate")
 		is_return = inv.get("is_return")
+		# Phantom-refund guard: a return of an original that collected nothing must not
+		# register any money paid back (cash OR credit). Such a return may still carry a
+		# refund payment row from before the return fix; counting it would understate the
+		# expected drawer and fake an overage. The transaction line is still recorded.
+		if is_return and collected_on_original(inv.get("return_against")) <= 0:
+			pos_transactions.append(
+				{
+					"sales_invoice": inv.name,
+					"customer": inv.get("customer"),
+					"grand_total": flt(inv.get("grand_total")),
+					"posting_date": inv.get("posting_date"),
+					"is_return": is_return,
+				}
+			)
+			continue
 		for p in inv.get("payments", []):
 			amount = get_base_value(p, "amount", "base_amount", cr)
 			if p.mode_of_payment == cash_mode:

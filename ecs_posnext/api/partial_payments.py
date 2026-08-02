@@ -642,6 +642,15 @@ def create_payment_entry(
         },
     )
 
+    # Link the payment to its POS Business Day / Cashier Shift (resolved from the POS
+    # Opening Shift in reference_no) so money collected from All Orders is filterable by
+    # day / shift, exactly like COD collections. No-ops if reference_no isn't a shift.
+    try:
+        from ecs_posnext.ecs_posnext.api.dispatcher import _stamp_pos_links
+        _stamp_pos_links(pe, pe.reference_no)
+    except Exception:
+        pass
+
     # Save and submit with proper error handling
     try:
         # Allow system to create payment entry even if user doesn't have direct permission

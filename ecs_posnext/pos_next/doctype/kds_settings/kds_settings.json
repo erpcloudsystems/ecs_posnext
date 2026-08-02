@@ -8,8 +8,8 @@
   "branch",
   "is_default",
   "column_break_1",
-  "default_target_minutes",
   "warning_threshold_minutes",
+  "return_grace_minutes",
   "section_order_types",
   "warning_threshold_pct",
   "pickup_target_minutes",
@@ -40,22 +40,22 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "15",
-   "description": "Target preparation time in minutes for orders at this branch",
-   "fieldname": "default_target_minutes",
-   "fieldtype": "Int",
-   "label": "Target Minutes"
-  },
-  {
    "default": "10",
-   "description": "Minutes elapsed before the timer turns amber. Must be less than Target Minutes.",
+   "description": "Minutes elapsed before the timer turns amber. Must be less than every order type target set below.",
    "fieldname": "warning_threshold_minutes",
    "fieldtype": "Int",
    "label": "Warning After (min)"
   },
   {
+   "default": "2",
+   "description": "Minutes after an order reaches the KDS during which it can be returned freely. After this, a branch manager password is required to return it (avoids wasted, already-prepared food).",
+   "fieldname": "return_grace_minutes",
+   "fieldtype": "Int",
+   "label": "Return Grace Window (min)"
+  },
+  {
    "default": "70",
-   "description": "Calculated from Warning After (min) ÷ Target Minutes. Read-only.",
+   "description": "Calculated from Warning After (min) ÷ the shortest order type target. Read-only.",
    "fieldname": "warning_threshold_pct",
    "fieldtype": "Int",
    "label": "Warning Threshold %",
@@ -67,25 +67,25 @@
    "label": "Target Minutes by Order Type"
   },
   {
-   "description": "Leave 0 to use default target",
+   "description": "Leave 0 to use the 15 min fallback",
    "fieldname": "pickup_target_minutes",
    "fieldtype": "Int",
    "label": "Pickup (min)"
   },
   {
-   "description": "Leave 0 to use default target",
+   "description": "Leave 0 to use the 15 min fallback",
    "fieldname": "delivery_target_minutes",
    "fieldtype": "Int",
    "label": "Delivery (min)"
   },
   {
-   "description": "Leave 0 to use default target",
+   "description": "Leave 0 to use the 15 min fallback",
    "fieldname": "dine_in_target_minutes",
    "fieldtype": "Int",
    "label": "Dine In (min)"
   },
   {
-   "description": "Leave 0 to use default target",
+   "description": "Leave 0 to use the 15 min fallback",
    "fieldname": "talabat_target_minutes",
    "fieldtype": "Int",
    "label": "Talabat (min)"

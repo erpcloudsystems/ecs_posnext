@@ -678,12 +678,12 @@
 						<Button
 							variant="solid"
 							theme="red"
-							@click="handleCancelAndRecreate"
-							:disabled="!canProcessReturn || isSubmitting"
+							@click="handleCreateReturn"
+							:disabled="!canCreateReturn || isSubmitting"
 							:loading="isSubmitting"
 							class="flex-1 sm:flex-initial"
 						>
-							<span class="text-sm whitespace-nowrap">{{ __('Cancel & Amend') }}</span>
+							<span class="text-sm whitespace-nowrap">{{ __('Create Return') }}</span>
 						</Button>
 					</div>
 				</div>
@@ -791,6 +791,9 @@ const props = defineProps({
 	posOpeningShift: String,
 	currency: { type: String, default: DEFAULT_CURRENCY },
 	preselectedInvoice: { type: Object, default: null },
+	// Who is making the return — "User" (cashier / All Orders) or "Call Center" — used
+	// for the KDS returned-order alarm label.
+	returnSource: { type: String, default: "User" },
 })
 
 const emit = defineEmits(["update:modelValue", "return-created"])
@@ -803,6 +806,9 @@ const showDialog = computed({
 
 // State
 const originalInvoice = ref(null)
+// Last {invoice, data} payload built by the return resource — reused to send the return
+// to branch-manager approval when the KDS grace window has passed.
+let lastReturnParams = null
 // Stores the return document created by ERPNext's make_sales_return().
 // Contains sales_team, taxes, and other child tables copied from the original invoice.
 const preparedReturnDoc = ref(null)
@@ -1097,10 +1103,27 @@ const createReturnResource = createResource({
 				// Link to original invoice item row for accurate return tracking in ERPNext
 				sales_invoice_item: item.name,
 			})),
-			// Payment amounts are negative for refunds
-			// If addToCustomerCredit is true, send empty payments array so outstanding stays negative
-			// This negative outstanding becomes customer credit balance
-			payments: addToCustomerCredit.value
+			// Carry the tax structure from the original (copied + negated by make_sales_return).
+			// Without this the credit note is created with NO taxes and under-reverses the
+			// original by the whole tax amount. submit_invoice runs calculate_taxes_and_totals,
+			// so percentage charges (On Net Total, …) are recomputed against the actually
+			// selected items (correct for partial returns); Actual fixed fees keep their amount.
+			taxes: (baseDoc.taxes || []).map((t) => ({
+				charge_type: t.charge_type,
+				account_head: t.account_head,
+				description: t.description,
+				rate: t.rate,
+				cost_center: t.cost_center,
+				included_in_print_rate: t.included_in_print_rate,
+				row_id: t.row_id,
+				tax_amount: t.tax_amount,
+			})),
+			// Payment amounts are negative for refunds.
+			// Send NO refund payment when either the user chose "add to customer credit"
+			// OR the original was never paid (credit / unpaid sale) — you cannot refund
+			// cash that was never collected. With update_outstanding_for_self=0 the
+			// credit note then simply clears the original invoice's outstanding.
+			payments: (addToCustomerCredit.value || isOriginalCreditSale.value)
 				? []
 				: refundPayments.value.map((payment) => ({
 						mode_of_payment: payment.mode_of_payment,
@@ -1112,10 +1135,15 @@ const createReturnResource = createResource({
 		}
 
 		// Return in the correct format: invoice as JSON string
-		return {
+		const params = {
 			invoice: JSON.stringify(invoiceData),
-			data: JSON.stringify({}),
+			data: JSON.stringify({
+				return_source: props.returnSource || "User",
+				branch_approved: branchApproved.value ? 1 : 0,
+			}),
 		}
+		lastReturnParams = params
+		return params
 	},
 	auto: false,
 	transform(data) {
@@ -1140,11 +1168,57 @@ const createReturnResource = createResource({
 	onError(error) {
 		isSubmitting.value = false
 		const errorMsg = extractErrorMessage(error)
+		// Grace window expired → the order is already in the kitchen. Do NOT create the
+		// return now; send it to the BRANCH MANAGER for approval on Need My Action.
+		if (String(errorMsg).includes("RETURN_NEEDS_BRANCH_APPROVAL")) {
+			sendBranchApprovalRequest()
+			return
+		}
 		submitError.value = errorMsg
 		console.error("Error creating return - full error object:", error)
 		openErrorDialog(errorMsg)
 	},
 })
+
+// Page-based branch-manager approval when the KDS grace window has passed.
+const branchApproved = ref(false)  // payload flag; the real sign-off happens server-side on approval
+const showBranchApprovalDialog = ref(false)  // legacy (unused) — kept to avoid template churn
+const branchApprovalPassword = ref("")
+const branchApprovalError = ref("")
+
+const requestBranchApprovalResource = createResource({
+	url: "ecs_posnext.api.branch_return_approval.request_branch_return_approval",
+	auto: false,
+})
+
+async function sendBranchApprovalRequest() {
+	if (!lastReturnParams) {
+		openErrorDialog(__("Could not prepare the return for branch approval. Please retry."))
+		return
+	}
+	try {
+		await requestBranchApprovalResource.submit({
+			sales_invoice: originalInvoice.value?.name,
+			invoice_payload: lastReturnParams.invoice,
+			data_payload: lastReturnParams.data,
+			reason: returnReason.value || "",
+			return_source: props.returnSource || "User",
+		})
+		closeReturnModal()
+		// A clear modal (not just a toast) so it's obvious the return didn't fail — it was
+		// routed to the Branch Manager because the order is already in the kitchen.
+		window.frappe?.msgprint?.({
+			title: __("Sent for Branch Approval"),
+			indicator: "orange",
+			message: __(
+				"This order has been in the kitchen longer than the return grace window, so the return needs Branch Manager approval. It has been sent to Need My Action → Branch Return Approvals."
+			),
+		})
+		showSuccess(__("Sent to the Branch Manager for approval."))
+	} catch (e) {
+		openErrorDialog(extractErrorMessage(e))
+	}
+}
 
 // Lifecycle hooks
 onMounted(() => {
@@ -1699,6 +1773,10 @@ function resetForm() {
 	returnItems.value = []
 	returnReason.value = ""
 	refundPayments.value = []
+	branchApproved.value = false
+	showBranchApprovalDialog.value = false
+	branchApprovalPassword.value = ""
+	branchApprovalError.value = ""
 
 	// Reset list and search state
 	invoiceList.value = []

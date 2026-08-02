@@ -715,6 +715,8 @@ def _apply_cost_center_from_opening_shift(invoice_doc):
     header and propagated to every item so the whole invoice posts consistently.
     """
     opening_shift = invoice_doc.get("posa_pos_opening_shift")
+    if isinstance(opening_shift, dict):
+        opening_shift = opening_shift.get("name")
     if not opening_shift:
         return
 
@@ -773,8 +775,17 @@ def _prepare_invoice_doc(data):
     recursive_sanitize(data)
     
     pos_profile = data.get("pos_profile")
+    # A caller may pass the whole POS Profile object (e.g. from check_opening_shift)
+    # instead of its name — normalise to the name string so downstream loads/compares work.
+    if isinstance(pos_profile, dict):
+        pos_profile = pos_profile.get("name")
     if pos_profile in ["None", "null", "", False]:
         pos_profile = None
+
+    # Same guard for the opening shift — callers sometimes pass the whole POS Opening
+    # Shift object; the Link field and every db lookup need the name string.
+    if isinstance(data.get("posa_pos_opening_shift"), dict):
+        data["posa_pos_opening_shift"] = data["posa_pos_opening_shift"].get("name")
 
     doctype = data.get("doctype") or "Sales Invoice"
     if doctype in ["None", "null", "", False]:
@@ -882,8 +893,19 @@ def _prepare_invoice_doc(data):
 
             # Copy accounting dimensions from POS Profile
             profile_branch = getattr(pos_profile_doc, "branch", None)
+
+            # A RETURN follows the SAME branch as the invoice it reverses — a return of a
+            # Call Center order must not re-ask for the target branch; inherit it from the
+            # original so it fulfils/reports against the right branch.
+            if not data.get("branch"):
+                return_against = data.get("return_against") or invoice_doc.get("return_against")
+                if return_against:
+                    original_branch = frappe.db.get_value("Sales Invoice", return_against, "branch")
+                    if original_branch:
+                        data["branch"] = original_branch
+
             selected_branch = data.get("branch") or profile_branch
-            
+
             # MANDATORY: If in Call Center mode, a branch MUST be selected manually
             if pos_profile == "Call Center" and not data.get("branch"):
                 frappe.throw(_("Target Branch is mandatory for Call Center orders."))
@@ -1367,6 +1389,55 @@ def check_offline_invoice_synced(offline_id):
     return result
 
 
+def _reconcile_return_against_original(return_doc):
+    """Knock a no-cash Return credit note off the original invoice it reverses.
+
+    For an UNPAID / credit-sale original, the return carries no refund payment, so it
+    lands as a standalone -X credit note while the original keeps its +X outstanding
+    (still showing as collectible). This posts a Debtors knock-off Journal Entry so BOTH
+    the original and the credit note settle to 0 — nothing collected, nothing owed.
+    Skipped when the original was already paid or the return already carries a cash
+    refund (return outstanding not negative).
+    """
+    if return_doc.docstatus != 1:
+        return None  # only settle once the credit note is actually submitted
+    original_name = return_doc.get("return_against")
+    if not original_name:
+        return None
+    orig = frappe.db.get_value(
+        "Sales Invoice", original_name,
+        ["outstanding_amount", "debit_to", "customer", "company"], as_dict=True,
+    )
+    if not orig or flt(orig.outstanding_amount) <= 0:
+        return None  # original already settled/paid — nothing to knock off
+    ret_out = flt(frappe.db.get_value("Sales Invoice", return_doc.name, "outstanding_amount"))
+    if ret_out >= 0:
+        return None  # return already settled by a cash refund
+    knockoff = min(flt(orig.outstanding_amount), abs(ret_out))
+    if knockoff <= 0:
+        return None
+
+    je = frappe.new_doc("Journal Entry")
+    je.voucher_type = "Credit Note"
+    je.posting_date = nowdate()
+    je.company = orig.company
+    je.user_remark = _("Auto-settle return {0} against {1}").format(return_doc.name, original_name)
+    je.append("accounts", {
+        "account": orig.debit_to, "party_type": "Customer", "party": orig.customer,
+        "reference_type": "Sales Invoice", "reference_name": original_name,
+        "credit_in_account_currency": knockoff,  # clears the original receivable
+    })
+    je.append("accounts", {
+        "account": orig.debit_to, "party_type": "Customer", "party": orig.customer,
+        "reference_type": "Sales Invoice", "reference_name": return_doc.name,
+        "debit_in_account_currency": knockoff,  # clears the credit note
+    })
+    je.flags.ignore_permissions = True
+    je.insert(ignore_permissions=True)
+    je.submit()
+    return je.name
+
+
 @frappe.whitelist()
 def submit_invoice(invoice=None, data=None):
     """Submit the invoice (Step 2)."""
@@ -1636,6 +1707,7 @@ def submit_invoice(invoice=None, data=None):
                   {channel_condition}
                   AND TIMESTAMP(posting_date, posting_time) >= %s
                   AND (custom_number_order IS NULL OR custom_number_order NOT LIKE '%%-%%-%%')
+                  AND is_return = 0
                 """,
                 (scope_value, shift_start_str)
             )[0][0]
@@ -1652,6 +1724,17 @@ def submit_invoice(invoice=None, data=None):
                 seq = count + 1
 
             invoice_doc.custom_number_order = f"{prefix}-{seq}"
+
+        # Return controls: record WHO initiated the return (for the KDS alarm label) and
+        # enforce the branch grace window — past it, prepared food is likely wasted, so a
+        # branch manager must have approved (branch_approved flag from the password prompt).
+        if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
+            return_source = (data.get("return_source") or invoice.get("return_source") or "User")
+            if invoice_doc.meta.has_field("custom_return_source"):
+                invoice_doc.custom_return_source = return_source
+            branch_approved = bool(data.get("branch_approved") or invoice.get("branch_approved"))
+            from ecs_posnext.ecs_posnext.api.kds import assert_return_within_grace
+            assert_return_within_grace(invoice_doc.get("return_against"), branch_approved)
 
         # Save before submit
         invoice_doc.flags.ignore_permissions = True
@@ -1674,7 +1757,12 @@ def submit_invoice(invoice=None, data=None):
         # they go to the kitchen / dispatch instead of waiting in Need My Action.
         is_talabat = (invoice_doc.custom_order_type or "").strip().lower() == "talabat"
 
-        if not is_call_center_invoice or force_submit or call_center_can_submit or is_talabat:
+        # A return / credit note is a reversal of an already-existing order, not a new
+        # order that needs branch approval — always submit it (even on Call Center),
+        # otherwise it gets stuck as a Draft and never reverses the original.
+        is_return_invoice = bool(invoice_doc.get("is_return"))
+
+        if not is_call_center_invoice or force_submit or call_center_can_submit or is_talabat or is_return_invoice:
             invoice_doc.submit()
         invoice_submitted = True
 
@@ -1702,6 +1790,14 @@ def submit_invoice(invoice=None, data=None):
                     alert=True,
                     indicator="orange"
                 )
+
+            # Settle a no-cash return against its (unpaid) original so the original
+            # stops showing as collectible. No-op when the original was already paid
+            # or the return carried a real cash refund.
+            try:
+                _reconcile_return_against_original(invoice_doc)
+            except Exception:
+                frappe.log_error(title="Return auto-settle failed", message=frappe.get_traceback())
 
         # Complete the offline sync record
         if sync_record_name:
@@ -2257,6 +2353,11 @@ def get_all_orders(date_from=None, date_to=None, limit=500):
 	if not (is_call_center or has_cc_role):
 		order_type_cond = " AND IFNULL(si.custom_order_type, '') NOT IN ('Talabat', 'Delivery') "
 
+	# Hide return credit notes and fully-returned originals from the All Orders list.
+	# Return credit notes carry mixed DB statuses (Return / Unpaid / Overdue) — the
+	# "Return" label is derived from is_return — so filter on the flag, not the status.
+	status_cond = " AND IFNULL(si.is_return, 0) = 0 AND IFNULL(si.status, '') != 'Credit Note Issued' "
+
 	# Build the query based on whether we're using datetime or date filtering
 	if use_shift_datetime:
 		# Shift-based: use TIMESTAMP for precise time filtering
@@ -2299,13 +2400,13 @@ def get_all_orders(date_from=None, date_to=None, limit=500):
 			WHERE
 				TIMESTAMP(si.posting_date, si.posting_time) BETWEEN %(shift_start)s AND %(shift_end)s
 				AND si.docstatus != 2
-				{branch_cond}{order_type_cond}
+				{branch_cond}{order_type_cond}{status_cond}
 			ORDER BY
 				si.posting_date DESC,
 				si.posting_time DESC,
 				si.creation DESC
 			LIMIT %(limit)s
-		""".format(branch_cond=branch_cond, order_type_cond=order_type_cond), {
+		""".format(branch_cond=branch_cond, order_type_cond=order_type_cond, status_cond=status_cond), {
 			"shift_start": shift_start,
 			"shift_end": shift_end,
 			"limit": cint(limit),
@@ -2352,13 +2453,13 @@ def get_all_orders(date_from=None, date_to=None, limit=500):
 			WHERE
 				si.posting_date BETWEEN %(date_from)s AND %(date_to)s
 				AND si.docstatus != 2
-				{branch_cond}{order_type_cond}
+				{branch_cond}{order_type_cond}{status_cond}
 			ORDER BY
 				si.posting_date DESC,
 				si.posting_time DESC,
 				si.creation DESC
 			LIMIT %(limit)s
-		""".format(branch_cond=branch_cond, order_type_cond=order_type_cond), {
+		""".format(branch_cond=branch_cond, order_type_cond=order_type_cond, status_cond=status_cond), {
 			"date_from": date_from,
 			"date_to": date_to,
 			"limit": cint(limit),
@@ -3312,8 +3413,16 @@ def prepare_return_invoice(invoice_name, pos_opening_shift=None):
                 )
 
     # Use ERPNext's make_sales_return to create properly mapped return document
-    # This automatically copies sales_team, taxes, and other child tables
-    return_doc = make_sales_return(invoice_name)
+    # This automatically copies sales_team, taxes, and other child tables.
+    # get_mapped_doc enforces "create" permission on Sales Invoice for the SESSION user,
+    # which POS cashiers / call-center staff don't hold — elevate to Administrator around
+    # ONLY the mapping call (nothing is saved here), then restore the real user.
+    _mapping_user = frappe.session.user
+    frappe.set_user("Administrator")
+    try:
+        return_doc = make_sales_return(invoice_name)
+    finally:
+        frappe.set_user(_mapping_user)
 
     # Set POS-specific fields
     if pos_opening_shift:

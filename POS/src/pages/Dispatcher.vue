@@ -159,15 +159,33 @@
 								<span class="text-xs text-gray-400 font-mono">{{ __('شباك طلبات') }} {{ talabatNumber(order) }}</span>
 							</div>
 
-							<!-- Talabat handover — only once the kitchen is ready -->
+							<!-- Return-request status badge -->
+							<div v-if="order.return_request_status" class="px-3 pb-1">
+								<div v-if="order.return_request_status === 'Pending'" class="text-[11px] font-bold px-2 py-1 rounded bg-amber-900/50 text-amber-300 border border-amber-700 text-center">
+									⏳ {{ __('طلب مرتجع قيد موافقة الكول سنتر') }}
+								</div>
+								<div v-else-if="order.return_request_status === 'Rejected'" class="text-[11px] font-bold px-2 py-1 rounded bg-red-900/40 text-red-300 border border-red-700 text-center">
+									✖ {{ __('مرتجع مرفوض') }}<template v-if="order.return_reject_reason">: {{ order.return_reject_reason }}</template>
+								</div>
+							</div>
+
+							<!-- Talabat handover — only once the kitchen is ready (blocked while a return is pending) -->
 							<div class="px-3 pb-3">
-								<button v-if="!order.kds_ready" disabled
+								<button v-if="order.return_request_status === 'Pending'" disabled
+									class="w-full py-2 bg-amber-900/40 border border-amber-700 text-amber-400 rounded-lg text-xs font-bold">
+									⏳ {{ __('بانتظار موافقة المرتجع') }}
+								</button>
+								<button v-else-if="!order.kds_ready" disabled
 									class="w-full py-2 bg-amber-900/40 border border-amber-700 text-amber-400 rounded-lg text-xs font-bold">
 									⏳ {{ __('في انتظار المطبخ') }}
 								</button>
 								<button v-else @click="handoverTalabat(order)" :disabled="statusLoading"
 									class="w-full py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-xs font-bold transition-colors active:scale-95 disabled:opacity-50">
 									🛵 {{ __('تسليم لطيار طلبات') }}
+								</button>
+								<button @click.stop="openReturnRequest(order)" :disabled="statusLoading || order.return_request_status === 'Pending'"
+									class="w-full mt-2 py-2 bg-red-900/40 border border-red-700 text-red-300 hover:bg-red-900/60 rounded-lg text-xs font-bold transition-colors active:scale-95 disabled:opacity-50">
+									↩ {{ order.return_request_status === 'Rejected' ? __('إعادة طلب مرتجع') : __('طلب مرتجع') }}
 								</button>
 							</div>
 						</div>
@@ -191,9 +209,11 @@
 						<div
 							v-for="order in otherOrders"
 							:key="order.name"
-							class="rounded-xl overflow-hidden shadow-xl bg-gray-800 flex flex-col cursor-pointer ring-2 transition-all"
-							:class="selectedOrders.includes(order.name) ? 'ring-white' : isUrgentOrder(order) ? 'ring-red-500' : 'ring-transparent hover:ring-gray-600'"
-							@click="toggleOrder(order.name)"
+							class="rounded-xl overflow-hidden shadow-xl bg-gray-800 flex flex-col ring-2 transition-all"
+							:class="order.return_request_status === 'Pending'
+								? 'opacity-60 grayscale cursor-not-allowed ring-amber-600'
+								: (selectedOrders.includes(order.name) ? 'ring-white cursor-pointer' : isUrgentOrder(order) ? 'ring-red-500 cursor-pointer' : 'ring-transparent hover:ring-gray-600 cursor-pointer')"
+							@click="order.return_request_status === 'Pending' ? null : toggleOrder(order.name)"
 						>
 							<!-- Color-coded header by KDS status -->
 							<div class="px-3 py-2.5 flex items-start justify-between" :class="orderHeaderClass(order)">
@@ -247,12 +267,33 @@
 								<span class="text-xs px-2 py-0.5 rounded font-bold bg-gray-700 text-gray-200">{{ paymentLabel(order) }}</span>
 							</div>
 
-							<!-- Select indicator -->
-							<div class="px-3 pb-3">
-								<div class="w-full py-2 rounded-lg text-sm font-bold text-center"
+							<!-- Return-request status badge -->
+							<div v-if="order.return_request_status" class="px-3 pb-1">
+								<div v-if="order.return_request_status === 'Pending'" class="text-[11px] font-bold px-2 py-1 rounded bg-amber-900/50 text-amber-300 border border-amber-700 text-center">
+									⏳ {{ __('طلب مرتجع قيد موافقة الكول سنتر') }}
+								</div>
+								<div v-else-if="order.return_request_status === 'Rejected'" class="text-[11px] font-bold px-2 py-1 rounded bg-red-900/40 text-red-300 border border-red-700 text-center">
+									✖ {{ __('مرتجع مرفوض') }}<template v-if="order.return_reject_reason">: {{ order.return_reject_reason }}</template>
+								</div>
+							</div>
+
+							<!-- Select indicator (disabled while a return request is pending) -->
+							<div class="px-3 pb-2">
+								<div v-if="order.return_request_status === 'Pending'" class="w-full py-2 rounded-lg text-sm font-bold text-center bg-amber-900/40 text-amber-300">
+									⏳ {{ __('بانتظار موافقة المرتجع') }}
+								</div>
+								<div v-else class="w-full py-2 rounded-lg text-sm font-bold text-center"
 									:class="selectedOrders.includes(order.name) ? 'bg-white text-gray-900' : 'bg-gray-700 text-gray-400'">
 									{{ selectedOrders.includes(order.name) ? '✓ Selected' : 'Tap to select' }}
 								</div>
+							</div>
+
+							<!-- Return request (needs Call Center Manager approval) -->
+							<div class="px-3 pb-3">
+								<button @click.stop="openReturnRequest(order)" :disabled="statusLoading || order.return_request_status === 'Pending'"
+									class="w-full py-1.5 bg-red-900/40 border border-red-700 text-red-300 hover:bg-red-900/60 rounded-lg text-xs font-bold transition-colors active:scale-95 disabled:opacity-50">
+									↩ {{ order.return_request_status === 'Rejected' ? __('إعادة طلب مرتجع') : __('طلب مرتجع') }}
+								</button>
 							</div>
 						</div>
 					</div>
@@ -481,6 +522,31 @@
 			</div>
 		</div>
 
+		<!-- Return Request modal -->
+		<div v-if="returnRequestModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+			<div class="bg-gray-800 rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 text-white">
+				<h3 class="text-xl font-bold mb-1 text-red-400">↩ {{ __('طلب مرتجع') }}</h3>
+				<p class="text-gray-400 text-sm mb-4">
+					{{ returnRequestModal.custom_number_order || returnRequestModal.name }} — {{ returnRequestModal.customer_name || returnRequestModal.customer }}
+				</p>
+				<div class="mb-4">
+					<label class="block text-xs text-gray-400 mb-1 uppercase tracking-wider">{{ __('سبب المرتجع') }}</label>
+					<textarea v-model="returnRequestReason" rows="3"
+						class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+						:placeholder="__('اكتب سبب طلب المرتجع…')" />
+				</div>
+				<div v-if="returnRequestError" class="mb-4 p-3 bg-red-900/50 text-red-300 text-sm rounded-lg border border-red-700">{{ returnRequestError }}</div>
+				<p class="text-xs text-amber-400 mb-4">{{ __('سيظهر الطلب في Need My Action لموافقة مدير/نائب مدير الكول سنتر.') }}</p>
+				<div class="flex gap-3">
+					<button @click="returnRequestModal = null; returnRequestReason = ''; returnRequestError = null" class="flex-1 py-2.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm transition-colors">{{ __('Cancel') }}</button>
+					<button @click="confirmReturnRequest" :disabled="!returnRequestReason.trim() || statusLoading"
+						class="flex-1 py-2.5 bg-red-700 hover:bg-red-600 text-white rounded-lg text-sm font-bold disabled:opacity-50 transition-colors active:scale-95">
+						{{ statusLoading ? __('جارٍ الإرسال…') : __('إرسال الطلب') }}
+					</button>
+				</div>
+			</div>
+		</div>
+
 		<!-- Assign confirm modal -->
 		<div v-if="pendingAssign" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
 			<div class="bg-gray-800 rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 text-white">
@@ -540,6 +606,9 @@ const posProfiles = ref([])
 const deliveryFailedModal = ref(null)
 const deliveryFailedReason = ref("")
 const deliveryFailedError = ref(null)
+const returnRequestModal = ref(null)
+const returnRequestReason = ref("")
+const returnRequestError = ref(null)
 
 let timerInterval = null
 
@@ -841,6 +910,31 @@ async function confirmDeliveryFailed() {
 		await Promise.all([loadDrivers(), loadActiveAssignments()])
 	} catch (e) {
 		deliveryFailedError.value = errMsg(e)
+	} finally {
+		statusLoading.value = false
+	}
+}
+
+// ── Return Request (needs Call Center Manager / Deputy approval) ────────────
+function openReturnRequest(order) {
+	returnRequestModal.value = order
+	returnRequestReason.value = ""
+	returnRequestError.value = null
+}
+async function confirmReturnRequest() {
+	if (!returnRequestReason.value.trim()) return
+	statusLoading.value = true
+	returnRequestError.value = null
+	try {
+		await call("ecs_posnext.api.return_request.request_delivery_return", {
+			sales_invoice: returnRequestModal.value.name,
+			reason: returnRequestReason.value.trim(),
+		})
+		showSuccess(__("تم إرسال طلب المرتجع — بانتظار موافقة مدير الكول سنتر"))
+		returnRequestModal.value = null
+		returnRequestReason.value = ""
+	} catch (e) {
+		returnRequestError.value = errMsg(e)
 	} finally {
 		statusLoading.value = false
 	}

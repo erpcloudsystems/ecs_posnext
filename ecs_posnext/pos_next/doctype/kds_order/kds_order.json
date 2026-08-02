@@ -18,6 +18,9 @@
   "status",
   "completed_time",
   "ready_time",
+  "returned_source",
+  "return_reason",
+  "returned_at",
   "section_items",
   "items"
  ],
@@ -96,7 +99,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Pending\nPreparing\nReady\nCompleted\nCancelled",
+   "options": "Pending\nPreparing\nReady\nCompleted\nCancelled\nReturned",
    "default": "Pending",
    "in_list_view": 1,
    "in_standard_filter": 1
@@ -111,6 +114,24 @@
    "fieldname": "ready_time",
    "fieldtype": "Datetime",
    "label": "Ready Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "returned_source",
+   "fieldtype": "Data",
+   "label": "Returned By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "return_reason",
+   "fieldtype": "Small Text",
+   "label": "Return Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "returned_at",
+   "fieldtype": "Datetime",
+   "label": "Returned At",
    "read_only": 1
   },
   {

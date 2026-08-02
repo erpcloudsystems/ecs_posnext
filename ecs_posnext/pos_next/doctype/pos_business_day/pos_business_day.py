@@ -6,7 +6,12 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
 
-from ecs_posnext.api.business_day import get_business_day_window, get_profile_day_settings, log_pos_event
+from ecs_posnext.api.business_day import (
+	collected_on_original,
+	get_business_day_window,
+	get_profile_day_settings,
+	log_pos_event,
+)
 
 NON_CLOSED_STATES = ("Open", "Closing Required", "Closing Overdue", "Ready to Close")
 
@@ -159,19 +164,33 @@ class POSBusinessDay(Document):
 		goods credited (the credit notes), while `refunds` is the cash/card actually
 		paid back to customers. A credit note left unsettled (no payment rows) counts
 		towards returns but not refunds — the difference is what is still owed.
+
+		A refund is capped at what the ORIGINAL invoice actually collected: a return of an
+		order that took in nothing cannot have handed money back, even if a stray refund
+		payment row exists (legacy data from before the return fix). Without this cap those
+		phantom rows inflate `refunds`.
 		"""
-		row = frappe.db.sql(
-			"""
-			select sum(sip.amount) as amount
-			from `tabSales Invoice Payment` sip
-			inner join `tabSales Invoice` si on si.name = sip.parent
-			where si.custom_pos_business_day = %s and si.docstatus = 1
-			  and ifnull(si.is_return, 0) = 1
-			""",
-			(self.name,),
-			as_dict=True,
+		returns = frappe.get_all(
+			"Sales Invoice",
+			filters={"custom_pos_business_day": self.name, "docstatus": 1, "is_return": 1},
+			fields=["name", "return_against"],
 		)
-		self.refunds = abs(flt(row[0].amount)) if row and row[0].get("amount") else 0
+		total = 0.0
+		for r in returns:
+			refunded = abs(
+				flt(
+					frappe.db.sql(
+						"select ifnull(sum(amount), 0) from `tabSales Invoice Payment` where parent = %s",
+						(r.name,),
+					)[0][0]
+				)
+			)
+			if not refunded:
+				continue
+			if r.return_against:
+				refunded = min(refunded, collected_on_original(r.return_against))
+			total += refunded
+		self.refunds = total
 
 	def _summarise_payments(self, call_center_profiles):
 		"""Split submitted-invoice payments by mode-of-payment classification."""

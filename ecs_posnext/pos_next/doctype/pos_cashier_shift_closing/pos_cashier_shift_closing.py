@@ -22,6 +22,10 @@ class POSCashierShiftClosing(Document):
 		self._validate_single_closing()
 		self._set_business_day()
 		self.calculate_actual_counted_cash()
+		# Call Center shifts have no physical drawer to count — treat them as auto-counted
+		# so they compute + auto-balance (Actual = Expected) without a manual count step.
+		if self._is_call_center():
+			self.cash_counted = 1
 		# Blind close: the shift figures + expected cash are computed ONLY after the
 		# drawer has been counted. "Counted" is an explicit flag, NOT "amount > 0" — an
 		# empty drawer is a legitimate count of 0 and must be closeable.
@@ -84,6 +88,12 @@ class POSCashierShiftClosing(Document):
 	def calculate_actual_counted_cash(self):
 		self.actual_counted_cash = sum(flt(self.get(f)) * mult for f, mult in DENOMINATIONS.items())
 
+	def _is_call_center(self):
+		profile = self.pos_profile
+		if not profile and self.pos_cashier_shift:
+			profile = frappe.db.get_value("POS Cashier Shift", self.pos_cashier_shift, "pos_profile")
+		return "call center" in (profile or "").lower()
+
 	def calculate_reconciliation(self):
 		# Expected Cash =
 		#   Opening Cash + POS Cash Sales + Call Center Cash Collected - Cash Refunds
@@ -93,6 +103,14 @@ class POSCashierShiftClosing(Document):
 			+ flt(self.call_center_cash_collected)
 			- flt(self.cash_refunds)
 		)
+
+		# Call Center agents never hold a physical drawer — the money is collected by the
+		# branch / driver. So a Call Center shift closing is auto-balanced: for every mode
+		# of payment Actual = Expected (no counting, no difference).
+		is_cc = self._is_call_center()
+		if is_cc:
+			self.actual_counted_cash = flt(self.expected_cash)
+
 		self.difference = flt(self.actual_counted_cash) - flt(self.expected_cash)
 		self.shortage = abs(self.difference) if self.difference < 0 else 0
 		self.overage = self.difference if self.difference > 0 else 0
@@ -103,19 +121,29 @@ class POSCashierShiftClosing(Document):
 		expected_credit = 0
 		for row in self.get("payment_reconciliation") or []:
 			mtype = frappe.get_cached_value("Mode of Payment", row.mode_of_payment, "type")
-			if mtype == "Cash":
+			if is_cc:
+				# Actual = Expected for every mode on a Call Center shift.
+				row.closing_amount = flt(row.expected_amount)
+			elif mtype == "Cash":
 				row.closing_amount = flt(self.actual_counted_cash)
 			else:
-				expected_credit += flt(row.expected_amount)
 				if not row.closing_amount:
 					row.closing_amount = flt(row.expected_amount)
+			if mtype != "Cash":
+				expected_credit += flt(row.expected_amount)
 			row.difference = flt(row.closing_amount) - flt(row.expected_amount)
 
 		self.expected_credit = expected_credit
+		if is_cc:
+			self.actual_credit = flt(self.expected_credit)
 		self.credit_difference = flt(self.actual_credit) - flt(self.expected_credit)
 
-		# Any unexplained difference — cash OR credit — needs manager approval.
-		self.difference_requires_approval = 1 if (flt(self.difference) or flt(self.credit_difference)) else 0
+		# Auto-balanced Call Center shift never needs approval; otherwise any unexplained
+		# cash / credit difference does.
+		if is_cc:
+			self.difference_requires_approval = 0
+		else:
+			self.difference_requires_approval = 1 if (flt(self.difference) or flt(self.credit_difference)) else 0
 
 	def set_status(self):
 		if self.docstatus == 2:

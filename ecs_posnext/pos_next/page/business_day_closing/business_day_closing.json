@@ -1,0 +1,21 @@
+{
+ "content": null,
+ "creation": "2026-07-29 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-07-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "business-day-closing",
+ "owner": "Administrator",
+ "page_name": "business-day-closing",
+ "roles": [
+  {"role": "System Manager"},
+  {"role": "POSNext Branch Manager"},
+  {"role": "POSNext Operations Manager"},
+  {"role": "Accounts Manager"}
+ ],
+ "standard": "Yes",
+ "title": "Business Day Closing"
+}

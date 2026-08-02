@@ -263,6 +263,38 @@ def block_closed_period_invoice_cancel(doc, method=None):
 	assert_pos_invoice_cancellable(doc)
 
 
+def collected_on_original(original_name):
+	"""Cash/credit ACTUALLY collected on an original invoice — used to validate refunds.
+
+	A refund on a return can only be real up to what the original invoice actually took
+	in. Two inflow channels count:
+	  * payment rows on the invoice itself (`paid_amount`) — normal POS sales, and
+	  * submitted "Receive" Payment Entries referencing it — Call Center / COD collections
+	    (which never touch `paid_amount`).
+
+	NOTE: `outstanding_amount == 0` is deliberately NOT used as the signal. After the
+	return auto-settle Journal Entry, a never-paid original also reaches outstanding 0, so
+	outstanding can no longer distinguish "paid" from "credited". Real inflows can.
+	"""
+	from frappe.utils import flt
+
+	if not original_name:
+		return 0.0
+	paid = flt(frappe.db.get_value("Sales Invoice", original_name, "paid_amount"))
+	pe = frappe.db.sql(
+		"""
+		select ifnull(sum(pref.allocated_amount), 0)
+		from `tabPayment Entry Reference` pref
+		inner join `tabPayment Entry` pe on pe.name = pref.parent
+		where pref.reference_doctype = 'Sales Invoice'
+		  and pref.reference_name = %s
+		  and pe.docstatus = 1 and pe.payment_type = 'Receive'
+		""",
+		(original_name,),
+	)[0][0]
+	return flt(paid) + flt(pe)
+
+
 def log_pos_event(
 	action,
 	reference_doctype=None,

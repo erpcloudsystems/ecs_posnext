@@ -875,3 +875,27 @@ def get_drivers_by_branch(branch=None):
         limit=1000
     )
     return drivers
+
+
+@frappe.whitelist()
+def create_wastage_stock_entry_for_invoice(sales_invoice, wastage_items, stock_entry_type="Consumptions", employee=None, cancelled_by_manager=None):
+    """Create ONLY a wastage consumption stock entry for items that were returned.
+
+    Used by All Orders after the ReturnInvoiceDialog has already created the credit-note
+    Return: the returned items go back to stock via that credit note, and this consumes
+    the wasted ones out again (net: refunded, not restocked). Reuses the shared helper.
+    """
+    wastage_items = json.loads(wastage_items) if isinstance(wastage_items, str) else (wastage_items or [])
+    doc = frappe.get_doc("Sales Invoice", sales_invoice)
+    default_warehouse = (doc.items[0].warehouse if doc.items else None) or \
+        frappe.db.get_single_value("Stock Settings", "default_warehouse")
+    se = _create_wastage_stock_entry(
+        doc.company, default_warehouse, wastage_items, stock_entry_type, employee, sales_invoice
+    )
+    if cancelled_by_manager:
+        try:
+            frappe.db.set_value("Sales Invoice", sales_invoice, "custom_cancelled_by_manager",
+                                cancelled_by_manager, update_modified=False)
+        except Exception:
+            frappe.log_error(title="Record Wastage Manager Error", message=frappe.get_traceback())
+    return {"wastage_stock_entry": se}

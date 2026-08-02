@@ -977,6 +977,17 @@
 				</div>
 			</div>
 		</teleport>
+
+		<!-- Return dialog reused from the sale screen (opened after manager approval) -->
+		<ReturnInvoiceDialog
+			v-model="showReturnInvoiceDialog"
+			:pos-profile="shiftStore.profileName || posProfile?.name || posProfile"
+			:pos-opening-shift="shiftStore.currentShift?.name || posOpeningShift?.name || posOpeningShift"
+			:currency="returnTarget?.currency || shiftStore.profileCurrency"
+			:preselected-invoice="returnPreselected"
+			return-source="User"
+			@return-created="handleReturnInvoiceCreated"
+		/>
 	</div>
 </template>
 
@@ -989,6 +1000,7 @@ import { useBootstrapStore } from "@/stores/bootstrap"
 import { useRealtimeOrders } from "@/composables/useRealtimeOrders"
 import { usePOSCartStore } from "@/stores/posCart"
 import { usePOSShiftStore } from "@/stores/posShift"
+import ReturnInvoiceDialog from "@/components/sale/ReturnInvoiceDialog.vue"
 
 const router = useRouter()
 const cartStore = usePOSCartStore()
@@ -1120,6 +1132,12 @@ const passwordError = ref("")
 const orderToDelete = ref(null)
 const approvedManager = ref(null)
 const passwordInputRef = ref(null)
+
+// Return dialog (reused from the sale screen) + the created return we run wastage against
+const showReturnInvoiceDialog = ref(false)
+const returnPreselected = ref(null)   // { name } passed to ReturnInvoiceDialog
+const returnTarget = ref(null)        // the original order row (for currency)
+const wastageTargetInvoice = ref(null) // the created RETURN invoice name
 
 // Wastage dialog state
 const showWastageQuestion = ref(false)
@@ -1568,10 +1586,13 @@ async function submitPayment() {
 
 // ===== DELETE / CANCEL ORDER =====
 function deleteOrder(order) {
+	// No upfront manager password — the return is free within the KDS grace window and
+	// only asks for a branch-manager password AFTER it (handled inside ReturnInvoiceDialog).
 	orderToDelete.value = order
-	passwordInput.value = ""
-	passwordError.value = ""
-	showPasswordDialog.value = true
+	approvedManager.value = null
+	returnTarget.value = order
+	returnPreselected.value = { name: order.name }
+	showReturnInvoiceDialog.value = true
 }
 
 async function confirmDelete() {
@@ -1584,13 +1605,29 @@ async function confirmDelete() {
 		if (res && res.valid) {
 			approvedManager.value = res.manager || null
 			showPasswordDialog.value = false
-			showWastageQuestion.value = true
+			// Manager approved → open the rich ReturnInvoiceDialog, preselected to this
+			// order. It creates a forward credit-note return on the current open shift.
+			returnTarget.value = orderToDelete.value
+			returnPreselected.value = { name: orderToDelete.value?.name }
+			showReturnInvoiceDialog.value = true
 		} else {
 			passwordError.value = __("Password is incorrect. Please try again.")
 		}
 	} catch (error) {
 		console.error("Manager verification failed:", error)
 		passwordError.value = __("Password is incorrect. Please try again.")
+	}
+}
+
+// The return dialog created a credit-note return. Offer the wastage step on the
+// items that were actually returned (so wasted food is consumed out of stock).
+function handleReturnInvoiceCreated(returnInvoice) {
+	wastageTargetInvoice.value = returnInvoice?.name || null
+	showReturnInvoiceDialog.value = false
+	if (wastageTargetInvoice.value) {
+		showWastageQuestion.value = true
+	} else {
+		fetchOrders()
 	}
 }
 
@@ -1609,7 +1646,10 @@ function cancelWastageQuestion() {
 
 function handleNotWastage() {
 	showWastageQuestion.value = false
-	proceedWithCancellation(false, [])
+	// Return already created by the dialog; nothing to waste.
+	orderToDelete.value = null
+	wastageTargetInvoice.value = null
+	fetchOrders()
 }
 
 async function handleWastage() {
@@ -1620,7 +1660,7 @@ async function handleWastage() {
 async function loadOrderItemsForWastage() {
 	try {
 		const result = await call("ecs_posnext.api.kitchen_order.get_stock_items_for_wastage", {
-			sales_invoice: orderToDelete.value?.name,
+			sales_invoice: wastageTargetInvoice.value,
 		})
 		const items = result || []
 		wastageItems.value = items.map(i => ({
@@ -1680,16 +1720,33 @@ async function confirmWastageItems() {
 		}
 	})
 
-	const itemsToReturn = selectedItems
-		.map(item => ({
-			item_code: item.item_code,
-			qty: item.return_qty || item.qty,
-			uom: item.uom,
-		}))
-		.filter(item => item.qty > 0)
-
 	showWastageItems.value = false
-	await proceedWithCancellation(true, itemsToReturn, wastageItemsList)
+
+	// The return already exists (created by ReturnInvoiceDialog). Now consume the
+	// wasted items out of stock so they are not re-shelved.
+	try {
+		if (wastageItemsList.length && wastageTargetInvoice.value) {
+			await call("ecs_posnext.api.kitchen_order.create_wastage_stock_entry_for_invoice", {
+				sales_invoice: wastageTargetInvoice.value,
+				wastage_items: JSON.stringify(wastageItemsList),
+				stock_entry_type: wastageStockEntryType.value,
+				employee: selectedEmployee.value,
+				cancelled_by_manager: approvedManager.value,
+			})
+			window.frappe?.show_alert?.({ message: __("Wastage stock entry created."), indicator: "green" })
+		}
+		fetchOrders()
+	} catch (error) {
+		console.error("Wastage failed:", error)
+		window.frappe?.show_alert?.({ message: __("Error creating wastage stock entry."), indicator: "red" })
+	} finally {
+		wastageItems.value = []
+		orderToDelete.value = null
+		wastageTargetInvoice.value = null
+		approvedManager.value = null
+		wastageStockEntryType.value = "Loaded"
+		selectedEmployee.value = null
+	}
 }
 
 async function proceedWithCancellation(isWastage, itemsToReturn = [], wastageItemsList = []) {

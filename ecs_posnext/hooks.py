@@ -132,7 +132,10 @@ fixtures = [
 					"POS Profile-custom_auto_close_business_day_when_ready",
 					"POS Profile-custom_supervisor_opens_cashier_shifts",
 					"Sales Invoice-custom_pos_business_day",
-					"Sales Invoice-custom_pos_cashier_shift"
+					"Sales Invoice-custom_pos_cashier_shift",
+					"Payment Entry-custom_pos_business_day",
+					"Payment Entry-custom_pos_cashier_shift",
+					"Sales Invoice-custom_return_source"
 				]
 			]
 		]
@@ -144,7 +147,8 @@ fixtures = [
 				"name",
 				"in",
 				[
-					"POS Next Receipt"
+					"POS Next Receipt",
+					"Cashier Closing Small Paper"
 				]
 			]
 		]

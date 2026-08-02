@@ -1,6 +1,15 @@
 <template>
   <div class="min-h-screen bg-black text-white">
 
+    <!-- Call Center reversal alert (return / cancel) -->
+    <div v-if="reversalAlert" class="fixed top-0 inset-x-0 z-[100] bg-red-600 text-white px-6 py-4 flex items-center justify-between shadow-2xl animate-pulse">
+      <div class="text-xl md:text-2xl font-black">
+        {{ reversalAlert.kind === 'returned' ? '↩ مرتجع من الكول سنتر' : '❌ إلغاء من الكول سنتر' }}
+        <span v-if="reversalAlert.number" class="ml-2 px-3 py-0.5 bg-white/25 rounded-lg">{{ reversalAlert.number }}</span>
+      </div>
+      <button @click="reversalAlert = null" class="px-4 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg font-bold text-lg">✕</button>
+    </div>
+
     <!-- Branch selector -->
     <div v-if="!selectedBranch" class="flex flex-col items-center justify-center min-h-screen gap-8 p-8">
       <h1 class="text-4xl font-bold">Kitchen Display — Assembly</h1>
@@ -137,9 +146,21 @@
           <div
             v-for="order in visibleOrders"
             :key="order.name"
-            class="rounded-2xl overflow-hidden bg-neutral-950 border flex flex-col"
-            :style="{ borderColor: statusColor(order) + '55' }"
+            class="rounded-2xl overflow-hidden flex flex-col border"
+            :class="order.status === 'Returned' ? 'bg-red-950 border-red-500 ring-2 ring-red-500 animate-pulse' : 'bg-neutral-950'"
+            :style="order.status === 'Returned' ? {} : { borderColor: statusColor(order) + '55' }"
           >
+            <!-- RETURNED banner -->
+            <div v-if="order.status === 'Returned'" class="bg-red-600 text-white px-3.5 py-2 flex items-center justify-between gap-2">
+              <span class="text-base font-black tracking-wide">
+                ⛔ {{ (order.returned_source || 'User').toLowerCase().includes('call') ? 'RETURNED BY CALL CENTER' : 'RETURNED BY USER' }}
+              </span>
+              <button @click="dismissReturned(order)" class="px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-bold shrink-0">✓ Dismiss</button>
+            </div>
+            <div v-if="order.status === 'Returned' && order.return_reason && order.return_reason !== 'No Remarks'" class="bg-red-900/60 text-red-100 px-3.5 py-1.5 text-sm font-semibold text-right" dir="rtl">
+              📝 {{ order.return_reason }}
+            </div>
+
             <!-- Card header — background tinted by the timer state (green / amber / red) -->
             <div class="flex items-center justify-between px-3.5 pt-3.5 pb-2" :style="{ backgroundColor: statusColor(order) + '33' }">
               <div class="flex items-center gap-2.5">
@@ -222,8 +243,8 @@
               </div>
             </div>
 
-            <!-- Actions -->
-            <div class="flex items-center gap-2 p-2.5">
+            <!-- Actions — hidden for a returned order (it can only be Dismissed) -->
+            <div v-if="order.status !== 'Returned'" class="flex items-center gap-2 p-2.5">
               <button
                 @click="markDone(order)"
                 class="flex-1 py-2.5 rounded-lg text-base font-bold active:scale-95 transition-all"
@@ -338,6 +359,9 @@ function printOrder(order) {
 let tickInterval = null
 let pollInterval = null
 let socket = null
+const reversalAlert = ref(null)
+let reversalTimer = null
+let returnAlarmTimer = null
 
 // ── Order-type metadata (icon / colour / labels) ─────────────────────
 const ICONS = {
@@ -618,7 +642,46 @@ function startLive() {
   pollInterval = setInterval(loadOrders, 10000)
   socket = initSocket()
   socket.connect()
-  socket.on("kds_update", (data) => { if (data?.action === "new_order") playNewOrderSound(); loadOrders() })
+  socket.on("kds_update", (data) => {
+    if (data?.action === "new_order") playNewOrderSound()
+    if (data?.action === "order_cancelled" || data?.action === "order_returned") showReversalAlert(data)
+    loadOrders()
+  })
+}
+
+function showReversalAlert(data) {
+  if (!data?.is_call_center) return
+  if (data.branch && selectedBranch.value && data.branch !== selectedBranch.value) return
+  reversalAlert.value = {
+    kind: data.action === "order_returned" ? "returned" : "cancelled",
+    number: data.number || data.invoice,
+  }
+  startReturnAlarm()
+  if (reversalTimer) clearTimeout(reversalTimer)
+  reversalTimer = setTimeout(() => { reversalAlert.value = null }, 30000)
+}
+
+// A repeating alarm for ~30s when an order is returned/cancelled by the call center.
+function startReturnAlarm() {
+  stopReturnAlarm()
+  let elapsed = 0
+  try { playColorSound("red") } catch {}
+  returnAlarmTimer = setInterval(() => {
+    elapsed += 1
+    if (elapsed >= 30) { stopReturnAlarm(); return }
+    try { playColorSound("red") } catch {}
+  }, 1000)
+}
+function stopReturnAlarm() {
+  if (returnAlarmTimer) { clearInterval(returnAlarmTimer); returnAlarmTimer = null }
+}
+
+async function dismissReturned(order) {
+  stopReturnAlarm()
+  try {
+    await call("ecs_posnext.ecs_posnext.api.kds.dismiss_returned_order", { kds_order: order.name })
+  } catch (_) {}
+  loadOrders()
 }
 function stopLive() {
   clearInterval(tickInterval); tickInterval = null

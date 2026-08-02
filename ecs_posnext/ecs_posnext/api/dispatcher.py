@@ -184,6 +184,27 @@ def get_unassigned_orders():
 			return []
 		invoice_names = [inv["name"] for inv in invoices]
 
+	# Attach the LATEST return-request state per order so the board can disable a card
+	# while a return is Pending, or re-enable it (with the reject reason) once Rejected.
+	# Approved requests aren't handled here — a submitted credit note already dropped the
+	# order above via `returned_originals`.
+	rr_fields = ["sales_invoice", "status", "reason", "creation"]
+	if frappe.db.has_column("Delivery Return Request", "reject_reason"):
+		rr_fields.append("reject_reason")
+	rr_map = {}
+	for rr in frappe.get_all(
+		"Delivery Return Request",
+		filters={"sales_invoice": ["in", invoice_names], "status": ["in", ["Pending", "Rejected"]]},
+		fields=rr_fields,
+		order_by="creation asc",
+	):
+		rr_map[rr["sales_invoice"]] = rr  # asc order → last write wins = most recent
+	for inv in invoices:
+		rr = rr_map.get(inv["name"])
+		inv["return_request_status"] = rr["status"] if rr else None
+		inv["return_request_reason"] = (rr.get("reason") if rr else None)
+		inv["return_reject_reason"] = (rr.get("reject_reason") if rr else None)
+
 	# Fetch KDS status for each invoice
 	kds_rows = frappe.db.sql(
 		"""
@@ -707,12 +728,20 @@ def get_failed_delivery_orders():
 	# differed from the branch they are actually operating (e.g. Employee=Smouha but the
 	# open shift's profile is Miami), and showed ALL branches when Employee.branch was empty.
 	user = frappe.session.user
-	open_shift = frappe.db.get_value(
-		"POS Opening Shift",
-		{"user": user, "status": "Open", "docstatus": 1},
-		"pos_profile",
+	# Call Center Managers / Deputies oversee every branch and usually have no open
+	# dispatcher shift — give them (and System Managers) unscoped, all-branch visibility.
+	overseer = bool(
+		{"Call center manager", "Deputy Call Center Manager", "System Manager"} & set(frappe.get_roles(user))
 	)
-	branch = (frappe.db.get_value("POS Profile", open_shift, "branch") if open_shift else "") or ""
+	if overseer:
+		branch = ""
+	else:
+		open_shift = frappe.db.get_value(
+			"POS Opening Shift",
+			{"user": user, "status": "Open", "docstatus": 1},
+			"pos_profile",
+		)
+		branch = (frappe.db.get_value("POS Profile", open_shift, "branch") if open_shift else "") or ""
 
 	assignments = frappe.db.sql("""
 		SELECT
@@ -724,12 +753,17 @@ def get_failed_delivery_orders():
 			da.driver,
 			da.shift,
 			da.assigned_time,
+			da.modified_by AS marked_failed_by,
+			da.modified AS marked_failed_at,
 			si.grand_total,
 			si.custom_order_type,
 			si.custom_number_order,
 			si.posting_date,
 			si.posting_time,
-			si.branch
+			si.branch,
+			si.pos_profile,
+			si.posa_pos_opening_shift AS pos_opening_shift,
+			si.currency
 		FROM `tabDelivery Assignment` da
 		INNER JOIN `tabSales Invoice` si ON si.name = da.order_reference
 		WHERE da.status = 'Failed'
@@ -759,6 +793,23 @@ def record_driver_charge(assignment, amount, notes=""):
 		"driver_charge_notes": notes or "",
 	})
 	return {"charged": flt(amount)}
+
+
+def _stamp_pos_links(pe, opening_shift):
+	"""Stamp the POS Business Day / Cashier Shift links on a Payment Entry, resolved from
+	its POS Opening Shift, so COD collections are linkable/filterable directly."""
+	if not opening_shift:
+		return
+	cs = frappe.db.get_value(
+		"POS Cashier Shift", {"pos_opening_shift": opening_shift},
+		["name", "pos_business_day"], as_dict=True,
+	)
+	if not cs:
+		return
+	if pe.meta.has_field("custom_pos_cashier_shift"):
+		pe.custom_pos_cashier_shift = cs.name
+	if pe.meta.has_field("custom_pos_business_day"):
+		pe.custom_pos_business_day = cs.pos_business_day
 
 
 def _resolve_shift_for_invoice(assignment_doc):
@@ -868,6 +919,7 @@ def _create_cod_payment_entries(assignment_doc, payments=None):
 		pe.remarks = _("COD Collection — Delivery Assignment {0}, Driver {1}, {2}").format(
 			assignment_doc.name, assignment_doc.driver or _("Talabat"), mode_of_payment
 		)
+		_stamp_pos_links(pe, shift)
 		pe.insert(ignore_permissions=True)
 		pe.submit()
 
@@ -1135,6 +1187,7 @@ def close_dispatch_shift(shift_name, force_close=False):
 				pe.reference_no = shift_name
 				pe.reference_date = frappe.utils.today()
 				pe.remarks = _("COD Collection — Delivery Assignment {0}").format(da.name)
+				_stamp_pos_links(pe, shift_name)
 				pe.insert(ignore_permissions=True)
 				pe.submit()
 			except Exception as e:

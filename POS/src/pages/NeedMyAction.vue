@@ -104,14 +104,20 @@
 								<div class="text-xs font-bold text-red-600 mb-0.5">{{ __("Failure Reason:") }}</div>
 								<div class="text-sm text-red-800">{{ d.delivery_notes }}</div>
 							</div>
+							<!-- How the order was made Failed (before it is returned) -->
+							<div class="text-xs text-gray-400 pt-1">
+								<span class="font-semibold">{{ __("Marked Failed by:") }}</span> {{ d.marked_failed_by || "—" }}
+								<span v-if="d.marked_failed_at"> · {{ formatDateTime(d.marked_failed_at) }}</span>
+							</div>
 						</div>
 						<div class="px-4 py-3 border-t border-red-100 flex items-center justify-between bg-gray-50">
 							<div class="text-sm font-bold text-gray-900">{{ formatNumber(d.grand_total) }}</div>
 							<button
-								@click="deleteDeliveryOrder(d)"
-								class="flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-xl transition-all active:scale-95"
+								@click="startFailedReturn(d)"
+								:disabled="returnBusy === d.name"
+								class="flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-xl transition-all active:scale-95 disabled:opacity-50"
 							>
-								🗑 {{ __("Cancel Order") }}
+								↩ {{ __("Return Order") }}
 							</button>
 						</div>
 					</div>
@@ -190,8 +196,78 @@
 				</div>
 			</div>
 
+			<!-- Delivery Return Requests (Call Center Manager / Deputy approval) -->
+			<div v-if="returnRequests.length" class="mb-8">
+				<div class="flex items-center gap-2 mb-4">
+					<span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
+					<h2 class="text-base font-bold text-red-700">{{ __("Delivery Return Requests") }}</h2>
+					<span class="ml-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold">{{ returnRequests.length }}</span>
+				</div>
+				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+					<div v-for="r in returnRequests" :key="r.name"
+						class="bg-white rounded-2xl border-2 border-red-200 shadow-sm overflow-hidden flex flex-col">
+						<div class="px-5 py-4 border-b border-red-100 bg-red-50 flex items-start justify-between">
+							<div>
+								<div class="text-sm font-bold text-red-900">↩ {{ r.custom_number_order || r.sales_invoice }}</div>
+								<div class="text-xs text-red-600 mt-0.5">{{ r.order_type || "Delivery" }}<span v-if="r.branch"> — {{ r.branch }}</span></div>
+							</div>
+							<span class="px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-red-100 text-red-700">{{ __("Return") }}</span>
+						</div>
+						<div class="p-4 flex-1 space-y-1 text-sm text-gray-700">
+							<div class="font-semibold text-gray-900">{{ r.customer_name || r.customer }}</div>
+							<div v-if="r.mobile" class="text-xs text-gray-500">📞 {{ r.mobile }}</div>
+							<div v-if="r.reason" class="mt-2 p-2.5 bg-red-50 rounded-lg border border-red-100">
+								<div class="text-xs font-bold text-red-600 mb-0.5">{{ __("Reason:") }}</div>
+								<div class="text-sm text-red-800">{{ r.reason }}</div>
+							</div>
+							<div class="text-xs text-gray-400 mt-1">{{ __('By') }}: {{ r.requested_by }}</div>
+						</div>
+						<div class="px-4 py-3 border-t border-red-100 flex items-center gap-2 bg-gray-50">
+							<div class="text-sm font-bold text-gray-900 mr-auto">{{ formatNumber(r.grand_total) }}</div>
+							<button @click="rejectReturnRequest(r)" :disabled="returnBusy === r.name" class="px-3 py-2 text-sm font-bold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-100 disabled:opacity-50">{{ __("Reject") }}</button>
+							<button @click="approveReturnRequest(r)" :disabled="returnBusy === r.name" class="px-3 py-2 text-sm font-bold text-white bg-green-600 rounded-xl hover:bg-green-700 disabled:opacity-50">{{ returnBusy === r.name ? __("…") : __("Approve") }}</button>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Branch Return Approvals (past KDS grace window — Branch Manager) -->
+			<div v-if="branchApprovals.length" class="mb-8">
+				<div class="flex items-center gap-2 mb-4">
+					<span class="w-3 h-3 rounded-full bg-orange-500 animate-pulse"></span>
+					<h2 class="text-base font-bold text-orange-700">{{ __("Branch Return Approvals") }}</h2>
+					<span class="ml-1 px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs font-bold">{{ branchApprovals.length }}</span>
+				</div>
+				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+					<div v-for="r in branchApprovals" :key="r.name"
+						class="bg-white rounded-2xl border-2 border-orange-200 shadow-sm overflow-hidden flex flex-col">
+						<div class="px-5 py-4 border-b border-orange-100 bg-orange-50 flex items-start justify-between">
+							<div>
+								<div class="text-sm font-bold text-orange-900">⛔ {{ r.custom_number_order || r.sales_invoice }}</div>
+								<div class="text-xs text-orange-600 mt-0.5">{{ (r.return_source || 'User').toLowerCase().includes('call') ? 'By Call Center' : 'By User' }}<span v-if="r.branch"> — {{ r.branch }}</span></div>
+							</div>
+							<span v-if="r.minutes_since_kds != null" class="px-2.5 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700">{{ r.minutes_since_kds }} min in kitchen</span>
+						</div>
+						<div class="p-4 flex-1 space-y-1 text-sm text-gray-700">
+							<div class="font-semibold text-gray-900">{{ r.customer_name || r.customer }}</div>
+							<div v-if="r.mobile" class="text-xs text-gray-500">📞 {{ r.mobile }}</div>
+							<div v-if="r.reason && r.reason !== 'No Remarks'" class="mt-2 p-2.5 bg-orange-50 rounded-lg border border-orange-100">
+								<div class="text-xs font-bold text-orange-600 mb-0.5">{{ __("Reason:") }}</div>
+								<div class="text-sm text-orange-800">{{ r.reason }}</div>
+							</div>
+							<div class="text-xs text-gray-400 mt-1">{{ __('By') }}: {{ r.requested_by }}</div>
+						</div>
+						<div class="px-4 py-3 border-t border-orange-100 flex items-center gap-2 bg-gray-50">
+							<div class="text-sm font-bold text-gray-900 mr-auto">{{ formatNumber(r.grand_total) }}</div>
+							<button @click="rejectBranchReturn(r)" :disabled="branchBusy === r.name" class="px-3 py-2 text-sm font-bold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-100 disabled:opacity-50">{{ __("Reject") }}</button>
+							<button @click="approveBranchReturn(r)" :disabled="branchBusy === r.name" class="px-3 py-2 text-sm font-bold text-white bg-green-600 rounded-xl hover:bg-green-700 disabled:opacity-50">{{ branchBusy === r.name ? __("…") : __("Approve Return") }}</button>
+						</div>
+					</div>
+				</div>
+			</div>
+
 			<!-- Orders Grid -->
-			<div v-else-if="!filteredOrders.length && !failedDeliveries.length && !statusRequests.length && !couponRequests.length" class="flex flex-col items-center justify-center py-24 bg-white rounded-2xl border border-gray-200 shadow-sm text-center px-4">
+			<div v-else-if="!filteredOrders.length && !failedDeliveries.length && !statusRequests.length && !couponRequests.length && !returnRequests.length && !branchApprovals.length" class="flex flex-col items-center justify-center py-24 bg-white rounded-2xl border border-gray-200 shadow-sm text-center px-4">
 				<div class="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mb-6">
 					<svg class="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
@@ -449,8 +525,8 @@
 					</table>
 				</div>
 				<div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
-					<button @click="cancelWastageItems" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">{{ __("Cancel") }}</button>
-					<button @click="confirmWastageItems" class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">{{ __("Confirm Cancellation") }}</button>
+					<button @click="cancelWastageItems" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">{{ wastageContext === 'branch' ? __("Skip") : __("Cancel") }}</button>
+					<button @click="confirmWastageItems" class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">{{ wastageContext === 'branch' ? __("Confirm Wastage") : __("Confirm Cancellation") }}</button>
 				</div>
 			</div>
 		</div>
@@ -512,6 +588,73 @@
 			@payment-completed="handlePaymentCompleted"
 			@update-additional-discount="handleAdditionalDiscountUpdate"
 		/>
+
+		<!-- Return approval: same rich dialog as All Orders "Delete Order" -->
+		<ReturnInvoiceDialog
+			v-model="showReturnInvoiceDialog"
+			:pos-profile="returnDialogProfile"
+			:pos-opening-shift="returnDialogShift"
+			:currency="returnDialogCurrency"
+			:preselected-invoice="returnPreselected"
+			:return-source="returnFlowMode === 'request' ? 'Call Center' : 'User'"
+			@return-created="handleReturnRequestReturnCreated"
+		/>
+
+		<!-- Wastage question after the return is created (Return Request flow) -->
+		<div v-if="rrShowWastageQuestion" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+			<div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
+				<h3 class="text-lg font-bold text-gray-900 mb-2">{{ __("Record wastage?") }}</h3>
+				<p class="text-sm text-gray-600 mb-5">{{ __("Are the returned items wastage (consumed out of stock)? Choose No to keep them in stock.") }}</p>
+				<div class="flex gap-3">
+					<button @click="rrWastageNo" class="flex-1 px-4 py-2 text-sm font-bold text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">{{ __("No, keep in stock") }}</button>
+					<button @click="rrWastageYes" class="flex-1 px-4 py-2 text-sm font-bold text-white bg-red-600 rounded-lg hover:bg-red-700">{{ __("Yes, wastage") }}</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Failed delivery: who bears the order / delivery value? -->
+		<div v-if="showFailedCostDialog" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+			<div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
+				<h3 class="text-lg font-bold text-gray-900 mb-1">{{ __("مين هيتحمل قيمة الأوردر؟") }}</h3>
+				<p class="text-sm text-gray-600 mb-4">{{ __("Who bears the value of this failed delivery — the driver or the company?") }}</p>
+				<p v-if="activeFailedDelivery?.driver" class="text-xs text-gray-500 mb-4">🚗 {{ activeFailedDelivery.driver }}</p>
+				<div class="mb-4">
+					<label class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">{{ __("المبلغ / قيمة الدليفري") }}</label>
+					<input v-model.number="failedChargeAmount" type="number" min="0" step="0.01"
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none" />
+				</div>
+				<div class="mb-5">
+					<label class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">{{ __("Notes") }}</label>
+					<textarea v-model="failedChargeNotes" rows="2"
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none resize-none" />
+				</div>
+				<div class="flex gap-3">
+					<button @click="finaliseFailedReturn(false)" :disabled="returnBusy === activeFailedDelivery?.name"
+						class="flex-1 px-4 py-2 text-sm font-bold text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50">
+						🏢 {{ __("الشركة تتحمل") }}
+					</button>
+					<button @click="finaliseFailedReturn(true)" :disabled="returnBusy === activeFailedDelivery?.name || !failedChargeAmount || failedChargeAmount <= 0"
+						class="flex-1 px-4 py-2 text-sm font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50">
+						🚗 {{ __("الطيار يتحمل") }}
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Branch approval: manager password -->
+		<div v-if="showBranchPwd" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+			<div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
+				<h3 class="text-lg font-bold text-gray-900 mb-1">{{ __("Manager Password") }}</h3>
+				<p class="text-sm text-gray-600 mb-4">{{ __("Enter the manager password to approve this return.") }}</p>
+				<p v-if="pendingBranchApproval" class="text-xs text-gray-500 mb-3">⛔ {{ pendingBranchApproval.custom_number_order || pendingBranchApproval.sales_invoice }}<span v-if="pendingBranchApproval.branch"> — {{ pendingBranchApproval.branch }}</span></p>
+				<input v-model="branchPwd" type="password" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 outline-none" @keyup.enter="confirmBranchApprovalPwd" />
+				<p v-if="branchPwdError" class="mt-2 text-sm text-red-600">{{ branchPwdError }}</p>
+				<div class="flex gap-3 mt-4">
+					<button @click="showBranchPwd = false; pendingBranchApproval = null" class="flex-1 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">{{ __("Cancel") }}</button>
+					<button @click="confirmBranchApprovalPwd" :disabled="!branchPwd || branchBusy" class="flex-1 py-2 text-sm font-bold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50">{{ branchBusy ? __("…") : __("Approve") }}</button>
+				</div>
+			</div>
+		</div>
 	</div>
 </template>
 
@@ -527,6 +670,7 @@ import { useItemSearchStore } from "@/stores/itemSearch"
 import { useStockStore } from "@/stores/stock"
 import { useToast } from "@/composables/useToast"
 import PaymentDialog from "@/components/sale/PaymentDialog.vue"
+import ReturnInvoiceDialog from "@/components/sale/ReturnInvoiceDialog.vue"
 import { call } from "@/utils/apiWrapper"
 import { __ } from "@/utils/translation"
 import {
@@ -553,6 +697,33 @@ const statusRequests = ref([])
 const statusBusy = ref(null)
 const couponRequests = ref([])
 const couponBusy = ref(null)
+const returnRequests = ref([])
+const returnBusy = ref(null)
+const branchApprovals = ref([])
+const branchBusy = ref(null)
+// Branch approval: manager password + (reuses the existing wastage-items dialog)
+const showBranchPwd = ref(false)
+const branchPwd = ref("")
+const branchPwdError = ref("")
+const pendingBranchApproval = ref(null)
+const branchWastageInvoice = ref(null)
+const wastageContext = ref(null)  // 'branch' → wastage dialog finalises a branch-approved return
+// Approval-return dialog (mirrors the All Orders "Delete Order" flow)
+const showReturnInvoiceDialog = ref(false)
+const returnPreselected = ref(null)       // { name } for ReturnInvoiceDialog
+const returnFlowMode = ref("request")     // 'request' (Return Request) | 'failed' (Failed Delivery)
+const activeReturnRequest = ref(null)     // the Delivery Return Request being approved
+const activeFailedDelivery = ref(null)    // the Failed Delivery assignment being returned
+const returnDialogProfile = ref(null)
+const returnDialogShift = ref(null)
+const returnDialogCurrency = ref(null)
+const rrShowWastageQuestion = ref(false)
+const rrWastageTargetInvoice = ref(null)  // created RETURN invoice name
+const rrWastageItems = ref([])
+// Failed delivery: who bears the order/delivery value
+const showFailedCostDialog = ref(false)
+const failedChargeAmount = ref(0)
+const failedChargeNotes = ref("")
 const loading = ref(false)
 const search = ref("")
 const orderTypeFilter = ref("all")
@@ -607,16 +778,20 @@ const confirmReject = async () => {
 const fetchOrders = async () => {
 	loading.value = true
 	try {
-		const [r, fd, sr, cr] = await Promise.all([
+		const [r, fd, sr, cr, rr, br] = await Promise.all([
 			call("ecs_posnext.api.invoices.get_need_my_action_orders"),
 			call("ecs_posnext.ecs_posnext.api.dispatcher.get_failed_delivery_orders"),
 			call("ecs_posnext.api.customer_status.get_pending_customer_status_requests"),
 			call("ecs_posnext.api.customers.get_pending_coupon_requests"),
+			call("ecs_posnext.api.return_request.get_pending_delivery_return_requests"),
+			call("ecs_posnext.api.branch_return_approval.get_pending_branch_return_approvals"),
 		])
 		orders.value = r || []
 		failedDeliveries.value = fd || []
 		statusRequests.value = sr || []
 		couponRequests.value = cr || []
+		returnRequests.value = rr || []
+		branchApprovals.value = br || []
 	} catch (error) {
 		console.error("Failed to fetch need action orders:", error)
 		window.frappe?.show_alert?.({
@@ -681,6 +856,237 @@ async function rejectCouponRequest(r) {
 		window.frappe?.show_alert?.({ message: e.message || __("Failed to reject"), indicator: "red" })
 	} finally {
 		couponBusy.value = null
+	}
+}
+
+// Approve opens the rich ReturnInvoiceDialog (item selection), exactly like the
+// All Orders "Delete Order" flow, then offers the wastage step, and only then
+// finalises the request (which links the created credit note + marks it Approved).
+function approveReturnRequest(r) {
+	if (returnBusy.value) return
+	returnFlowMode.value = "request"
+	activeReturnRequest.value = r
+	activeFailedDelivery.value = null
+	returnPreselected.value = { name: r.sales_invoice }
+	returnDialogProfile.value = r.pos_profile || shiftStore.profileName
+	returnDialogShift.value = r.pos_opening_shift || shiftStore.currentShift?.name
+	returnDialogCurrency.value = r.currency || shiftStore.profileCurrency
+	showReturnInvoiceDialog.value = true
+}
+
+// Failed delivery → create a RETURN (credit note) via the same dialog, instead of a
+// hard cancel. The card shows why / who failed it before this is opened.
+function startFailedReturn(d) {
+	if (returnBusy.value) return
+	returnFlowMode.value = "failed"
+	activeFailedDelivery.value = d
+	activeReturnRequest.value = null
+	returnPreselected.value = { name: d.order_reference }
+	returnDialogProfile.value = d.pos_profile || shiftStore.profileName
+	returnDialogShift.value = d.pos_opening_shift || shiftStore.currentShift?.name
+	returnDialogCurrency.value = d.currency || shiftStore.profileCurrency
+	showReturnInvoiceDialog.value = true
+}
+
+function handleReturnRequestReturnCreated(returnInvoice) {
+	rrWastageTargetInvoice.value = returnInvoice?.name || null
+	showReturnInvoiceDialog.value = false
+	if (returnFlowMode.value === "failed") {
+		// Failed delivery: ask WHO bears the order value (driver vs company), not wastage.
+		failedChargeAmount.value = Math.abs(activeFailedDelivery.value?.grand_total || 0)
+		failedChargeNotes.value = activeFailedDelivery.value?.delivery_notes || ""
+		showFailedCostDialog.value = true
+	} else if (rrWastageTargetInvoice.value) {
+		rrShowWastageQuestion.value = true
+	} else {
+		finaliseReturnRequestApproval()
+	}
+}
+
+// Failed delivery: record who bears the order/delivery value, then close out the return.
+async function finaliseFailedReturn(chargeDriver) {
+	showFailedCostDialog.value = false
+	const d = activeFailedDelivery.value
+	if (!d) return
+	returnBusy.value = d.name
+	try {
+		if (chargeDriver && failedChargeAmount.value > 0) {
+			await call("ecs_posnext.ecs_posnext.api.dispatcher.record_driver_charge", {
+				assignment: d.name,
+				amount: failedChargeAmount.value,
+				notes: failedChargeNotes.value || __("Driver bears failed delivery value"),
+			})
+		}
+		await call("ecs_posnext.ecs_posnext.api.dispatcher.mark_assignment_returned", { assignment: d.name })
+		failedDeliveries.value = failedDeliveries.value.filter((x) => x.name !== d.name)
+		window.frappe?.show_alert?.({
+			message: chargeDriver
+				? __("Returned — driver charged {0}", [formatNumber(failedChargeAmount.value)])
+				: __("Returned — company bears the value"),
+			indicator: "green",
+		})
+	} catch (e) {
+		window.frappe?.show_alert?.({ message: e.message || __("Failed to finalise return"), indicator: "red" })
+	} finally {
+		returnBusy.value = null
+		activeFailedDelivery.value = null
+		rrWastageTargetInvoice.value = null
+		failedChargeAmount.value = 0
+		failedChargeNotes.value = ""
+	}
+}
+
+async function loadReturnRequestWastageItems() {
+	try {
+		const items = await call("ecs_posnext.api.kitchen_order.get_stock_items_for_wastage", {
+			sales_invoice: rrWastageTargetInvoice.value,
+		})
+		rrWastageItems.value = (items || []).map((i) => ({ ...i, selected: true, wastage_qty: Math.abs(i.qty || i.stock_qty || 0) }))
+	} catch (e) {
+		rrWastageItems.value = []
+	}
+}
+
+async function rrWastageYes() {
+	rrShowWastageQuestion.value = false
+	await loadReturnRequestWastageItems()
+	const list = rrWastageItems.value
+		.filter((i) => i.selected)
+		.map((i) => ({ item_code: i.item_code, item_name: i.item_name, qty: Math.abs(i.wastage_qty || i.qty), warehouse: i.warehouse, uom: i.uom }))
+	try {
+		if (list.length && rrWastageTargetInvoice.value) {
+			await call("ecs_posnext.api.kitchen_order.create_wastage_stock_entry_for_invoice", {
+				sales_invoice: rrWastageTargetInvoice.value,
+				wastage_items: JSON.stringify(list),
+			})
+		}
+	} catch (e) {
+		window.frappe?.show_alert?.({ message: e.message || __("Wastage entry failed"), indicator: "orange" })
+	}
+	await finaliseReturnRequestApproval()
+}
+
+async function rrWastageNo() {
+	rrShowWastageQuestion.value = false
+	await finaliseReturnRequestApproval()
+}
+
+async function finaliseReturnRequestApproval() {
+	try {
+		if (returnFlowMode.value === "failed") {
+			// Failed delivery: the return credit note was just created; now close out the
+			// assignment as Returned so it leaves the Failed list.
+			const d = activeFailedDelivery.value
+			if (!d) return
+			returnBusy.value = d.name
+			await call("ecs_posnext.ecs_posnext.api.dispatcher.mark_assignment_returned", { assignment: d.name })
+			failedDeliveries.value = failedDeliveries.value.filter((x) => x.name !== d.name)
+			window.frappe?.show_alert?.({ message: __("Returned: {0}", [rrWastageTargetInvoice.value || ""]), indicator: "green" })
+		} else {
+			const r = activeReturnRequest.value
+			if (!r) return
+			returnBusy.value = r.name
+			// Credit note already exists (created by the dialog) — link it + mark Approved.
+			const res = await call("ecs_posnext.api.return_request.approve_delivery_return_request", { name: r.name })
+			returnRequests.value = returnRequests.value.filter((x) => x.name !== r.name)
+			window.frappe?.show_alert?.({ message: __("Return approved: {0}", [res.return_invoice || ""]), indicator: "green" })
+		}
+	} catch (e) {
+		window.frappe?.show_alert?.({ message: e.message || __("Failed to finalise return"), indicator: "red" })
+	} finally {
+		returnBusy.value = null
+		activeReturnRequest.value = null
+		activeFailedDelivery.value = null
+		rrWastageTargetInvoice.value = null
+		rrWastageItems.value = []
+	}
+}
+
+function rejectReturnRequest(r) {
+	if (returnBusy.value) return
+	// Ask WHY — the reason is shown back on the dispatcher card when it re-enables.
+	window.frappe?.prompt?.(
+		[{ fieldname: "reason", label: __("Reject Reason"), fieldtype: "Small Text", reqd: 1 }],
+		async (values) => {
+			returnBusy.value = r.name
+			try {
+				await call("ecs_posnext.api.return_request.reject_delivery_return_request", { name: r.name, reason: values.reason })
+				returnRequests.value = returnRequests.value.filter((x) => x.name !== r.name)
+				window.frappe?.show_alert?.({ message: __("Rejected"), indicator: "orange" })
+			} catch (e) {
+				window.frappe?.show_alert?.({ message: e.message || __("Failed to reject"), indicator: "red" })
+			} finally {
+				returnBusy.value = null
+			}
+		},
+		__("Reject Return Request"),
+		__("Reject"),
+	)
+}
+
+// Approve flow: manager password → approve (creates the return) → wastage dialog with
+// the returned items' composition loaded, so the manager marks what is wastage.
+function approveBranchReturn(r) {
+	if (branchBusy.value) return
+	pendingBranchApproval.value = r
+	branchPwd.value = ""
+	branchPwdError.value = ""
+	showBranchPwd.value = true
+}
+
+async function confirmBranchApprovalPwd() {
+	const r = pendingBranchApproval.value
+	if (!r) return
+	branchPwdError.value = ""
+	try {
+		const v = await call("ecs_posnext.api.kitchen_order.verify_cancel_manager", {
+			pos_profile: posProfile.value?.name || posProfile.value || "",
+			password: branchPwd.value,
+		})
+		if (!v || !v.valid) {
+			branchPwdError.value = __("Password is incorrect. Please try again.")
+			return
+		}
+		branchBusy.value = r.name
+		const res = await call("ecs_posnext.api.branch_return_approval.approve_branch_return_approval", { name: r.name })
+		branchApprovals.value = branchApprovals.value.filter((x) => x.name !== r.name)
+		showBranchPwd.value = false
+		window.frappe?.show_alert?.({ message: __("Approved — return {0} created", [res.return_invoice || ""]), indicator: "green" })
+		// Open the SAME (old) wastage dialog, loaded with the returned items' composition.
+		branchWastageInvoice.value = res.return_invoice
+		wastageContext.value = "branch"
+		const items = await call("ecs_posnext.api.kitchen_order.get_stock_items_for_wastage", { sales_invoice: res.return_invoice })
+		wastageItems.value = (items || []).map((i) => ({
+			item_code: i.item_code || "",
+			item_name: i.item_name || i.item_code || "",
+			qty: i.qty || 0,
+			original_qty: i.original_qty || i.qty || 0,
+			return_qty: i.qty || 0,
+			uom: i.uom || "Nos",
+			warehouse: i.warehouse || "",
+			selected: false,
+		}))
+		wastageStockEntryType.value = "Consumptions"
+		selectedEmployee.value = null
+		showWastageItems.value = true
+	} catch (e) {
+		branchPwdError.value = e.message || __("Failed to approve")
+	} finally {
+		branchBusy.value = null
+	}
+}
+
+async function rejectBranchReturn(r) {
+	if (branchBusy.value) return
+	branchBusy.value = r.name
+	try {
+		await call("ecs_posnext.api.branch_return_approval.reject_branch_return_approval", { name: r.name })
+		branchApprovals.value = branchApprovals.value.filter((x) => x.name !== r.name)
+		window.frappe?.show_alert?.({ message: __("Rejected"), indicator: "orange" })
+	} catch (e) {
+		window.frappe?.show_alert?.({ message: e.message || __("Failed to reject"), indicator: "red" })
+	} finally {
+		branchBusy.value = null
 	}
 }
 
@@ -773,6 +1179,14 @@ const loadOrderItemsForWastage = async () => {
 const cancelWastageItems = () => {
 	showWastageItems.value = false
 	wastageItems.value = []
+	if (wastageContext.value === "branch") {
+		// The return was already created on approval; cancelling here just skips wastage.
+		wastageContext.value = null
+		branchWastageInvoice.value = null
+		pendingBranchApproval.value = null
+		fetchOrders()
+		return
+	}
 	orderToDelete.value = null
 }
 
@@ -790,10 +1204,35 @@ const confirmWastageItems = async () => {
 		const wastageQty = item.original_qty - (item.return_qty || 0)
 		if (wastageQty > 0) wastageItemsList.push({ item_code: item.item_code, qty: wastageQty, uom: item.uom, warehouse: item.warehouse })
 	})
+	showWastageItems.value = false
+
+	// Branch-approval context: the return already exists — just post the wastage stock
+	// entry for the selected (unselected = wastage) items against the return invoice.
+	if (wastageContext.value === "branch") {
+		try {
+			if (wastageItemsList.length && branchWastageInvoice.value) {
+				await call("ecs_posnext.api.kitchen_order.create_wastage_stock_entry_for_invoice", {
+					sales_invoice: branchWastageInvoice.value,
+					wastage_items: JSON.stringify(wastageItemsList),
+					stock_entry_type: wastageStockEntryType.value,
+					employee: selectedEmployee.value,
+				})
+				window.frappe?.show_alert?.({ message: __("Wastage recorded"), indicator: "green" })
+			}
+		} catch (e) {
+			window.frappe?.show_alert?.({ message: e.message || __("Wastage entry failed"), indicator: "orange" })
+		}
+		wastageContext.value = null
+		branchWastageInvoice.value = null
+		pendingBranchApproval.value = null
+		wastageItems.value = []
+		fetchOrders()
+		return
+	}
+
 	const itemsToReturn = selectedItems
 		.map(item => ({ item_code: item.item_code, qty: item.return_qty || item.qty, uom: item.uom }))
 		.filter(item => item.qty > 0)
-	showWastageItems.value = false
 	pendingCancellationArgs.value = { isWastage: true, itemsToReturn, wastageItemsList }
 	chargeDriverAmount.value = 0
 	chargeDriverNotes.value = ""
@@ -1067,6 +1506,17 @@ const formatNumber = (val) => {
 		style: "currency",
 		currency: "EGP",
 	}).format(val)
+}
+
+const formatDateTime = (val) => {
+	if (!val) return ""
+	try {
+		const d = new Date(String(val).replace(" ", "T"))
+		if (isNaN(d.getTime())) return String(val)
+		return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
+	} catch {
+		return String(val)
+	}
 }
 
 const formatTimeAgo = (dateStr, timeStr) => {
