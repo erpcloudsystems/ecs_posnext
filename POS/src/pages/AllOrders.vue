@@ -1586,13 +1586,13 @@ async function submitPayment() {
 
 // ===== DELETE / CANCEL ORDER =====
 function deleteOrder(order) {
-	// No upfront manager password — the return is free within the KDS grace window and
-	// only asks for a branch-manager password AFTER it (handled inside ReturnInvoiceDialog).
+	// Ask for the manager password BEFORE opening the return dialog. On success
+	// confirmDelete() opens the ReturnInvoiceDialog preselected to this order.
 	orderToDelete.value = order
 	approvedManager.value = null
-	returnTarget.value = order
-	returnPreselected.value = { name: order.name }
-	showReturnInvoiceDialog.value = true
+	passwordInput.value = ""
+	passwordError.value = ""
+	showPasswordDialog.value = true
 }
 
 async function confirmDelete() {
