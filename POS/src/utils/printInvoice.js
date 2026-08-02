@@ -1,10 +1,23 @@
 import { call } from "@/utils/apiWrapper"
 import { logger } from "@/utils/logger"
-import { printHTML as qzPrintHTML, resolvePrinter } from "@/utils/qzTray"
+import {
+	getPaperWidth,
+	printPDF as qzPrintPDF,
+	resolvePrinter,
+} from "@/utils/qzTray"
 
 const log = logger.create("PrintInvoice")
 
 const DEFAULT_PRINT_FORMAT = "POS Next Receipt"
+
+/** Left/right margin on the roll — thermal heads cannot print to the edge. */
+const RECEIPT_SIDE_MARGIN_MM = 2
+
+/** Padding added under the measured content so the last line is never clipped. */
+const RECEIPT_TAIL_MM = 6
+
+/** Page length used when the receipt height could not be measured. */
+const RECEIPT_FALLBACK_HEIGHT_MM = 297
 
 // ============================================================================
 // Shared helpers
@@ -22,17 +35,127 @@ function formatCurrency(amount) {
  * fields (write_off_account, etc.), which incorrectly blocks branch cashiers
  * from printing invoices they just created themselves.
  */
-async function fetchPrintHTML(invoiceName, { printFormat, letterhead = null, noLetterhead = 1 } = {}) {
+async function fetchPrintHTML(
+	invoiceName,
+	{ printFormat, letterhead = null, noLetterhead = 1 } = {},
+) {
 	const result = await call("ecs_posnext.api.invoices.get_invoice_print_html", {
 		invoice_name: invoiceName,
 		print_format: printFormat || DEFAULT_PRINT_FORMAT,
 		letterhead,
 		no_letterhead: noLetterhead,
 	})
+
 	const html = result?.html || result?.message?.html
 	const style = result?.style || result?.message?.style || ""
 	if (!html) throw new Error("Failed to get print HTML from server")
 	return { html, style }
+}
+
+/**
+ * Fetch a server-rendered PDF of the invoice, base64-encoded.
+ *
+ * Pass `pageWidth` to get a receipt-roll page instead of A4.
+ */
+async function fetchPrintPDF(
+	invoiceName,
+	{
+		printFormat,
+		letterhead = null,
+		noLetterhead = 1,
+		pageWidth = null,
+		pageHeight = null,
+	} = {},
+) {
+	const result = await call("ecs_posnext.api.invoices.get_invoice_print_pdf", {
+		invoice_name: invoiceName,
+		print_format: printFormat || DEFAULT_PRINT_FORMAT,
+		letterhead,
+		no_letterhead: noLetterhead,
+		page_width: pageWidth,
+		page_height: pageHeight,
+		side_margin: pageWidth ? RECEIPT_SIDE_MARGIN_MM : null,
+	})
+
+	const payload = result?.message || result
+	if (!payload?.content) throw new Error("Server returned no PDF content")
+	return payload
+}
+
+/**
+ * Measure how tall the receipt renders, in mm, so the PDF page can be cut to
+ * the content instead of feeding a fixed page length of roll.
+ *
+ * Measured in a hidden iframe at the exact printable width, with images and
+ * fonts resolved first — a letterhead logo that has not loaded yet would make
+ * the receipt come out short. Chrome lays text out slightly looser than
+ * wkhtmltopdf does, so this reads a little tall; that is the safe direction,
+ * since underestimating spills the footer onto a second page (and a second cut).
+ *
+ * @returns {Promise<number>} height in mm, or 0 if it could not be measured
+ */
+function measureReceiptHeightMM(fullHTML, contentWidthMM) {
+	return new Promise((resolve) => {
+		if (typeof document === "undefined") {
+			resolve(0)
+			return
+		}
+
+		const iframe = document.createElement("iframe")
+		iframe.setAttribute("aria-hidden", "true")
+		iframe.setAttribute("tabindex", "-1")
+		iframe.style.cssText = `position:fixed;left:-10000px;top:0;width:${contentWidthMM}mm;height:10px;border:0;visibility:hidden;pointer-events:none;`
+
+		let settled = false
+		const finish = (mm) => {
+			if (settled) return
+			settled = true
+			clearTimeout(watchdog)
+			iframe.remove()
+			resolve(mm)
+		}
+
+		// Never hold up a sale for measurement — fall back to a fixed page length.
+		const watchdog = setTimeout(() => finish(0), 5000)
+
+		iframe.onload = async () => {
+			try {
+				const frameDoc = iframe.contentDocument
+				const frameWindow = iframe.contentWindow
+				if (!frameDoc || !frameWindow) {
+					finish(0)
+					return
+				}
+
+				const pending = [...frameDoc.images]
+					.filter((img) => !img.complete)
+					.map(
+						(img) =>
+							new Promise((done) => {
+								img.addEventListener("load", done, { once: true })
+								img.addEventListener("error", done, { once: true })
+							}),
+					)
+				if (frameDoc.fonts?.ready) pending.push(frameDoc.fonts.ready)
+				await Promise.all(pending)
+
+				const px = Math.max(
+					frameDoc.documentElement?.scrollHeight || 0,
+					frameDoc.body?.scrollHeight || 0,
+				)
+				// CSS px are 1/96in by definition, which is also how wkhtmltopdf
+				// maps them onto the page.
+				finish(px > 0 ? (px * 25.4) / 96 : 0)
+			} catch (err) {
+				log.warn("Could not measure receipt height:", err)
+				finish(0)
+			}
+		}
+
+		iframe.onerror = () => finish(0)
+		iframe.srcdoc = fullHTML
+		document.body.appendChild(iframe)
+	})
 }
 
 /**
@@ -127,7 +250,8 @@ function printHTMLInHiddenIframe(fullHTML) {
 			}, 150)
 		}
 
-		iframe.onerror = () => finish(reject, new Error("Failed to load print iframe"))
+		iframe.onerror = () =>
+			finish(reject, new Error("Failed to load print iframe"))
 
 		iframe.srcdoc = fullHTML
 		document.body.appendChild(iframe)
@@ -139,14 +263,18 @@ function printHTMLInHiddenIframe(fullHTML) {
  * hidden iframe — no popup window, no manual click.
  * Falls back to the hardcoded receipt template if the server render fails.
  */
-export async function printInvoice(invoiceData, printFormat = null, letterhead = null) {
+export async function printInvoice(
+	invoiceData,
+	printFormat = null,
+	letterhead = null,
+) {
 	try {
 		if (!invoiceData?.name) throw new Error("Invalid invoice data")
 
 		const { html, style } = await fetchPrintHTML(invoiceData.name, {
 			printFormat: printFormat || DEFAULT_PRINT_FORMAT,
 			letterhead,
-			noLetterhead: letterhead ? 0 : 1,
+			// noLetterhead: letterhead ? 0 : 1,
 		})
 
 		const fullHTML = `<!DOCTYPE html>
@@ -167,13 +295,21 @@ export async function printInvoice(invoiceData, printFormat = null, letterhead =
  * Fetch an invoice by name, resolve its POS Profile print settings,
  * then open the browser print window.
  */
-export async function printInvoiceByName(invoiceName, printFormat = null, letterhead = null) {
+export async function printInvoiceByName(
+	invoiceName,
+	printFormat = null,
+	letterhead = null,
+) {
 	const invoiceDoc = await call("ecs_posnext.api.invoices.get_invoice", {
 		invoice_name: invoiceName,
 	})
 	if (!invoiceDoc) throw new Error("Invoice not found")
 
-	const settings = await resolvePrintSettings(invoiceDoc.pos_profile, printFormat, letterhead)
+	const settings = await resolvePrintSettings(
+		invoiceDoc.pos_profile,
+		printFormat,
+		letterhead,
+	)
 	return printInvoice(invoiceDoc, settings.printFormat, settings.letterhead)
 }
 
@@ -182,33 +318,82 @@ export async function printInvoiceByName(invoiceName, printFormat = null, letter
 // ============================================================================
 
 /**
- * Fetch the server-rendered print HTML and send it to a thermal printer
- * via QZ Tray. Returns the print format HTML + its inline styles (standard.css,
- * print style, custom CSS).
- * Note: print.bundle.css (Bootstrap grid/tables) is NOT included — print
- * formats that rely on Bootstrap layout classes may render differently.
- * Paper size and margins are controlled by the QZ Tray config in qzTray.js.
+ * Render the invoice to a receipt-sized PDF on the server and send that to the
+ * thermal printer via QZ Tray.
+ *
+ * The PDF detour is what fixes Arabic: wkhtmltopdf shapes and reorders RTL text
+ * the way a browser does, while QZ Tray's own HTML renderer prints Arabic
+ * letters unjoined and in the wrong order. QZ now only rasterizes a finished
+ * page, so the silent receipt matches what the browser print path produces.
+ *
+ * The page is the roll width configured for this till (80mm by default) and is
+ * cut to the measured height of the receipt, so nothing is scaled and no blank
+ * tail is fed before the cut.
+ *
+ * @param {string} invoiceName
+ * @param {string|null} [printFormat]
+ * @param {string|null} [printerName]
+ * @param {Object} [options]
+ * @param {string|null} [options.letterhead] - letterhead to render (none by default)
+ * @param {number|null} [options.width] - roll width in mm; per-till setting by default
  */
-export async function silentPrintInvoice(invoiceName, printFormat = null, printerName = null) {
-	const { html, style } = await fetchPrintHTML(invoiceName, {
-		printFormat: printFormat || DEFAULT_PRINT_FORMAT,
-		noLetterhead: 1,
-	})
+export async function silentPrintInvoice(
+	invoiceName,
+	printFormat = null,
+	printerName = null,
+	options = {},
+) {
+	const format = printFormat || DEFAULT_PRINT_FORMAT
+	const letterhead = options.letterhead || null
+	const pageWidth = options.width || getPaperWidth()
+	const contentWidth = Math.max(pageWidth - 2 * RECEIPT_SIDE_MARGIN_MM, 20)
 
-	const fullHTML = `<!DOCTYPE html>
+	// Measure against the same HTML the PDF will be built from, so the page
+	// length matches this receipt rather than a worst-case guess.
+	let pageHeight = RECEIPT_FALLBACK_HEIGHT_MM
+	try {
+		const { html, style } = await fetchPrintHTML(invoiceName, {
+			printFormat: format,
+			letterhead,
+			noLetterhead: letterhead ? 0 : 1,
+		})
+		const measured = await measureReceiptHeightMM(
+			`<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><style>${style}</style></head>
 <body>${html}</body>
-</html>`
+</html>`,
+			contentWidth,
+		)
+		if (measured > 0) pageHeight = Math.ceil(measured + RECEIPT_TAIL_MM)
+	} catch (err) {
+		log.warn(
+			"Receipt height measurement failed, using fallback page length:",
+			err,
+		)
+	}
 
-	await qzPrintHTML(fullHTML, printerName)
-	log.info(`Silent print sent for ${invoiceName}`)
+	const pdf = await fetchPrintPDF(invoiceName, {
+		printFormat: format,
+		letterhead,
+		noLetterhead: letterhead ? 0 : 1,
+		pageWidth,
+		pageHeight,
+	})
+
+	await qzPrintPDF(pdf.content, printerName, {
+		width: pdf.page_width || pageWidth,
+		height: pdf.page_height || pageHeight,
+	})
+	log.info(
+		`Silent print sent for ${invoiceName} (${pageWidth}×${pageHeight}mm)`,
+	)
 	return true
 }
 
 /**
  * Try silent print, fall back to browser print on failure.
- * silentPrintInvoice → qzPrintHTML → connect() handles auto-reconnect
+ * silentPrintInvoice → qzPrintPDF → connect() handles auto-reconnect
  * internally, so no separate connection logic is needed here.
  *
  * When the silent path fails the caller gets `reason` — the browser print
@@ -217,13 +402,25 @@ export async function silentPrintInvoice(invoiceName, printFormat = null, printe
  *
  * @returns {Promise<{method: "silent"|"browser", success: boolean, reason?: string}>}
  */
-export async function printWithSilentFallback(invoiceData, printFormat = null) {
+export async function printWithSilentFallback(
+	invoiceData,
+	printFormat = null,
+	options = {},
+) {
 	const invoiceName = invoiceData?.name
 	if (!invoiceName) throw new Error("Invalid invoice data — missing name")
 
+	const settings = await resolvePrintSettings(
+		options.posProfile,
+		printFormat,
+		options.letterhead,
+	)
+
 	let reason
 	try {
-		await silentPrintInvoice(invoiceName, printFormat)
+		await silentPrintInvoice(invoiceName, settings.printFormat, null, {
+			letterhead: settings.letterhead,
+		})
 		return { method: "silent", success: true }
 	} catch (err) {
 		reason = err?.message || String(err)
@@ -256,20 +453,22 @@ export async function printWithSilentFallback(invoiceData, printFormat = null) {
  * @param {string|null} [letterhead]
  * @returns {Promise<string>} the downloaded filename
  */
-export async function downloadInvoicePDF(invoiceName, printFormat = null, letterhead = null) {
+export async function downloadInvoicePDF(
+	invoiceName,
+	printFormat = null,
+	letterhead = null,
+) {
 	if (!invoiceName) throw new Error("Invalid invoice name")
 
-	const result = await call("ecs_posnext.api.invoices.get_invoice_print_pdf", {
-		invoice_name: invoiceName,
-		print_format: printFormat || DEFAULT_PRINT_FORMAT,
+	// No page_width: this copy is A4, since it gets opened and printed on
+	// whatever ordinary printer the branch has, not on the missing roll printer.
+	const payload = await fetchPrintPDF(invoiceName, {
+		printFormat,
 		letterhead,
-		no_letterhead: letterhead ? 0 : 1,
+		noLetterhead: letterhead ? 0 : 1,
 	})
 
-	const payload = result?.message || result
-	const content = payload?.content
-	if (!content) throw new Error("Server returned no PDF content")
-
+	const content = payload.content
 	const filename = payload.filename || `${invoiceName}.pdf`
 
 	// Decode to a Blob rather than using a data: href — receipt PDFs comfortably
@@ -278,7 +477,9 @@ export async function downloadInvoicePDF(invoiceName, printFormat = null, letter
 	const bytes = new Uint8Array(binary.length)
 	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
 
-	const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }))
+	const url = URL.createObjectURL(
+		new Blob([bytes], { type: "application/pdf" }),
+	)
 	const link = document.createElement("a")
 	link.href = url
 	link.download = filename
@@ -312,18 +513,34 @@ export async function downloadInvoicePDF(invoiceName, printFormat = null, letter
  *
  * @param {{name: string}} invoiceData
  * @param {string|null} [printFormat]
+ * @param {Object} [options]
+ * @param {string|null} [options.posProfile] - profile to take print format/letterhead from
  * @returns {Promise<{method: "silent"|"download", success: boolean, printer?: string, filename?: string, reason?: string}>}
  */
-export async function autoPrintInvoice(invoiceData, printFormat = null) {
+export async function autoPrintInvoice(
+	invoiceData,
+	printFormat = null,
+	options = {},
+) {
 	const invoiceName = invoiceData?.name
 	if (!invoiceName) throw new Error("Invalid invoice data — missing name")
+
+	// Same format and letterhead the manual print button uses — the receipt a
+	// customer is handed should not depend on which button produced it.
+	const settings = await resolvePrintSettings(
+		options.posProfile,
+		printFormat,
+		options.letterhead,
+	)
 
 	let reason
 	try {
 		const printer = await resolvePrinter()
 		if (!printer) throw new Error("No printer found on this machine")
 
-		await silentPrintInvoice(invoiceName, printFormat, printer)
+		await silentPrintInvoice(invoiceName, settings.printFormat, printer, {
+			letterhead: settings.letterhead,
+		})
 		return { method: "silent", success: true, printer }
 	} catch (err) {
 		reason = err?.message || String(err)
@@ -331,7 +548,11 @@ export async function autoPrintInvoice(invoiceData, printFormat = null) {
 	}
 
 	try {
-		const filename = await downloadInvoicePDF(invoiceName, printFormat)
+		const filename = await downloadInvoicePDF(
+			invoiceName,
+			settings.printFormat,
+			settings.letterhead,
+		)
 		return { method: "download", success: true, filename, reason }
 	} catch (err) {
 		const downloadReason = err?.message || String(err)
@@ -407,15 +628,17 @@ export function printInvoiceCustom(invoiceData) {
 					<div><span>${__("Date:")}</span><span>${new Date(invoiceData.posting_date || Date.now()).toLocaleString()}</span></div>
 					${invoiceData.customer_name ? `<div><span>${__("Customer:")}</span><span>${invoiceData.customer_name}</span></div>` : ""}
 					${invoiceData.sales_team && invoiceData.sales_team.length > 0 ? `<div><span>${__("Sales Person:")}</span><span>${invoiceData.sales_team.map((st) => st.sales_person).join(", ")}</span></div>` : ""}
-					${(invoiceData.status === "Partly Paid" || (invoiceData.outstanding_amount && invoiceData.outstanding_amount > 0 && invoiceData.outstanding_amount < invoiceData.grand_total)) ? `<div class="partial-status"><span>${__("Status:")}</span><span>${__("PARTIAL PAYMENT")}</span></div>` : ""}
+					${invoiceData.status === "Partly Paid" || (invoiceData.outstanding_amount && invoiceData.outstanding_amount > 0 && invoiceData.outstanding_amount < invoiceData.grand_total) ? `<div class="partial-status"><span>${__("Status:")}</span><span>${__("PARTIAL PAYMENT")}</span></div>` : ""}
 				</div>
 
 				<div class="items-table">
 					${invoiceData.items
 						.map((item) => {
 							const hasDiscount =
-								(item.discount_percentage && Number.parseFloat(item.discount_percentage) > 0) ||
-								(item.discount_amount && Number.parseFloat(item.discount_amount) > 0)
+								(item.discount_percentage &&
+									Number.parseFloat(item.discount_percentage) > 0) ||
+								(item.discount_amount &&
+									Number.parseFloat(item.discount_amount) > 0)
 							const isFree = item.is_free_item
 							const qty = item.quantity || item.qty
 							const displayRate = item.price_list_rate || item.rate
@@ -435,22 +658,35 @@ export function printInvoiceCustom(invoiceData) {
 				</div>
 
 				<div class="totals">
-					${invoiceData.total_taxes_and_charges && invoiceData.total_taxes_and_charges > 0 ? `
+					${
+						invoiceData.total_taxes_and_charges &&
+						invoiceData.total_taxes_and_charges > 0
+							? `
 					<div class="total-row"><span>${__("Subtotal:")}</span><span>${formatCurrency((invoiceData.grand_total || 0) - (invoiceData.total_taxes_and_charges || 0))}</span></div>
-					<div class="total-row"><span>${__("Tax:")}</span><span>${formatCurrency(invoiceData.total_taxes_and_charges)}</span></div>` : ""}
-					${invoiceData.discount_amount ? `
-					<div class="total-row" style="color: #28a745;"><span>Additional Discount${invoiceData.additional_discount_percentage ? ` (${Number(invoiceData.additional_discount_percentage).toFixed(1)}%)` : ""}:</span><span>-${formatCurrency(Math.abs(invoiceData.discount_amount))}</span></div>` : ""}
+					<div class="total-row"><span>${__("Tax:")}</span><span>${formatCurrency(invoiceData.total_taxes_and_charges)}</span></div>`
+							: ""
+					}
+					${
+						invoiceData.discount_amount
+							? `
+					<div class="total-row" style="color: #28a745;"><span>Additional Discount${invoiceData.additional_discount_percentage ? ` (${Number(invoiceData.additional_discount_percentage).toFixed(1)}%)` : ""}:</span><span>-${formatCurrency(Math.abs(invoiceData.discount_amount))}</span></div>`
+							: ""
+					}
 					<div class="total-row grand-total"><span>${__("TOTAL:")}</span><span>${formatCurrency(invoiceData.grand_total)}</span></div>
 				</div>
 
-				${invoiceData.payments && invoiceData.payments.length > 0 ? `
+				${
+					invoiceData.payments && invoiceData.payments.length > 0
+						? `
 				<div class="payments">
 					<div style="font-weight: bold; margin-bottom: 5px; font-size: 12px;">${__("Payments:")}</div>
 					${invoiceData.payments.map((p) => `<div class="payment-row"><span>${p.mode_of_payment}:</span><span>${formatCurrency(p.amount)}</span></div>`).join("")}
 					<div class="payment-row total-paid"><span>${__("Total Paid:")}</span><span>${formatCurrency(invoiceData.paid_amount || 0)}</span></div>
 					${invoiceData.change_amount && invoiceData.change_amount > 0 ? `<div class="payment-row" style="font-weight: bold; margin-top: 5px;"><span>${__("Change:")}</span><span>${formatCurrency(invoiceData.change_amount)}</span></div>` : ""}
 					${invoiceData.outstanding_amount && invoiceData.outstanding_amount > 0 ? `<div class="outstanding-row"><span>${__("BALANCE DUE:")}</span><span>${formatCurrency(invoiceData.outstanding_amount)}</span></div>` : ""}
-				</div>` : ""}
+				</div>`
+						: ""
+				}
 
 				<div class="footer">
 					<div style="margin-bottom: 5px;">${__("Thank you for your business!")}</div>

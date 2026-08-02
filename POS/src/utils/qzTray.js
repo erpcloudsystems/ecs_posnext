@@ -21,6 +21,13 @@ export const qzConnecting = ref(false)
 
 const PRINTER_STORAGE_KEY = "pos_qz_printer_name"
 const SIGNING_STORAGE_KEY = "pos_qz_signing_material"
+const PAPER_WIDTH_STORAGE_KEY = "pos_qz_paper_width"
+
+/** Roll width in mm used when the till has not been configured. */
+export const DEFAULT_PAPER_WIDTH_MM = 80
+
+/** Roll widths thermal printers actually come in. */
+export const PAPER_WIDTH_OPTIONS = [58, 80]
 
 export function getSavedPrinterName() {
 	try {
@@ -38,12 +45,80 @@ export function savePrinterName(name) {
 	}
 }
 
+/**
+ * Paper roll width in mm for this till.
+ *
+ * Per-till rather than a POS Profile field on purpose: the same profile is used
+ * from counters with different printers, and the roll is a property of the
+ * hardware in front of the cashier.
+ */
+export function getPaperWidth() {
+	try {
+		const saved = Number.parseFloat(
+			localStorage.getItem(PAPER_WIDTH_STORAGE_KEY),
+		)
+		if (Number.isFinite(saved) && saved > 0) return saved
+	} catch {
+		// fall through to the default
+	}
+	return DEFAULT_PAPER_WIDTH_MM
+}
+
+export function savePaperWidth(mm) {
+	try {
+		localStorage.setItem(
+			PAPER_WIDTH_STORAGE_KEY,
+			String(mm || DEFAULT_PAPER_WIDTH_MM),
+		)
+	} catch (e) {
+		log.warn("Failed to save paper width to localStorage:", e)
+	}
+}
+
 // ============================================================================
 // Security Setup (once)
 // ============================================================================
 
+/**
+ * QZ Tray 2.0 — the last release that runs on Windows 7, so it is what the older
+ * tills are stuck on — ignores the `signAlgorithm` the browser advertises and
+ * always verifies signatures as SHA1withRSA. A SHA-512 signature simply fails to
+ * verify there, and a request whose signature does not verify is treated as
+ * unsigned: the "Untrusted website" prompt comes back on every print, however
+ * correctly `override.crt` is installed.
+ *
+ * SHA1 is verified by every version, so that is what we start on. The stronger
+ * hash is switched on only after the handshake reports 2.1 or newer.
+ */
+const LEGACY_SIGN_ALGORITHM = "SHA1"
+const PREFERRED_SIGN_ALGORITHM = "SHA512"
+
+/** WebCrypto spells the digests differently to QZ Tray. */
+const WEBCRYPTO_HASH = {
+	SHA1: "SHA-1",
+	SHA256: "SHA-256",
+	SHA512: "SHA-512",
+}
+
 /** Set up once per page session; concurrent connects share the same promise. */
 let _securityPromise = null
+
+/** Whether requests are signed at all — false when the site has no certificate. */
+let _signingEnabled = false
+
+/** Algorithm currently advertised to QZ Tray and used to produce signatures. */
+let _signAlgorithm = LEGACY_SIGN_ALGORITHM
+
+/** Signing key as PEM, or null when the site keeps the key server-side. */
+let _privateKeyPem = null
+
+/**
+ * Imported keys per algorithm. The hash is bound to a `CryptoKey` at import, so
+ * each algorithm needs its own. A cached `null` means "this browser cannot sign
+ * that way" — the request goes to the server instead.
+ * @type {Map<string, CryptoKey|null>}
+ */
+const _signingKeys = new Map()
 
 /**
  * QZ Tray only serves a request silently when it can verify who sent it. Requests
@@ -87,7 +162,9 @@ async function loadSigningMaterial() {
 	}
 
 	try {
-		const material = await call("ecs_posnext.api.qz_signing.get_signing_material")
+		const material = await call(
+			"ecs_posnext.api.qz_signing.get_signing_material",
+		)
 		if (material?.certificate) {
 			try {
 				localStorage.setItem(SIGNING_STORAGE_KEY, JSON.stringify(material))
@@ -117,32 +194,72 @@ function pemToBytes(pem) {
 }
 
 /**
- * Import the signing key for in-browser signing.
+ * Import the signing key for in-browser signing with one algorithm.
  * @returns {Promise<CryptoKey|null>} null when the browser can't do it — WebCrypto
  *   is unavailable on pages served over plain http, for instance.
  */
-async function importSigningKey(privateKeyPem) {
+async function importSigningKey(privateKeyPem, algorithm) {
 	if (!globalThis.crypto?.subtle) {
-		log.warn("WebCrypto unavailable — QZ Tray requests will be signed server-side")
+		log.warn(
+			"WebCrypto unavailable — QZ Tray requests will be signed server-side",
+		)
 		return null
 	}
 
+	let key
 	try {
-		return await crypto.subtle.importKey(
+		key = await crypto.subtle.importKey(
 			"pkcs8",
 			pemToBytes(privateKeyPem),
-			{ name: "RSASSA-PKCS1-v1_5", hash: "SHA-512" },
+			{ name: "RSASSA-PKCS1-v1_5", hash: WEBCRYPTO_HASH[algorithm] },
 			false,
 			["sign"],
 		)
 	} catch (err) {
-		log.warn("Could not import QZ Tray signing key:", err?.message || err)
+		log.warn(
+			`Could not import QZ Tray signing key for ${algorithm}:`,
+			err?.message || err,
+		)
 		return null
 	}
+
+	// Prove the key actually signs before committing to it. A key the browser
+	// accepts but cannot use would block printing outright, where falling back to
+	// server-side signing keeps the till selling.
+	try {
+		await signLocally(key, "qz-tray-signing-probe")
+	} catch (err) {
+		log.warn(
+			`QZ Tray signing key failed a test ${algorithm} signature:`,
+			err?.message || err,
+		)
+		return null
+	}
+
+	return key
+}
+
+/**
+ * Imported key for `algorithm`, or null when this browser has to defer to the
+ * server. Cached — including the failures, so a broken import is not retried on
+ * every print job.
+ */
+async function getSigningKey(algorithm) {
+	if (_signingKeys.has(algorithm)) return _signingKeys.get(algorithm)
+
+	const key = _privateKeyPem
+		? await importSigningKey(_privateKeyPem, algorithm)
+		: null
+	_signingKeys.set(algorithm, key)
+	return key
 }
 
 async function signLocally(key, message) {
-	const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(message))
+	const signature = await crypto.subtle.sign(
+		"RSASSA-PKCS1-v1_5",
+		key,
+		new TextEncoder().encode(message),
+	)
 	let binary = ""
 	for (const byte of new Uint8Array(signature)) {
 		binary += String.fromCharCode(byte)
@@ -150,8 +267,20 @@ async function signLocally(key, message) {
 	return btoa(binary)
 }
 
-async function signOnServer(message) {
-	return await call("ecs_posnext.api.qz_signing.sign_message", { request: message })
+async function signOnServer(message, algorithm) {
+	return await call("ecs_posnext.api.qz_signing.sign_message", {
+		request: message,
+		algorithm,
+	})
+}
+
+/** Sign one request with whichever algorithm the connected QZ Tray can verify. */
+async function signRequest(message) {
+	const algorithm = _signAlgorithm
+	const key = await getSigningKey(algorithm)
+	return key
+		? await signLocally(key, message)
+		: await signOnServer(message, algorithm)
 }
 
 async function _initSecurity() {
@@ -161,35 +290,60 @@ async function _initSecurity() {
 		return
 	}
 
-	let key = material.private_key ? await importSigningKey(material.private_key) : null
-
-	// Prove the key actually signs before committing to signed requests. A key QZ
-	// Tray can't verify would block printing outright, where unsigned only prompts.
-	if (key) {
-		try {
-			await signLocally(key, "qz-tray-signing-probe")
-		} catch (err) {
-			log.warn("QZ Tray signing key failed a test signature:", err?.message || err)
-			key = null
-		}
-	}
+	_signingEnabled = true
+	_privateKeyPem = material.private_key || null
+	_signAlgorithm = LEGACY_SIGN_ALGORITHM
 
 	qz.security.setCertificatePromise((resolve) => {
 		resolve(material.certificate)
 	})
 
-	qz.security.setSignatureAlgorithm("SHA512")
+	qz.security.setSignatureAlgorithm(_signAlgorithm)
 	qz.security.setSignaturePromise((toSign) => {
 		return (resolve, reject) => {
-			const signing = key ? signLocally(key, toSign) : signOnServer(toSign)
-			signing.then(resolve).catch((err) => {
-				log.error("Could not sign QZ Tray request:", err?.message || err)
-				reject(err)
-			})
+			signRequest(toSign)
+				.then(resolve)
+				.catch((err) => {
+					log.error("Could not sign QZ Tray request:", err?.message || err)
+					reject(err)
+				})
 		}
 	})
 
-	log.info(`QZ Tray requests will be signed ${key ? "in the browser" : "on the server"}`)
+	const key = await getSigningKey(_signAlgorithm)
+	log.info(
+		`QZ Tray requests will be signed ${key ? "in the browser" : "on the server"} (${_signAlgorithm})`,
+	)
+}
+
+/**
+ * Move to the stronger hash once the handshake says the till runs a QZ Tray that
+ * can verify it. Only callable while connected: the version is unknown before
+ * that, and `qz.api.isVersion` throws when there is no connection.
+ */
+async function upgradeSignatureAlgorithm() {
+	if (!_signingEnabled) return
+
+	let legacy = true
+	try {
+		legacy = qz.api.isVersion(2, 0)
+	} catch (err) {
+		log.warn("Could not read the QZ Tray version:", err?.message || err)
+	}
+
+	const algorithm = legacy ? LEGACY_SIGN_ALGORITHM : PREFERRED_SIGN_ALGORITHM
+	if (algorithm === _signAlgorithm) {
+		if (legacy) log.info("QZ Tray 2.0 detected — signing requests with SHA1")
+		return
+	}
+
+	// Only switch once we know we can produce that signature. Advertising an
+	// algorithm we then fail to sign with would break printing outright.
+	if (_privateKeyPem && !(await getSigningKey(algorithm))) return
+
+	_signAlgorithm = algorithm
+	qz.security.setSignatureAlgorithm(algorithm)
+	log.info(`Signing QZ Tray requests with ${algorithm}`)
 }
 
 // ============================================================================
@@ -229,7 +383,11 @@ export async function connect({ force = false } = {}) {
 	// Deduplicate concurrent calls
 	if (_connectPromise) return _connectPromise
 
-	if (!force && _lastFailedConnectAt && Date.now() - _lastFailedConnectAt < FAILED_CONNECT_COOLDOWN_MS) {
+	if (
+		!force &&
+		_lastFailedConnectAt &&
+		Date.now() - _lastFailedConnectAt < FAILED_CONNECT_COOLDOWN_MS
+	) {
 		log.debug("Skipping QZ Tray connect — previous attempt failed recently")
 		return false
 	}
@@ -258,6 +416,7 @@ async function _doConnect() {
 		qzConnected.value = true
 		_lastFailedConnectAt = 0
 		log.info("Connected to QZ Tray")
+		await upgradeSignatureAlgorithm()
 		return true
 	} catch (err) {
 		qzConnected.value = false
@@ -385,9 +544,13 @@ export async function resolvePrinter() {
 		log.warn("Could not read OS default printer:", err?.message || err)
 	}
 
-	const physical = (await findPrinters()).filter((name) => !isVirtualPrinter(name))
+	const physical = (await findPrinters()).filter(
+		(name) => !isVirtualPrinter(name),
+	)
 	if (physical[0]) {
-		log.info(`No physical default printer, using first available "${physical[0]}"`)
+		log.info(
+			`No physical default printer, using first available "${physical[0]}"`,
+		)
 		return physical[0]
 	}
 
@@ -399,17 +562,8 @@ export async function resolvePrinter() {
 // Print Dispatch
 // ============================================================================
 
-/**
- * Send rendered HTML to a printer via QZ Tray pixel printing.
- *
- * @param {string} html - Full HTML document string to print
- * @param {string} [printerName] - Target printer. Auto-detected when omitted.
- * @param {Object} [options] - Extra print options
- * @param {number} [options.width] - Paper width in mm (default 80)
- * @param {string} [options.orientation] - "portrait" | "landscape" (default "portrait")
- * @returns {Promise<boolean>} true if print was dispatched successfully
- */
-export async function printHTML(html, printerName, options = {}) {
+/** Connect if needed and settle on a printer, or throw with a usable reason. */
+async function requirePrinter(printerName) {
 	if (!qz.websocket.isActive()) {
 		const ok = await connect()
 		if (!ok) {
@@ -421,34 +575,72 @@ export async function printHTML(html, printerName, options = {}) {
 	if (!printer) {
 		throw new Error("No printer found on this machine")
 	}
+	return printer
+}
 
-	const config = qz.configs.create(printer, {
-		size: {
-			width: options.width || 80,
-			height: null, // auto height for receipts
-		},
+/**
+ * Send a server-rendered PDF to a printer via QZ Tray.
+ *
+ * This is the receipt path. The PDF is produced by wkhtmltopdf on the server,
+ * which shapes and reorders Arabic correctly; QZ Tray only rasterizes the
+ * finished page. Letting QZ render HTML instead leaves the text layout to its
+ * own engine, which breaks RTL scripts.
+ *
+ * The job is sized to the PDF's own page box, so the driver feeds the length of
+ * the receipt and cuts, instead of a full default page.
+ *
+ * @param {string} base64 - PDF bytes, base64-encoded
+ * @param {string} [printerName] - Target printer. Auto-detected when omitted.
+ * @param {Object} [options]
+ * @param {number} [options.width] - Page width in mm (defaults to the till's roll width)
+ * @param {number} [options.height] - Page height in mm. Printer default when omitted.
+ * @returns {Promise<boolean>} true if the print was dispatched successfully
+ */
+export async function printPDF(base64, printerName, options = {}) {
+	if (!base64) throw new Error("No PDF content to print")
+
+	const printer = await requirePrinter(printerName)
+	const width = options.width || getPaperWidth()
+
+	const configOptions = {
 		units: "mm",
 		orientation: options.orientation || "portrait",
 		margins: { top: 0, right: 0, bottom: 0, left: 0 },
 		colorType: "grayscale",
 		interpolation: "nearest-neighbor",
-	})
+		// A thermal head cannot print the full width of the roll (72mm of an 80mm
+		// one, typically). Scaling to the printable area keeps both edges of the
+		// receipt rather than cropping them.
+		scaleContent: true,
+		rasterize: true,
+	}
+	// Only pin the paper size when the page height is known — a size with no
+	// height makes some drivers fall back to their full default page length.
+	if (width && options.height) {
+		configOptions.size = { width, height: options.height }
+	}
+
+	const config = qz.configs.create(printer, configOptions)
 
 	const data = [
 		{
 			type: "pixel",
-			format: "html",
-			flavor: "plain",
-			data: html,
+			format: "pdf",
+			flavor: "base64",
+			data: base64,
 		},
 	]
 
 	try {
 		await qz.print(config, data)
-		log.info(`Print job sent to "${printer}"`)
+		log.info(`PDF print job sent to "${printer}" (${width}mm roll)`)
 		return true
 	} catch (err) {
-		log.error(`Print failed on "${printer}":`, err?.message || err)
+		log.error(`PDF print failed on "${printer}":`, err?.message || err)
 		throw err
 	}
 }
+
+// `format: "html"` pixel printing was removed on purpose: QZ Tray renders that
+// HTML with its own engine, which does no complex-script shaping, so Arabic came
+// out with unjoined letters in the wrong order. Receipts go through printPDF.

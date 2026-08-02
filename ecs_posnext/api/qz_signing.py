@@ -145,9 +145,32 @@ def ensure_material():
 	return certificate, private_key
 
 
-def sign(message):
+def _hash_algorithm(algorithm):
+	"""
+	Digest QZ Tray will verify the signature with.
+
+	QZ Tray 2.0 — the newest release that runs on Windows 7 — only ever verifies
+	SHA1withRSA, so tills on it ask the POS for a SHA1 signature. Newer versions
+	verify whatever the request advertises.
+	"""
+	from cryptography.hazmat.primitives import hashes
+
+	algorithms = {
+		"SHA1": hashes.SHA1,
+		"SHA256": hashes.SHA256,
+		"SHA512": hashes.SHA512,
+	}
+
+	factory = algorithms.get((algorithm or "SHA512").upper())
+	if not factory:
+		frappe.throw(_("Unsupported signing algorithm {0}").format(algorithm))
+
+	return factory()
+
+
+def sign(message, algorithm="SHA512"):
 	"""Sign `message` with the site's QZ Tray key. Returns a base64 signature."""
-	from cryptography.hazmat.primitives import hashes, serialization
+	from cryptography.hazmat.primitives import serialization
 	from cryptography.hazmat.primitives.asymmetric import padding
 
 	_certificate, key_pem = ensure_material()
@@ -156,7 +179,7 @@ def sign(message):
 	signature = private_key.sign(
 		message.encode(),
 		padding.PKCS1v15(),
-		hashes.SHA512(),
+		_hash_algorithm(algorithm),
 	)
 	return base64.b64encode(signature).decode()
 
@@ -187,12 +210,12 @@ def get_signing_material():
 
 
 @frappe.whitelist(allow_guest=False)
-def sign_message(request):
+def sign_message(request, algorithm="SHA512"):
 	"""Sign a single QZ Tray request. Used when the browser cannot sign locally."""
 	if not request:
 		frappe.throw(_("Nothing to sign"))
 
-	return sign(request)
+	return sign(request, algorithm)
 
 
 @frappe.whitelist(allow_guest=False)

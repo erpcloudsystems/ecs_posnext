@@ -413,6 +413,14 @@
 													</button>
 												</div>
 
+												<!-- Paper Roll Width -->
+												<SelectField
+													v-model="paperWidth"
+													:label="__('Receipt Paper Width')"
+													:options="paperWidthOptions"
+													:description="__('Width of the paper roll in this printer. The receipt is rendered at this width and the page is cut to the length of the receipt.')"
+												/>
+
 												<!-- Help text -->
 												<div class="p-3 bg-teal-50 border border-teal-200 rounded-lg">
 													<div class="flex items-start gap-2">
@@ -490,6 +498,9 @@ import {
 	findPrinters,
 	getSavedPrinterName,
 	savePrinterName,
+	getPaperWidth,
+	savePaperWidth,
+	PAPER_WIDTH_OPTIONS,
 } from "@/utils/qzTray"
 
 const log = logger.create('POSSettings')
@@ -552,6 +563,14 @@ const loadingPrinters = ref(false)
 const printerOptions = computed(() =>
 	qzPrinters.value.map((p) => ({ label: p, value: p }))
 )
+
+// Receipt roll width — per till, since one profile can serve counters with
+// different printers. Drives both the PDF page size and the QZ print job.
+const paperWidth = ref(getPaperWidth())
+const paperWidthOptions = PAPER_WIDTH_OPTIONS.map((mm) => ({
+	label: `${mm} mm`,
+	value: mm,
+}))
 
 // Warehouse options
 const warehouseOptions = computed(() => {
@@ -825,6 +844,11 @@ async function handleRefreshPrinters() {
 // Save printer selection when changed
 watch(selectedPrinter, (name) => {
 	if (name) savePrinterName(name)
+})
+
+// Save paper width when changed
+watch(paperWidth, (mm) => {
+	if (mm) savePaperWidth(Number(mm))
 })
 
 // Auto-connect and discover printers when silent_print is toggled on

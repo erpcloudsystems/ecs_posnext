@@ -1604,7 +1604,7 @@ def get_invoice(invoice_name):
 
 
 @frappe.whitelist()
-def get_invoice_print_html(invoice_name, print_format=None, letterhead=None, no_letterhead=1, trigger_print=0):
+def get_invoice_print_html(invoice_name, print_format=None, letterhead=None, no_letterhead=0, trigger_print=0):
 	"""
 	Render the print HTML/style for a Sales Invoice, for use by the POS app's
 	own print handling (browser popup + silent/QZ Tray printing).
@@ -1648,25 +1648,138 @@ def get_invoice_print_html(invoice_name, print_format=None, letterhead=None, no_
 	return {"html": html, "style": get_print_style(print_format=print_format_doc)}
 
 
+#: How long a fetched receipt image stays cached. The logo is the same on every
+#: receipt, so this keeps printing off the network almost all of the time.
+_PRINT_IMAGE_CACHE_TTL = 3600
+
+#: Shorter, so a service that comes back up is picked up on the next few sales.
+_PRINT_IMAGE_FAILURE_TTL = 60
+
+#: Anything larger is not a receipt logo, and inlining it would bloat the PDF.
+_PRINT_IMAGE_MAX_BYTES = 1024 * 1024
+
+
+def _fetch_print_image(url):
+	"""
+	Download one image and return it as a data URI, or None if it cannot be had.
+
+	Results (including failures) are cached, so a slow or dead image service
+	costs one request rather than one per sale.
+	"""
+	import base64
+	import hashlib
+
+	import requests
+
+	cache = frappe.cache()
+	cache_key = "ecs_posnext_print_image:{0}".format(hashlib.sha1(url.encode()).hexdigest())
+	cached = cache.get_value(cache_key)
+	if cached is not None:
+		return cached or None
+
+	data_uri = ""
+	try:
+		# The S3 file proxy and other same-site endpoints need the caller's
+		# session; external services ignore the cookie.
+		cookies = {"sid": frappe.session.sid} if url.startswith(frappe.utils.get_url()) else None
+		response = requests.get(url, timeout=5, cookies=cookies, stream=True)
+		response.raise_for_status()
+
+		content = response.raw.read(_PRINT_IMAGE_MAX_BYTES + 1, decode_content=True)
+		if len(content) > _PRINT_IMAGE_MAX_BYTES:
+			raise ValueError("image larger than {0} bytes".format(_PRINT_IMAGE_MAX_BYTES))
+
+		content_type = (response.headers.get("Content-Type") or "image/png").split(";")[0].strip()
+		data_uri = "data:{0};base64,{1}".format(content_type, base64.b64encode(content).decode())
+	except Exception as e:
+		frappe.log_error(
+			title="POS receipt image unavailable",
+			message="{0}\n{1}".format(url, e),
+		)
+
+	cache.set_value(
+		cache_key,
+		data_uri,
+		expires_in_sec=_PRINT_IMAGE_CACHE_TTL if data_uri else _PRINT_IMAGE_FAILURE_TTL,
+	)
+	return data_uri or None
+
+
+def _inline_print_images(html):
+	"""
+	Replace every <img src> in the print HTML with an inline data URI.
+
+	wkhtmltopdf aborts the entire PDF when a single image fails to load — one
+	blip from the QR service or the file proxy and the cashier gets no receipt at
+	all. Fetching the images here instead means a missing one only costs that
+	image, and the common case (a logo that is identical on every receipt) is
+	served from cache without touching the network.
+	"""
+	from urllib.parse import urljoin
+
+	from bs4 import BeautifulSoup
+
+	soup = BeautifulSoup(html, "html.parser")
+	images = soup.find_all("img", src=True)
+	if not images:
+		return html
+
+	base_url = frappe.utils.get_url().rstrip("/") + "/"
+	for img in images:
+		src = (img.get("src") or "").strip()
+		if not src or src.startswith("data:"):
+			continue
+
+		data_uri = _fetch_print_image(urljoin(base_url, src))
+		if data_uri:
+			img["src"] = data_uri
+		else:
+			img.decompose()
+
+	return str(soup)
+
+
 @frappe.whitelist()
-def get_invoice_print_pdf(invoice_name, print_format=None, letterhead=None, no_letterhead=1):
+def get_invoice_print_pdf(
+	invoice_name,
+	print_format=None,
+	letterhead=None,
+	no_letterhead=1,
+	page_width=None,
+	page_height=None,
+	side_margin=None,
+):
 	"""
 	Render a Sales Invoice as a PDF and return it base64-encoded.
 
-	Used by the POS app's auto-print when no printer can be reached: rather than
-	falling back to the browser print dialog (which needs a cashier to click
-	Print) the receipt is downloaded so there is still a copy to print or file
-	later. Permission handling is inherited from `get_invoice_print_html` — see
-	there for why core printview is bypassed.
+	Two callers, two page sizes:
 
-	Deliberately A4 rather than the 80mm roll width: this file only exists when
-	no thermal printer was reachable, so it gets opened and printed on whatever
-	ordinary printer is around. (wkhtmltopdf also rejects the "Custom" page size
-	that frappe.utils.pdf.prepare_options needs to honour an explicit
-	page-width, so a narrow roll size cannot be requested through get_pdf.)
+	* Thermal receipt printing (`page_width` given, e.g. 80mm). The POS sends this
+	  PDF straight to QZ Tray. Rendering server-side is what makes Arabic come out
+	  right: wkhtmltopdf shapes and reorders RTL text properly, whereas QZ Tray's
+	  own HTML renderer prints Arabic letters unjoined and out of order.
+	* The no-printer fallback (no `page_width`), which stays A4 because that file
+	  gets opened and printed on whatever ordinary printer is around.
+
+	A roll width must be passed as page-width/page-height *without* page-size:
+	wkhtmltopdf rejects `--page-size Custom` outright, but it does honour an
+	explicit width/height pair and ignores the "A4" that
+	`frappe.utils.pdf.prepare_options` injects from Print Settings.
+
+	Args:
+		page_width: paper roll width in mm (e.g. 80 or 58). A4 when omitted.
+		page_height: page length in mm. Only used with page_width; the caller
+			measures the receipt so the printer does not feed a blank tail.
+		side_margin: left/right margin in mm (default 2). Thermal heads cannot
+			print to the very edge of the roll.
+
+	Returns:
+		dict with `filename`, base64 `content`, and the `page_width`/`page_height`
+		actually used, so the caller can size the print job to match the PDF.
 	"""
 	import base64
 
+	from frappe.utils import flt, get_url
 	from frappe.utils.pdf import get_pdf
 
 	rendered = get_invoice_print_html(
@@ -1676,25 +1789,68 @@ def get_invoice_print_pdf(invoice_name, print_format=None, letterhead=None, no_l
 		no_letterhead=no_letterhead,
 	)
 
-	html = """<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><style>{style}</style></head>
-<body>{body}</body>
-</html>""".format(style=rendered["style"], body=rendered["html"])
-
-	pdf = get_pdf(
-		html,
-		options={
+	width = flt(page_width)
+	if width:
+		# Clamped so a bad client value cannot ask wkhtmltopdf for a page that
+		# takes minutes to render or a strip too narrow to lay text out in.
+		width = min(max(width, 40.0), 210.0)
+		height = min(max(flt(page_height) or 297.0, 40.0), 2000.0)
+		margin = flt(side_margin) if side_margin is not None else 2.0
+		margin = min(max(margin, 0.0), width / 4)
+		options = {
+			"page-width": "{0}mm".format(width),
+			"page-height": "{0}mm".format(height),
+			"margin-top": "0mm",
+			"margin-bottom": "0mm",
+			"margin-left": "{0}mm".format(margin),
+			"margin-right": "{0}mm".format(margin),
+			# Receipt formats pull in remote images (logo, QR service). A cashier
+			# must still get a receipt when one of those is briefly unreachable,
+			# so render without it rather than failing the whole print job.
+			"load-error-handling": "ignore",
+			"load-media-error-handling": "ignore",
+		}
+		# frappe.utils.pdf.read_options_from_html lets the print format's own
+		# `.print-format` CSS override the options passed in here, and the receipt
+		# formats carry A4-sized margins. Re-declaring the page geometry in a
+		# trailing style block wins, because later declarations are read last.
+		page_style = """
+<style>.print-format {{
+	margin-top: 0mm; margin-bottom: 0mm;
+	margin-left: {margin}mm; margin-right: {margin}mm;
+	page-width: {width}mm; page-height: {height}mm;
+}}</style>""".format(margin=margin, width=width, height=height)
+	else:
+		height = None
+		page_style = ""
+		options = {
 			"margin-top": "5mm",
 			"margin-bottom": "5mm",
 			"margin-left": "5mm",
 			"margin-right": "5mm",
-		},
+		}
+
+	# The base href covers any remaining relative URL: wkhtmltopdf renders from a
+	# string and has no origin of its own, and frappe's scrub_urls leaves relative
+	# API paths (the S3 file proxy, for one) alone.
+	html = """<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><base href="{base}/"><style>{style}</style>{page_style}</head>
+<body>{body}</body>
+</html>""".format(
+		base=get_url().rstrip("/"),
+		style=rendered["style"],
+		page_style=page_style,
+		body=_inline_print_images(rendered["html"]),
 	)
+
+	pdf = get_pdf(html, options=options)
 
 	return {
 		"filename": "{0}.pdf".format(invoice_name),
 		"content": base64.b64encode(pdf).decode(),
+		"page_width": width or None,
+		"page_height": height,
 	}
 
 

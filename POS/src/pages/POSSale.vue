@@ -2003,7 +2003,9 @@ async function handlePaymentCompleted(paymentData) {
 						// autoPrintInvoice never opens the browser print dialog: it prints
 						// silently to a detected printer, or saves the receipt as a PDF when
 						// the till has none. Nothing for the cashier to click either way.
-						const printResult = await autoPrintInvoice({ name: invoiceName });
+						const printResult = await autoPrintInvoice({ name: invoiceName }, null, {
+						posProfile: shiftStore.profileName,
+					});
 
 						if (printResult.method === "silent") {
 							showSuccess(__("Invoice {0} created and sent to printer", [invoiceName]));
@@ -2586,7 +2588,9 @@ async function handlePrintInvoice(invoiceData) {
 	try {
 		// Silent print path — send directly to thermal printer via QZ Tray
 		if (posSettingsStore.silentPrint) {
-			const result = await printWithSilentFallback(invoiceData);
+			const result = await printWithSilentFallback(invoiceData, null, {
+				posProfile: shiftStore.profileName,
+			});
 			if (result.method === "browser") {
 				log.warn("Silent print unavailable, used browser fallback:", result.reason);
 			}
