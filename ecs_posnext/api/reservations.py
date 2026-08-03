@@ -274,6 +274,25 @@ def create_deposit_invoice(
 
     item_code = _get_or_create_deposit_item()
 
+    # Copy the Sales Order's own VAT template + rows onto the deposit invoice so it
+    # is taxed the same way the full party invoice / a normal POS sale would be.
+    # Without this the invoice keeps an empty "taxes" table while
+    # custom_zatca_tax_category still defaults to "Standard", which makes ZATCA's
+    # e-invoice XML generation blow up (it indexes taxes[0] unconditionally for a
+    # Standard-rated invoice).
+    taxes_and_charges = so.get("taxes_and_charges")
+    taxes = [
+        {
+            "charge_type": t.charge_type,
+            "account_head": t.account_head,
+            "rate": t.rate,
+            "description": t.description,
+            "included_in_print_rate": t.included_in_print_rate,
+            "cost_center": t.cost_center,
+        }
+        for t in so.get("taxes", [])
+    ]
+
     invoice_data = {
         "doctype": "Sales Invoice",
         "customer": so.customer,
@@ -287,6 +306,8 @@ def create_deposit_invoice(
         "extended_order_no": sales_order,
         "posting_date": posting_date or nowdate(),
         "posa_pos_opening_shift": pos_opening_shift,
+        "taxes_and_charges": taxes_and_charges,
+        "taxes": taxes,
         "items": [
             {
                 "item_code": item_code,
