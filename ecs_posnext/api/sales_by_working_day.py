@@ -3,7 +3,7 @@ from __future__ import unicode_literals
 import json
 import frappe
 from frappe import _
-from frappe.utils import getdate, get_datetime, add_days
+from frappe.utils import getdate, get_datetime, add_days, flt
 
 
 SHIFT_WINDOWS = {
@@ -272,6 +272,10 @@ def get_sales_by_working_day(filters=None):
         params,
         as_dict=True,
     )
+
+    # ---- Actual (counted) per mode of payment, from the shift closings that overlap
+    # this window — shown alongside the Expected (system) figure above.
+    _attach_actual_payments(payments, params, branches, pos_profiles, cashiers, mops)
 
     invoices_items = frappe.db.sql(
         f"""
@@ -568,6 +572,10 @@ def get_sales_by_date_range(filters=None):
         as_dict=True,
     )
 
+    # ---- Actual (counted) per mode of payment, from the shift closings that overlap
+    # this window — shown alongside the Expected (system) figure above.
+    _attach_actual_payments(payments, params, branches, pos_profiles, cashiers, mops)
+
     invoices_items = frappe.db.sql(
         f"""
         SELECT
@@ -615,6 +623,59 @@ def get_sales_by_date_range(filters=None):
         "period": {"start": str(from_date), "end": str(to_date)},
         "cheque_avg": cheque_avg,
     }
+
+
+def _attach_actual_payments(payments, params, branches, pos_profiles, cashiers, mops):
+    """Attach the counted 'actual' amount per mode of payment (from the POS Cashier Shift
+    Closings whose shift overlaps this window) onto each payment row, so the page can show
+    Actual behind Expected. Adds rows for modes that only appear in a closing."""
+    conds = [
+        "c.docstatus < 2",
+        # Shift overlaps the report window.
+        "c.shift_start <= %(end_dt)s",
+        "COALESCE(c.shift_end, c.shift_start) >= %(start_dt)s",
+    ]
+    p = {"start_dt": params.get("start_dt"), "end_dt": params.get("end_dt")}
+    if pos_profiles:
+        conds.append("c.pos_profile in %(a_profiles)s")
+        p["a_profiles"] = tuple(pos_profiles)
+    if cashiers:
+        conds.append("c.cashier in %(a_cashiers)s")
+        p["a_cashiers"] = tuple(cashiers)
+    join_prof = ""
+    if branches:
+        join_prof = "LEFT JOIN `tabPOS Profile` prof ON prof.name = c.pos_profile"
+        conds.append("prof.branch in %(a_branches)s")
+        p["a_branches"] = tuple(branches)
+    if mops:
+        conds.append("d.mode_of_payment in %(a_mops)s")
+        p["a_mops"] = tuple(mops)
+
+    rows = frappe.db.sql(
+        f"""
+        SELECT d.mode_of_payment AS mode_of_payment,
+               SUM(d.closing_amount) AS actual,
+               SUM(d.expected_amount) AS expected_closing
+        FROM `tabPOS Closing Shift Detail` d
+        JOIN `tabPOS Cashier Shift Closing` c ON c.name = d.parent
+        {join_prof}
+        WHERE {' AND '.join(conds)}
+        GROUP BY d.mode_of_payment
+        """,
+        p,
+        as_dict=True,
+    )
+    actual_map = {r["mode_of_payment"]: r for r in rows}
+
+    seen = set()
+    for row in payments:
+        a = actual_map.get(row["mode_of_payment"])
+        row["actual"] = flt(a["actual"]) if a else 0
+        seen.add(row["mode_of_payment"])
+    # Modes counted at closing but with no system payment row — surface them too.
+    for mode, a in actual_map.items():
+        if mode not in seen and flt(a["actual"]):
+            payments.append({"mode_of_payment": mode, "amount": 0, "actual": flt(a["actual"])})
 
 
 def _normalize(val):

@@ -90,6 +90,11 @@ def get_call_center_per_hour(filters=None):
 
     where = [
         "si.docstatus = 1",
+        # A return credit note is NOT a separate order.
+        "ifnull(si.is_return, 0) = 0",
+        # A returned order should count as 0 — drop the original too when a submitted
+        # return credit note points at it.
+        "not exists (select 1 from `tabSales Invoice` r where r.return_against = si.name and ifnull(r.is_return,0) = 1 and r.docstatus = 1)",
         "timestamp(si.posting_date, ifnull(si.posting_time, '00:00:00')) BETWEEN %(start_dt)s AND %(end_dt)s",
         f"{order_type_expr} in %(order_types)s",
         "si.owner in %(cashiers)s",
@@ -255,9 +260,9 @@ def _normalize(val):
 
 
 SHIFT_WINDOWS = {
-    "Morning": (10, 0, 22, 0),
-    "Evening": (22, 0, 6, 0),
-    "Whole Day": (10, 0, 6, 0),
+    "Morning": (9, 0, 22, 0),
+    "Evening": (22, 0, 9, 0),
+    "Whole Day": (9, 0, 9, 0),
 }
 
 
@@ -299,7 +304,9 @@ def _branch_column():
 
 def _order_type_column(doctype):
     cols = set(frappe.db.get_table_columns(doctype) or [])
-    for candidate in ["custom_so_type", "custom_custom_so_type", "so_type", "order_type"]:
+    # Prefer custom_order_type (the field the POS actually stamps) over the legacy
+    # custom_so_type.
+    for candidate in ["custom_order_type", "custom_so_type", "custom_custom_so_type", "so_type", "order_type"]:
         if candidate in cols:
             return candidate
     return None

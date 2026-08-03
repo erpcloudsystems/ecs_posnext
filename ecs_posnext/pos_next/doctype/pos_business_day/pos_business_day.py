@@ -240,6 +240,12 @@ class POSBusinessDay(Document):
 		if self.status == "Closed":
 			frappe.throw(_("Business Day is already closed."))
 
+		# Call Center shifts auto-balance — close any open ones automatically so they
+		# never block the day (no manual count needed for Call Center).
+		from ecs_posnext.api.cashier_shift import auto_close_call_center_shifts
+
+		auto_close_call_center_shifts(self.name)
+
 		self.refresh_summary()
 		issues = self.evaluate_closing_issues()
 		if issues and not force:

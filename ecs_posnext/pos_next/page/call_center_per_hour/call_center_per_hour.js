@@ -120,7 +120,7 @@ function render_app_cc() {
               <option value="ALL">{{ __("ALL") }}</option>
               <option>Delivery</option>
               <option>Pickup</option>
-              <option>Dinin</option>
+              <option>Dine In</option>
               <option>Talabat</option>
             </select>
           </div>

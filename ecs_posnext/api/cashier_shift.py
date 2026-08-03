@@ -286,3 +286,26 @@ def submit_cashier_shift_closing(pos_cashier_shift_closing, counts=None, actual_
 	doc.save(ignore_permissions=True)
 	doc.submit()
 	return doc.as_dict()
+
+
+def auto_close_call_center_shifts(business_day=None):
+	"""Close every OPEN Call Center cashier shift (optionally scoped to one business day).
+
+	Call Center agents hold no physical drawer and the closing auto-balances
+	(Actual = Expected), so there is nothing to count — these shifts can be closed with no
+	human step. Safe + idempotent: skips non-Call-Center and already-closed shifts, and
+	logs (never raises) on a per-shift failure so one bad shift can't block the rest.
+	"""
+	filters = {"status": "Open", "pos_profile": ["like", "%Call Center%"]}
+	if business_day:
+		filters["pos_business_day"] = business_day
+
+	closed = []
+	for name in frappe.get_all("POS Cashier Shift", filters=filters, pluck="name"):
+		try:
+			doc = prepare_cashier_shift_closing(name)
+			submit_cashier_shift_closing(doc["name"], counts={}, actual_credit=0)
+			closed.append(name)
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), f"Auto-close Call Center shift {name} failed")
+	return closed

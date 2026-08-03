@@ -52,6 +52,7 @@ TIE_ROWS = [
 	("Call Center Cash (Collected)", "cc", "cash", "&pos_profile=Call Center"),
 	("Call Center Credit (Card)", "cc", "credit", "&pos_profile=Call Center"),
 	("Talabat Cash", "talabat", "cash", "&custom_order_type=Talabat"),
+	("Talabat Credit (Card)", "talabat", "credit", "&custom_order_type=Talabat"),
 ]
 
 
@@ -146,10 +147,17 @@ def get_data(business_day):
 		fields=["name", "status", "cashier_user", "pos_profile", "cashier_shift_closing", "pos_opening_shift"],
 	)
 
-	exp = _zero_buckets()
-	act = _zero_buckets()
+	# Per-mode Expected vs Actual — shown exactly as each Mode of Payment, no grouping.
+	exp = {}   # mode -> expected
+	act = {}   # mode -> actual (counted)
+
+	def add(store, mode, amount):
+		if not mode:
+			return
+		store[mode] = flt(store.get(mode, 0)) + flt(amount)
+
+	# 1) Shift reconciliation (branch shifts; also any Call Center shift on this day).
 	for s in shifts:
-		cc = _is_cc(s.pos_profile)
 		recon = []
 		if s.cashier_shift_closing and frappe.db.exists("POS Cashier Shift Closing", s.cashier_shift_closing):
 			recon = frappe.get_all(
@@ -169,13 +177,39 @@ def get_data(business_day):
 				recon = []
 		for row in recon:
 			mode = row["mode_of_payment"] if isinstance(row, dict) else row.mode_of_payment
-			mtype = frappe.get_cached_value("Mode of Payment", mode, "type")
-			cat = _category(mode, mtype)
-			talabat = "talabat" in (mode or "").lower()
-			exp_amt = row["expected_amount"] if isinstance(row, dict) else row.expected_amount
-			act_amt = row["closing_amount"] if isinstance(row, dict) else row.closing_amount
-			_add(exp, cc, talabat, cat, flt(exp_amt))
-			_add(act, cc, talabat, cat, flt(act_amt))
+			add(exp, mode, row["expected_amount"] if isinstance(row, dict) else row.expected_amount)
+			add(act, mode, row["closing_amount"] if isinstance(row, dict) else row.closing_amount)
+
+	# 2) Call Center invoices route to this branch's day but have NO cashier shift, so
+	# their payments never appear in a reconciliation — add them directly (Expected =
+	# Actual, a Call Center shift has no drawer to count).
+	cc_pay = frappe.db.sql(
+		"""
+		SELECT sip.mode_of_payment AS mop, SUM(sip.amount) AS amt
+		FROM `tabSales Invoice Payment` sip
+		JOIN `tabSales Invoice` si ON si.name = sip.parent
+		WHERE si.custom_pos_business_day = %(bd)s AND si.docstatus = 1
+		  AND IFNULL(si.is_return, 0) = 0
+		  AND LOWER(IFNULL(si.pos_profile, '')) LIKE %(cc)s
+		GROUP BY sip.mode_of_payment
+		""",
+		{"bd": business_day, "cc": "%call center%"},
+		as_dict=True,
+	)
+	for r in cc_pay:
+		add(exp, r.mop, r.amt)
+		add(act, r.mop, r.amt)
+
+	# 3) Collections outside the closing snapshot (post-close + unassigned Payment Entries)
+	# — real money; add to both sides so they aren't shown as a false shortage.
+	post_close = [(s, p) for s in shifts for p in _post_close_payments(s)]
+	unassigned = _unassigned_payments(business_day)
+	for _s, p in post_close:
+		add(exp, p.mode_of_payment, p.paid_amount)
+		add(act, p.mode_of_payment, p.paid_amount)
+	for p in unassigned:
+		add(exp, p.mode_of_payment, p.paid_amount)
+		add(act, p.mode_of_payment, p.paid_amount)
 
 	# ---- Order counts ----
 	paid = frappe.db.count("Sales Invoice", {"custom_pos_business_day": business_day, "docstatus": 1, "is_return": 0, "outstanding_amount": ["<=", 0]})
@@ -203,69 +237,18 @@ def get_data(business_day):
 	data.append({"item": f"Business Day {business_day} ({bd.get('business_date')})", "note": bd.get("status")})
 	data.append({"item": f"Shifts: {len(shifts)}  |  Closed: {len(closed_shifts)}", "count": len(shifts)})
 
-	# Branch
-	data.append(mrow("Branch Cash", exp["branch"]["cash"], act["branch"]["cash"], link_extra="&is_return=0"))
-	data.append(mrow("Branch Credit (Card)", exp["branch"]["credit"], act["branch"]["credit"], link_extra="&is_return=0"))
-	# Call Center
-	data.append(mrow("Call Center Vodafone", exp["cc"]["vodafone"], act["cc"]["vodafone"], link_extra="&pos_profile=Call Center"))
-	data.append(mrow("Call Center Instapay", exp["cc"]["instapay"], act["cc"]["instapay"], link_extra="&pos_profile=Call Center"))
-	data.append(mrow("Call Center Cash (Collected)", exp["cc"]["cash"], act["cc"]["cash"], link_extra="&pos_profile=Call Center"))
-	data.append(mrow("Call Center Credit (Card)", exp["cc"]["credit"], act["cc"]["credit"], link_extra="&pos_profile=Call Center"))
-	# Detailed extras
-	data.append(mrow("Talabat Cash", exp["talabat"]["cash"], act["talabat"].get("cash", 0), link_extra="&custom_order_type=Talabat"))
-	data.append(mrow("Vodafone Cash (All)", exp["all"]["vodafone"], act["all"]["vodafone"]))
-	data.append(mrow("Instapay (All)", exp["all"]["instapay"], act["all"]["instapay"]))
-	data.append(mrow("Hospitality Orders", exp["all"]["hospitality"], act["all"]["hospitality"]))
-
-	# ---- Collections the closing snapshot could not contain ----
-	# Reported as their own rows rather than folded into Expected: the cashier was
-	# measured against the snapshot, so blending these in would hide a real shortage.
-	post_close = [(s, p) for s in shifts for p in _post_close_payments(s)]
-	unassigned = _unassigned_payments(business_day)
-	out = _zero_buckets()
-	for s, p in post_close:
-		_bucket_payment(out, p, s.pos_profile)
-	for p in unassigned:
-		_bucket_payment(out, p, p.pos_profile)
-	if post_close or unassigned:
-		data.append({"item": "— Outside the Closing Snapshot —"})
-		for s, p in sorted(post_close, key=lambda r: r[1].creation):
-			data.append({
-				"item": f"Post-Close: {p.mode_of_payment} · {s.name}",
-				"actual": flt(p.paid_amount),
-				"note": frappe.utils.format_datetime(p.creation, "HH:mm"),
-				"invoices": f'<a href="/app/payment-entry/{p.name}" target="_blank">Review</a>',
-			})
-		for p in sorted(unassigned, key=lambda r: r.creation):
-			data.append({
-				"item": f"Unassigned (no shift): {p.mode_of_payment}",
-				"actual": flt(p.paid_amount),
-				"note": frappe.utils.format_datetime(p.creation, "HH:mm"),
-				"invoices": f'<a href="/app/payment-entry/{p.name}" target="_blank">Review</a>',
-			})
-		outside = sum(flt(p.paid_amount) for _, p in post_close) + sum(flt(p.paid_amount) for p in unassigned)
-		data.append({
-			"item": "Total Outside Snapshot",
-			"actual": outside,
-			"count": len(post_close) + len(unassigned),
-		})
-
-		# ---- Tie-out: snapshot + outside ----
-		# Expected here is every collection the system recorded for the day, so it
-		# reconciles against Sales by Working Day. Difference is untouched — it is
-		# still the snapshot shortage, so no cashier is charged for money that
-		# reached the books after their count.
-		data.append({"item": "— Total Collected (Snapshot + Outside) —"})
-		for label, bucket, cat, link_extra in TIE_ROWS:
-			o = out[bucket][cat]
-			if not o:
-				continue
-			data.append(mrow(f"{label} (incl. Outside)", exp[bucket][cat] + o, act[bucket][cat] + o, link_extra=link_extra))
-		data.append(mrow(
-			"Grand Total Collected (incl. Outside)",
-			sum(exp["all"].values()) + outside,
-			sum(act["all"].values()) + outside,
-		))
+	# ---- Payments by Mode (each mode shown as-is, no grouping) ----
+	data.append({"item": "— Payments by Mode of Payment —"})
+	total_e = total_a = 0
+	for mode in sorted(set(exp) | set(act), key=lambda m: (m or "").lower()):
+		e = flt(exp.get(mode, 0))
+		a = flt(act.get(mode, 0))
+		if not e and not a:
+			continue
+		data.append(mrow(mode, e, a))
+		total_e += e
+		total_a += a
+	data.append(mrow("Grand Total", total_e, total_a))
 
 	# Counts
 	data.append(mrow("Total Paid Orders (Branch & Call Center)", count=paid, link_extra="&is_return=0&status=Paid"))

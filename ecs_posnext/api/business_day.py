@@ -144,11 +144,16 @@ def _stamp_branch_business_day(invoice_doc):
 	if not branch:
 		return
 
+	# Prefer the branch's business-day-controlled profile; otherwise fall back to the
+	# branch's own POS profile so a routed (Call Center) order still lands on a per-branch
+	# business day even where the branch hasn't turned BD control on.
 	profile = frappe.db.get_value(
 		"POS Profile",
 		{"branch": branch, "custom_enable_business_day_control": 1, "disabled": 0},
 		"name",
 	)
+	if not profile:
+		profile = frappe.db.get_value("POS Profile", {"branch": branch, "disabled": 0}, "name")
 	if not profile:
 		return
 
@@ -178,11 +183,16 @@ def apply_business_day_to_invoice(invoice_doc):
 	# by the cashier, so per the Mumo rules it follows the BRANCH's Business Day and is
 	# given NO cashier shift. Its money reaches a shift only when someone actually
 	# collects/settles it (a Payment Entry on that cashier's shift).
-	# Detected structurally (ordering profile != the shift's profile), not by name.
 	invoice_profile = invoice_doc.get("pos_profile")
+
+	# Call Center invoices ALWAYS follow the target branch's Business Day — even though
+	# the Call Center profile itself has business-day control and its own open shift.
+	is_call_center = "call center" in (invoice_profile or "").lower()
+
+	# Also treat as routed when the ordering profile differs from the shift's profile.
 	is_routed_order = bool(invoice_profile and shift_profile and invoice_profile != shift_profile)
 
-	if not shift_profile or not is_business_day_enabled(shift_profile) or is_routed_order:
+	if is_call_center or not shift_profile or not is_business_day_enabled(shift_profile) or is_routed_order:
 		_stamp_branch_business_day(invoice_doc)
 		return
 

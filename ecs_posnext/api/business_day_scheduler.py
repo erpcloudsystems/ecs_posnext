@@ -47,13 +47,23 @@ def _process_one(row, now):
 
 	# At/after the mandatory deadline, evaluate readiness
 	if deadline and now > deadline and row.status in ("Open", "Closing Required", "Closing Overdue", "Ready to Close"):
+		# Call Center shifts auto-balance — close any open ones with no manual step so
+		# they never leave the day hanging past its deadline.
+		from ecs_posnext.api.cashier_shift import auto_close_call_center_shifts
+
+		auto_close_call_center_shifts(row.name)
+
 		doc = frappe.get_doc("POS Business Day", row.name)
 		doc.refresh_summary()
 		issues = doc.evaluate_closing_issues()
 		doc.save(ignore_permissions=True)
 
+		# A Call Center day has nothing to count — auto-close it once clean, even if the
+		# profile hasn't opted into general auto-close.
+		is_cc = "call center" in (row.pos_profile or "").lower()
+
 		if not issues:
-			if settings.get("custom_auto_close_business_day_when_ready"):
+			if is_cc or settings.get("custom_auto_close_business_day_when_ready"):
 				doc.close(force=False)
 			elif doc.status != "Ready to Close":
 				_set_status(row.name, row.pos_profile, doc.status, "Ready to Close")
