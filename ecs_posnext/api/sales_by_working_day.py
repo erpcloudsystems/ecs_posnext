@@ -233,13 +233,7 @@ def get_sales_by_working_day(filters=None):
         row["total_qty"] += d.total_qty
         row["count"] += 1
 
-    if frappe.db.has_column("Payment Entry", "posting_time"):
-        pe_time_cond = "timestamp(pe.posting_date, ifnull(pe.posting_time, '00:00:00')) BETWEEN %(start_dt)s AND %(end_dt)s"
-        pe_date_only_cond = "(pe.posting_time is null or pe.posting_time = '') and pe.posting_date between %(start_date)s and %(end_date)s"
-    else:
-        pe_time_cond = "pe.posting_date between %(start_dt)s and %(end_dt)s"
-        pe_date_only_cond = "pe.posting_date between %(start_date)s and %(end_date)s"
-    pe_window_cond = f"(({pe_time_cond}) OR ({pe_date_only_cond}))"
+    pe_window_cond = _pe_window_cond()
 
     payments = frappe.db.sql(
         f"""
@@ -534,13 +528,7 @@ def get_sales_by_date_range(filters=None):
         row["total_qty"] += d.total_qty
         row["count"] += 1
 
-    if frappe.db.has_column("Payment Entry", "posting_time"):
-        pe_time_cond = "timestamp(pe.posting_date, ifnull(pe.posting_time, '00:00:00')) BETWEEN %(start_dt)s AND %(end_dt)s"
-        pe_date_only_cond = "pe.posting_date between %(start_date)s and %(end_date)s"
-    else:
-        pe_time_cond = "pe.posting_date between %(start_dt)s and %(end_dt)s"
-        pe_date_only_cond = "pe.posting_date between %(start_date)s and %(end_date)s"
-    pe_window_cond = f"(({pe_time_cond}) OR ({pe_date_only_cond}))"
+    pe_window_cond = _pe_window_cond()
 
     payments = frappe.db.sql(
         f"""
@@ -665,6 +653,23 @@ def _compute_window(working_day, shift):
     if (end_h, end_m) <= (start_h, start_m):
         end_dt = add_days(end_dt, 1)
     return start_dt, end_dt
+
+
+def _pe_window_cond():
+    """Time window for Payment Entries (COD / Call Center collections).
+
+    Payment Entry has no `posting_time`, so matching on `posting_date` alone made a
+    9am-9am working day span two FULL calendar days — a COD settled at 08:00 on the
+    closing date leaked into the previous working day. `creation` is a real datetime
+    and, for the POS flow, is when the cashier actually took the money, so it is the
+    figure that reconciles against a drawer count.
+
+    A back-office Payment Entry backdated into this window but entered days later is
+    therefore reported on the day it was entered, not the day it was posted to.
+    """
+    if frappe.db.has_column("Payment Entry", "posting_time"):
+        return "timestamp(pe.posting_date, ifnull(pe.posting_time, '00:00:00')) BETWEEN %(start_dt)s AND %(end_dt)s"
+    return "pe.creation BETWEEN %(start_dt)s AND %(end_dt)s"
 
 
 def _branch_column():

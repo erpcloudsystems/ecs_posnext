@@ -4,6 +4,17 @@ Per POS Business Day: expected (from the day's orders) vs actual (from the shift
 closings' per-mode reconciliation), broken down by Branch / Call Center and payment
 mode, plus paid/returned/void order counts and a shift-status summary. Each metric row
 links to the underlying Sales Invoices for review.
+
+Expected/Actual come from the closing snapshot, which is frozen when the cashier
+submits their count. Two kinds of collection can therefore land outside it, and both
+are reported separately at the bottom so the day still ties out:
+  * post-close COD — a Payment Entry tagged to the shift but created after the count;
+  * unassigned COD — a Payment Entry against one of the day's invoices carrying no
+    shift reference at all (typically entered from the back office, not the POS).
+
+A final "Total Collected (Snapshot + Outside)" section adds those back, so the day's
+Expected reconciles with the Sales by Working Day page while each shift's Difference
+stays a pure drawer shortage.
 """
 
 import frappe
@@ -30,6 +41,20 @@ def get_columns():
 	]
 
 
+# (label, bucket, category, invoice-list filter) for the tie-out section — mirrors the
+# metric rows above, emitted only for buckets that actually have collections outside
+# the closing snapshot.
+TIE_ROWS = [
+	("Branch Cash", "branch", "cash", "&is_return=0"),
+	("Branch Credit (Card)", "branch", "credit", "&is_return=0"),
+	("Call Center Vodafone", "cc", "vodafone", "&pos_profile=Call Center"),
+	("Call Center Instapay", "cc", "instapay", "&pos_profile=Call Center"),
+	("Call Center Cash (Collected)", "cc", "cash", "&pos_profile=Call Center"),
+	("Call Center Credit (Card)", "cc", "credit", "&pos_profile=Call Center"),
+	("Talabat Cash", "talabat", "cash", "&custom_order_type=Talabat"),
+]
+
+
 def _is_cc(profile):
 	return "call center" in (profile or "").lower()
 
@@ -46,6 +71,54 @@ def _category(mode_name, mode_type):
 	if (mode_type or "") == "Cash":
 		return "cash"
 	return "credit"
+
+
+def _post_close_payments(shift):
+	"""Cash/card tagged to this shift but recorded after its count was submitted.
+
+	The closing snapshot cannot contain these, so they read as a shortage on the
+	drawer even though the money is accounted for. Uses `creation` (not posting_date)
+	because that is when the collection was actually keyed in.
+	"""
+	if not shift.cashier_shift_closing or not shift.pos_opening_shift:
+		return []
+	closed_at = frappe.db.get_value("POS Cashier Shift Closing", shift.cashier_shift_closing, "modified")
+	if not closed_at:
+		return []
+	return frappe.get_all(
+		"Payment Entry",
+		filters={
+			"docstatus": 1,
+			"payment_type": "Receive",
+			"reference_no": shift.pos_opening_shift,
+			"creation": [">", closed_at],
+		},
+		fields=["name", "mode_of_payment", "paid_amount", "creation"],
+	)
+
+
+def _unassigned_payments(business_day):
+	"""Collections against this day's invoices that carry no shift reference.
+
+	`get_payments_entries()` matches strictly on reference_no = opening shift, so a
+	Payment Entry raised outside the POS never reaches any closing — on any day.
+	"""
+	return frappe.db.sql(
+		"""
+		SELECT pe.name, pe.mode_of_payment, per.allocated_amount AS paid_amount, pe.creation, si.pos_profile
+		FROM `tabPayment Entry Reference` per
+		JOIN `tabPayment Entry` pe ON pe.name = per.parent
+		JOIN `tabSales Invoice` si ON si.name = per.reference_name
+		WHERE pe.docstatus = 1
+		  AND pe.payment_type = 'Receive'
+		  AND per.reference_doctype = 'Sales Invoice'
+		  AND si.docstatus = 1
+		  AND si.custom_pos_business_day = %(bd)s
+		  AND ifnull(pe.reference_no, '') = ''
+		""",
+		{"bd": business_day},
+		as_dict=True,
+	)
 
 
 def _link(business_day, extra=""):
@@ -144,6 +217,56 @@ def get_data(business_day):
 	data.append(mrow("Instapay (All)", exp["all"]["instapay"], act["all"]["instapay"]))
 	data.append(mrow("Hospitality Orders", exp["all"]["hospitality"], act["all"]["hospitality"]))
 
+	# ---- Collections the closing snapshot could not contain ----
+	# Reported as their own rows rather than folded into Expected: the cashier was
+	# measured against the snapshot, so blending these in would hide a real shortage.
+	post_close = [(s, p) for s in shifts for p in _post_close_payments(s)]
+	unassigned = _unassigned_payments(business_day)
+	out = _zero_buckets()
+	for s, p in post_close:
+		_bucket_payment(out, p, s.pos_profile)
+	for p in unassigned:
+		_bucket_payment(out, p, p.pos_profile)
+	if post_close or unassigned:
+		data.append({"item": "— Outside the Closing Snapshot —"})
+		for s, p in sorted(post_close, key=lambda r: r[1].creation):
+			data.append({
+				"item": f"Post-Close: {p.mode_of_payment} · {s.name}",
+				"actual": flt(p.paid_amount),
+				"note": frappe.utils.format_datetime(p.creation, "HH:mm"),
+				"invoices": f'<a href="/app/payment-entry/{p.name}" target="_blank">Review</a>',
+			})
+		for p in sorted(unassigned, key=lambda r: r.creation):
+			data.append({
+				"item": f"Unassigned (no shift): {p.mode_of_payment}",
+				"actual": flt(p.paid_amount),
+				"note": frappe.utils.format_datetime(p.creation, "HH:mm"),
+				"invoices": f'<a href="/app/payment-entry/{p.name}" target="_blank">Review</a>',
+			})
+		outside = sum(flt(p.paid_amount) for _, p in post_close) + sum(flt(p.paid_amount) for p in unassigned)
+		data.append({
+			"item": "Total Outside Snapshot",
+			"actual": outside,
+			"count": len(post_close) + len(unassigned),
+		})
+
+		# ---- Tie-out: snapshot + outside ----
+		# Expected here is every collection the system recorded for the day, so it
+		# reconciles against Sales by Working Day. Difference is untouched — it is
+		# still the snapshot shortage, so no cashier is charged for money that
+		# reached the books after their count.
+		data.append({"item": "— Total Collected (Snapshot + Outside) —"})
+		for label, bucket, cat, link_extra in TIE_ROWS:
+			o = out[bucket][cat]
+			if not o:
+				continue
+			data.append(mrow(f"{label} (incl. Outside)", exp[bucket][cat] + o, act[bucket][cat] + o, link_extra=link_extra))
+		data.append(mrow(
+			"Grand Total Collected (incl. Outside)",
+			sum(exp["all"].values()) + outside,
+			sum(act["all"].values()) + outside,
+		))
+
 	# Counts
 	data.append(mrow("Total Paid Orders (Branch & Call Center)", count=paid, link_extra="&is_return=0&status=Paid"))
 	data.append(mrow("Total Unpaid / Outstanding Orders", count=unpaid, link_extra="&is_return=0"))
@@ -166,6 +289,19 @@ def _zero_buckets():
 	def cats():
 		return {"cash": 0.0, "credit": 0.0, "vodafone": 0.0, "instapay": 0.0, "hospitality": 0.0}
 	return {"branch": cats(), "cc": cats(), "talabat": cats(), "all": cats()}
+
+
+def _bucket_payment(buckets, payment, pos_profile):
+	"""File a Payment Entry into the same buckets the reconciliation rows use."""
+	mode = payment.mode_of_payment
+	mtype = frappe.get_cached_value("Mode of Payment", mode, "type") if mode else None
+	_add(
+		buckets,
+		_is_cc(pos_profile),
+		"talabat" in (mode or "").lower(),
+		_category(mode, mtype),
+		flt(payment.paid_amount),
+	)
 
 
 def _add(buckets, is_cc, is_talabat, cat, amount):
