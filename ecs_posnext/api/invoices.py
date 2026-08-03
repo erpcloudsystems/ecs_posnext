@@ -1035,6 +1035,11 @@ def update_invoice(data):
         if doctype == "Sales Invoice":
             invoice_doc.is_pos = 1
             invoice_doc.update_stock = 1
+            if not pos_profile:
+                # No POS Profile given (e.g. a deposit invoice created from the
+                # Sales Order desk form) — don't let ERPNext's set_pos_fields()
+                # silently assign one of its own during set_missing_values().
+                invoice_doc.flags.ignore_pos_profile = True
 
         # ========================================================================
         # ROUNDING CONFIGURATION
@@ -1622,6 +1627,10 @@ def _submit_invoice(invoice=None, data=None):
         if doctype == "Sales Invoice":
             invoice_doc.is_pos = 1
             invoice_doc.update_stock = 1
+            if not pos_profile:
+                # Mirrors update_invoice(): no POS Profile given, so don't let
+                # ERPNext's set_pos_fields() assign one during save()/submit().
+                invoice_doc.flags.ignore_pos_profile = True
 
         # For return invoices, set update_outstanding_for_self = 0
         # This ensures the GL entry's against_voucher points to the original invoice,

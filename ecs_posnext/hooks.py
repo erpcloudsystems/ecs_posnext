@@ -211,6 +211,7 @@ doc_events = {
 		"on_trash": "ecs_posnext.realtime_events.emit_customer_event"
 	},
 	"Sales Invoice": {
+		"before_insert": "ecs_posnext.api.sales_invoice_hooks.before_insert",
 		"validate": [
 			"ecs_posnext.api.sales_invoice_hooks.validate",
 			"ecs_posnext.api.wallet.validate_wallet_payment"

@@ -712,6 +712,10 @@
 							{{ __('Pay') }} {{ formatCurrency(remainingAmount) }}
 						</button>
 					</div>
+					<div v-else-if="!lastSelectedMethod && remainingAmount > 0 && !loadingPaymentMethods"
+						class="hidden lg:block mt-3 p-2 rounded-lg bg-blue-50 text-center">
+						<p class="text-sm text-blue-600">{{ __('Select a payment method to continue') }}</p>
+					</div>
 
 					<!-- Mobile Payment Section - Dynamic & Responsive -->
 					<div class="lg:hidden flex flex-col" :class="isSmallMobile ? 'gap-1' : 'gap-1.5'">
@@ -1332,11 +1336,6 @@ const paymentMethodsResource = createResource({
 	auto: false,
 	onSuccess(data) {
 		paymentMethods.value = data?.message || data || []
-		// Set first method as last selected for quick amounts
-		if (paymentMethods.value.length > 0) {
-			const defaultMethod = paymentMethods.value.find((m) => m.default)
-			lastSelectedMethod.value = defaultMethod || paymentMethods.value[0]
-		}
 		// Identify wallet payment methods
 		identifyWalletPaymentMethods()
 	},
@@ -1792,10 +1791,6 @@ async function loadPaymentMethods() {
 			)
 			if (cached && cached.length > 0) {
 				paymentMethods.value = cached
-				if (paymentMethods.value.length > 0) {
-					const defaultMethod = paymentMethods.value.find((m) => m.default)
-					lastSelectedMethod.value = defaultMethod || paymentMethods.value[0]
-				}
 			}
 		} else {
 			// Load from server when online
@@ -2179,12 +2174,6 @@ watch(show, (newVal) => {
 			company: props.company,
 			posProfile: props.posProfile,
 		})
-
-		// Set default payment method if already loaded
-		if (paymentMethods.value.length > 0 && !lastSelectedMethod.value) {
-			const defaultMethod = paymentMethods.value.find((m) => m.default)
-			lastSelectedMethod.value = defaultMethod || paymentMethods.value[0]
-		}
 
 		// Customer credit and balance is pre-fetched when customer changes (see watcher above)
 		// Just log for debugging

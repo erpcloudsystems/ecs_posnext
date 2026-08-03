@@ -236,14 +236,20 @@ def create_deposit_invoice(
 
     Args:
         sales_order: the reservation Sales Order.
-        pos_profile: active POS Profile (for company, branch, default payment).
+        pos_profile: active POS Profile, only meaningful when there's a live POS
+                     session (e.g. the in-app Reservations screen). Optional —
+                     when omitted (e.g. the "Create Deposit Invoice" button on
+                     the Sales Order desk form, where there is no POS session),
+                     no profile is guessed and none is set on the invoice;
+                     company and branch are taken from the Sales Order instead.
         amount: deposit amount; defaults to the SO's advance_amount.
         payments: optional list of {mode_of_payment, amount}; takes precedence
                   over `mode_of_payment` when given.
         posting_date: invoice posting date; defaults to today.
         mode_of_payment: single mode of payment for the full amount; ignored
                          if `payments` is given; defaults to the profile's
-                         default mode of payment.
+                         default mode of payment when a POS Profile is given,
+                         otherwise required.
         pos_opening_shift: the cashier's active POS Opening Shift, so the deposit
                             shows up in that shift's cash reconciliation.
     """
@@ -258,29 +264,37 @@ def create_deposit_invoice(
     # Multiple (partial) deposits are allowed per reservation (e.g. 200 now, 400 later),
     # so we do NOT block when a deposit invoice already exists.
 
-    # A POS Profile is required (submit_invoice always submits as is_pos). When called
-    # from the Sales Order form (no POS context), fall back to an enabled profile.
-    if not pos_profile:
-        pos_profile = frappe.db.get_value(
-            "POS Profile", {"company": so.company, "disabled": 0}, "name"
-        ) or frappe.db.get_value("POS Profile", {"disabled": 0}, "name")
-    if not pos_profile:
-        frappe.throw(_("No POS Profile available to create the deposit invoice"))
+    # pos_profile is only set when the caller actually has a POS session (the
+    # in-app Reservations screen passes the cashier's active profile). We never
+    # guess one here — any other enabled profile for the company is effectively
+    # random and can carry the wrong branch/accounts onto the invoice.
+    pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile) if pos_profile else None
+    if not payments and not mode_of_payment and not pos_profile_doc:
+        frappe.throw(_("Please specify a mode of payment"))
 
     item_code = _get_or_create_deposit_item()
-    pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
 
     invoice_data = {
         "doctype": "Sales Invoice",
-        "pos_profile": pos_profile,
         "customer": so.customer,
+        "company": so.company,
+        # Same fieldname on Sales Order and Sales Invoice — copy directly so the
+        # deposit invoice lands on the reservation's own branch, not the POS
+        # profile's.
+        "dimension_branch": so.get("dimension_branch"),
         "is_pos": 1,
         "update_stock": 0,
         "extended_order_no": sales_order,
         "posting_date": posting_date or nowdate(),
         "posa_pos_opening_shift": pos_opening_shift,
         "items": [
-            {"item_code": item_code, "qty": 1, "rate": amount, "sales_order": sales_order}
+            {
+                "item_code": item_code,
+                "qty": 1,
+                "rate": amount,
+                "sales_order": sales_order,
+                "dimension_branch": so.get("dimension_branch"),
+            }
         ],
         "payments": payments
         or [
@@ -290,6 +304,8 @@ def create_deposit_invoice(
             }
         ],
     }
+    if pos_profile:
+        invoice_data["pos_profile"] = pos_profile
 
     draft = update_invoice(invoice_data)
     invoice_data["name"] = draft.get("name")

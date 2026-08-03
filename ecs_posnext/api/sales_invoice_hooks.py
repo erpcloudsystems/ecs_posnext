@@ -11,6 +11,23 @@ from frappe import _
 from frappe.utils import cint
 
 
+def before_insert(doc, method=None):
+	"""
+	Before Insert hook for Sales Invoice.
+	Auto-enable "Update Stock" when the invoice is being created against a Sales Order,
+	so stock is reduced directly on the invoice instead of requiring a separate Delivery Note.
+
+	Args:
+		doc: Sales Invoice document
+		method: Hook method name (unused)
+	"""
+	if doc.get("is_return"):
+		return
+
+	if any(item.get("sales_order") for item in doc.get("items", [])):
+		doc.update_stock = 1
+
+
 def validate(doc, method=None):
 	"""
 	Validate hook for Sales Invoice.
