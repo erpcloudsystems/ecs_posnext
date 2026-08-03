@@ -275,7 +275,10 @@ def get_sales_by_working_day(filters=None):
 
     # ---- Actual (counted) per mode of payment, from the shift closings that overlap
     # this window — shown alongside the Expected (system) figure above.
-    _attach_actual_payments(payments, params, branches, pos_profiles, cashiers, mops)
+    _attach_actual_payments(
+        payments, params, branches, pos_profiles, cashiers, mops,
+        extra_actual=_outside_snapshot_actuals(join_so, cond, cond_order, pe_window_cond, mops, params),
+    )
 
     invoices_items = frappe.db.sql(
         f"""
@@ -574,7 +577,10 @@ def get_sales_by_date_range(filters=None):
 
     # ---- Actual (counted) per mode of payment, from the shift closings that overlap
     # this window — shown alongside the Expected (system) figure above.
-    _attach_actual_payments(payments, params, branches, pos_profiles, cashiers, mops)
+    _attach_actual_payments(
+        payments, params, branches, pos_profiles, cashiers, mops,
+        extra_actual=_outside_snapshot_actuals(join_so, cond, cond_order, pe_window_cond, mops, params),
+    )
 
     invoices_items = frappe.db.sql(
         f"""
@@ -625,10 +631,49 @@ def get_sales_by_date_range(filters=None):
     }
 
 
-def _attach_actual_payments(payments, params, branches, pos_profiles, cashiers, mops):
+def _outside_snapshot_actuals(join_so, cond, cond_order, pe_window_cond, mops, params):
+    """COD in this window that no closing snapshot could contain, per mode of payment.
+
+    A Payment Entry either carries no shift reference at all, or was created after its
+    shift's count was submitted. Either way the cashier never counted it, so it is
+    missing from `closing_amount` even though the money is on the books. Counting it as
+    Actual keeps Difference equal to the true drawer shortage — the same treatment the
+    Business Day Closing Report gives it.
+    """
+    rows = frappe.db.sql(
+        f"""
+        SELECT pe.mode_of_payment, SUM(per.allocated_amount) AS amount
+        FROM `tabPayment Entry Reference` per
+        JOIN `tabPayment Entry` pe ON pe.name = per.parent
+        JOIN `tabSales Invoice` si ON si.name = per.reference_name
+        {join_so}
+        WHERE pe.docstatus = 1
+          AND per.reference_doctype = 'Sales Invoice'
+          AND {pe_window_cond}
+          AND {cond}
+          {cond_order}
+          {("AND pe.mode_of_payment in %(mops)s" if mops else "")}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM `tabPOS Cashier Shift` sh
+              JOIN `tabPOS Cashier Shift Closing` c
+                ON c.name = sh.cashier_shift_closing AND c.docstatus < 2
+              WHERE sh.pos_opening_shift = pe.reference_no
+                AND pe.creation <= c.modified
+          )
+        GROUP BY pe.mode_of_payment
+        """,
+        params,
+        as_dict=True,
+    )
+    return {r["mode_of_payment"]: flt(r["amount"]) for r in rows}
+
+
+def _attach_actual_payments(payments, params, branches, pos_profiles, cashiers, mops, extra_actual=None):
     """Attach the counted 'actual' amount per mode of payment (from the POS Cashier Shift
     Closings whose shift overlaps this window) onto each payment row, so the page can show
     Actual behind Expected. Adds rows for modes that only appear in a closing."""
+    extra_actual = extra_actual or {}
     conds = [
         "c.docstatus < 2",
         # Shift overlaps the report window.
@@ -669,13 +714,18 @@ def _attach_actual_payments(payments, params, branches, pos_profiles, cashiers, 
 
     seen = set()
     for row in payments:
-        a = actual_map.get(row["mode_of_payment"])
-        row["actual"] = flt(a["actual"]) if a else 0
-        seen.add(row["mode_of_payment"])
-    # Modes counted at closing but with no system payment row — surface them too.
-    for mode, a in actual_map.items():
-        if mode not in seen and flt(a["actual"]):
-            payments.append({"mode_of_payment": mode, "amount": 0, "actual": flt(a["actual"])})
+        mode = row["mode_of_payment"]
+        a = actual_map.get(mode)
+        row["actual"] = (flt(a["actual"]) if a else 0) + flt(extra_actual.get(mode, 0))
+        seen.add(mode)
+    # Modes counted at closing (or collected outside one) but with no system payment row.
+    for mode in set(actual_map) | set(extra_actual):
+        if mode in seen:
+            continue
+        a = actual_map.get(mode)
+        amount = (flt(a["actual"]) if a else 0) + flt(extra_actual.get(mode, 0))
+        if amount:
+            payments.append({"mode_of_payment": mode, "amount": 0, "actual": amount})
 
 
 def _normalize(val):

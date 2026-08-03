@@ -267,8 +267,6 @@ function render_app() {
               <tr>
                 <th>{{ __("Mode of Payment") }}</th>
                 <th>{{ __("Expected") }}</th>
-                <th>{{ __("Actual") }}</th>
-                <th>{{ __("Difference") }}</th>
                 <th>{{ __("Amount %") }}</th>
               </tr>
             </thead>
@@ -276,10 +274,6 @@ function render_app() {
               <tr v-for="row in payments" :key="row.mode_of_payment">
                 <td>{{ row.mode_of_payment }}</td>
                 <td>{{ format_currency(row.amount) }}</td>
-                <td>{{ format_currency(row.actual || 0) }}</td>
-                <td :style="{ color: ((row.actual || 0) - (row.amount || 0)) === 0 ? '' : (((row.actual || 0) - (row.amount || 0)) < 0 ? '#c0392b' : '#b9770e'), fontWeight: ((row.actual || 0) - (row.amount || 0)) === 0 ? '' : '600' }">
-                  {{ format_currency((row.actual || 0) - (row.amount || 0)) }}
-                </td>
                 <td>{{ format_percentage(row.amount, totals.grand_total) }}</td>
               </tr>
             </tbody>
