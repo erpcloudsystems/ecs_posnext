@@ -16,6 +16,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		loyalty_to_wallet: 1,
 		// General Settings
 		max_discount_allowed: 0,
+		max_discount_allowed_value: 0,
 		use_percentage_discount: 0,
 		allow_user_to_edit_additional_discount: 0,
 		allow_user_to_edit_item_discount: 1, // Allow item-level discounts
@@ -90,6 +91,9 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 	const isEnabled = computed(() => Boolean(settings.value.enabled))
 	const maxDiscountAllowed = computed(
 		() => Number.parseFloat(settings.value.max_discount_allowed) || 0,
+	)
+	const maxDiscountAllowedValue = computed(
+		() => Number.parseFloat(settings.value.max_discount_allowed_value) || 0,
 	)
 	const usePercentageDiscount = computed(() =>
 		Boolean(settings.value.use_percentage_discount),
@@ -287,6 +291,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 			loyalty_to_wallet: 1,
 			// General Settings
 			max_discount_allowed: 0,
+			max_discount_allowed_value: 0,
 			use_percentage_discount: 0,
 			allow_user_to_edit_additional_discount: 0,
 			allow_user_to_edit_item_discount: 1,
@@ -396,6 +401,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		// Computed - General Settings
 		isEnabled,
 		maxDiscountAllowed,
+		maxDiscountAllowedValue,
 		usePercentageDiscount,
 		allowAdditionalDiscount,
 		allowItemDiscount,

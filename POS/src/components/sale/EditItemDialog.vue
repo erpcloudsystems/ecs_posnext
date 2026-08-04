@@ -360,6 +360,7 @@ const originalPriceListRate = ref(0) // Original price_list_rate when dialog ope
 const localPriceList = ref("") // Selected price list for this item
 const priceLists = ref([]) // Available selling price lists
 const loadingPriceList = ref(false) // True while fetching a new rate after price list change
+const itemRatesByPriceList = ref({}) // { [price_list]: rate } for the current item, shown next to each option
 
 const show = computed({
 	get: () => props.modelValue,
@@ -449,15 +450,20 @@ const warehouseOptions = computed(() => {
 	return [{ value: localWarehouse.value, label: localWarehouse.value || __('Default') }]
 })
 
-// Price list dropdown options (all selling price lists)
+// Price list dropdown options (all selling price lists), each showing this item's rate
+// in that list on the right, so the two can be compared before switching
 const priceListOptions = computed(() => {
-	const options = priceLists.value.map((pl) => ({
-		value: pl.name,
-		label: pl.price_list_name || pl.name,
-	}))
+	const options = priceLists.value.map((pl) => {
+		const rate = itemRatesByPriceList.value[pl.name]
+		return {
+			value: pl.name,
+			label: pl.price_list_name || pl.name,
+			right: rate !== undefined && rate !== null ? formatCurrency(rate) : "",
+		}
+	})
 	// Ensure the current selection is always present even if not in the list
 	if (localPriceList.value && !options.some((o) => o.value === localPriceList.value)) {
-		options.unshift({ value: localPriceList.value, label: localPriceList.value })
+		options.unshift({ value: localPriceList.value, label: localPriceList.value, right: "" })
 	}
 	return options
 })
@@ -470,6 +476,26 @@ async function loadPriceLists() {
 		priceLists.value = res || []
 	} catch (e) {
 		console.warn("[EditItemDialog] Failed to load price lists:", e)
+	}
+}
+
+// Fetch this item's rate in every price list, so each dropdown option can show its price
+async function loadItemRatesAcrossPriceLists() {
+	if (!localItem.value || !props.posProfile) return
+	try {
+		const res = await call("ecs_posnext.api.items.get_item_rates_across_price_lists", {
+			item_code: localItem.value.item_code,
+			pos_profile: props.posProfile,
+			uom: localUom.value,
+		})
+		const rates = {}
+		for (const entry of res || []) {
+			rates[entry.price_list] = entry.rate
+		}
+		itemRatesByPriceList.value = rates
+	} catch (e) {
+		console.warn("[EditItemDialog] Failed to load item rates across price lists:", e)
+		itemRatesByPriceList.value = {}
 	}
 }
 
@@ -550,8 +576,9 @@ watch(
 				itemSearchStore.selectedPriceList ||
 				newItem.price_list ||
 				""
-			// Load the list of selectable price lists (once)
+			// Load the list of selectable price lists (once), and this item's rate in each
 			loadPriceLists()
+			loadItemRatesAcrossPriceLists()
 
 			// Initialize serial numbers
 			if (newItem.has_serial_no && newItem.serial_no) {
@@ -820,6 +847,58 @@ function updateItem() {
 				)
 				return
 			}
+		}
+
+		// Validate against max discount value (flat amount, for the whole line) if rate was reduced
+		const maxDiscountValue = settingsStore.maxDiscountAllowedValue
+		if (maxDiscountValue > 0 && localRate.value < originalPriceListRate.value) {
+			const discountValue = roundCurrency((originalPriceListRate.value - localRate.value) * (localQuantity.value || 1))
+
+			if (discountValue > maxDiscountValue) {
+				showError(
+					__('Rate reduction is a discount of {0} which exceeds the maximum allowed discount value of {1}', [
+						formatCurrency(discountValue),
+						formatCurrency(maxDiscountValue)
+					])
+				)
+				return
+			}
+		}
+	}
+
+	// ========================================================================
+	// ITEM DISCOUNT VALIDATION (the separate "Item Discount" section below rate —
+	// discountValue applies to the whole line's subtotal, not the rate edit above)
+	// ========================================================================
+	if (discountValue.value > 0) {
+		const subtotal = calculatedSubtotal.value
+		const discountPercent = discountType.value === "percentage"
+			? discountValue.value
+			: (subtotal > 0 ? (discountValue.value / subtotal) * 100 : 0)
+		const totalDiscountValue = discountType.value === "amount"
+			? discountValue.value
+			: roundCurrency((subtotal * discountValue.value) / 100)
+
+		const maxDiscount = settingsStore.maxDiscountAllowed
+		if (maxDiscount > 0 && discountPercent > maxDiscount) {
+			showError(
+				__('Item discount of {0}% exceeds maximum allowed discount of {1}%', [
+					discountPercent.toFixed(2),
+					maxDiscount
+				])
+			)
+			return
+		}
+
+		const maxDiscountValue = settingsStore.maxDiscountAllowedValue
+		if (maxDiscountValue > 0 && totalDiscountValue > maxDiscountValue) {
+			showError(
+				__('Item discount of {0} exceeds maximum allowed discount value of {1}', [
+					formatCurrency(totalDiscountValue),
+					formatCurrency(maxDiscountValue)
+				])
+			)
+			return
 		}
 	}
 

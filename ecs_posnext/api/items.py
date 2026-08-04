@@ -1777,6 +1777,48 @@ def get_item_details(item_code, pos_profile, customer=None, qty=1, uom=None, pri
 
 
 @frappe.whitelist()
+def get_item_rates_across_price_lists(item_code, pos_profile, uom=None, qty=1):
+	"""Get this item's rate in every enabled selling price list.
+
+	Used by the per-item price list switcher so the cashier can see (and
+	compare) the price in each price list before picking one, instead of
+	switching blind and waiting for a refetch.
+	"""
+	try:
+		price_lists = get_pos_price_lists()
+
+		rates = []
+		for price_list in price_lists:
+			rate = None
+			try:
+				details = get_item_details(
+					item_code=item_code,
+					pos_profile=pos_profile,
+					qty=qty,
+					uom=uom,
+					price_list=price_list.name,
+				)
+				rate = details.get("price_list_rate")
+				if rate is None:
+					rate = details.get("rate")
+			except Exception:
+				# No price configured for this item in this price list - leave as None
+				pass
+
+			rates.append({
+				"price_list": price_list.name,
+				"price_list_name": price_list.price_list_name or price_list.name,
+				"currency": price_list.currency,
+				"rate": rate,
+			})
+
+		return rates
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), "Get Item Rates Across Price Lists Error")
+		frappe.throw(_("Error fetching item rates: {0}").format(str(e)))
+
+
+@frappe.whitelist()
 def get_item_groups(pos_profile):
 	"""Get item groups configured in POS Profile with hierarchy info for filtering."""
 	cache_key = f"pos_item_groups:{pos_profile}"

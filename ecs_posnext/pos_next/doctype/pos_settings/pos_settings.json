@@ -21,6 +21,7 @@
   "allow_user_to_edit_rate",
   "use_percentage_discount",
   "max_discount_allowed",
+  "max_discount_allowed_value",
   "column_break_general",
   "allow_credit_sale",
   "allow_customer_credit_payment",
@@ -70,6 +71,9 @@
   "allow_negative_stock",
   "barcode_tab",
   "barcode_rules",
+  "section_break_scale_barcode",
+  "enable_scale_barcode",
+  "scale_barcode_prefixes",
   "section_break_cash_transfer",
   "enable_auto_cash_transfer"
  ],
@@ -194,6 +198,13 @@
    "fieldtype": "Float",
    "label": "Max Discount Percentage Allowed",
    "precision": "2"
+  },
+  {
+   "default": "0",
+   "description": "Maximum discount allowed as a flat amount, in addition to the percentage cap above. 0 = no limit.",
+   "fieldname": "max_discount_allowed_value",
+   "fieldtype": "Currency",
+   "label": "Max Discount Value Allowed"
   },
   {
    "fieldname": "column_break_general",
@@ -516,6 +527,26 @@
    "fieldtype": "Table",
    "label": "Barcode Rules",
    "options": "POS Barcode Rules"
+  },
+  {
+   "fieldname": "section_break_scale_barcode",
+   "fieldtype": "Section Break",
+   "label": "Weighing Scale Barcodes"
+  },
+  {
+   "default": "1",
+   "description": "Decode weight-embedded barcodes printed by weighing scales (13-digit: prefix + item code + weight + check digit)",
+   "fieldname": "enable_scale_barcode",
+   "fieldtype": "Check",
+   "label": "Enable Weighing Scale Barcodes"
+  },
+  {
+   "default": "20",
+   "depends_on": "enable_scale_barcode",
+   "description": "Comma-separated 2-digit prefixes used by the scale to mark weight-embedded barcodes (default \"20\" matches this scale's fixed prefix; add more only if you use another scale model)",
+   "fieldname": "scale_barcode_prefixes",
+   "fieldtype": "Data",
+   "label": "Scale Barcode Prefixes"
   },
   {
    "fieldname": "section_break_cash_transfer",

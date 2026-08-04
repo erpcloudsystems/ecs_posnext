@@ -2263,6 +2263,14 @@ function handleAdditionalDiscountChange() {
 		}
 	}
 
+	// Respect the max discount value (flat amount) from settings
+	if (settingsStore.maxDiscountAllowedValue > 0 && amount > settingsStore.maxDiscountAllowedValue) {
+		amount = settingsStore.maxDiscountAllowedValue
+		showWarning(
+			__("Maximum allowed discount is {0}", [formatCurrency(amount)]),
+		)
+	}
+
 	amount = roundCurrency(amount)
 	localAdditionalDiscount.value = amount
 	emit("update-additional-discount", amount)

@@ -14,6 +14,10 @@ class POSSettings(Document):
 		if max_discount < 0 or max_discount > 100:
 			frappe.throw("Max Discount Allowed must be between 0 and 100")
 
+		# Guard against negative values for the flat discount value cap (0 = no limit)
+		if flt(self.max_discount_allowed_value) < 0:
+			frappe.throw("Max Discount Value Allowed cannot be negative")
+
 		# Guard against None values and validate search limit
 		if self.use_limit_search:
 			search_limit = cint(self.search_limit)

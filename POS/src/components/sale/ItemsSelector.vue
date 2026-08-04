@@ -55,6 +55,84 @@
 			</div>
 		</div>
 
+		<!-- Global Search + Barcode Scanner — always available, even before choosing a price
+		     list or item group, so items can be found/scanned immediately -->
+		<div class="px-1.5 sm:px-3 py-1.5 sm:py-2 bg-white border-b border-gray-200">
+			<div class="flex-1 relative min-w-0">
+				<!-- Search Icon -->
+				<div class="absolute inset-y-0 start-0 ps-2 sm:ps-3 flex items-center pointer-events-none">
+					<svg
+						class="h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400"
+						fill="none"
+						stroke="currentColor"
+						viewBox="0 0 24 24"
+					>
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							stroke-width="2"
+							d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+						/>
+					</svg>
+				</div>
+				<!-- Search Input -->
+				<input
+					id="item-search"
+					name="item-search"
+					ref="searchInputRef"
+					:value="searchTerm"
+					@input="handleSearchInput"
+					@keydown="handleKeyDown"
+					@click="handleSearchClick"
+					type="text"
+					:placeholder="searchPlaceholder"
+					:class="[
+						'w-full text-[11px] sm:text-sm border rounded-lg px-2 sm:px-3 py-2 ps-7 sm:ps-10 pe-16 sm:pe-24 focus:outline-none transition-all',
+						autoAddEnabled
+							? 'border-blue-400 bg-blue-50 focus:ring-2 focus:ring-blue-500 focus:border-transparent'
+							: scannerEnabled
+							? 'border-green-400 bg-green-50 focus:ring-2 focus:ring-green-500 focus:border-transparent'
+							: 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent'
+					]"
+					:aria-label="__('Search items')"
+				/>
+				<!-- Barcode Scan Icon and Auto-Add Toggle -->
+				<div class="absolute inset-y-0 end-0 pe-1 sm:pe-2 flex items-center gap-0.5">
+					<button
+						@click="toggleBarcodeScanner"
+						:class="[
+							'p-1 sm:p-1.5 rounded transition-[background-color] duration-75 touch-manipulation',
+							scannerEnabled
+								? 'bg-green-100 hover:bg-green-200 active:bg-green-300 text-green-700'
+								: 'hover:bg-gray-100 active:bg-gray-200 text-gray-600'
+						]"
+						:title="scannerEnabled ? __('Barcode Scanner: ON (Click to disable)') : __('Barcode Scanner: OFF (Click to enable)')"
+						:aria-label="scannerEnabled ? __('Disable barcode scanner') : __('Enable barcode scanner')"
+					>
+						<svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/>
+						</svg>
+					</button>
+					<button
+						@click="toggleAutoAdd"
+						:class="[
+							'p-1 sm:p-1.5 rounded transition-[background-color] duration-75 flex items-center gap-0.5 text-[9px] sm:text-xs font-medium px-1 sm:px-2 touch-manipulation',
+							autoAddEnabled
+								? 'bg-blue-100 hover:bg-blue-200 active:bg-blue-300 text-blue-700'
+								: 'hover:bg-gray-100 active:bg-gray-200 text-gray-600'
+						]"
+						:title="autoAddEnabled ? __('Auto-Add: ON - Press Enter to add items to cart') : __('Auto-Add: OFF - Click to enable automatic cart addition on Enter')"
+						:aria-label="autoAddEnabled ? __('Disable auto-add') : __('Enable auto-add')"
+					>
+						<svg class="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+						</svg>
+						<span class="hidden xs:inline">{{ __('Auto') }}</span>
+					</button>
+				</div>
+			</div>
+		</div>
+
 		<!-- ========== STEP 1: Price List Card Selection ========== -->
 		<div v-if="navigationStep === 'price_list'" class="flex-1 overflow-y-auto p-3 sm:p-4">
 			<div class="text-center mb-4">
@@ -139,82 +217,9 @@
 			</div>
 		</div>
 
-		<!-- Search Bar with Barcode Scanner and View Controls -->
+		<!-- View Controls (grid/list + sort) -->
 		<div class="px-1.5 sm:px-3 py-1.5 sm:py-2 bg-white border-b border-gray-200">
-			<div class="flex items-center gap-1 sm:gap-2">
-				<div class="flex-1 relative min-w-0">
-					<!-- Search Icon -->
-					<div class="absolute inset-y-0 start-0 ps-2 sm:ps-3 flex items-center pointer-events-none">
-						<svg
-							class="h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400"
-							fill="none"
-							stroke="currentColor"
-							viewBox="0 0 24 24"
-						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-							/>
-						</svg>
-					</div>
-					<!-- Search Input -->
-					<input
-						id="item-search"
-						name="item-search"
-						ref="searchInputRef"
-						:value="searchTerm"
-						@input="handleSearchInput"
-						@keydown="handleKeyDown"
-						@click="handleSearchClick"
-						type="text"
-						:placeholder="searchPlaceholder"
-						:class="[
-							'w-full text-[11px] sm:text-sm border rounded-lg px-2 sm:px-3 py-2 ps-7 sm:ps-10 pe-16 sm:pe-24 focus:outline-none transition-all',
-							autoAddEnabled
-								? 'border-blue-400 bg-blue-50 focus:ring-2 focus:ring-blue-500 focus:border-transparent'
-								: scannerEnabled
-								? 'border-green-400 bg-green-50 focus:ring-2 focus:ring-green-500 focus:border-transparent'
-								: 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent'
-						]"
-						:aria-label="__('Search items')"
-					/>
-					<!-- Barcode Scan Icon and Auto-Add Toggle -->
-					<div class="absolute inset-y-0 end-0 pe-1 sm:pe-2 flex items-center gap-0.5">
-						<button
-							@click="toggleBarcodeScanner"
-							:class="[
-								'p-1 sm:p-1.5 rounded transition-[background-color] duration-75 touch-manipulation',
-								scannerEnabled
-									? 'bg-green-100 hover:bg-green-200 active:bg-green-300 text-green-700'
-									: 'hover:bg-gray-100 active:bg-gray-200 text-gray-600'
-							]"
-							:title="scannerEnabled ? __('Barcode Scanner: ON (Click to disable)') : __('Barcode Scanner: OFF (Click to enable)')"
-							:aria-label="scannerEnabled ? __('Disable barcode scanner') : __('Enable barcode scanner')"
-						>
-							<svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/>
-							</svg>
-						</button>
-						<button
-							@click="toggleAutoAdd"
-							:class="[
-								'p-1 sm:p-1.5 rounded transition-[background-color] duration-75 flex items-center gap-0.5 text-[9px] sm:text-xs font-medium px-1 sm:px-2 touch-manipulation',
-								autoAddEnabled
-									? 'bg-blue-100 hover:bg-blue-200 active:bg-blue-300 text-blue-700'
-									: 'hover:bg-gray-100 active:bg-gray-200 text-gray-600'
-							]"
-							:title="autoAddEnabled ? __('Auto-Add: ON - Press Enter to add items to cart') : __('Auto-Add: OFF - Click to enable automatic cart addition on Enter')"
-							:aria-label="autoAddEnabled ? __('Disable auto-add') : __('Enable auto-add')"
-						>
-							<svg class="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-							</svg>
-							<span class="hidden xs:inline">{{ __('Auto') }}</span>
-						</button>
-					</div>
-				</div>
+			<div class="flex items-center justify-end gap-1 sm:gap-2">
 				<div class="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 flex-shrink-0">
 					<button
 						@click="setViewMode('grid')"

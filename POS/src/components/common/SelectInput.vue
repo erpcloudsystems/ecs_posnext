@@ -85,7 +85,11 @@
 								? 'bg-blue-50 text-blue-700'
 								: 'text-gray-800 hover:bg-gray-100 focus:bg-gray-100'"
 						>
-							<div v-if="option.subtitle" class="flex flex-col">
+							<div v-if="option.right !== undefined && option.right !== null" class="flex items-center justify-between gap-3">
+								<span class="truncate">{{ option.label }}</span>
+								<span class="text-sm text-gray-500 flex-shrink-0">{{ option.right }}</span>
+							</div>
+							<div v-else-if="option.subtitle" class="flex flex-col">
 								<span class="text-sm font-medium">{{ option.label }}</span>
 								<span class="text-xs text-gray-500">{{ option.subtitle }}</span>
 							</div>

@@ -158,6 +158,10 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	const loadingGroups = ref(false)
 	// Navigation step: 'price_list' -> 'groups' -> 'items'
 	const navigationStep = computed(() => {
+		// An active search term always surfaces the flat items view (search results),
+		// so items can be found/scanned without choosing a price list or drilling into
+		// item groups first — pricing still resolves via the POS Profile's default.
+		if (searchTerm.value?.trim()) return 'items'
 		if (!selectedPriceList.value) return 'price_list'
 		if (loadingGroups.value) return 'groups'
 		if (currentGroupChildren.value.length > 0) return 'groups'
@@ -2003,12 +2007,47 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	}
 
 	function changePriceList() {
+		clearSearch()
 		selectedPriceList.value = null
 		localStorage.removeItem("pos_selected_price_list")
 		groupBreadcrumb.value = []
 		currentGroupChildren.value = []
 		selectedItemGroup.value = null
 		replaceAllItems([])
+	}
+
+	/**
+	 * Offline fallback for loadGroupChildren(): derives groups from the hierarchy
+	 * already cached in `itemGroups` (loaded once by setPosProfile() and restored
+	 * from sessionStorage when offline). This only has top-level configured groups
+	 * plus a flat list of each one's descendants (no per-level structure), so:
+	 *  - top level (no parentGroup) maps directly onto the cached hierarchy
+	 *  - drilling into one of those groups shows its cached descendants as a flat,
+	 *    directly-selectable list (better than a dead end, even if it collapses
+	 *    multiple levels into one while offline)
+	 *  - `image` isn't available offline; cards fall back to the default folder icon
+	 */
+	function getOfflineGroupChildren(parentGroup) {
+		if (!itemGroups.value || itemGroups.value.length === 0) return []
+
+		if (!parentGroup) {
+			return itemGroups.value.map((g) => ({
+				item_group: g.item_group,
+				is_group: Boolean(g.is_group),
+				image: null,
+			}))
+		}
+
+		const parentEntry = itemGroups.value.find((g) => g.item_group === parentGroup)
+		if (parentEntry?.child_groups?.length) {
+			return parentEntry.child_groups.map((name) => ({
+				item_group: name,
+				is_group: false,
+				image: null,
+			}))
+		}
+
+		return []
 	}
 
 	async function loadGroupChildren(parentGroup) {
@@ -2022,9 +2061,13 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			currentGroupChildren.value = groups
 			return groups
 		} catch (error) {
-			log.error("Error loading child groups:", error)
-			currentGroupChildren.value = []
-			return []
+			log.error("Error loading child groups, falling back to cached hierarchy:", error)
+			const groups = getOfflineGroupChildren(parentGroup)
+			currentGroupChildren.value = groups
+			if (groups.length > 0) {
+				log.info(`Restored ${groups.length} group(s) from offline cache for: ${parentGroup || 'root'}`)
+			}
+			return groups
 		} finally {
 			loadingGroups.value = false
 		}
@@ -2054,6 +2097,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	async function navigateBack() {
 		if (groupBreadcrumb.value.length === 0) return
 
+		clearSearch()
+
 		const newBreadcrumb = [...groupBreadcrumb.value]
 		newBreadcrumb.pop()
 		groupBreadcrumb.value = newBreadcrumb
@@ -2070,6 +2115,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	}
 
 	async function navigateToBreadcrumb(index) {
+		clearSearch()
+
 		if (index < 0) {
 			groupBreadcrumb.value = []
 			selectedItemGroup.value = null

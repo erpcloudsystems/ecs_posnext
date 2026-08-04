@@ -62,47 +62,130 @@ def is_barcode_resolver_available() -> bool:
     return "barcode_resolver" in frappe.get_installed_apps()
 
 
+# Weighing-scale (weight-embedded EAN-13) barcode layout:
+# [2-digit prefix][5-digit item code][5-digit weight, kg with 3 decimals][1 check digit]
+SCALE_BARCODE_LENGTH = 13
+SCALE_ITEM_CODE_DIGITS = 5
+SCALE_WEIGHT_DIGITS = 5
+DEFAULT_SCALE_BARCODE_PREFIXES = ["20"]
+
+
+def _ean13_check_digit(digits: str) -> int:
+    """Compute the EAN-13 check digit from the first 12 digits of an EAN-13 string."""
+    total = sum(int(d) * (3 if i % 2 else 1) for i, d in enumerate(digits[:12]))
+    return (10 - (total % 10)) % 10
+
+
+def _find_item_barcode_by_code(item_code_digits: str) -> str | None:
+    """Match a scale barcode's embedded numeric item code to an existing Item Barcode/Item."""
+    candidates = {item_code_digits, str(int(item_code_digits))}
+
+    for candidate in candidates:
+        barcode = frappe.db.get_value("Item Barcode", {"barcode": candidate}, "barcode")
+        if barcode:
+            return barcode
+
+    for candidate in candidates:
+        if frappe.db.exists("Item", candidate):
+            return candidate
+
+    return None
+
+
+def decode_scale_barcode(barcode: str, pos_settings=None) -> BarcodeResult | None:
+    """
+    Decode an in-house weighing-scale barcode.
+
+    The scale prints a 13-digit weight-embedded EAN-13: a 2-digit prefix
+    (reserved GS1 in-store range, default 20-29), the item's 5-digit code,
+    a 5-digit weight in kg (3 decimal places, e.g. "01250" -> 1.250 kg),
+    and a real EAN-13 check digit.
+
+    Returns None when the barcode isn't a match (wrong length/prefix/checksum)
+    or the embedded code doesn't resolve to a known item — in which case it's
+    treated as a normal product barcode instead.
+    """
+    if not barcode or len(barcode) != SCALE_BARCODE_LENGTH or not barcode.isdigit():
+        return None
+
+    prefixes = DEFAULT_SCALE_BARCODE_PREFIXES
+    if pos_settings is not None:
+        if not pos_settings.get("enable_scale_barcode", 1):
+            return None
+        configured = (pos_settings.get("scale_barcode_prefixes") or "").strip()
+        if configured:
+            prefixes = [p.strip() for p in configured.split(",") if p.strip()]
+
+    if barcode[:2] not in prefixes:
+        return None
+
+    if _ean13_check_digit(barcode) != int(barcode[-1]):
+        return None
+
+    item_code_digits = barcode[2 : 2 + SCALE_ITEM_CODE_DIGITS]
+    weight_digits = barcode[2 + SCALE_ITEM_CODE_DIGITS : 2 + SCALE_ITEM_CODE_DIGITS + SCALE_WEIGHT_DIGITS]
+
+    item_barcode = _find_item_barcode_by_code(item_code_digits)
+    if not item_barcode:
+        return None
+
+    weight_value = int(weight_digits)
+    return {
+        "item_barcode": item_barcode,
+        "integer_value": str(weight_value // 1000),
+        "decimal_value": f"{weight_value % 1000:03d}",
+        "barcode_type": "Weighted",
+        "uom": None,
+    }
+
+
 def resolve_barcode(barcode: str, pos_profile: str) -> BarcodeResult | None:
     """
-    Resolve a barcode using the barcode_resolver app if available.
+    Resolve a barcode to weighted/priced item data.
 
-    This function attempts to parse special barcode formats (weighted/priced)
-    using configurable rules from the barcode_resolver app.
+    Tries the optional barcode_resolver app first (if installed, for
+    custom/configurable rules), then falls back to this app's built-in
+    weighing-scale barcode decoder.
 
     Args:
         barcode: The barcode string to resolve.
 
     Returns:
         BarcodeResult dict if the barcode matches a rule, None otherwise.
-        Also returns None if barcode_resolver app is not installed.
 
     Example:
         >>> result = resolve_barcode("2001234001500")
         >>> if result:
         ...     print(f"Item: {result['item_barcode']}, Qty: {result['qty']}")
     """
-    if not is_barcode_resolver_available():
-        return None
-
+    pos_settings = None
     try:
-        from barcode_resolver.barcode_resolver.doctype.barcode_rule.utils import (
-            resolve_barcode as _resolve_barcode,
-        )
-        # get POS Settings
         pos_settings = frappe.get_doc("POS Settings", {"pos_profile": pos_profile})
-        barcode_rules = [rule.barcode_rule for rule in pos_settings.barcode_rules if not rule.disable]
-        return _resolve_barcode(barcode, barcode_rules)
-    except ImportError:
-        # App might have been uninstalled, clear cache and return None
-        is_barcode_resolver_available.cache_clear()
-        return None
-    except Exception:
-        # Log unexpected errors but don't break POS functionality
-        frappe.log_error(
-            title="Barcode Resolver Error",
-            message=f"Error resolving barcode: {barcode}",
-        )
-        return None
+    except frappe.DoesNotExistError:
+        pass
+
+    if is_barcode_resolver_available():
+        try:
+            from barcode_resolver.barcode_resolver.doctype.barcode_rule.utils import (
+                resolve_barcode as _resolve_barcode,
+            )
+            barcode_rules = [
+                rule.barcode_rule for rule in (pos_settings.barcode_rules if pos_settings else []) if not rule.disable
+            ]
+            result = _resolve_barcode(barcode, barcode_rules)
+            if result:
+                return result
+        except ImportError:
+            # App might have been uninstalled, clear cache and fall through to built-in decoder
+            is_barcode_resolver_available.cache_clear()
+        except Exception:
+            # Log unexpected errors but don't break POS functionality
+            frappe.log_error(
+                title="Barcode Resolver Error",
+                message=f"Error resolving barcode: {barcode}",
+            )
+
+    return decode_scale_barcode(barcode, pos_settings=pos_settings)
 
 
 def compute_resolved_item_data(
@@ -129,10 +212,8 @@ def compute_resolved_item_data(
         ...     item_data = compute_resolved_item_data(resolved, item_rate=10.0)
         ...     print(f"Qty: {item_data['resolved_qty']}, UOM: {item_data['resolved_uom']}")
     """
-    if not resolved_barcode or not is_barcode_resolver_available():
+    if not resolved_barcode:
         return None
-
-    from barcode_resolver.barcode_resolver.doctype.barcode_rule.utils import BarcodeTypes
 
     barcode_type = resolved_barcode.get("barcode_type")
     barcode_uom = resolved_barcode.get("uom")
@@ -153,7 +234,7 @@ def compute_resolved_item_data(
 
     integer_value = resolved_barcode.get("integer_value", "0")
     decimal_value = resolved_barcode.get("decimal_value", "0")
-    if barcode_type == BarcodeTypes.WEIGHTED.value:
+    if barcode_type == "Weighted":
         qty = float(f"{integer_value}.{decimal_value}")
         uom = barcode_uom
         price = barcode_uom_price
@@ -169,7 +250,7 @@ def compute_resolved_item_data(
             "resolved_price": price,
             "resolved_barcode_type": barcode_type,
         }
-    elif barcode_type == BarcodeTypes.PRICED.value:
+    elif barcode_type == "Priced":
         encoded_price = float(f"{integer_value}.{decimal_value}")
         if barcode_uom in uom_prices:
             barcode_uom_price = uom_prices.get(barcode_uom)

@@ -22,7 +22,9 @@ FIELD_ITEM_CODE = "item_code"
 FIELD_DISCOUNT_PERCENTAGE = "discount_percentage"
 FIELD_ALLOW_USER_TO_EDIT_RATE = "allow_user_to_edit_rate"
 FIELD_MAX_DISCOUNT_ALLOWED = "max_discount_allowed"
+FIELD_MAX_DISCOUNT_ALLOWED_VALUE = "max_discount_allowed_value"
 FIELD_ALLOW_NEGATIVE_STOCK = "allow_negative_stock"
+FIELD_QTY = "qty"
 
 # Doctypes
 DOCTYPE_SALES_INVOICE = "Sales Invoice"
@@ -72,6 +74,19 @@ def calculate_price_list_rate(item_rate, discount_pct, current_price_list_rate):
         return item_rate / discount_multiplier
 
     return current_price_list_rate if current_price_list_rate else item_rate
+
+
+def _has_pricing_rules(item):
+    """Check if pricing_rules has a value, handling list/JSON-string/plain-string forms."""
+    value = item.get("pricing_rules")
+    if not value:
+        return False
+    if isinstance(value, list):
+        return len(value) > 0
+    if isinstance(value, str):
+        trimmed = value.strip()
+        return bool(trimmed) and trimmed != "[]"
+    return bool(value)
 
 
 def validate_manual_rate_edit(item, pos_profile=None, pos_settings_cache=None):
@@ -126,7 +141,7 @@ def validate_manual_rate_edit(item, pos_profile=None, pos_settings_cache=None):
         pos_settings = frappe.db.get_value(
             DOCTYPE_POS_SETTINGS,
             {"pos_profile": pos_profile},
-            [FIELD_ALLOW_USER_TO_EDIT_RATE, FIELD_MAX_DISCOUNT_ALLOWED],
+            [FIELD_ALLOW_USER_TO_EDIT_RATE, FIELD_MAX_DISCOUNT_ALLOWED, FIELD_MAX_DISCOUNT_ALLOWED_VALUE],
             as_dict=True
         )
 
@@ -161,6 +176,74 @@ def validate_manual_rate_edit(item, pos_profile=None, pos_settings_cache=None):
                     item_code, discount_pct, max_discount
                 )
             }
+
+    # Validate against max discount value (flat amount) if configured and rate is reduced
+    max_discount_value = flt(pos_settings.get(FIELD_MAX_DISCOUNT_ALLOWED_VALUE) or 0)
+    if max_discount_value > 0 and original_rate > 0 and item_rate < original_rate:
+        qty = flt(item.get(FIELD_QTY) or 1)
+        discount_value = round((original_rate - item_rate) * qty, 2)
+        if discount_value > max_discount_value:
+            return {
+                "valid": False,
+                "message": _("Rate reduction for item {0} is a discount of {1} which exceeds the maximum allowed discount value of {2}").format(
+                    item_code, discount_value, max_discount_value
+                )
+            }
+
+    return {"valid": True}
+
+
+def validate_item_discount(item, pos_settings=None):
+    """
+    Validate the item-level "Item Discount" (discount_percentage / discount_amount)
+    against POS Settings max discount caps.
+
+    This is a separate flow from validate_manual_rate_edit() above: it covers the
+    normal (non-rate-edit) discount path. discount_amount here is a whole-line
+    amount (qty * rate * discount_percentage / 100), matching this app's own
+    convention — see useInvoice.js's recalculateItem() on the frontend.
+
+    Args:
+        item: The item dict/object. Must contain item_code, discount_percentage,
+            discount_amount.
+        pos_settings: Pre-fetched POS Settings dict. Should contain
+            max_discount_allowed, max_discount_allowed_value.
+
+    Returns:
+        dict with 'valid' boolean and 'message' string if invalid
+    """
+    if not pos_settings:
+        return {"valid": True}
+
+    # Pricing-rule/promotional-offer discounts share these same fields but aren't
+    # manually entered — don't cap configured promotions with the manual discount caps
+    if _has_pricing_rules(item):
+        return {"valid": True}
+
+    item_code = item.get(FIELD_ITEM_CODE)
+    discount_pct = flt(item.get(FIELD_DISCOUNT_PERCENTAGE) or 0)
+    discount_amount = flt(item.get("discount_amount") or 0)
+
+    if discount_pct <= 0 and discount_amount <= 0:
+        return {"valid": True}
+
+    max_discount = flt(pos_settings.get(FIELD_MAX_DISCOUNT_ALLOWED) or 0)
+    if max_discount > 0 and discount_pct > max_discount:
+        return {
+            "valid": False,
+            "message": _("Discount of {0}% for item {1} exceeds the maximum allowed discount of {2}%").format(
+                discount_pct, item_code, max_discount
+            )
+        }
+
+    max_discount_value = flt(pos_settings.get(FIELD_MAX_DISCOUNT_ALLOWED_VALUE) or 0)
+    if max_discount_value > 0 and discount_amount > max_discount_value:
+        return {
+            "valid": False,
+            "message": _("Discount of {0} for item {1} exceeds the maximum allowed discount value of {2}").format(
+                discount_amount, item_code, max_discount_value
+            )
+        }
 
     return {"valid": True}
 
@@ -851,6 +934,7 @@ def update_invoice(data):
                 [
                     FIELD_ALLOW_USER_TO_EDIT_RATE,
                     FIELD_MAX_DISCOUNT_ALLOWED,
+                    FIELD_MAX_DISCOUNT_ALLOWED_VALUE,
                     FIELD_ALLOW_NEGATIVE_STOCK
                 ],
                 as_dict=True
@@ -883,6 +967,11 @@ def update_invoice(data):
                 if not validation.get("valid"):
                     frappe.throw(validation.get("message"))
             else:
+                # Validate item-level "Item Discount" against max discount caps
+                validation = validate_item_discount(item, pos_settings_cache)
+                if not validation.get("valid"):
+                    frappe.throw(validation.get("message"))
+
                 # NORMAL FLOW: Trust frontend's price_list_rate if provided and valid
                 if frontend_price_list_rate > 0:
                     item.price_list_rate = frontend_price_list_rate

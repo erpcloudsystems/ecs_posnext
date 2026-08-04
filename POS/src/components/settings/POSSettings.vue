@@ -301,6 +301,12 @@
 												:min="0"
 												:max="100"
 											/>
+											<NumberField
+												v-model="settings.max_discount_allowed_value"
+												:label="__('Max Discount Value')"
+												:description="__('Maximum discount as a flat amount, in addition to the percentage cap above. 0 = no limit.')"
+												:min="0"
+											/>
 											<CheckboxField
 												v-model="settings.use_percentage_discount"
 												:label="__('Use Percentage Discount')"
@@ -517,6 +523,7 @@ const settings = ref({
 	enabled: 1,
 	// Core Settings
 	max_discount_allowed: 0,
+	max_discount_allowed_value: 0,
 	use_percentage_discount: 0,
 	allow_user_to_edit_additional_discount: 0,
 	allow_user_to_edit_item_discount: 1,
