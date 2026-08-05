@@ -188,6 +188,9 @@ function round(value, precision) {
 // Exported Rounding Functions
 // =============================================================================
 
+/** Round to an arbitrary precision using the system rounding method */
+export { round as roundTo }
+
 /** Round to 2 decimal places */
 export function round2(value) {
 	return round(value, 2)

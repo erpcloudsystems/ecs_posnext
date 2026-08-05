@@ -342,6 +342,7 @@ import { useToast } from "@/composables/useToast"
 import { call } from "@/utils/apiWrapper"
 import { logger } from "@/utils/logger"
 import { isOffline } from "@/utils/offline/sync"
+import { renderReportPrintFormat } from "@/utils/reportPrintFormat"
 import {
 	exportReport,
 	formatReportValue,
@@ -657,34 +658,88 @@ function handlePrint() {
 
 async function handlePrintSubmit() {
 	showPrintSettings.value = false
-	if (printFormat.value) {
-		printing.value = true
-		try {
-			const html = await call("ecs_posnext.api.reports.render_report_print", {
-				report_name: selectedReport.value.report,
-				print_layout: printFormat.value,
-				filters: JSON.stringify(buildRunFilters()),
-				orientation: printOrientation.value,
-				with_letterhead: printWithLetterhead.value ? 1 : 0,
-				pos_profile: props.posProfile || null,
-			})
-			printHtmlString(html)
-		} catch (error) {
-			showError(extractMessage(error) || __("Print failed"))
-		} finally {
-			printing.value = false
+	if (!printFormat.value) {
+		printPlainTable()
+		return
+	}
+
+	printing.value = true
+	try {
+		const payload = await call("ecs_posnext.api.reports.get_print_template", {
+			report_name: selectedReport.value.report,
+			print_layout: printFormat.value,
+			pos_profile: props.posProfile || null,
+			with_letterhead: printWithLetterhead.value ? 1 : 0,
+		})
+
+		if (!payload?.template) {
+			showError(__("This print layout is empty"))
+			return
 		}
-	} else {
-		printReport({
+
+		// A JS layout is a client-side template - the desk renders it in the
+		// browser and so must we. Only a Jinja layout can be rendered server side.
+		if ((payload.template_type || "JS") === "JS") {
+			printJsFormat(payload)
+			return
+		}
+
+		const html = await call("ecs_posnext.api.reports.render_report_print", {
+			report_name: selectedReport.value.report,
+			print_layout: printFormat.value,
+			filters: JSON.stringify(buildRunFilters()),
+			orientation: printOrientation.value,
+			with_letterhead: printWithLetterhead.value ? 1 : 0,
+			pos_profile: props.posProfile || null,
+		})
+		printHtmlString(html)
+	} catch (error) {
+		log.error("Print failed:", error)
+		showError(extractMessage(error) || __("Print failed"))
+	} finally {
+		printing.value = false
+	}
+}
+
+/**
+ * Render a JS print layout against the rows already on screen.
+ *
+ * A broken template must not leave the cashier with nothing to hand over, so a
+ * render failure falls back to the plain table.
+ */
+function printJsFormat(payload) {
+	try {
+		const html = renderReportPrintFormat({
+			template: payload.template,
+			letterhead: payload.letterhead,
+			orientation: printOrientation.value,
+			reportName: selectedReport.value.report,
 			title: definitionLabel.value,
 			subtitle: printIncludeFilters.value ? printSubtitle() : "",
 			columns: columns.value,
 			rows: rows.value,
-			appliedFilters: printIncludeFilters.value ? appliedFilters.value : {},
-			totalRowIndex: totalRowIndex.value,
-			orientation: printOrientation.value,
+			filters: buildRunFilters(),
 		})
+		printHtmlString(html)
+	} catch (error) {
+		log.error("Print format failed to render:", error)
+		showError(
+			__("This print layout could not be rendered; printing the table instead"),
+		)
+		printPlainTable()
 	}
+}
+
+function printPlainTable() {
+	printReport({
+		title: definitionLabel.value,
+		subtitle: printIncludeFilters.value ? printSubtitle() : "",
+		columns: columns.value,
+		rows: rows.value,
+		appliedFilters: printIncludeFilters.value ? appliedFilters.value : {},
+		totalRowIndex: totalRowIndex.value,
+		orientation: printOrientation.value,
+	})
 }
 
 function printSubtitle() {

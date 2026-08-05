@@ -63,6 +63,10 @@ SUPPORTED_FIELDTYPES = {
 # script; it has no Print Format document to name it by.
 REPORT_LAYOUT = "__report_html__"
 
+# Which engine owns a print template. Matches Print Format's print_format_type.
+JS_TEMPLATE = "JS"
+JINJA_TEMPLATE = "Jinja"
+
 # A report run from the POS only ever shows the branch the cashier's shift is on,
 # so any filter that picks a Branch is pinned to it and locked. Reports name that
 # filter by its link doctype, but a plain Data/Select branch filter is matched by
@@ -185,9 +189,28 @@ def render_report_print(
 	with_letterhead: int = 0,
 	pos_profile: str | None = None,
 ) -> str:
-	"""Render ``report_name`` with ``print_layout`` and return a complete printable HTML page."""
+	"""Render ``report_name`` with ``print_layout`` and return a complete printable HTML page.
+
+	Server-side rendering is Jinja, so only a Jinja layout can come through here.
+	A ``JS`` layout is a client-side template and is rendered in the browser off
+	:func:`get_print_template` instead.
+	"""
 	_get_configured_row(report_name, pos_profile)
 	report = _get_permitted_report(report_name)
+
+	template, template_type = "", JINJA_TEMPLATE
+	if print_layout:
+		# Resolved before the report is run so an unsupported layout fails fast
+		template, template_type = _resolve_print_template(report, print_layout)
+
+		if template_type == JS_TEMPLATE:
+			# Jinja cannot execute a JS template: `{% var x = 1 %}` is not a Jinja
+			# tag, so rendering one here raises TemplateSyntaxError.
+			frappe.throw(
+				_(
+					"Print layout {0} is a client-side (JS) template and cannot be rendered on the server. Reload the POS so it prints this layout in the browser."
+				).format(frappe.bold(print_layout))
+			)
 
 	if isinstance(filters, str):
 		filters = json.loads(filters or "{}")
@@ -205,43 +228,18 @@ def render_report_print(
 	rows = result.get("result") or []
 
 	body = ""
-	if print_layout:
-		template = ""
-		for layout in get_print_layouts(report):
-			if layout["name"] != print_layout:
-				continue
-			if print_layout == REPORT_LAYOUT:
-				template = _get_report_html_format(report) or ""
-			else:
-				pf = frappe.get_cached_doc("Print Format", print_layout)
-				css = f"<style>{pf.css}</style>" if pf.css else ""
-				template = css + (pf.html or "")
-			break
-		else:
-			frappe.throw(
-				_("Print Format {0} is not available for report {1}.").format(
-					frappe.bold(print_layout), frappe.bold(report_name)
-				),
-				frappe.PermissionError,
-			)
+	if template:
+		context = frappe._dict(
+			report_name=report_name,
+			title=_(report.report_name),
+			data=rows,
+			columns=columns,
+			filters=filters,
+			result=rows,
+		)
+		body = frappe.render_template(template, context)
 
-		if template:
-			context = frappe._dict(
-				report_name=report_name,
-				title=_(report.report_name),
-				data=rows,
-				columns=columns,
-				filters=filters,
-				result=rows,
-			)
-			body = frappe.render_template(template, context)
-
-	letterhead_html = ""
-	if cint(with_letterhead):
-		lh_name = frappe.db.get_value("Letter Head", {"is_default": 1}, "name")
-		if lh_name:
-			lh = frappe.get_cached_doc("Letter Head", lh_name)
-			letterhead_html = lh.content or ""
+	letterhead_html = _letterhead_html() if cint(with_letterhead) else ""
 
 	page_size = "landscape" if orientation.lower() == "landscape" else "portrait"
 	dir_attr = frappe.local.lang_direction or "ltr"
@@ -291,19 +289,46 @@ def search_filter_options(
 
 @frappe.whitelist()
 def get_print_template(
-	report_name: str, print_layout: str | None = None, pos_profile: str | None = None
+	report_name: str,
+	print_layout: str | None = None,
+	pos_profile: str | None = None,
+	with_letterhead: int = 0,
 ) -> dict:
 	"""The template the POS should render when printing ``report_name``.
 
 	``print_layout`` is a name from ``get_print_layouts``. Only layouts that
 	belong to this report are readable here, so this cannot be used to pull
 	arbitrary Print Formats.
+
+	``template_type`` tells the caller which engine owns the template: ``JS``
+	templates must be rendered in the browser, ``Jinja`` ones on the server via
+	:func:`render_report_print`.
 	"""
 	_get_configured_row(report_name, pos_profile)
 	report = _get_permitted_report(report_name)
 
+	template, template_type = _resolve_print_template(report, print_layout)
+
+	return {
+		"layout": print_layout,
+		"template": template,
+		"template_type": template_type,
+		"letterhead": _letterhead_html() if cint(with_letterhead) else "",
+	}
+
+
+def _resolve_print_template(report, print_layout: str | None) -> tuple[str, str]:
+	"""``(template, engine)`` for a layout of ``report``.
+
+	A report's own ``<report_name>.html`` is always a client-side template - that
+	is the only engine the desk ever renders it with - while a Print Format
+	declares its engine in ``print_format_type``.
+	"""
+	if not print_layout:
+		return "", JS_TEMPLATE
+
 	if print_layout == REPORT_LAYOUT:
-		return {"layout": REPORT_LAYOUT, "template": _get_report_html_format(report) or ""}
+		return _get_report_html_format(report) or "", JS_TEMPLATE
 
 	for layout in get_print_layouts(report):
 		if layout["name"] != print_layout or layout["name"] == REPORT_LAYOUT:
@@ -312,14 +337,23 @@ def get_print_template(
 		print_format = frappe.get_cached_doc("Print Format", print_layout)
 		# Same shape the desk composes: the format's own CSS travels with its HTML
 		css = f"<style>{print_format.css}</style>" if print_format.css else ""
-		return {"layout": print_layout, "template": css + (print_format.html or "")}
+		engine = JS_TEMPLATE if print_format.print_format_type == JS_TEMPLATE else JINJA_TEMPLATE
+		return css + (print_format.html or ""), engine
 
 	frappe.throw(
 		_("Print Format {0} is not available for report {1}.").format(
-			frappe.bold(print_layout), frappe.bold(report_name)
+			frappe.bold(print_layout), frappe.bold(report.name)
 		),
 		frappe.PermissionError,
 	)
+
+
+def _letterhead_html() -> str:
+	lh_name = frappe.db.get_value("Letter Head", {"is_default": 1}, "name")
+	if not lh_name:
+		return ""
+
+	return frappe.get_cached_doc("Letter Head", lh_name).content or ""
 
 
 def get_print_layouts(report) -> list[dict]:
