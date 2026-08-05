@@ -63,6 +63,11 @@ def search_tickets(search_keys):
 
 
 @frappe.whitelist()
+def give_free_wristband(ticket_name):
+    pass
+
+
+@frappe.whitelist()
 def redeem_ticket(
     ticket_name,
     customer,

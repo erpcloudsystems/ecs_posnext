@@ -1395,14 +1395,31 @@ def check_offline_invoice_synced(offline_id):
 
 @frappe.whitelist()
 def submit_invoice(invoice=None, data=None):
+    """Queue the invoice submission (Step 2) and return immediately.
+
+    Reintroduces background queueing on top of _submit_invoice_sync. Note
+    this brings back the tradeoff that sync version was written to avoid:
+    the HTTP response carries no result, so the frontend cannot tell a
+    failed background submit from a successful one at call time. It can
+    only be told the job was queued, hence the {"queued": True} marker
+    below — the frontend uses it to show a "queued" message rather than
+    silently doing nothing (or wrongly assuming the invoice was submitted).
+    """
+    frappe.enqueue(
+        method=_submit_invoice_sync,
+        queue="short",
+        invoice=invoice,
+        data=data,
+    )
+    return {"queued": True}
+
+
+def _submit_invoice_sync(invoice=None, data=None):
     """Submit the invoice (Step 2), synchronously.
 
-    This used to enqueue _submit_invoice_with_retry and return None
-    immediately, so the frontend could never distinguish a failed
-    background submit from a successful one. Running it inline means the
-    HTTP response carries the real result (or raises the real error) back
-    to the cashier's screen. _submit_invoice_with_retry still retries on
-    deadlock/transient failure within this same request.
+    Runs inline so the caller's response (or raised error) carries the
+    real result. _submit_invoice_with_retry still retries on
+    deadlock/transient failure within this same call.
     """
     return _submit_invoice_with_retry(invoice=invoice, data=data)
 

@@ -82,32 +82,15 @@ export const isOffline = () => {
 // ============================================================================
 
 /**
- * Save invoice to offline queue with unique offline_id for deduplication
- * @param {Object} invoiceData - Invoice data to save
- * @returns {Promise<{success: boolean, id: number, offline_id: string}>}
+ * Offline invoice creation is disabled: submit_invoice now queues submission
+ * as a background job on the server, so the client never gets the real
+ * submitted invoice back. Persisting a local draft to sync later would just
+ * pile up invoices with no way to confirm they went through.
  */
-export const saveOfflineInvoice = async (invoiceData) => {
-	if (!invoiceData.items?.length) {
-		throw new Error("Cannot save empty invoice")
-	}
-
-	// Clean data (remove reactive properties) and add offline_id
-	const cleanData = JSON.parse(JSON.stringify(invoiceData))
-	const offlineId = generateOfflineId()
-	cleanData.offline_id = offlineId
-
-	const id = await db.invoice_queue.add({
-		offline_id: offlineId,
-		data: cleanData,
-		timestamp: Date.now(),
-		synced: false,
-		retry_count: 0,
-	})
-
-	await updateLocalStock(cleanData.items)
-
-	log.info(`Invoice saved to offline queue`, { offline_id: offlineId })
-	return { success: true, id, offline_id: offlineId }
+export const saveOfflineInvoice = async () => {
+	throw new Error(
+		"Offline invoice creation is disabled. Please connect to the internet to complete this sale.",
+	)
 }
 
 /**

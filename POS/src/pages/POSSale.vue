@@ -1073,7 +1073,7 @@ const {
 } = usePOSEvents();
 
 // Initialize toast
-const { showSuccess, showError, showWarning } = useToast();
+const { showSuccess, showError, showWarning, showInfo } = useToast();
 
 // Initialize logger
 const log = logger.create("POSSale");
@@ -2080,12 +2080,24 @@ async function handlePaymentCompleted(paymentData) {
 			// Get item codes from cart before clearing
 			const soldItemCodes = cartStore.invoiceItems.map((item) => item.item_code);
 
-			// Step 2 (submit) now runs synchronously, so `result` reflects the
-			// real submitted invoice. Printing happens further below, after a
-			// confirmed submit, instead of from the unsubmitted draft.
+			// Step 2 (submit) runs as a background job, so `result` only ever
+			// confirms the job was queued — not that the invoice was actually
+			// submitted. There is no invoice name/total to show yet.
 			const result = await cartStore.submitInvoice();
 
 			if (result) {
+				const queued = result.queued || result.message?.queued;
+				if (queued) {
+					uiStore.showPaymentDialog = false;
+					cartStore.clearCart();
+					previousCartHash = "";
+					if (draftIdToDelete) {
+						draftsStore.deleteDraft(draftIdToDelete);
+					}
+					showInfo(__("Invoice queued for processing. It will appear in Invoice History shortly."));
+					return;
+				}
+
 				// Tabby: invoice kept pending; show the payment link (QR + copy) and
 				// note the SMS. No stock/print (nothing was submitted).
 				const tabbyData = result.is_tabby

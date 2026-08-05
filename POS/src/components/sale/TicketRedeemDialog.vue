@@ -92,7 +92,7 @@
 						</span>
 					</div>
 
-					<div class="grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1 text-xs text-gray-700 mb-3">
+					<div class="grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1 text-xs text-gray-700">
 						<div><span class="text-gray-500">{{ __("Code") }}:</span> {{ t.redeem_code }}</div>
 						<div v-if="t.child_name"><span class="text-gray-500">{{ __("Child") }}:</span> {{ t.child_name }}</div>
 						<div><span class="text-gray-500">{{ __("Customer") }}:</span> {{ t.vendor }}</div>
@@ -100,9 +100,15 @@
 						<div><span class="text-gray-500">{{ __("Item") }}:</span> {{ t.item }}</div>
 						<div><span class="text-gray-500">{{ __("Valid From") }}:</span> {{ t.valid_from }}</div>
 						<div><span class="text-gray-500">{{ __("Valid To") }}:</span> {{ t.valid_to }}</div>
-						<div><span class="text-gray-500">{{ __("Max") }}:</span> {{ t.global_maximum_usage }}</div>
-						<div><span class="text-gray-500">{{ __("Used") }}:</span> {{ t.current_usage }}</div>
-						<div class="font-semibold text-blue-700"><span class="text-gray-500 font-normal">{{ __("Remaining") }}:</span> {{ t.remaining_usage }}</div>
+					</div>
+
+					<div class="grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1 text-xs text-gray-700 mb-3">
+						<div><span class="text-gray-500">{{ __("Max Redeemed") }}:</span> {{ t.global_maximum_usage }}</div>
+						<div><span class="text-gray-500">{{ __("Used Redeemed") }}:</span> {{ t.current_usage }}</div>
+						<div class="font-semibold text-blue-700"><span class="text-gray-500 font-normal">{{ __("Remaining Redeemed") }}:</span> {{ t.remaining_usage }}</div>
+						<div><span class="text-gray-500">{{ __("Max Wristband") }}:</span> {{ t.maximum_free_wristband }}</div>
+						<div><span class="text-gray-500">{{ __("Used Wristband") }}:</span> {{ t.used_free_wristband }}</div>
+						<div class="font-semibold text-blue-700"><span class="text-gray-500 font-normal">{{ __("Remaining Wristband") }}:</span> {{ t.remaining_free_wristband }}</div>
 					</div>
 
 					<!-- Redeem -->
@@ -145,6 +151,14 @@
 								@click="printTicket(t.name)"
 							>
 								{{ __("Print") }}
+							</button>
+							<button
+								type="button"
+								class="h-9 px-4 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+								:disabled="t._busy"
+								@click="confirmGiveWristband(t)"
+							>
+								{{ __("Give Free Wristband") }}
 							</button>
 						</div>
 					</div>
@@ -220,6 +234,30 @@
 			</div>
 		</template>
 	</Dialog>
+
+	<!-- Give Free Wristband Confirmation -->
+	<Dialog
+		v-model="showWristbandConfirm"
+		:options="{ title: __('Give Free Wristband?'), size: 'xs' }"
+	>
+		<template #body-content>
+			<div class="py-3">
+				<p class="text-sm text-gray-600">
+					{{ __("Are you sure you want to give a free wristband for this ticket?") }}
+				</p>
+			</div>
+		</template>
+		<template #actions>
+			<div class="flex gap-2 w-full">
+				<Button class="flex-1" variant="subtle" @click="showWristbandConfirm = false">
+					{{ __("Cancel") }}
+				</Button>
+				<Button class="flex-1" variant="solid" theme="blue" @click="proceedGiveWristband">
+					{{ __("Give Wristband") }}
+				</Button>
+			</div>
+		</template>
+	</Dialog>
 </template>
 
 <script setup>
@@ -256,6 +294,8 @@ const searchInput = ref(null)
 const showRenewConfirm = ref(false)
 const ticketToRenew = ref(null)
 const renewShouldPrint = ref(false)
+const showWristbandConfirm = ref(false)
+const ticketForWristband = ref(null)
 const activeTab = ref("active")
 
 const show = computed({
@@ -410,6 +450,38 @@ async function doRenew(t, print) {
 	} catch (e) {
 		console.error("Renew failed", e)
 		showError(parseError(e).message || __("Renew failed"))
+	} finally {
+		t._busy = false
+	}
+}
+
+function confirmGiveWristband(t) {
+	if (Number(t.remaining_free_wristband) <= 0) {
+		showError(__("This customer has no more free wristband on this ticket"))
+		return
+	}
+	ticketForWristband.value = t
+	showWristbandConfirm.value = true
+}
+
+async function proceedGiveWristband() {
+	showWristbandConfirm.value = false
+	if (ticketForWristband.value) {
+		await giveFreeWristband(ticketForWristband.value)
+		ticketForWristband.value = null
+	}
+}
+
+async function giveFreeWristband(t) {
+	if (t._busy) return
+	t._busy = true
+	try {
+		await call("ecs_posnext.api.tickets.give_free_wristband", {
+			ticket_name: t.name,
+		})
+	} catch (e) {
+		console.error("Give free wristband failed", e)
+		showError(parseError(e).message || __("Give free wristband failed"))
 	} finally {
 		t._busy = false
 	}

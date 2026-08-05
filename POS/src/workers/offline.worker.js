@@ -417,40 +417,14 @@ async function getOfflineInvoices() {
 	}
 }
 
-// Save invoice to offline queue
+// Offline invoice creation is disabled: submit_invoice now queues submission
+// as a background job on the server, so the client never gets the real
+// submitted invoice back. Persisting a local draft to sync later would just
+// pile up invoices with no way to confirm they went through.
 async function saveOfflineInvoice(invoiceData) {
-	try {
-		const db = await initDB()
-
-		if (!invoiceData.items || invoiceData.items.length === 0) {
-			throw new Error("Cannot save empty invoice")
-		}
-
-		// Generate unique offline_id for deduplication
-		const offlineId = generateOfflineId()
-
-		// Store offline_id in the invoice data for server-side tracking
-		invoiceData.offline_id = offlineId
-
-		const id = await db.table("invoice_queue").add({
-			offline_id: offlineId,
-			data: invoiceData,
-			timestamp: Date.now(),
-			synced: false,
-			retry_count: 0,
-		})
-
-		// NOTE: We don't update local stock here because:
-		// 1. The invoice hasn't been submitted to server yet
-		// 2. When we sync, the server will handle stock reduction
-		// 3. Updating stock locally causes NegativeStockError on sync
-
-		log.info(`Invoice saved to offline queue with offline_id: ${offlineId}`)
-		return { success: true, id, offline_id: offlineId }
-	} catch (error) {
-		log.error("Error saving offline invoice", error)
-		throw error
-	}
+	throw new Error(
+		"Offline invoice creation is disabled. Please connect to the internet to complete this sale.",
+	)
 }
 
 // Update local stock
