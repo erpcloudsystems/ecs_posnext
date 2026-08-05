@@ -59,7 +59,7 @@ function render_app() {
 					working_day: frappe.datetime.get_today(),
 					from_date: frappe.datetime.get_today(),
 					to_date: frappe.datetime.get_today(),
-					shift: "Morning",
+					shift: "Whole Day",
 					branch: "",
 					pos_profile: "",
 					cashier: "",
@@ -120,7 +120,7 @@ function render_app() {
             <select class="form-control" v-model="filters.order_type">
               <option>Delivery</option>
               <option>Pickup</option>
-              <option>Dinin</option>
+              <option>Dine In</option>
               <option>Talabat</option>
             </select>
           </div>

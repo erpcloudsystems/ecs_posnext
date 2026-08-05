@@ -2018,9 +2018,10 @@ def _get_user_branch_filter_info():
 	pos_profile = None
 	if shift:
 		pos_profile = shift[0].pos_profile
-	else:
-		# Fallback to default POS Profile if no open shift
-		# Note: pos_profile might be a custom field on User
+	elif frappe.db.has_column("User", "pos_profile"):
+		# Fallback to a default POS Profile on the User — only if that (optional) custom
+		# field actually exists. Without this guard the query errors with "Unknown column
+		# 'pos_profile'" for any user with no open shift, breaking the whole All Orders list.
 		pos_profile = frappe.db.get_value("User", user, "pos_profile")
 
 	# Administrator bypass ONLY if no profile/shift found
@@ -2280,8 +2281,12 @@ def update_order_number_limit(pos_profile, limit):
     return {"message": _("Order Number Limit updated to {0}").format(limit_val), "limit": limit_val}
 
 
+# How far back a customer-number / name search looks (independent of the browse max_days).
+SEARCH_LOOKBACK_DAYS = 730
+
+
 @frappe.whitelist()
-def get_all_orders(date_from=None, date_to=None, limit=500):
+def get_all_orders(date_from=None, date_to=None, limit=500, search=None, respect_dates=None):
 	"""
 	Get all Sales Invoices across all branches for the All Orders page.
 
@@ -2292,10 +2297,14 @@ def get_all_orders(date_from=None, date_to=None, limit=500):
 		date_from: Start date (YYYY-MM-DD). Only used if user has date permission.
 		date_to: End date (YYYY-MM-DD). Only used if user has date permission.
 		limit: Maximum number of invoices to return (default 500)
+		search: Optional text (order #, customer name/number, mobile). When given, the
+			search runs server-side across the user's FULL allowed date range — so a
+			customer's older orders are found, not just those in the current window.
 
 	Returns:
 		List of invoices with basic details and items
 	"""
+	search = (search or "").strip()
 	# Check user permission for date selection
 	user = frappe.session.user
 	can_select = False
@@ -2329,8 +2338,16 @@ def get_all_orders(date_from=None, date_to=None, limit=500):
 		except Exception:
 			pass
 
-		if max_days > 0:
-			from frappe.utils import add_days
+		from frappe.utils import add_days
+
+		# A bare customer lookup (searching WITHOUT having picked a date range) looks across
+		# a broad history window so a customer's older orders are found. But once the user
+		# has EXPLICITLY set a date range (respect_dates), the search must stay INSIDE that
+		# range — otherwise the date filter appears to stop working when you type a search.
+		if search and not cint(respect_dates):
+			date_from = add_days(nowdate(), -SEARCH_LOOKBACK_DAYS)
+			date_to = nowdate()
+		elif max_days > 0:
 			earliest = add_days(nowdate(), -max_days)
 			if str(date_from) < earliest:
 				date_from = earliest
@@ -2357,6 +2374,23 @@ def get_all_orders(date_from=None, date_to=None, limit=500):
 	# Return credit notes carry mixed DB statuses (Return / Unpaid / Overdue) — the
 	# "Return" label is derived from is_return — so filter on the flag, not the status.
 	status_cond = " AND IFNULL(si.is_return, 0) = 0 AND IFNULL(si.status, '') != 'Credit Note Issued' "
+
+	# Server-side search (order #, customer name/number, mobile) across the full window.
+	search_cond = ""
+	if search:
+		search_cond = """ AND (
+			si.name LIKE %(search)s
+			OR si.custom_number_order LIKE %(search)s
+			OR si.contact_mobile LIKE %(search)s
+			OR si.customer_name LIKE %(search)s
+			OR cust.mobile_no LIKE %(search)s
+			OR cust.custom_other_mobile_no LIKE %(search)s
+			OR si.custom_unique_talbat_number LIKE %(search)s
+		) """
+		branch_params["search"] = f"%{search}%"
+
+	# A search is a targeted customer lookup — return every match, no row cap.
+	limit_clause = "" if search else "LIMIT %(limit)s"
 
 	# Build the query based on whether we're using datetime or date filtering
 	if use_shift_datetime:
@@ -2400,13 +2434,13 @@ def get_all_orders(date_from=None, date_to=None, limit=500):
 			WHERE
 				TIMESTAMP(si.posting_date, si.posting_time) BETWEEN %(shift_start)s AND %(shift_end)s
 				AND si.docstatus != 2
-				{branch_cond}{order_type_cond}{status_cond}
+				{branch_cond}{order_type_cond}{status_cond}{search_cond}
 			ORDER BY
 				si.posting_date DESC,
 				si.posting_time DESC,
 				si.creation DESC
-			LIMIT %(limit)s
-		""".format(branch_cond=branch_cond, order_type_cond=order_type_cond, status_cond=status_cond), {
+			{limit_clause}
+		""".format(branch_cond=branch_cond, order_type_cond=order_type_cond, status_cond=status_cond, search_cond=search_cond, limit_clause=limit_clause), {
 			"shift_start": shift_start,
 			"shift_end": shift_end,
 			"limit": cint(limit),
@@ -2453,13 +2487,13 @@ def get_all_orders(date_from=None, date_to=None, limit=500):
 			WHERE
 				si.posting_date BETWEEN %(date_from)s AND %(date_to)s
 				AND si.docstatus != 2
-				{branch_cond}{order_type_cond}{status_cond}
+				{branch_cond}{order_type_cond}{status_cond}{search_cond}
 			ORDER BY
 				si.posting_date DESC,
 				si.posting_time DESC,
 				si.creation DESC
-			LIMIT %(limit)s
-		""".format(branch_cond=branch_cond, order_type_cond=order_type_cond, status_cond=status_cond), {
+			{limit_clause}
+		""".format(branch_cond=branch_cond, order_type_cond=order_type_cond, status_cond=status_cond, search_cond=search_cond, limit_clause=limit_clause), {
 			"date_from": date_from,
 			"date_to": date_to,
 			"limit": cint(limit),
@@ -2691,9 +2725,12 @@ def get_need_my_action_orders():
 			si.custom_third_party_referance_number,
 			si.custom_unique_talbat_number,
 			si.branch,
-			si.driver
+			si.driver,
+			COALESCE(NULLIF(si.contact_mobile, ''), cust.mobile_no) AS mobile_no,
+			cust.custom_other_mobile_no AS other_mobile_no
 		FROM
 			`tabSales Invoice` si
+			LEFT JOIN `tabCustomer` cust ON cust.name = si.customer
 		WHERE
 			si.docstatus = 0
 			AND (COALESCE(si.custom_is_rejected, 0) = 0)

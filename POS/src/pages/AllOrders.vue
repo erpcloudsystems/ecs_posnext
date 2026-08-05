@@ -1,5 +1,16 @@
 <template>
 	<div class="flex flex-col h-screen bg-gray-50">
+		<!-- Returned / Cancelled / Needs-approval order alarm (Call Center) -->
+		<div v-if="reversalAlert" class="fixed top-0 inset-x-0 z-[100] text-white px-6 py-4 flex items-center justify-between shadow-2xl animate-pulse" :class="reversalAlert.kind === 'needs_action' ? 'bg-amber-500' : 'bg-red-600'">
+			<div class="text-xl font-extrabold flex items-center">
+				{{ reversalAlert.kind === 'returned' ? '↩ مرتجع من الكول سنتر' : reversalAlert.kind === 'cancelled' ? '❌ إلغاء من الكول سنتر' : '⚠ طلب مرتجع يحتاج موافقتك' }}
+				<span v-if="reversalAlert.number" class="ml-2 px-3 py-0.5 bg-white/25 rounded-lg">{{ reversalAlert.number }}</span>
+			</div>
+			<div class="flex items-center gap-2">
+				<button v-if="reversalAlert.kind === 'needs_action'" @click="goToNeedMyAction" class="px-4 py-1.5 bg-white/25 hover:bg-white/40 rounded-lg font-bold text-lg">مراجعة</button>
+				<button @click="dismissReversalAlert" class="px-4 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg font-bold text-lg">✕</button>
+			</div>
+		</div>
 		<!-- Header -->
 		<div class="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 shadow-sm">
 			<button
@@ -129,13 +140,16 @@
 						</div>
 						<!-- From Date (only if user has permission) -->
 						<div v-if="canSelectDates">
-							<label class="block text-xs font-medium text-gray-600 mb-1">{{ __("From Date") }}</label>
-							<input v-model="filters.date_from" type="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+							<label class="block text-xs font-medium text-gray-600 mb-1">
+								{{ __("From Date") }}
+								<span v-if="maxDays > 0" class="text-gray-400 font-normal">({{ __("last {0} days", [maxDays]) }})</span>
+							</label>
+							<input v-model="filters.date_from" @change="onDateRangeChange" type="date" :min="minAllowedDate" :max="todayStr" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
 						</div>
 						<!-- To Date (only if user has permission) -->
 						<div v-if="canSelectDates">
 							<label class="block text-xs font-medium text-gray-600 mb-1">{{ __("To Date") }}</label>
-							<input v-model="filters.date_to" type="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+							<input v-model="filters.date_to" @change="onDateRangeChange" type="date" :min="minAllowedDate" :max="todayStr" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
 						</div>
 						<!-- Shift date info (shown when dates are locked) -->
 						<div v-if="!canSelectDates" class="sm:col-span-2 flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
@@ -998,6 +1012,7 @@ import { call } from "@/utils/apiWrapper"
 import { __ } from "@/utils/translation"
 import { useBootstrapStore } from "@/stores/bootstrap"
 import { useRealtimeOrders } from "@/composables/useRealtimeOrders"
+import { initSocket } from "@/socket"
 import { usePOSCartStore } from "@/stores/posCart"
 import { usePOSShiftStore } from "@/stores/posShift"
 import ReturnInvoiceDialog from "@/components/sale/ReturnInvoiceDialog.vue"
@@ -1087,6 +1102,18 @@ const orders = ref([])
 const loading = ref(false)
 const configLoading = ref(true)
 const canSelectDates = ref(false)
+// True once the user manually edits the date range — then search stays inside that range.
+const dateRangeTouched = ref(false)
+// Max past days the user may browse (0 = unlimited). Constrains the date pickers.
+const maxDays = ref(0)
+const todayStr = new Date().toISOString().slice(0, 10)
+// Earliest date the user is allowed to pick (today − maxDays); empty when unlimited.
+const minAllowedDate = computed(() => {
+	if (!maxDays.value || maxDays.value <= 0) return ""
+	const d = new Date()
+	d.setDate(d.getDate() - maxDays.value)
+	return d.toISOString().slice(0, 10)
+})
 const shiftStart = ref("")
 const shiftEnd = ref("")
 const search = ref("")
@@ -1390,6 +1417,7 @@ function toggleExpand(name) {
 }
 
 function resetFilters() {
+	dateRangeTouched.value = false
 	const keepFrom = canSelectDates.value ? "" : filters.value.date_from
 	const keepTo = canSelectDates.value ? "" : filters.value.date_to
 	filters.value = {
@@ -1413,6 +1441,7 @@ async function loadConfig() {
 	try {
 		const config = await call("ecs_posnext.api.invoices.get_all_orders_config", {})
 		canSelectDates.value = config.can_select_dates || false
+		maxDays.value = config.days || 0
 		filters.value.date_from = config.date_from || ""
 		filters.value.date_to = config.date_to || ""
 		shiftStart.value = config.shift_start || ""
@@ -1430,13 +1459,26 @@ async function loadConfig() {
 	}
 }
 
+// Changing the date range reloads immediately (so it's not "nothing happened" until Refresh).
+function onDateRangeChange() {
+	dateRangeTouched.value = true
+	currentPage.value = 1
+	fetchOrders()
+}
+
 async function fetchOrders() {
 	loading.value = true
 	try {
+		// A search term makes the backend look across the user's full allowed range
+		// (not just the loaded window), so older orders for a customer number are found.
+		const term = (search.value || filters.value.customer || "").trim()
 		const result = await call("ecs_posnext.api.invoices.get_all_orders", {
 			date_from: filters.value.date_from || null,
 			date_to: filters.value.date_to || null,
-			limit: 500,
+			limit: term ? 2000 : 500,
+			search: term || null,
+			// When the user has picked a date range, keep the search inside it.
+			respect_dates: dateRangeTouched.value ? 1 : 0,
 		})
 		orders.value = result || []
 	} catch (error) {
@@ -1446,6 +1488,14 @@ async function fetchOrders() {
 		loading.value = false
 	}
 }
+
+// Debounced server-side search — refetch across the allowed range as the user types a
+// customer number / name / order #, so results aren't limited to the loaded window.
+let _searchTimer = null
+watch([search, () => filters.value.customer], () => {
+	if (_searchTimer) clearTimeout(_searchTimer)
+	_searchTimer = setTimeout(() => fetchOrders(), 400)
+})
 
 function viewInvoice(name) {
 	// Open in new tab in Frappe desk
@@ -1917,17 +1967,80 @@ function scheduleRealtimeRefresh(data) {
 
 let unsubscribeOrders = null
 
+// ===== RETURNED / CANCELLED ORDER ALARM (Call Center) =====
+const reversalAlert = ref(null)
+let reversalTimer = null
+let returnAlarmTimer = null
+
+function onKdsUpdate(data) {
+	if (!data) return
+	if (data.action === "order_returned" || data.action === "order_cancelled" || data.action === "order_needs_action") {
+		showReversalAlert(data)
+		clearTimeout(realtimeRefreshTimer)
+		realtimeRefreshTimer = setTimeout(() => fetchOrders(), 800)
+	}
+}
+
+function showReversalAlert(data) {
+	if (!data?.is_call_center) return
+	const kind = data.action === "order_returned"
+		? "returned"
+		: data.action === "order_cancelled"
+			? "cancelled"
+			: "needs_action"
+	reversalAlert.value = {
+		kind,
+		number: data.number || data.invoice,
+		approval: data.approval || null,
+	}
+	startReturnAlarm()
+	if (reversalTimer) clearTimeout(reversalTimer)
+	reversalTimer = setTimeout(() => { reversalAlert.value = null }, 30000)
+}
+
+function goToNeedMyAction() {
+	dismissReversalAlert()
+	router.push({ name: "NeedMyAction" }).catch(() => router.push("/need-my-action"))
+}
+
+function startReturnAlarm() {
+	stopReturnAlarm()
+	let elapsed = 0
+	try { playNewOrderSound() } catch {}
+	returnAlarmTimer = setInterval(() => {
+		elapsed += 1
+		if (elapsed >= 30) { stopReturnAlarm(); return }
+		try { playNewOrderSound() } catch {}
+	}, 1000)
+}
+function stopReturnAlarm() {
+	if (returnAlarmTimer) { clearInterval(returnAlarmTimer); returnAlarmTimer = null }
+}
+function dismissReversalAlert() {
+	stopReturnAlarm()
+	if (reversalTimer) { clearTimeout(reversalTimer); reversalTimer = null }
+	reversalAlert.value = null
+}
+
 onMounted(async () => {
 	await loadConfig()
 	fetchOrders()
 	loadPosProfile()
 	loadActiveDrivers()
 	unsubscribeOrders = onOrderChanged(scheduleRealtimeRefresh)
+	const socket = initSocket()
+	if (socket) {
+		socket.connect()
+		socket.on("kds_update", onKdsUpdate)
+	}
 })
 
 onUnmounted(() => {
 	unsubscribeOrders?.()
 	clearTimeout(realtimeRefreshTimer)
+	stopReturnAlarm()
+	const socket = initSocket()
+	if (socket) socket.off("kds_update", onKdsUpdate)
 })
 
 // ===== ACTIVE DRIVERS =====

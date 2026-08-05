@@ -1,10 +1,10 @@
 <template>
   <div class="min-h-screen bg-black text-white">
 
-    <!-- Call Center reversal alert (return / cancel) -->
-    <div v-if="reversalAlert" class="fixed top-0 inset-x-0 z-[100] bg-red-600 text-white px-6 py-4 flex items-center justify-between shadow-2xl animate-pulse">
+    <!-- Call Center reversal alert (return / cancel / needs approval) -->
+    <div v-if="reversalAlert" class="fixed top-0 inset-x-0 z-[100] text-white px-6 py-4 flex items-center justify-between shadow-2xl animate-pulse" :class="reversalAlert.kind === 'needs_action' ? 'bg-amber-500' : 'bg-red-600'">
       <div class="text-xl md:text-2xl font-black">
-        {{ reversalAlert.kind === 'returned' ? '↩ مرتجع من الكول سنتر' : '❌ إلغاء من الكول سنتر' }}
+        {{ reversalAlert.kind === 'returned' ? '↩ مرتجع من الكول سنتر' : reversalAlert.kind === 'cancelled' ? '❌ إلغاء من الكول سنتر' : '⚠ طلب مرتجع يحتاج موافقتك' }}
         <span v-if="reversalAlert.number" class="ml-2 px-3 py-0.5 bg-white/25 rounded-lg">{{ reversalAlert.number }}</span>
       </div>
       <button @click="reversalAlert = null" class="px-4 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg font-bold text-lg">✕</button>
@@ -644,7 +644,7 @@ function startLive() {
   socket.connect()
   socket.on("kds_update", (data) => {
     if (data?.action === "new_order") playNewOrderSound()
-    if (data?.action === "order_cancelled" || data?.action === "order_returned") showReversalAlert(data)
+    if (data?.action === "order_cancelled" || data?.action === "order_returned" || data?.action === "order_needs_action") showReversalAlert(data)
     loadOrders()
   })
 }
@@ -653,7 +653,7 @@ function showReversalAlert(data) {
   if (!data?.is_call_center) return
   if (data.branch && selectedBranch.value && data.branch !== selectedBranch.value) return
   reversalAlert.value = {
-    kind: data.action === "order_returned" ? "returned" : "cancelled",
+    kind: data.action === "order_returned" ? "returned" : data.action === "order_cancelled" ? "cancelled" : "needs_action",
     number: data.number || data.invoice,
   }
   startReturnAlarm()

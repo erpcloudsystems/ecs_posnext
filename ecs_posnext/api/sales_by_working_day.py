@@ -148,6 +148,7 @@ def get_sales_by_working_day(filters=None):
         params,
         as_dict=True,
     )
+    _attach_invoice_modes(detail)
 
     # Returns are submitted credit notes (is_return = 1), not cancelled invoices.
     return_where = [f"(({time_cond}) OR ({date_only_cond}))", "si.docstatus = 1", "si.is_return = 1"]
@@ -491,6 +492,7 @@ def get_sales_by_date_range(filters=None):
         params,
         as_dict=True,
     )
+    _attach_invoice_modes(detail)
 
     totals = {
         "grand_total": sum([d.grand_total for d in detail]),
@@ -726,6 +728,41 @@ def _attach_actual_payments(payments, params, branches, pos_profiles, cashiers, 
         amount = (flt(a["actual"]) if a else 0) + flt(extra_actual.get(mode, 0))
         if amount:
             payments.append({"mode_of_payment": mode, "amount": 0, "actual": amount})
+
+
+def _attach_invoice_modes(detail):
+    """Attach a comma-joined Mode(s) of Payment per invoice — from the invoice's own
+    payment rows plus any Payment Entries settled against it (COD)."""
+    if not detail:
+        return
+    inv_names = tuple(d["name"] for d in detail)
+    modes = {}
+    for row in frappe.db.sql(
+        """
+        SELECT parent, GROUP_CONCAT(DISTINCT mode_of_payment ORDER BY mode_of_payment SEPARATOR ', ') AS m
+        FROM `tabSales Invoice Payment`
+        WHERE parent IN %(n)s AND IFNULL(mode_of_payment, '') != ''
+        GROUP BY parent
+        """,
+        {"n": inv_names},
+        as_dict=True,
+    ):
+        modes[row.parent] = set(x.strip() for x in (row.m or "").split(",") if x.strip())
+    for row in frappe.db.sql(
+        """
+        SELECT per.reference_name AS parent, pe.mode_of_payment AS m
+        FROM `tabPayment Entry Reference` per
+        JOIN `tabPayment Entry` pe ON pe.name = per.parent
+        WHERE per.reference_doctype = 'Sales Invoice'
+          AND per.reference_name IN %(n)s AND pe.docstatus = 1
+          AND IFNULL(pe.mode_of_payment, '') != ''
+        """,
+        {"n": inv_names},
+        as_dict=True,
+    ):
+        modes.setdefault(row.parent, set()).add((row.m or "").strip())
+    for d in detail:
+        d["mode_of_payment"] = ", ".join(sorted(modes.get(d["name"], [])))
 
 
 def _normalize(val):

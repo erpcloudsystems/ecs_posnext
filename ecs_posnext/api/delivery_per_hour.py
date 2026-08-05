@@ -16,7 +16,7 @@ def get_delivery_per_hour(filters=None):
 
     mode = filters.get("mode") or "whole_day"
     working_day = filters.get("working_day") or getdate()
-    shift = filters.get("shift") or "Morning"
+    shift = filters.get("shift") or "Whole Day"
     branches = _normalize(filters.get("branches"))
     pos_profiles = _normalize(filters.get("pos_profiles"))
     cashiers = _normalize(filters.get("cashiers"))
@@ -56,6 +56,9 @@ def get_delivery_per_hour(filters=None):
 
     where = [
         "si.docstatus = 1",
+        # A return credit note is not a separate order, and a returned order counts as 0.
+        "ifnull(si.is_return, 0) = 0",
+        "not exists (select 1 from `tabSales Invoice` r where r.return_against = si.name and ifnull(r.is_return,0) = 1 and r.docstatus = 1)",
         "timestamp(si.posting_date, ifnull(si.posting_time, '00:00:00')) BETWEEN %(start_dt)s AND %(end_dt)s",
         f"{order_type_expr} in %(order_types)s",
     ]
@@ -228,9 +231,9 @@ def _normalize(val):
 
 
 SHIFT_WINDOWS = {
-    "Morning": (12, 0, 20, 0),
-    "Evening": (20, 0, 5, 0),
-    "Whole Day": (12, 0, 5, 0),
+    "Morning": (9, 0, 20, 0),
+    "Evening": (20, 0, 9, 0),
+    "Whole Day": (9, 0, 9, 0),
 }
 
 
@@ -274,7 +277,7 @@ def _branch_column():
 
 def _order_type_column(doctype):
     cols = set(frappe.db.get_table_columns(doctype) or [])
-    for candidate in ["custom_so_type", "custom_custom_so_type", "so_type", "order_type"]:
+    for candidate in ["custom_order_type", "custom_so_type", "custom_custom_so_type", "so_type", "order_type"]:
         if candidate in cols:
             return candidate
     return None

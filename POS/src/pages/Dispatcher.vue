@@ -1,6 +1,15 @@
 <template>
 	<div class="min-h-screen bg-gray-900 text-white flex flex-col" style="height: 100vh; overflow: hidden">
 
+		<!-- Call Center returned/cancelled order alarm -->
+		<div v-if="reversalAlert" class="fixed top-0 inset-x-0 z-[100] bg-red-600 text-white px-6 py-4 flex items-center justify-between shadow-2xl animate-pulse">
+			<div class="text-xl md:text-2xl font-black">
+				{{ reversalAlert.kind === 'returned' ? '↩ مرتجع من الكول سنتر' : '❌ إلغاء من الكول سنتر' }}
+				<span v-if="reversalAlert.number" class="ml-2 px-3 py-0.5 bg-white/25 rounded-lg">{{ reversalAlert.number }}</span>
+			</div>
+			<button @click="dismissReversalAlert" class="px-4 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg font-bold text-lg">✕</button>
+		</div>
+
 		<!-- Header -->
 		<header class="bg-gray-900 border-b border-gray-700 px-6 py-3 flex items-center justify-between shrink-0">
 			<div class="flex items-center gap-4">
@@ -75,7 +84,17 @@
 				</div>
 			</button>
 
-			<div v-if="selectedOrders.length > 0" class="ml-auto flex items-center gap-2 shrink-0">
+			<div class="ml-auto flex items-center gap-2 shrink-0">
+				<span v-if="!fromDate && !showAllOrders" class="text-xs font-bold px-2 py-1 rounded bg-indigo-900/60 text-indigo-300 border border-indigo-700">📆 {{ __('يوم العمل') }}</span>
+				<label class="text-xs text-gray-500 uppercase tracking-wider">{{ __('From') }}</label>
+				<input type="date" v-model="fromDate" @change="showAllOrders = false; loadOrders()"
+					class="bg-gray-700 border border-gray-600 rounded-lg px-2 py-1 text-xs text-gray-200 outline-none focus:ring-2 focus:ring-indigo-500" />
+				<button v-if="fromDate || showAllOrders" @click="fromDate = ''; showAllOrders = false; loadOrders()" :title="__('Current business day')"
+					class="text-xs text-indigo-300 hover:text-indigo-200 px-2 py-1 bg-gray-700 rounded">{{ __('يوم العمل') }}</button>
+				<button v-if="!showAllOrders" @click="fromDate = ''; showAllOrders = true; loadOrders()" :title="__('Show all orders')"
+					class="text-xs text-gray-400 hover:text-gray-200 px-2 py-1 bg-gray-700 rounded">{{ __('الكل') }}</button>
+			</div>
+			<div v-if="selectedOrders.length > 0" class="flex items-center gap-2 shrink-0">
 				<span class="text-indigo-300 text-sm font-medium">{{ selectedOrders.length }} {{ __('selected') }}</span>
 				<button @click="selectedOrders = []" class="text-xs text-gray-500 hover:text-gray-300 px-2 py-1 bg-gray-700 rounded">✕ Clear</button>
 			</div>
@@ -585,6 +604,9 @@ function catOf(order) {
 const { showSuccess, showError } = useToast()
 
 const orders = ref([])
+// Hide old data on the board — default to today's orders only (blank = show all).
+const fromDate = ref("")          // empty = scope to the current business day
+const showAllOrders = ref(false)  // true = ignore the business-day window, show everything
 const drivers = ref([])
 const activeAssignments = ref([])
 const selectedOrders = ref([])
@@ -1013,7 +1035,11 @@ async function loadPaymentModes() {
 }
 async function loadOrders() {
 	try {
-		const raw = await call("ecs_posnext.ecs_posnext.api.dispatcher.get_unassigned_orders") || []
+		const raw = await call("ecs_posnext.ecs_posnext.api.dispatcher.get_unassigned_orders", {
+			from_date: fromDate.value || null,
+			// Default (no date, not "show all") = scope to the current business day.
+			business_day: (fromDate.value || showAllOrders.value) ? 0 : 1,
+		}) || []
 		// Newest orders first (by placement time).
 		const placedAt = (o) => new Date(`${o.posting_date} ${o.posting_time}`).getTime() || 0
 		raw.sort((a, b) => placedAt(b) - placedAt(a))
@@ -1066,6 +1092,49 @@ async function doAssign() {
 // ── Realtime ──────────────────────────────────────────────────────────────
 function onRealtimeRefresh() { loadOrders(); loadDrivers(); loadActiveAssignments() }
 
+// Returned / cancelled order alarm (same as KDS): red banner + repeating sound.
+const reversalAlert = ref(null)
+let reversalTimer = null
+let returnAlarmTimer = null
+
+function onKdsUpdate(data) {
+	loadOrders()
+	if (data && (data.action === "order_returned" || data.action === "order_cancelled")) showReversalAlert(data)
+}
+
+function showReversalAlert(data) {
+	if (!data?.is_call_center) return
+	// Only for this dispatcher's branch (show if no branch info or it matches).
+	const myBranch = currentShift.value?.branch
+	if (data.branch && myBranch && data.branch !== myBranch) return
+	reversalAlert.value = {
+		kind: data.action === "order_returned" ? "returned" : "cancelled",
+		number: data.number || data.invoice,
+	}
+	startReturnAlarm()
+	if (reversalTimer) clearTimeout(reversalTimer)
+	reversalTimer = setTimeout(() => { reversalAlert.value = null }, 30000)
+}
+
+function startReturnAlarm() {
+	stopReturnAlarm()
+	let elapsed = 0
+	try { playNewOrderSound() } catch {}
+	returnAlarmTimer = setInterval(() => {
+		elapsed += 1
+		if (elapsed >= 30) { stopReturnAlarm(); return }
+		try { playNewOrderSound() } catch {}
+	}, 1000)
+}
+function stopReturnAlarm() {
+	if (returnAlarmTimer) { clearInterval(returnAlarmTimer); returnAlarmTimer = null }
+}
+function dismissReversalAlert() {
+	stopReturnAlarm()
+	if (reversalTimer) { clearTimeout(reversalTimer); reversalTimer = null }
+	reversalAlert.value = null
+}
+
 onMounted(async () => {
 	await loadShift()
 	loadPosProfiles()
@@ -1076,12 +1145,13 @@ onMounted(async () => {
 	if (socket) {
 		socket.connect()
 		socket.on("dispatch_desk_refresh", onRealtimeRefresh)
-		socket.on("kds_update", loadOrders)
+		socket.on("kds_update", onKdsUpdate)
 	}
 })
 onUnmounted(() => {
 	clearInterval(timerInterval)
+	stopReturnAlarm()
 	const socket = initSocket()
-	if (socket) { socket.off("dispatch_desk_refresh", onRealtimeRefresh); socket.off("kds_update", loadOrders) }
+	if (socket) { socket.off("dispatch_desk_refresh", onRealtimeRefresh); socket.off("kds_update", onKdsUpdate) }
 })
 </script>

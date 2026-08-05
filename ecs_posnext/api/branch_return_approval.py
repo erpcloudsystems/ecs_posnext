@@ -37,7 +37,7 @@ def request_branch_return_approval(sales_invoice, invoice_payload, data_payload=
 
 	inv = frappe.db.get_value(
 		"Sales Invoice", sales_invoice,
-		["customer", "customer_name", "contact_mobile", "branch", "custom_number_order", "grand_total"],
+		["customer", "customer_name", "contact_mobile", "branch", "custom_number_order", "grand_total", "pos_profile"],
 		as_dict=True,
 	) or {}
 
@@ -73,6 +73,27 @@ def request_branch_return_approval(sales_invoice, invoice_payload, data_payload=
 	doc.flags.ignore_permissions = True
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
+
+	# Push a realtime "needs action" alarm to the branch manager's screens so a
+	# past-grace return waiting for approval is not just a silent row on Need My Action.
+	try:
+		frappe.publish_realtime(
+			"kds_update",
+			{
+				"action": "order_needs_action",
+				"invoice": sales_invoice,
+				"number": inv.get("custom_number_order"),
+				"branch": inv.get("branch"),
+				"is_call_center": "call center" in (inv.get("pos_profile") or "").lower(),
+				"return_source": doc.return_source,
+				"return_reason": reason,
+				"approval": doc.name,
+			},
+			after_commit=True,
+		)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "branch_return_approval realtime")
+
 	return {"name": doc.name, "status": "Pending"}
 
 

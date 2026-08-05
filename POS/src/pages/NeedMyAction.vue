@@ -61,6 +61,43 @@
 					<option v-for="type in orderTypes" :key="type" :value="type">{{ type }}</option>
 				</select>
 			</div>
+
+			<!-- Branch filter -->
+			<div class="flex items-center gap-2">
+				<label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ __("Branch:") }}</label>
+				<select v-model="branchFilter" class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white font-medium text-gray-700">
+					<option value="">{{ __("All Branches") }}</option>
+					<option v-for="b in branchOptions" :key="b" :value="b">{{ b }}</option>
+				</select>
+			</div>
+
+			<!-- Status filter -->
+			<div class="flex items-center gap-2">
+				<label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ __("Status:") }}</label>
+				<select v-model="statusFilter" class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white font-medium text-gray-700">
+					<option value="">{{ __("All") }}</option>
+					<option v-for="s in statusOptions" :key="s" :value="s">{{ s }}</option>
+				</select>
+			</div>
+
+			<!-- User filter -->
+			<div class="flex items-center gap-2">
+				<label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ __("User:") }}</label>
+				<input v-model="userFilter" type="text" :placeholder="__('user / requested by')" class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white w-40" />
+			</div>
+
+			<!-- Date range -->
+			<div class="flex items-center gap-2">
+				<label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ __("From:") }}</label>
+				<input v-model="dateFrom" type="date" class="px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white" />
+				<label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ __("To:") }}</label>
+				<input v-model="dateTo" type="date" class="px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white" />
+			</div>
+
+			<button v-if="branchFilter || statusFilter || userFilter || dateFrom || dateTo || search || orderTypeFilter !== 'all'"
+				@click="clearFilters" class="px-3 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200">
+				{{ __("Clear") }}
+			</button>
 		</div>
 
 		<!-- Main content -->
@@ -75,15 +112,15 @@
 			</div>
 
 			<!-- Failed Delivery Orders Section -->
-			<div v-if="failedDeliveries.length" class="mb-8">
+			<div v-if="filteredFailedDeliveries.length" class="mb-8">
 				<div class="flex items-center gap-2 mb-4">
 					<span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
 					<h2 class="text-base font-bold text-red-700">{{ __("Failed Deliveries — Pending Cancellation") }}</h2>
-					<span class="ml-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold">{{ failedDeliveries.length }}</span>
+					<span class="ml-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold">{{ filteredFailedDeliveries.length }}</span>
 				</div>
 				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 					<div
-						v-for="d in failedDeliveries"
+						v-for="d in filteredFailedDeliveries"
 						:key="d.name"
 						class="bg-white rounded-2xl border-2 border-red-200 shadow-sm overflow-hidden flex flex-col"
 					>
@@ -125,14 +162,14 @@
 			</div>
 
 			<!-- Customer Status Requests (VIP / Blacklist) -->
-			<div v-if="statusRequests.length" class="mb-8">
+			<div v-if="filteredStatusRequests.length" class="mb-8">
 				<div class="flex items-center gap-2 mb-4">
 					<span class="w-3 h-3 rounded-full bg-amber-500 animate-pulse"></span>
 					<h2 class="text-base font-bold text-amber-700">{{ __("Customer Status Requests") }}</h2>
-					<span class="ml-1 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-bold">{{ statusRequests.length }}</span>
+					<span class="ml-1 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-bold">{{ filteredStatusRequests.length }}</span>
 				</div>
 				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-					<div v-for="r in statusRequests" :key="r.name"
+					<div v-for="r in filteredStatusRequests" :key="r.name"
 						:class="['bg-white rounded-2xl border-2 shadow-sm overflow-hidden flex flex-col', r.request_type === 'Blacklist' ? 'border-red-200' : 'border-amber-200']">
 						<div :class="['px-5 py-4 border-b flex items-start justify-between', r.request_type === 'Blacklist' ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100']">
 							<div>
@@ -156,14 +193,14 @@
 			</div>
 
 			<!-- Compensation Coupon Requests -->
-			<div v-if="couponRequests.length" class="mb-8">
+			<div v-if="filteredCouponRequests.length" class="mb-8">
 				<div class="flex items-center gap-2 mb-4">
 					<span class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
 					<h2 class="text-base font-bold text-green-700">{{ __("Compensation Coupon Requests") }}</h2>
-					<span class="ml-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold">{{ couponRequests.length }}</span>
+					<span class="ml-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold">{{ filteredCouponRequests.length }}</span>
 				</div>
 				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-					<div v-for="r in couponRequests" :key="r.name"
+					<div v-for="r in filteredCouponRequests" :key="r.name"
 						class="bg-white rounded-2xl border-2 border-green-200 shadow-sm overflow-hidden flex flex-col">
 						<div class="px-5 py-4 border-b border-green-100 bg-green-50 flex items-start justify-between">
 							<div>
@@ -197,14 +234,14 @@
 			</div>
 
 			<!-- Delivery Return Requests (Call Center Manager / Deputy approval) -->
-			<div v-if="returnRequests.length" class="mb-8">
+			<div v-if="filteredReturnRequests.length" class="mb-8">
 				<div class="flex items-center gap-2 mb-4">
 					<span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
 					<h2 class="text-base font-bold text-red-700">{{ __("Delivery Return Requests") }}</h2>
-					<span class="ml-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold">{{ returnRequests.length }}</span>
+					<span class="ml-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold">{{ filteredReturnRequests.length }}</span>
 				</div>
 				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-					<div v-for="r in returnRequests" :key="r.name"
+					<div v-for="r in filteredReturnRequests" :key="r.name"
 						class="bg-white rounded-2xl border-2 border-red-200 shadow-sm overflow-hidden flex flex-col">
 						<div class="px-5 py-4 border-b border-red-100 bg-red-50 flex items-start justify-between">
 							<div>
@@ -232,14 +269,14 @@
 			</div>
 
 			<!-- Branch Return Approvals (past KDS grace window — Branch Manager) -->
-			<div v-if="branchApprovals.length" class="mb-8">
+			<div v-if="filteredBranchApprovals.length" class="mb-8">
 				<div class="flex items-center gap-2 mb-4">
 					<span class="w-3 h-3 rounded-full bg-orange-500 animate-pulse"></span>
 					<h2 class="text-base font-bold text-orange-700">{{ __("Branch Return Approvals") }}</h2>
-					<span class="ml-1 px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs font-bold">{{ branchApprovals.length }}</span>
+					<span class="ml-1 px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs font-bold">{{ filteredBranchApprovals.length }}</span>
 				</div>
 				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-					<div v-for="r in branchApprovals" :key="r.name"
+					<div v-for="r in filteredBranchApprovals" :key="r.name"
 						class="bg-white rounded-2xl border-2 border-orange-200 shadow-sm overflow-hidden flex flex-col">
 						<div class="px-5 py-4 border-b border-orange-100 bg-orange-50 flex items-start justify-between">
 							<div>
@@ -267,7 +304,7 @@
 			</div>
 
 			<!-- Orders Grid -->
-			<div v-else-if="!filteredOrders.length && !failedDeliveries.length && !statusRequests.length && !couponRequests.length && !returnRequests.length && !branchApprovals.length" class="flex flex-col items-center justify-center py-24 bg-white rounded-2xl border border-gray-200 shadow-sm text-center px-4">
+			<div v-else-if="!filteredOrders.length && !filteredFailedDeliveries.length && !filteredStatusRequests.length && !filteredCouponRequests.length && !filteredReturnRequests.length && !filteredBranchApprovals.length" class="flex flex-col items-center justify-center py-24 bg-white rounded-2xl border border-gray-200 shadow-sm text-center px-4">
 				<div class="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mb-6">
 					<svg class="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
@@ -294,6 +331,9 @@
 								<span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
 								{{ order.custom_number_order || order.name }}
 							</div>
+							<div v-if="order.custom_number_order" class="text-[11px] text-gray-400 mt-0.5">{{ order.name }}</div>
+							<div class="text-xs text-gray-600 mt-1 font-medium">👤 {{ order.customer_name || order.customer }}</div>
+							<div v-if="order.mobile_no" class="text-xs text-gray-500" dir="ltr">📞 {{ order.mobile_no }}<span v-if="order.other_mobile_no"> · {{ order.other_mobile_no }}</span></div>
 							<div class="text-xs text-gray-400 mt-1 flex items-center gap-1">
 								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -315,6 +355,7 @@
 							</div>
 							<div>
 								<div class="text-sm font-semibold text-gray-900">{{ order.customer_name }}</div>
+								<div v-if="order.mobile_no" class="text-xs text-gray-600 mt-0.5" dir="ltr">📞 {{ order.mobile_no }}<span v-if="order.other_mobile_no" class="text-gray-400"> · {{ order.other_mobile_no }}</span></div>
 								<div class="text-xs text-gray-400 mt-0.5">{{ order.customer }}</div>
 							</div>
 						</div>
@@ -1463,12 +1504,66 @@ watch(showPaymentDialog, (val) => {
 })
 
 // Filters & Helpers
+// ── Dynamic filters (Branch / User / Date / Status) ────────────────────────
+const _todayStr = () => new Date().toLocaleDateString("en-CA")  // local YYYY-MM-DD
+const branchFilter = ref("")
+const statusFilter = ref("")
+const userFilter = ref("")
+const dateFrom = ref(_todayStr())  // default: today
+const dateTo = ref("")
+
+function clearFilters() {
+	branchFilter.value = ""
+	statusFilter.value = ""
+	userFilter.value = ""
+	dateFrom.value = _todayStr()  // reset to the default (today), not empty
+	dateTo.value = ""
+	search.value = ""
+	orderTypeFilter.value = "all"
+}
+
+// Branch/User/Date filter shared across the main list AND the request/approval sections.
+function passCommonFilters(row, dateField, userFields) {
+	if (branchFilter.value && (row.branch || "") !== branchFilter.value) return false
+	const d = (row[dateField] || "").toString().slice(0, 10)
+	if (dateFrom.value && d && d < dateFrom.value) return false
+	if (dateTo.value && d && d > dateTo.value) return false
+	if (userFilter.value) {
+		const u = userFilter.value.toLowerCase()
+		const hit = (userFields || []).some((f) => (row[f] || "").toString().toLowerCase().includes(u))
+		if (!hit) return false
+	}
+	return true
+}
+
+// Branch options gathered from everything currently loaded.
+const branchOptions = computed(() => {
+	const set = new Set()
+	for (const arr of [orders.value, failedDeliveries.value, statusRequests.value, couponRequests.value, returnRequests.value, branchApprovals.value]) {
+		for (const r of arr || []) if (r.branch) set.add(r.branch)
+	}
+	return Array.from(set).sort()
+})
+
+const statusOptions = computed(() => {
+	const set = new Set()
+	for (const o of orders.value || []) {
+		const s = o.display_status || o.status
+		if (s) set.add(s)
+	}
+	return Array.from(set).sort()
+})
+
 const filteredOrders = computed(() => {
 	let data = orders.value.slice()
 
 	if (orderTypeFilter.value !== "all") {
 		data = data.filter((o) => o.custom_order_type === orderTypeFilter.value)
 	}
+	if (statusFilter.value) {
+		data = data.filter((o) => (o.display_status || o.status) === statusFilter.value)
+	}
+	data = data.filter((o) => passCommonFilters(o, "posting_date", ["owner", "customer", "customer_name", "contact_mobile"]))
 
 	if (search.value) {
 		const s = search.value.toLowerCase()
@@ -1486,6 +1581,18 @@ const filteredOrders = computed(() => {
 
 	return data
 })
+
+// Filtered views of each section (Branch / User / Date apply; sections are all "Pending").
+const filteredFailedDeliveries = computed(() =>
+	failedDeliveries.value.filter((d) => passCommonFilters(d, "marked_failed_at", ["marked_failed_by", "customer", "driver"])))
+const filteredStatusRequests = computed(() =>
+	statusRequests.value.filter((r) => passCommonFilters(r, "creation", ["requested_by", "customer", "customer_name", "mobile"])))
+const filteredCouponRequests = computed(() =>
+	couponRequests.value.filter((r) => passCommonFilters(r, "creation", ["requested_by", "customer", "customer_name", "mobile"])))
+const filteredReturnRequests = computed(() =>
+	returnRequests.value.filter((r) => passCommonFilters(r, "creation", ["requested_by", "customer", "customer_name", "mobile"])))
+const filteredBranchApprovals = computed(() =>
+	branchApprovals.value.filter((r) => passCommonFilters(r, "creation", ["requested_by", "customer", "customer_name", "mobile"])))
 
 const orderTypes = computed(() => {
 	const set = new Set(
@@ -1575,7 +1682,23 @@ watch(pendingCount, (count) => {
 })
 
 // ── Realtime ──────────────────────────────────────────────────────────────────
-const { onOrderChanged } = useRealtimeOrders()
+const { onOrderChanged, playNewOrderSound } = useRealtimeOrders()
+
+// A past-grace return creates a Branch Return Approval (not an order change), so it
+// won't fire pos_order_changed. Listen to kds_update and refresh + chime when one lands.
+function onNeedsActionUpdate(data) {
+	if (data?.action === "order_needs_action") {
+		try { playNewOrderSound() } catch { /* noop */ }
+		scheduleRealtimeRefresh()
+	}
+}
+function bindNeedsActionListener() {
+	if (!window.frappe?.realtime) {
+		setTimeout(bindNeedsActionListener, 400)
+		return
+	}
+	window.frappe.realtime.on("kds_update", onNeedsActionUpdate)
+}
 
 const COUPON_EVENT = "coupon_request_changed"
 let realtimeRefreshTimer = null
@@ -1614,6 +1737,7 @@ onMounted(async () => {
 	}
 	unsubscribeOrders = onOrderChanged(scheduleRealtimeRefresh)
 	bindCouponListener()
+	bindNeedsActionListener()
 })
 
 onUnmounted(() => {
@@ -1621,6 +1745,7 @@ onUnmounted(() => {
 	clearTimeout(realtimeRefreshTimer)
 	clearTimeout(couponRetryTimer)
 	try { window.frappe?.realtime?.off?.(COUPON_EVENT, scheduleRealtimeRefresh) } catch { /* noop */ }
+	try { window.frappe?.realtime?.off?.("kds_update", onNeedsActionUpdate) } catch { /* noop */ }
 })
 </script>
 

@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import now_datetime, flt
+from frappe.utils import now_datetime, flt, get_datetime
 
 
 # ---------------------------------------------------------------------------
@@ -110,9 +110,10 @@ def get_open_shift():
 
 
 @frappe.whitelist()
-def get_unassigned_orders():
+def get_unassigned_orders(from_date=None, business_day=None):
 	"""
 	Return Delivery / Talabat Sales Invoices that are submitted and NOT already assigned.
+	`from_date` (YYYY-MM-DD) hides older orders — only orders posted on/after it are shown.
 	Branch is auto-detected from the current user's open POS Opening Shift → POS Profile.
 	All orders are shown regardless of KDS status; kds_status and kds_ready fields indicate
 	kitchen readiness so the dispatcher can see orders as soon as they are placed.
@@ -127,6 +128,23 @@ def get_unassigned_orders():
 	)
 	if shift:
 		branch = frappe.db.get_value("POS Profile", shift, "branch") or None
+
+	# Scope to the CURRENT business day by default: unless the caller passed an explicit
+	# from_date or asked to show all (business_day=0), use the dispatcher profile's
+	# business-day window start (so yesterday's undispatched orders don't linger on the
+	# board). bd_start is the precise start for post-filtering.
+	scope_bd = True if business_day is None else bool(frappe.utils.cint(business_day))
+	bd_start = None
+	if not from_date and shift and scope_bd:
+		try:
+			from ecs_posnext.api.business_day import get_business_day_window
+
+			window = get_business_day_window(shift)
+			if window and window.get("start_datetime"):
+				bd_start = get_datetime(window.get("start_datetime"))
+				from_date = str(window.get("business_date"))
+		except Exception:
+			bd_start = None
 
 	# An order is "still assigned" only while an assignment holds it: in progress
 	# (Assigned / Picked Up / Out for Delivery) or already Delivered. A 'Failed' or
@@ -151,6 +169,9 @@ def get_unassigned_orders():
 		filters["branch"] = branch
 	if assigned_refs:
 		filters["name"] = ["not in", assigned_refs]
+	# Hide old data: only orders posted on/after the requested date.
+	if from_date:
+		filters["posting_date"] = [">=", from_date]
 
 	invoices = frappe.get_all(
 		"Sales Invoice",
@@ -163,6 +184,14 @@ def get_unassigned_orders():
 		order_by="posting_date desc, posting_time desc",
 		limit=200,
 	)
+
+	# Precise business-day lower bound: drop orders posted before the window's exact
+	# start time (the SQL filter above is date-only, so trim the boundary day here).
+	if bd_start:
+		invoices = [
+			inv for inv in invoices
+			if get_datetime(f"{inv['posting_date']} {inv.get('posting_time') or '00:00:00'}") >= bd_start
+		]
 
 	if not invoices:
 		return []

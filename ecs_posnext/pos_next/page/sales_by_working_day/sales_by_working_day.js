@@ -321,6 +321,7 @@ function render_app() {
                 <th>{{ __("Branch") }}</th>
                 <th>{{ __("POS Profile") }}</th>
                 <th>{{ __("Customer") }}</th>
+                <th>{{ __("Mode of Payment") }}</th>
                 <th>{{ __("Grand Total") }}</th>
                 <th>{{ __("Net Total") }}</th>
                 <th>{{ __("Outstanding") }}</th>
@@ -335,6 +336,7 @@ function render_app() {
                 <td>{{ row.branch || __("Unknown") }}</td>
                 <td>{{ row.pos_profile }}</td>
                 <td>{{ row.customer }}</td>
+                <td>{{ row.mode_of_payment }}</td>
                 <td>{{ format_currency(row.grand_total) }}</td>
                 <td>{{ format_currency(row.net_total) }}</td>
                 <td>{{ format_currency(row.outstanding_amount) }}</td>

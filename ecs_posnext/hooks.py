@@ -238,6 +238,12 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+	"User": {
+		"validate": "ecs_posnext.overrides.user_name.user_set_full_name"
+	},
+	"Employee": {
+		"validate": "ecs_posnext.overrides.user_name.employee_set_full_name"
+	},
 	"Item": {
 		"validate": "ecs_posnext.validations.validate_item"
 	},
