@@ -1,0 +1,83 @@
+{
+ "actions": [],
+ "creation": "2026-08-04 09:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enable_reports_in_pos",
+  "section_break_reports",
+  "reports_html",
+  "reports"
+ ],
+ "fields": [
+  {
+   "default": "1",
+   "description": "Turn off to hide the Reports button in the POS for every profile.",
+   "fieldname": "enable_reports_in_pos",
+   "fieldtype": "Check",
+   "label": "Enable Reports in POS"
+  },
+  {
+   "fieldname": "section_break_reports",
+   "fieldtype": "Section Break",
+   "label": "Reports"
+  },
+  {
+   "fieldname": "reports_html",
+   "fieldtype": "HTML",
+   "options": "<p class=\"text-muted small\">Reports listed here appear behind the Reports button in the POS. A cashier still only sees a report when their roles allow it &mdash; the report's own Roles table and <code>report</code> permission on its Ref DocType are both enforced.</p>"
+  },
+  {
+   "fieldname": "reports",
+   "fieldtype": "Table",
+   "label": "Reports",
+   "options": "POS Report Setting Item"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-08-04 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Report Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Sales User"
+  },
+  {
+   "read": 1,
+   "role": "POSNext Cashier"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

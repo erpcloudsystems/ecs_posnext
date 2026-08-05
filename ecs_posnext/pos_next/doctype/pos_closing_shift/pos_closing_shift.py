@@ -65,8 +65,26 @@ class POSClosingShift(Document):
                 _("Selected POS Opening Shift should be open."),
                 title=_("Invalid Opening Entry"),
             )
+        self.validate_closing_amounts()
         self.update_payment_reconciliation()
         self._compute_daily_payments_and_tip()
+
+    def validate_closing_amounts(self):
+        """Every payment method must have an actual counted amount greater than zero."""
+        precision = frappe.get_cached_value("System Settings", None, "currency_precision") or 3
+        invalid_modes = [
+            d.mode_of_payment
+            for d in self.payment_reconciliation
+            if flt(d.closing_amount, precision) <= 0
+        ]
+
+        if invalid_modes:
+            frappe.throw(
+                _(
+                    "Actual counted amount must be greater than 0 for the following payment methods: {0}"
+                ).format(frappe.bold(", ".join(invalid_modes))),
+                title=_("Invalid Closing Amount"),
+            )
 
     def update_payment_reconciliation(self):
         # update the difference values in Payment Reconciliation child table

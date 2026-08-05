@@ -183,9 +183,9 @@ const show = ref(props.modelValue)
 const invoices = ref([])
 const searchTerm = ref("")
 
-// Cashiers only see the last 5 invoices of the last open shift; the Administrator
+// Cashiers only see the last 10 invoices of the last open shift; the Administrator
 // keeps the full, paginated history across shifts.
-const SHIFT_PAGE_SIZE = 5
+const SHIFT_PAGE_SIZE = 10
 const FULL_PAGE_SIZE = 20
 const pageSize = computed(() => (isAdministrator.value ? FULL_PAGE_SIZE : SHIFT_PAGE_SIZE))
 const page = ref(0)
@@ -198,7 +198,7 @@ const selectedInvoiceForReturn = ref(null)
 // Track if we're loading more (appending) vs fresh load (replacing)
 const isLoadingMore = ref(false)
 
-// Non-admin history: last 5 invoices of the last open shift, resolved on the
+// Non-admin history: last 10 invoices of the last open shift, resolved on the
 // server so a missing shift prop can never widen the query to every shift.
 const shiftInvoicesResource = createResource({
 	url: "ecs_posnext.api.shifts.get_shift_invoices",

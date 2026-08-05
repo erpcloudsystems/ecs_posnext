@@ -1,0 +1,96 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-04 09:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "report",
+  "label",
+  "icon",
+  "column_break_settings",
+  "pos_profile",
+  "enabled",
+  "section_break_report_info",
+  "report_type",
+  "ref_doctype"
+ ],
+ "fields": [
+  {
+   "fieldname": "report",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Report",
+   "options": "Report",
+   "reqd": 1
+  },
+  {
+   "description": "Optional. Shown in the POS instead of the report name.",
+   "fieldname": "label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Label in POS"
+  },
+  {
+   "default": "bar-chart-2",
+   "description": "Feather icon name, e.g. bar-chart-2, pie-chart, trending-up, list.",
+   "fieldname": "icon",
+   "fieldtype": "Data",
+   "label": "Icon"
+  },
+  {
+   "fieldname": "column_break_settings",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Leave blank to show this report in every POS Profile.",
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "POS Profile",
+   "options": "POS Profile"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "section_break_report_info",
+   "fieldtype": "Section Break",
+   "label": "Report Info"
+  },
+  {
+   "fetch_from": "report.report_type",
+   "fieldname": "report_type",
+   "fieldtype": "Data",
+   "label": "Report Type",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "report.ref_doctype",
+   "fieldname": "ref_doctype",
+   "fieldtype": "Link",
+   "label": "Ref DocType",
+   "options": "DocType",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-04 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Report Setting Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

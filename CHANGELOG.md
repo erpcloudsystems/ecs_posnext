@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Reports in POS**
+  - New Single DocType **POS Report Settings** to select which reports appear in the POS, with per-row label, Feather icon, optional POS Profile scope, and an enable toggle (child table **POS Report Setting Item**); duplicate and disabled-report rows are rejected on save
+  - Added a **Reports** icon to the POS management sidebar, directly below Employee Attendance
+  - Reports dialog lists the configured reports (searchable); picking one opens it with its own filter bar, plus **Refresh**, **Excel**, **CSV** and **Print** buttons
+  - Report filters are resolved server side in `ecs_posnext/api/reports.py`: the Report's Filters table when it has one, otherwise the `filters: [...]` literal parsed out of the report's client script (the POS has no desk bundle to evaluate it with). Link/MultiSelectList filters search the server, including filters whose doctype comes from a sibling filter (e.g. General Ledger's Party)
+  - Export reuses the framework's `export_query` endpoint through a hidden iframe, so a POS export matches the desk byte for byte and a failed export cannot navigate the POS away mid-shift
+  - Print renders the loaded rows into a landscape A4 layout with the applied filters, honouring RTL
+  - Report permissions are enforced throughout: the report's own Roles table, `report` permission on its Ref DocType, and `export` permission before the export buttons are offered. Reports not listed in POS Report Settings cannot be run through these endpoints
+  - Added **POS Report Settings** to the POSNext workspace under Configuration
 - **POS Customer Inline Entry in Payment Dialog**
   - Removed mandatory customer selection popup that blocked checkout when no customer was selected
   - Added Customer Name and Mobile Number fields inline in the Complete Payment dialog, above the Sales Person section

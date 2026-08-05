@@ -129,14 +129,14 @@ def _get_last_open_shift(pos_profile=None, user=None):
 
 
 @frappe.whitelist()
-def get_shift_invoices(pos_profile=None, pos_opening_shift=None, limit=5):
+def get_shift_invoices(pos_profile=None, pos_opening_shift=None, limit=10):
 	"""Return the most recent Sales Invoices of the last open POS Opening Shift.
 
 	Used by the POS invoice history for non-admin users, which must never show
 	invoices from other shifts. When no open shift can be resolved, an empty
 	list is returned rather than falling back to an unscoped query.
 	"""
-	limit = frappe.utils.cint(limit) or 5
+	limit = frappe.utils.cint(limit) or 10
 
 	shift = pos_opening_shift or _get_last_open_shift(pos_profile)
 	if not shift:

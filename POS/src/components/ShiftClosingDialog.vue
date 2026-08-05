@@ -253,7 +253,11 @@
                         @update:modelValue="(value) => updateClosingAmount(payment, value)" type="number" step="10"
                         min="0" placeholder="0.00" :disabled="isSubmitting"
                         :aria-label="__('Enter actual amount for {0}', [payment.mode_of_payment])"
+                        :aria-invalid="isZeroClosingAmount(payment)"
                         class="text-base md:text-lg text-center font-semibold" />
+                      <p v-if="isZeroClosingAmount(payment)" class="text-xs text-red-600 mt-1 text-center">
+                        {{ __('Amount cannot be 0') }}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -335,8 +339,13 @@
                         @update:modelValue="(value) => updateClosingAmount(payment, value)" type="number" step="0.01"
                         min="0" placeholder="0.00" :disabled="showSuccessReport || isSubmitting"
                         :aria-label="`Enter actual amount for ${payment.mode_of_payment}`"
+                        :aria-invalid="!showSuccessReport && isZeroClosingAmount(payment)"
                         class="text-base md:text-lg" />
-                      <div class="text-xs text-gray-500 mt-0.5 md:mt-1 hidden sm:block">
+                      <p v-if="!showSuccessReport && isZeroClosingAmount(payment)"
+                        class="text-xs text-red-600 mt-0.5 md:mt-1 font-medium">
+                        {{ __('Amount cannot be 0') }}
+                      </p>
+                      <div v-else class="text-xs text-gray-500 mt-0.5 md:mt-1 hidden sm:block">
                         {{ showSuccessReport ? __('Final Amount') : __('Count & enter') }}
                       </div>
                     </div>
@@ -476,7 +485,7 @@
           <!-- Validation Warning (only in entry mode) -->
           <div v-if="!canSubmit && closingData && !showSuccessReport"
             class="text-xs md:text-sm text-yellow-600 font-medium text-center sm:text-end">
-            {{ __('Please enter all closing amounts') }}
+            {{ validationMessage }}
           </div>
 
           <!-- Success message (shown in report view) -->
@@ -615,21 +624,73 @@ function updateClosingAmount(payment, value) {
   calculateDifference(payment)
 }
 
+// A counted amount is only valid when it is filled in AND greater than zero.
+// Zero means the cashier hasn't actually counted that payment method yet, so
+// closing the shift with it is blocked.
+function isValidClosingAmount(payment) {
+  if (
+    payment.closing_amount === null ||
+    payment.closing_amount === undefined ||
+    payment.closing_amount === ""
+  ) {
+    return false
+  }
+  const amount = Number.parseFloat(payment.closing_amount)
+  return Number.isFinite(amount) && amount > 0
+}
+
+function isZeroClosingAmount(payment) {
+  if (
+    payment.closing_amount === null ||
+    payment.closing_amount === undefined ||
+    payment.closing_amount === ""
+  ) {
+    return false
+  }
+  return Number.parseFloat(payment.closing_amount) === 0
+}
+
+// Payment methods still missing a valid counted amount
+const invalidPayments = computed(() => {
+  if (!closingData.value || !closingData.value.payment_reconciliation) return []
+  return closingData.value.payment_reconciliation.filter(
+    (payment) => !isValidClosingAmount(payment),
+  )
+})
+
+const zeroPayments = computed(() =>
+  invalidPayments.value.filter((payment) => isZeroClosingAmount(payment)),
+)
+
+const validationMessage = computed(() => {
+  if (!invalidPayments.value.length) return ''
+  if (zeroPayments.value.length === invalidPayments.value.length) {
+    return __('Actual amount cannot be 0 for: {0}', [
+      zeroPayments.value.map((p) => p.mode_of_payment).join(', '),
+    ])
+  }
+  return __('Please enter all closing amounts (0 is not allowed)')
+})
+
 const canSubmit = computed(() => {
   if (!closingData.value || !closingData.value.payment_reconciliation)
     return false
 
-  // Check if all closing amounts are filled
-  return closingData.value.payment_reconciliation.every(
-    (payment) =>
-      payment.closing_amount !== null &&
-      payment.closing_amount !== undefined &&
-      payment.closing_amount !== "",
-  )
+  // Every payment method must have a counted amount greater than zero
+  return invalidPayments.value.length === 0
 })
 
 async function submitClosing() {
   if (!closingData.value) return
+
+  // Block closing when any payment method has no (or a zero) counted amount
+  if (invalidPayments.value.length) {
+    errorMessage.value = __(
+      'Actual counted amount must be greater than 0 for every payment method. Please review: {0}',
+      [invalidPayments.value.map((p) => p.mode_of_payment).join(', ')],
+    )
+    return
+  }
 
   try {
     errorMessage.value = '' // Clear any previous errors

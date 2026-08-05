@@ -663,6 +663,9 @@
 			<!-- Employee Attendance -->
 			<EmployeeAttendance v-model="showEmployeeAttendance" :company="shiftStore.profileCompany" :branch="shiftStore.profileBranch" @marked="handleAttendanceMarked" />
 
+			<!-- Reports -->
+			<POSReports v-model="showReports" :pos-profile="shiftStore.profileName" :branch="shiftStore.profileBranch" />
+
 			<!-- Invoice Detail Dialog -->
 			<InvoiceDetailDialog
 				v-model="showInvoiceDetail"
@@ -1010,6 +1013,7 @@ import InvoiceManagement from "@/components/invoices/InvoiceManagement.vue";
 import DailyPaymentManagement from "@/components/daily_payment/DailyPaymentManagement.vue";
 import TrackInvoices from "@/components/daily_payment/TrackInvoices.vue";
 import EmployeeAttendance from "@/components/daily_payment/EmployeeAttendance.vue";
+import POSReports from "@/components/reports/POSReports.vue";
 import InvoiceDetailDialog from "@/components/invoices/InvoiceDetailDialog.vue";
 import { useRealtimeStock } from "@/composables/useRealtimeStock";
 import { usePOSEvents } from "@/composables/usePOSEvents";
@@ -1121,6 +1125,9 @@ const showTrackInvoices = ref(false);
 
 // Employee Attendance dialog
 const showEmployeeAttendance = ref(false);
+
+// Reports dialog
+const showReports = ref(false);
 
 // Invoice Detail dialog
 const showInvoiceDetail = ref(false);
@@ -2510,6 +2517,8 @@ function handleManagementMenuClick(menuItem) {
 		showTrackInvoices.value = true;
 	} else if (menuItem === "employee-attendance") {
 		showEmployeeAttendance.value = true;
+	} else if (menuItem === "reports") {
+		showReports.value = true;
 	}
 }
 
