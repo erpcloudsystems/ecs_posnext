@@ -271,6 +271,9 @@ def renew_ticket(
     ticket.global_maximum_usage = (ticket.global_maximum_usage or 0) + added_uses
     ticket.remaining_usage = (ticket.remaining_usage or 0) + added_uses
 
+    ticket.used_free_wristband = 0
+    ticket.remaining_free_wristband = cint(ticket.maximum_free_wristband)
+
     days = None
     if extend_days:
         days = int(extend_days)
@@ -316,4 +319,6 @@ def renew_ticket(
         "valid_to": str(ticket.valid_to),
         "global_maximum_usage": ticket.global_maximum_usage,
         "remaining_usage": ticket.remaining_usage,
+        "used_free_wristband": ticket.used_free_wristband,
+        "remaining_free_wristband": ticket.remaining_free_wristband,
     }
