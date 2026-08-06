@@ -326,18 +326,27 @@ def get_delivery_charge_for_territory(territory, pos_profile=None):
             
     # Default rate
     rate = charge_doc.default_rate
-    
+
     # Check if there is a specific rate for this POS Profile
     if pos_profile:
         for profile_row in charge_doc.profiles:
             if profile_row.pos_profile == pos_profile:
                 rate = profile_row.rate
                 break
-                
+
+    # Free Delivery: when the POS Profile waives delivery, force the rate to 0 so the zone
+    # still displays but nothing is charged.
+    free_delivery = 0
+    if pos_profile:
+        free_delivery = frappe.utils.cint(frappe.db.get_value("POS Profile", pos_profile, "custom_free_delivery"))
+        if free_delivery:
+            rate = 0
+
     return {
         "name": charge_doc.name,
         "label": charge_doc.label,
         "rate": rate,
+        "free_delivery": free_delivery,
         "territory": territory,
         "shipping_account": charge_doc.shipping_account,
         "cost_center": charge_doc.cost_center,

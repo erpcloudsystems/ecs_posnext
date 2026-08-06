@@ -1,0 +1,254 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-08-05 09:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "pos_profile",
+  "warehouse",
+  "company",
+  "column_break_head",
+  "pos_business_day",
+  "business_date",
+  "count_datetime",
+  "counted_by",
+  "section_items",
+  "items",
+  "section_summary",
+  "has_variance",
+  "total_items",
+  "items_with_variance",
+  "column_break_summary",
+  "total_variance_qty",
+  "total_variance_value",
+  "section_remarks",
+  "remarks",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "BIC-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "POS Profile",
+   "options": "POS Profile",
+   "reqd": 1
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Warehouse",
+   "options": "Warehouse",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "pos_profile.company",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The open Business Day this count belongs to.",
+   "fieldname": "pos_business_day",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "POS Business Day",
+   "options": "POS Business Day",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "pos_business_day.business_date",
+   "fieldname": "business_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Business Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "count_datetime",
+   "fieldtype": "Datetime",
+   "label": "Count Date/Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "counted_by",
+   "fieldtype": "Link",
+   "label": "Counted By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_items",
+   "fieldtype": "Section Break",
+   "label": "Count Sheet"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Blind Inventory Count Item"
+  },
+  {
+   "depends_on": "eval:doc.docstatus==1",
+   "fieldname": "section_summary",
+   "fieldtype": "Section Break",
+   "label": "Variance Summary"
+  },
+  {
+   "default": "0",
+   "fieldname": "has_variance",
+   "fieldtype": "Check",
+   "label": "Has Variance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_items",
+   "fieldtype": "Int",
+   "label": "Total Items Counted",
+   "read_only": 1
+  },
+  {
+   "fieldname": "items_with_variance",
+   "fieldtype": "Int",
+   "label": "Items With Variance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_summary",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_variance_qty",
+   "fieldtype": "Float",
+   "label": "Total Variance Qty (abs)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_variance_value",
+   "fieldtype": "Currency",
+   "label": "Total Variance Value (abs)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_remarks",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Blind Inventory Count",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-08-05 09:00:00",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "Blind Inventory Count",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "POSNext Operations Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "create": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "POSNext Branch Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1,
+   "amend": 1
+  },
+  {
+   "create": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Bransh Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1,
+   "amend": 1
+  },
+  {
+   "create": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Assistant branch manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Branch supervisor",
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

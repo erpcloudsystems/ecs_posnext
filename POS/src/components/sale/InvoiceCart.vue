@@ -1326,8 +1326,13 @@
 							</svg>
 						</button>
 					</div>
-					<span class="font-bold text-gray-900 text-center min-w-[60px]">{{
-						formatCurrency(cartStore.deliveryCharge.rate)
+					<span
+						class="font-bold text-center min-w-[60px]"
+						:class="(cartStore.deliveryCharge.free_delivery || !cartStore.deliveryCharge.rate) ? 'text-green-600' : 'text-gray-900'"
+					>{{
+						(cartStore.deliveryCharge.free_delivery || !cartStore.deliveryCharge.rate)
+							? __("Free")
+							: formatCurrency(cartStore.deliveryCharge.rate)
 					}}</span>
 				</div>
 			</div>

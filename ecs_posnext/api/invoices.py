@@ -954,7 +954,15 @@ def _prepare_invoice_doc(data):
     
     if passed_territory:
         invoice_doc.territory = passed_territory
-    
+
+    # Free Delivery: if this invoice's POS Profile waives delivery, force the charge to 0
+    # regardless of what the (possibly cached/offline) payload sent.
+    _fd_profile = invoice_doc.get("pos_profile") or data.get("pos_profile")
+    if _fd_profile and cint(frappe.db.get_value("POS Profile", _fd_profile, "custom_free_delivery")):
+        delivery_charge_rate = 0
+        if delivery_charge_name and hasattr(invoice_doc, "taxes"):
+            invoice_doc.taxes = [t for t in invoice_doc.taxes if t.description != delivery_charge_name]
+
     if delivery_charge_name and delivery_charge_rate:
         try:
             charge_doc = frappe.get_doc("Delivery Charges", delivery_charge_name)

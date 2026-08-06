@@ -273,6 +273,71 @@ def block_closed_period_invoice_cancel(doc, method=None):
 	assert_pos_invoice_cancellable(doc)
 
 
+# --------------------------------------------------------------------------
+# Freeze a CLOSED Business Day for branch roles
+# --------------------------------------------------------------------------
+# Once a Business Day is closed, a Branch Manager / Assistant Branch Manager /
+# Branch Supervisor may ONLY create Payment Entries (late COD) or perform Shift
+# Closing actions. Every other modification of that day's records is blocked.
+# Higher roles (System Manager, Operations Manager) can still fix / reopen.
+_BD_LOCK_RESTRICTED_ROLES = {"Bransh Manager", "Assistant branch manager", "Branch supervisor"}
+_BD_LOCK_BYPASS_ROLES = {"System Manager", "POSNext Operations Manager"}
+
+
+def _resolve_locked_business_day(doc):
+	"""Return the CLOSED Business Day this doc modifies, else None."""
+	dt = doc.doctype
+	bd = None
+	if dt == "POS Business Day":
+		# Only an ALREADY-closed day is frozen — the close() transition itself is allowed.
+		if not doc.is_new() and doc.name:
+			bd = doc.name if frappe.db.get_value("POS Business Day", doc.name, "status") == "Closed" else None
+	elif dt == "Sales Invoice":
+		bd = doc.get("custom_pos_business_day")
+	elif dt == "Payment Entry":
+		bd = doc.get("custom_pos_business_day")
+		if not bd:
+			for ref in (doc.get("references") or []):
+				if ref.get("reference_doctype") == "Sales Invoice" and ref.get("reference_name"):
+					bd = frappe.db.get_value("Sales Invoice", ref.get("reference_name"), "custom_pos_business_day")
+					if bd:
+						break
+	if not bd:
+		return None
+	return bd if frappe.db.get_value("POS Business Day", bd, "status") == "Closed" else None
+
+
+def guard_closed_business_day(doc, method=None):
+	"""Block modifications to a closed Business Day's records for branch roles, except
+	creating Payment Entries or shift-closing actions. Hook on validate / before_cancel."""
+	user = frappe.session.user
+	if user == "Administrator":
+		return
+	roles = set(frappe.get_roles(user))
+	if _BD_LOCK_BYPASS_ROLES & roles:
+		return
+	if not (_BD_LOCK_RESTRICTED_ROLES & roles):
+		return  # feature only restricts these three branch roles
+
+	bd = _resolve_locked_business_day(doc)
+	if not bd:
+		return
+
+	# Allowed exception: CREATING a Payment Entry (late COD) is always permitted; editing
+	# or cancelling an existing one is blocked. (Shift Closing runs on POS Cashier Shift
+	# Closing / POS Cashier Shift, which are not hooked, so those actions stay allowed.)
+	if doc.doctype == "Payment Entry" and doc.is_new():
+		return
+
+	frappe.throw(
+		_(
+			"Business Day {0} is closed. A Branch Manager / Assistant / Supervisor may only "
+			"create Payment Entries or close shifts — no other changes are allowed."
+		).format(bd),
+		title=_("Business Day Closed"),
+	)
+
+
 def collected_on_original(original_name):
 	"""Cash/credit ACTUALLY collected on an original invoice — used to validate refunds.
 

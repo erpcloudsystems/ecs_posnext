@@ -246,6 +246,15 @@ class POSBusinessDay(Document):
 
 		auto_close_call_center_shifts(self.name)
 
+		# A submitted end-of-day Blind Inventory Count is mandatory before closing (unless the
+		# close is force-overridden by a manager).
+		if not force:
+			from ecs_posnext.pos_next.doctype.blind_inventory_count.blind_inventory_count import (
+				assert_business_day_counted,
+			)
+
+			assert_business_day_counted(self.name)
+
 		self.refresh_summary()
 		issues = self.evaluate_closing_issues()
 		if issues and not force:
