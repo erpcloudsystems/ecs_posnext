@@ -8,9 +8,9 @@
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, flt, getdate, today
+from frappe.utils import add_days, cint, flt, getdate, today
 
-from ecs_posnext.api.invoices import submit_invoice, update_invoice
+from ecs_posnext.api.invoices import _submit_invoice_sync, update_invoice
 from ecs_posnext.api.reservations import _default_mode_of_payment
 
 RENEWAL_ITEM_CODE = "TICKET-RENEWAL"
@@ -62,9 +62,123 @@ def search_tickets(search_keys):
     return search_redeem_tickets(search_keys, include_expired=1)
 
 
+def _get_wristband_item_code(ticket):
+    """POS Global Settings.wristband_item, falling back to the ticket's own item."""
+    item_code = frappe.db.get_single_value("POS Global Settings", "wristband_item")
+    return item_code or ticket.item
+
+
+def _get_wristband_price_list_rate(item_code, pos_profile_doc):
+    """Selling price for the wristband item; falls back to the item's standard rate."""
+    price_list = pos_profile_doc.get("selling_price_list") if pos_profile_doc else None
+    rate = None
+    if price_list:
+        rate = frappe.db.get_value(
+            "Item Price",
+            {"item_code": item_code, "price_list": price_list},
+            "price_list_rate",
+        )
+    if rate is None:
+        rate = frappe.db.get_value("Item", item_code, "standard_rate") or 0
+    return flt(rate)
+
+
 @frappe.whitelist()
-def give_free_wristband(ticket_name):
-    pass
+def give_free_wristband(
+    ticket_name,
+    pos_profile,
+    mode_of_payment=None,
+    pos_opening_shift=None,
+):
+    """Give one free wristband on a ticket: a zero-value (100% discount) POS invoice
+    for the wristband item, plus counter updates on the ticket.
+
+    Steps:
+      1. Create + submit a POS Sales Invoice with the wristband item at its normal
+         price but a 100% discount (rate 0), so the giveaway is a real, auditable
+         invoice rather than a silent counter bump. custom_is_wordpress = 1 so the
+         Sales Invoice submit trigger doesn't try to generate a new ticket.
+      2. On the ticket: increment used_free_wristband / decrement remaining_free_wristband.
+    """
+    if not pos_profile:
+        frappe.throw(_("POS Profile is required"))
+
+    ticket = frappe.get_doc("Ticket", ticket_name)
+    if cint(ticket.remaining_free_wristband) <= 0:
+        frappe.throw(_("This ticket has no remaining free wristband"))
+
+    item_code = _get_wristband_item_code(ticket)
+    if not item_code:
+        frappe.throw(
+            _(
+                "No Wristband Item is set in POS Global Settings, and this ticket has no item to fall back to"
+            )
+        )
+
+    pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
+    price_list_rate = _get_wristband_price_list_rate(item_code, pos_profile_doc)
+
+    invoice_data = {
+        "doctype": "Sales Invoice",
+        "pos_profile": pos_profile,
+        "customer": ticket.vendor,
+        "is_pos": 1,
+        "update_stock": 0,
+        "custom_is_wordpress": 1,
+        "posa_pos_opening_shift": pos_opening_shift,
+        "items": [
+            {
+                "item_code": item_code,
+                "qty": 1,
+                "price_list_rate": price_list_rate,
+                "discount_percentage": 100,
+                "rate": 0,
+                # Rate is genuinely 0 after the 100% discount — if the item is a stock
+                # item with no valuation rate, ERPNext otherwise refuses to post the
+                # accounting entries ("Valuation Rate ... is required").
+                "allow_zero_valuation_rate": 1,
+            }
+        ],
+        "payments": [
+            {
+                "mode_of_payment": mode_of_payment
+                or _default_mode_of_payment(pos_profile_doc),
+                "amount": 0,
+            }
+        ],
+        "remarks": _("Free wristband for ticket {0}").format(ticket_name),
+    }
+    draft = update_invoice(invoice_data)
+    invoice_data["name"] = draft.get("name")
+    _submit_invoice_sync(invoice=invoice_data, data={})
+
+    ticket.used_free_wristband = cint(ticket.used_free_wristband) + 1
+    ticket.remaining_free_wristband = max(
+        cint(ticket.maximum_free_wristband) - cint(ticket.used_free_wristband), 0
+    )
+    ticket.append(
+        "sales_invoices",
+        {
+            "sales_invoice": draft.get("name"),
+            "type": "Wristband",
+            "amount": 0,
+        },
+    )
+
+    ticket.flags.ignore_permissions = True
+    ticket.save(ignore_permissions=True)
+    ticket.add_comment(
+        "Comment",
+        _("Free wristband given (invoice {0})").format(draft.get("name")),
+    )
+    frappe.db.commit()
+
+    return {
+        "ticket": ticket_name,
+        "wristband_invoice": draft.get("name"),
+        "used_free_wristband": ticket.used_free_wristband,
+        "remaining_free_wristband": ticket.remaining_free_wristband,
+    }
 
 
 @frappe.whitelist()
@@ -151,7 +265,7 @@ def renew_ticket(
     }
     draft = update_invoice(invoice_data)
     invoice_data["name"] = draft.get("name")
-    submit_invoice(invoice=invoice_data, data={})
+    _submit_invoice_sync(invoice=invoice_data, data={})
 
     # 2) Recharge the ticket (controller does not recompute these on save).
     ticket.global_maximum_usage = (ticket.global_maximum_usage or 0) + added_uses

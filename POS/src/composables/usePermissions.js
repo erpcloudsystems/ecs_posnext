@@ -188,7 +188,6 @@ export function usePOSPermissions() {
 		await checkPermission("Sales Invoice", "create")
 	const canSubmitInvoice = async () =>
 		await checkPermission("Sales Invoice", "submit")
-	const canCompleteAndPrint = async () => await checkRole("System Manager")
 
 	// Settings permissions
 	const canEditSettings = async () =>
@@ -204,7 +203,6 @@ export function usePOSPermissions() {
 		canApplyCoupon,
 		canCreateInvoice,
 		canSubmitInvoice,
-		canCompleteAndPrint,
 		canEditSettings,
 		preloadCommonPermissions,
 	}

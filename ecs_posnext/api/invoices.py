@@ -1395,31 +1395,57 @@ def check_offline_invoice_synced(offline_id):
 
 @frappe.whitelist()
 def submit_invoice(invoice=None, data=None):
-    """Queue the invoice submission (Step 2) and return immediately.
+    """Create/validate the invoice draft synchronously (Step 1), then queue
+    only the actual submit (Step 2).
 
-    Reintroduces background queueing on top of _submit_invoice_sync. Note
-    this brings back the tradeoff that sync version was written to avoid:
-    the HTTP response carries no result, so the frontend cannot tell a
-    failed background submit from a successful one at call time. It can
-    only be told the job was queued, hence the {"queued": True} marker
-    below — the frontend uses it to show a "queued" message rather than
-    silently doing nothing (or wrongly assuming the invoice was submitted).
+    Previously the entire Step 1 + Step 2 pipeline ran inside the background
+    job, so the HTTP response never carried more than {"queued": True} — no
+    invoice name, no total, and no way to print a receipt or learn a Tabby/
+    backorder outcome without polling Invoice History. Running Step 1
+    (_prepare_invoice_for_submit) inline gives the caller a real invoice
+    name/total immediately — enough to print — and surfaces Tabby/backorder
+    outcomes right away since those are decided in Step 1. Only the heavier
+    submit() (stock ledger + GL postings) still runs in the background, kept
+    there for the worker-timeout resilience it was queued for in the first
+    place.
     """
+    prepared = _prepare_invoice_for_submit(invoice=invoice, data=data)
+
+    if not prepared.get("proceed"):
+        # Terminal outcome decided in Step 1 — offline dedup hit, Tabby
+        # payment link, or a backorder hold. Nothing left to submit/queue.
+        return prepared
+
     frappe.enqueue(
-        method=_submit_invoice_sync,
+        method=_finalize_invoice_submit_with_retry,
         queue="short",
-        invoice=invoice,
-        data=data,
+        name=prepared["name"],
+        doctype=prepared["doctype"],
+        invoice=prepared["invoice"],
+        data=prepared["data"],
+        offline_id=prepared.get("offline_id"),
+        sync_record_name=prepared.get("sync_record_name"),
     )
-    return {"queued": True}
+
+    return {
+        "name": prepared["name"],
+        "queued": True,
+        "status": 0,
+        "grand_total": prepared["grand_total"],
+        "total": prepared["total"],
+        "net_total": prepared["net_total"],
+        "outstanding_amount": prepared.get("outstanding_amount", 0),
+        "paid_amount": prepared.get("paid_amount", 0),
+    }
 
 
 def _submit_invoice_sync(invoice=None, data=None):
-    """Submit the invoice (Step 2), synchronously.
+    """Submit the invoice (Step 1 + Step 2), synchronously, no queue.
 
-    Runs inline so the caller's response (or raised error) carries the
-    real result. _submit_invoice_with_retry still retries on
-    deadlock/transient failure within this same call.
+    Used directly by callers that need the finished, submitted invoice
+    before continuing (ticket wristband/renewal flows in tickets.py).
+    _submit_invoice_with_retry still retries on deadlock/transient failure
+    within this same call.
     """
     return _submit_invoice_with_retry(invoice=invoice, data=data)
 
@@ -1518,8 +1544,60 @@ def _submit_invoice_with_retry(invoice=None, data=None, max_attempts=3):
             time.sleep(1.5 * attempt)
 
 
+def _finalize_invoice_submit_with_retry(
+    name=None, doctype="Sales Invoice", invoice=None, data=None,
+    offline_id=None, sync_record_name=None, max_attempts=3,
+):
+    """Run _finalize_invoice_submit, retrying on any failure.
+
+    Same rationale as _submit_invoice_with_retry, scoped to just the
+    finalize step (the part this one queues): a transient error shouldn't
+    leave the (already-validated) draft stuck unsubmitted with no retry.
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return _finalize_invoice_submit(
+                name=name, doctype=doctype, invoice=invoice, data=data,
+                offline_id=offline_id, sync_record_name=sync_record_name,
+            )
+        except Exception:
+            frappe.db.rollback()
+            if attempt == max_attempts:
+                raise
+            time.sleep(1.5 * attempt)
+
+
 def _submit_invoice(invoice=None, data=None):
-    """Submit the invoice (Step 2)."""
+    """Submit the invoice (Step 1 + Step 2), synchronously, no queue.
+
+    Composes _prepare_invoice_for_submit (Step 1) and _finalize_invoice_submit
+    (Step 2) back-to-back. Used by _submit_invoice_sync. The whitelisted
+    submit_invoice() endpoint instead runs Step 1 inline and queues just
+    Step 2 — see its docstring for why.
+    """
+    prepared = _prepare_invoice_for_submit(invoice=invoice, data=data)
+    if not prepared.get("proceed"):
+        return prepared
+    return _finalize_invoice_submit(
+        name=prepared["name"],
+        doctype=prepared["doctype"],
+        invoice=prepared["invoice"],
+        data=prepared["data"],
+        offline_id=prepared.get("offline_id"),
+        sync_record_name=prepared.get("sync_record_name"),
+    )
+
+
+def _prepare_invoice_for_submit(invoice=None, data=None):
+    """Validate, save (and decide any terminal outcome for) the invoice —
+    Step 1 of submission.
+
+    Runs synchronously (an offline dedup hit, Tabby payment link, or
+    backorder hold is decided here and returned as-is — nothing left to
+    submit). Otherwise returns a dict describing the saved draft, ready for
+    _finalize_invoice_submit (Step 2: invoice_doc.submit() and its
+    downstream side effects) to pick up by name.
+    """
     # Handle different calling conventions
     if invoice is None:
         if data:
@@ -1589,9 +1667,6 @@ def _submit_invoice(invoice=None, data=None):
 
         # Store the sync record name for later update
         sync_record_name = dedup_result.get("sync_record_name") if dedup_result else None
-
-    # Track whether invoice was successfully submitted
-    invoice_submitted = False
 
     try:
         invoice_name = invoice.get("name")
@@ -1778,6 +1853,8 @@ def _submit_invoice(invoice=None, data=None):
                         invoice_doc, invoice.get("payments"), doctype
                     )
                     frappe.db.commit()
+                    if sync_record_name:
+                        _cleanup_failed_sync(sync_record_name)
                     return {
                         "name": invoice_doc.name,
                         "docstatus": 0,
@@ -1808,6 +1885,8 @@ def _submit_invoice(invoice=None, data=None):
             from ecs_posnext.api.payments import create_tabby_link
 
             link_result = create_tabby_link(invoice_doc.name)
+            if sync_record_name:
+                _cleanup_failed_sync(sync_record_name)
             return {
                 "name": invoice_doc.name,
                 "status": invoice_doc.docstatus,
@@ -1816,6 +1895,57 @@ def _submit_invoice(invoice=None, data=None):
                 "sms_sent": link_result.get("sms_sent"),
                 "mobile": link_result.get("mobile"),
             }
+
+        # Draft is validated and saved — hand off to Step 2 (submit) by name.
+        # invoice/data are forwarded as-is so _finalize_invoice_submit has the
+        # client's raw payments/items/coupon_code/etc. (needed for
+        # _reapply_payment_amounts and the manual-rate-edit/credit-redemption
+        # steps) without re-deriving them from the now-saved invoice_doc.
+        return {
+            "proceed": True,
+            "name": invoice_doc.name,
+            "doctype": doctype,
+            "invoice": invoice,
+            "data": data,
+            "grand_total": invoice_doc.grand_total,
+            "total": invoice_doc.total,
+            "net_total": invoice_doc.net_total,
+            "outstanding_amount": getattr(invoice_doc, "outstanding_amount", 0),
+            "paid_amount": getattr(invoice_doc, "paid_amount", 0),
+            "offline_id": offline_id,
+            "sync_record_name": sync_record_name,
+        }
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Submit Invoice Error")
+        if sync_record_name:
+            _cleanup_failed_sync(sync_record_name)
+        raise
+
+
+def _finalize_invoice_submit(
+    name=None, doctype="Sales Invoice", invoice=None, data=None,
+    offline_id=None, sync_record_name=None,
+):
+    """Submit the already-saved draft (Step 2): invoice_doc.submit() and its
+    downstream side effects.
+
+    The draft itself (name, totals, any Tabby/backorder decision) was
+    already validated and saved by _prepare_invoice_for_submit (Step 1) —
+    this only re-loads it by name and finishes the submission. Runs in the
+    background queue when called via submit_invoice(); runs inline
+    (back-to-back with Step 1) when called via _submit_invoice_sync.
+    """
+    invoice = invoice or {}
+    data = data or {}
+    invoice_submitted = False
+
+    try:
+        if not _wait_for_draft_visible(doctype, name):
+            frappe.throw(
+                _("Draft invoice {0} is not yet visible to this worker; will retry.").format(name)
+            )
+        invoice_doc = frappe.get_doc(doctype, name)
 
         # Re-apply payment amounts after save.
         # ERPNext's set_pos_fields (called inside save → set_missing_values) clears

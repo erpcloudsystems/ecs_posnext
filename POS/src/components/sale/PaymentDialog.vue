@@ -855,11 +855,10 @@
 								</button>
 								<button
 									@click="completePayment(true)"
-									:disabled="isSubmitting || !canComplete || isCreatingCustomer || !canPrintInvoice"
-									:title="!canPrintInvoice ? __('Only System Manager can complete and print') : ''"
+									:disabled="isSubmitting || !canComplete || isCreatingCustomer"
 									:class="[
 										'font-bold rounded-lg flex items-center justify-center',
-										isSubmitting || !canPrintInvoice
+										isSubmitting
 											? 'bg-blue-200 text-white cursor-not-allowed'
 											: 'bg-blue-600 text-white active:bg-blue-700',
 										mobileButtonSize.height, mobileButtonSize.text, mobileButtonSize.gap
@@ -925,12 +924,11 @@
 						<!-- Complete Payment & Print Button -->
 						<button
 							@click="completePayment(true)"
-							:disabled="!canComplete || isSubmitting || isCreatingCustomer || !canPrintInvoice"
-							:title="!canPrintInvoice ? __('Only System Manager can complete and print') : ''"
+							:disabled="!canComplete || isSubmitting || isCreatingCustomer"
 							:class="[
 								'flex-1 inline-flex items-center justify-center gap-2 transition-colors focus:outline-none',
 								dynamicButtonHeight, 'text-sm font-semibold px-5 rounded-lg',
-								!canComplete || isSubmitting || !canPrintInvoice
+								!canComplete || isSubmitting
 									? 'bg-blue-200 text-white cursor-not-allowed'
 									: 'bg-blue-700 text-white hover:bg-blue-800 active:bg-blue-900 focus-visible:ring-2 focus-visible:ring-blue-400'
 							]"
@@ -991,14 +989,12 @@ import { useToast } from "@/composables/useToast"
 import { useLongPress } from "@/composables/useLongPress"
 import { usePaymentNumpad } from "@/composables/usePaymentNumpad"
 import { useResponsivePayment } from "@/composables/useResponsivePayment"
-import { usePOSPermissions } from "@/composables/usePermissions"
 
 const log = logger.create("PaymentDialog")
 const settingsStore = usePOSSettingsStore()
 const cartStore = usePOSCartStore()
 const loyaltyStore = useLoyaltyStore()
 const { showWarning, showInfo } = useToast()
-const { canCompleteAndPrint } = usePOSPermissions()
 
 const props = defineProps({
 	modelValue: Boolean,
@@ -1080,18 +1076,6 @@ const props = defineProps({
 		default: null,
 	},
 })
-
-// "Complete & Print" is restricted to System Manager — re-checked whenever the
-// dialog opens so a mid-shift role change (or a different cashier logging in)
-// is reflected without needing a full page reload.
-const canPrintInvoice = ref(false)
-watch(
-	() => props.modelValue,
-	(isOpen) => {
-		if (isOpen) canCompleteAndPrint().then((allowed) => (canPrintInvoice.value = allowed))
-	},
-	{ immediate: true },
-)
 
 const emit = defineEmits([
 	"update:modelValue",

@@ -1073,7 +1073,7 @@ const {
 } = usePOSEvents();
 
 // Initialize toast
-const { showSuccess, showError, showWarning, showInfo } = useToast();
+const { showSuccess, showError, showWarning } = useToast();
 
 // Initialize logger
 const log = logger.create("POSSale");
@@ -2080,24 +2080,14 @@ async function handlePaymentCompleted(paymentData) {
 			// Get item codes from cart before clearing
 			const soldItemCodes = cartStore.invoiceItems.map((item) => item.item_code);
 
-			// Step 2 (submit) runs as a background job, so `result` only ever
-			// confirms the job was queued — not that the invoice was actually
-			// submitted. There is no invoice name/total to show yet.
+			// The invoice draft is created/validated synchronously (Step 1), so
+			// `result` already carries a real name/total to show and print.
+			// Only the actual submit (docstatus 0 -> 1) still finishes in the
+			// background (`result.queued`) — that doesn't block printing since
+			// the totals/payments were already validated before this returned.
 			const result = await cartStore.submitInvoice();
 
 			if (result) {
-				const queued = result.queued || result.message?.queued;
-				if (queued) {
-					uiStore.showPaymentDialog = false;
-					cartStore.clearCart();
-					previousCartHash = "";
-					if (draftIdToDelete) {
-						draftsStore.deleteDraft(draftIdToDelete);
-					}
-					showInfo(__("Invoice queued for processing. It will appear in Invoice History shortly."));
-					return;
-				}
-
 				// Tabby: invoice kept pending; show the payment link (QR + copy) and
 				// note the SMS. No stock/print (nothing was submitted).
 				const tabbyData = result.is_tabby
@@ -2154,9 +2144,10 @@ async function handlePaymentCompleted(paymentData) {
 					draftsStore.deleteDraft(draftIdToDelete);
 				}
 
-				// Refresh stock in the background (non-blocking) - the invoice is
-				// already submitted at this point, so the cashier shouldn't wait
-				// on this before seeing confirmation.
+				// Refresh stock in the background (non-blocking) - submit is still
+				// finishing in the background too, so this may run slightly ahead
+				// of the actual stock ledger update; the cashier shouldn't wait on
+				// either before seeing confirmation.
 				stockStore.refresh(soldItemCodes, shiftStore.profileWarehouse).catch((err) =>
 					log.debug("Background stock refresh failed:", err)
 				);

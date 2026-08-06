@@ -15,6 +15,11 @@ export const useBuildReservationStore = defineStore("buildReservation", () => {
 	const customerName = ref("")
 	const customerLookup = ref({ checked: false, found: false, customerName: "" })
 
+	// POS Coupon applied at "Review & Book" checkout: { code, amount, apply_on }.
+	// amount is the pre-computed discount (see ReservationCheckoutDialog's
+	// applyCoupon, mirrors the main POS cart's coupon handling in posCart.js).
+	const appliedCoupon = ref(null)
+
 	const items = ref([])
 
 	const itemCount = computed(() => items.value.reduce((sum, i) => sum + i.qty, 0))
@@ -51,6 +56,7 @@ export const useBuildReservationStore = defineStore("buildReservation", () => {
 		phone.value = ""
 		customerName.value = ""
 		customerLookup.value = { checked: false, found: false, customerName: "" }
+		appliedCoupon.value = null
 	}
 
 	return {
@@ -60,6 +66,7 @@ export const useBuildReservationStore = defineStore("buildReservation", () => {
 		phone,
 		customerName,
 		customerLookup,
+		appliedCoupon,
 		items,
 		itemCount,
 		total,

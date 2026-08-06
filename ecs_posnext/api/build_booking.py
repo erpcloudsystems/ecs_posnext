@@ -224,12 +224,38 @@ def _resolve_or_create_customer(phone, customer_name):
 
 
 @frappe.whitelist()
-def create_booking(items, branch, visit_date, phone, customer_name=None):
+def validate_build_coupon(coupon_code, phone=None):
+	"""Validate a POS Coupon for the Build page's "Review & Book" checkout.
+
+	Resolves the customer from `phone` (same lookup create_booking itself uses)
+	so a coupon restricted to a specific customer validates correctly even
+	though the actual Customer record may not exist yet for a new phone
+	number - reuses ecs_posnext.api.offers.validate_coupon (the same endpoint
+	the main POS cart's coupon dialog calls) so both surfaces enforce the same
+	rules.
+	"""
+	_ensure_build_access()
+	from ecs_posnext.api.offers import validate_coupon
+
+	customer = None
+	if phone:
+		customer = frappe.db.get_value("Customer", {"mobile_no": phone, "disabled": 0}, "name")
+
+	return validate_coupon(coupon_code=coupon_code, customer=customer, company=_resolve_company())
+
+
+@frappe.whitelist()
+def create_booking(items, branch, visit_date, phone, customer_name=None, coupon_code=None, discount_amount=0):
 	"""Create a party-reservation Sales Order directly from the POS Build page.
 
 	`items` is a JSON list of {item_code, qty, uom, slot} - the main package plus
 	any additional add-on items the cashier attached to the same reservation.
 	`branch` is the selected Dimension Branch (room, or whole-branch catch-all).
+	`coupon_code`/`discount_amount`: same trust model as invoices.py's
+	update_invoice() - the frontend computes discount_amount from the coupon's
+	discount_type/percentage/amount (via the same calculateDiscountAmount
+	helper the main POS cart uses), and the server only re-validates the code
+	itself before accepting the client-supplied amount.
 	"""
 	_ensure_build_access()
 	from ecs_vim.api import check_available
@@ -246,6 +272,15 @@ def create_booking(items, branch, visit_date, phone, customer_name=None):
 		frappe.throw(_("Visit date is required"))
 
 	customer = _resolve_or_create_customer(phone, customer_name)
+
+	coupon_doc = None
+	if coupon_code:
+		from ecs_posnext.api.offers import validate_coupon
+
+		validation = validate_coupon(coupon_code=coupon_code, customer=customer, company=_resolve_company())
+		if not validation.get("valid"):
+			frappe.throw(validation.get("message") or _("Invalid coupon code"))
+		coupon_doc = validation.get("coupon")
 
 	price_list = _default_price_list()
 	warehouse = frappe.db.get_value("Dimension Branch", branch, "default_warehouse")
@@ -281,22 +316,38 @@ def create_booking(items, branch, visit_date, phone, customer_name=None):
 			row["slot_name"] = entry["slot"]
 		item_rows.append(row)
 
-	so = frappe.get_doc(
-		{
-			"doctype": "Sales Order",
-			"customer": customer,
-			"company": _resolve_company(),
-			"transaction_date": nowdate(),
-			"delivery_date": visit_date,
-			"branch": branch,
-			"custom_branch": branch,
-			"set_warehouse": warehouse,
-			"items": item_rows,
-		}
-	)
+	so_dict = {
+		"doctype": "Sales Order",
+		"customer": customer,
+		"company": _resolve_company(),
+		"transaction_date": nowdate(),
+		"delivery_date": visit_date,
+		"branch": branch,
+		"custom_branch": branch,
+		"set_warehouse": warehouse,
+		"items": item_rows,
+	}
+
+	discount_amount = flt(discount_amount)
+	if coupon_code and discount_amount > 0:
+		so_dict["coupon_code"] = coupon_code
+		so_dict["apply_discount_on"] = (coupon_doc or {}).get("apply_on") or "Grand Total"
+		so_dict["discount_amount"] = discount_amount
+
+	so = frappe.get_doc(so_dict)
 
 	so.flags.ignore_permissions = True
 	so.insert()
+
+	if coupon_code and frappe.db.table_exists("POS Coupon"):
+		try:
+			from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import increment_coupon_usage
+			increment_coupon_usage(coupon_code)
+		except Exception as e:
+			frappe.log_error(
+				title="Failed to increment coupon usage",
+				message=f"Coupon: {coupon_code}, Error: {str(e)}"
+			)
 
 	# Whole-branch bookings of certain packages (see ecs_vim's
 	# check_submit_permissions) may only be submitted by that branch's manager -

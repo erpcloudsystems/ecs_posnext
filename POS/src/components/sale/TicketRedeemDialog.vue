@@ -478,7 +478,11 @@ async function giveFreeWristband(t) {
 	try {
 		await call("ecs_posnext.api.tickets.give_free_wristband", {
 			ticket_name: t.name,
+			pos_profile: props.posProfile,
+			pos_opening_shift: props.posOpeningShift,
 		})
+		showSuccess(__("Free wristband given for {0}", [t.name]))
+		await refresh()
 	} catch (e) {
 		console.error("Give free wristband failed", e)
 		showError(parseError(e).message || __("Give free wristband failed"))
