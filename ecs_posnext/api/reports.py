@@ -4,15 +4,20 @@
 """Runs Frappe/ERPNext reports from inside the POS.
 
 The POS is a standalone Vue app: it does not load the desk bundle, so it cannot
-do what ``query_report.js`` does and evaluate a Script Report's ``.js`` file to
+do what ``query_report.js`` does and evaluate a report's ``.js`` file to
 discover the filters the report expects. Filter definitions are resolved server
-side instead, in this order:
+side instead, in the same order the desk resolves them:
 
-1. the Report's own ``filters`` child table, when the report defines one
-   (Report Builder and UI-authored Query Reports do), then
-2. the ``filters: [...]`` literal parsed out of the report's client script.
+1. the ``filters: [...]`` literal parsed out of the report's client script, then
+2. the Report's own ``filters`` child table, for reports with no script
+   (Report Builder and UI-authored Query Reports).
 
-Step 2 reads a JavaScript literal, so values that are function calls cannot
+The order matters: the desk uses the child table *only* when the script defines
+no filters, so resolving the child table first would show the cashier a
+different filter bar than the desk shows — different fieldtypes, different
+defaults — for the same report.
+
+Step 1 reads a JavaScript literal, so values that are function calls cannot
 always be resolved. The common ones the ERPNext reports use for defaults
 (``frappe.datetime.*``, ``frappe.defaults.get_user_default``, ``__()``) are
 evaluated here; anything else degrades to an empty default, which leaves the
@@ -32,6 +37,7 @@ from frappe.utils import (
 	cint,
 	get_first_day,
 	get_last_day,
+	now_datetime,
 	nowdate,
 )
 
@@ -67,12 +73,20 @@ REPORT_LAYOUT = "__report_html__"
 JS_TEMPLATE = "JS"
 JINJA_TEMPLATE = "Jinja"
 
-# A report run from the POS only ever shows the branch the cashier's shift is on,
-# so any filter that picks a Branch is pinned to it and locked. Reports name that
-# filter by its link doctype, but a plain Data/Select branch filter is matched by
-# fieldname too.
+# A report run from the POS only ever shows the shift the cashier is on, so any
+# filter that picks the shift's POS Profile - or the Branch that profile belongs
+# to - is pinned to it and locked. Reports name such a filter by its link
+# doctype, but a plain Data/Select one is matched by fieldname too.
 BRANCH_DOCTYPE = "Branch"
 BRANCH_FIELDNAMES = {"branch", "custom_branch"}
+
+POS_PROFILE_DOCTYPE = "POS Profile"
+POS_PROFILE_FIELDNAMES = {"pos_profile"}
+
+SCOPED_FILTERS = (
+	(BRANCH_DOCTYPE, BRANCH_FIELDNAMES),
+	(POS_PROFILE_DOCTYPE, POS_PROFILE_FIELDNAMES),
+)
 
 # Keys worth keeping off a parsed filter definition; the rest (get_query,
 # on_change, get_data, formatter, ...) are functions with no server-side meaning.
@@ -128,7 +142,7 @@ def get_report_definition(report_name: str, pos_profile: str | None = None) -> d
 	report = _get_permitted_report(report_name)
 
 	filters = get_report_filters(report)
-	_scope_filters_to_branch(filters, _pos_branch(pos_profile))
+	_scope_filters(filters, _pos_scope(pos_profile))
 
 	return {
 		"report": report_name,
@@ -164,7 +178,7 @@ def run_pos_report(
 
 	result = run(
 		report_name,
-		filters=_enforce_branch_scope(report, filters or {}, pos_profile),
+		filters=_prepare_filters(report, filters or {}, pos_profile),
 		ignore_prepared_report=True,
 		are_default_filters=False,
 	)
@@ -214,7 +228,7 @@ def render_report_print(
 
 	if isinstance(filters, str):
 		filters = json.loads(filters or "{}")
-	filters = _enforce_branch_scope(report, filters or {}, pos_profile)
+	filters = _prepare_filters(report, filters or {}, pos_profile)
 
 	from frappe.desk.query_report import run
 
@@ -450,7 +464,8 @@ def _can_export(ref_doctype: str | None) -> bool:
 
 def get_report_filters(report) -> list[dict]:
 	"""Normalised filter definitions for ``report`` (a Report doc)."""
-	raw = _filters_from_report_doc(report) or _filters_from_script(report)
+	# Script first, child table second - the order query_report.js uses
+	raw = _filters_from_script(report) or _filters_from_report_doc(report)
 
 	filters = [f for f in (_normalise_filter(f) for f in raw) if f]
 	_resolve_dependent_lookups(filters)
@@ -587,6 +602,8 @@ def _normalise_filter(raw: dict) -> dict | None:
 		default = None
 	elif fieldtype == "Check":
 		default = cint(bool(default))
+	elif fieldtype in ("Date", "Datetime"):
+		default = _resolve_date_keyword(default, fieldtype)
 
 	return {
 		"fieldname": fieldname,
@@ -602,6 +619,28 @@ def _normalise_filter(raw: dict) -> dict | None:
 		"width": raw.get("width"),
 		"description": raw.get("description"),
 	}
+
+
+def _resolve_date_keyword(default, fieldtype: str):
+	"""Turn a keyword default such as ``Today`` into an actual date.
+
+	A Report Filter's ``default`` column is plain text, so a date filter defined
+	through the UI carries the framework's keyword rather than a value. Sending
+	the keyword on to the report would put the literal string ``Today`` into the
+	query's WHERE clause, which matches nothing.
+	"""
+	if not isinstance(default, str):
+		return default
+
+	keyword = default.strip().lower()
+	if keyword == "now":
+		return str(now_datetime()) if fieldtype == "Datetime" else nowdate()
+
+	days = {"today": 0, "yesterday": -1, "tomorrow": 1}.get(keyword)
+	if days is None:
+		return default
+
+	return str(add_days(nowdate(), days))
 
 
 def _resolve_dependent_lookups(filters: list[dict]) -> None:
@@ -626,20 +665,19 @@ def _resolve_dependent_lookups(filters: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Branch scoping
+# Shift scoping
 # ---------------------------------------------------------------------------
 
 
-def _pos_branch(pos_profile: str | None) -> str | None:
-	"""The Branch of the shift the cashier is on, or None when there is none.
+def _pos_scope(pos_profile: str | None) -> dict[str, str]:
+	"""The values the cashier's shift fixes, keyed by the doctype they belong to.
 
-	The branch lives on the POS Profile the opening shift was started with. When
-	the caller did not name a profile, the user's own open shift supplies it, so
-	the scope cannot be sidestepped by leaving the argument out.
+	A report run from the POS covers one shift, so the POS Profile that shift was
+	opened with - and the Branch that profile belongs to - are facts about the
+	run, not choices. When the caller did not name a profile, the user's own open
+	shift supplies it, so the scope cannot be sidestepped by leaving the argument
+	out.
 	"""
-	if not frappe.get_meta("POS Profile").has_field("branch"):
-		return None
-
 	if not pos_profile:
 		pos_profile = frappe.db.get_value(
 			"POS Opening Shift",
@@ -649,56 +687,70 @@ def _pos_branch(pos_profile: str | None) -> str | None:
 		)
 
 	if not pos_profile:
-		return None
+		return {}
 
-	return frappe.db.get_value("POS Profile", pos_profile, "branch") or None
+	scope = {POS_PROFILE_DOCTYPE: pos_profile}
 
+	if frappe.get_meta("POS Profile").has_field("branch"):
+		branch = frappe.db.get_value("POS Profile", pos_profile, "branch")
+		if branch:
+			scope[BRANCH_DOCTYPE] = branch
 
-def _is_branch_filter(f: dict) -> bool:
-	"""Whether ``f`` is the filter that picks the branch to report on."""
-	return f.get("link_doctype") == BRANCH_DOCTYPE or f.get("fieldname") in BRANCH_FIELDNAMES
-
-
-def _branch_filter_value(f: dict, branch: str):
-	"""``branch`` shaped the way filter ``f`` expects to receive it."""
-	return [branch] if f.get("fieldtype") == "MultiSelectList" else branch
+	return scope
 
 
-def _scope_filters_to_branch(filters: list[dict], branch: str | None) -> None:
-	"""Pin every branch filter to ``branch`` and lock it against editing.
+def _scoped_value(f: dict, scope: dict[str, str]):
+	"""The value the shift fixes filter ``f`` to, or None when it fixes nothing.
 
-	Cosmetic only — :func:`_enforce_branch_scope` is what actually holds the
-	scope. This is so the cashier sees which branch the figures are for instead
-	of an empty filter that looks like it covers the whole company.
+	Shaped the way the filter expects to receive it, so a MultiSelectList gets a
+	list where a Link gets a bare name.
 	"""
-	if not branch:
-		return
-
-	for f in filters:
-		if not _is_branch_filter(f):
+	for doctype, fieldnames in SCOPED_FILTERS:
+		value = scope.get(doctype)
+		if not value:
 			continue
-		f["default"] = _branch_filter_value(f, branch)
+		if f.get("link_doctype") == doctype or f.get("fieldname") in fieldnames:
+			return [value] if f.get("fieldtype") == "MultiSelectList" else value
+
+	return None
+
+
+def _scope_filters(filters: list[dict], scope: dict[str, str]) -> None:
+	"""Pin every scoped filter to the shift's value and lock it against editing.
+
+	Cosmetic only — :func:`_prepare_filters` is what actually holds the scope.
+	This is so the cashier sees which profile and branch the figures are for
+	instead of an empty filter that looks like it covers the whole company.
+	"""
+	for f in filters:
+		value = _scoped_value(f, scope)
+		if value is None:
+			continue
+		f["default"] = value
 		f["read_only"] = 1
 
 
-def _enforce_branch_scope(report, filters: dict, pos_profile: str | None) -> dict:
-	"""Overwrite the branch filter in ``filters`` with the shift's branch.
+def _prepare_filters(report, filters: dict, pos_profile: str | None) -> dict:
+	"""The filter values to run ``report`` with, scoped to the cashier's shift.
 
-	Whatever the client sent is discarded rather than validated: the filter is
-	locked in the POS, so a request naming another branch is not a case worth
-	honouring, and silently correcting it keeps the report from erroring out.
-	Reports without a branch filter are left alone — there is nothing to scope,
-	and adding a stray key would only confuse the report's own query.
+	Whatever the client sent for a scoped filter is discarded rather than
+	validated: those filters are locked in the POS, so a request naming another
+	profile is not a case worth honouring, and silently correcting it keeps the
+	report from erroring out.
+
+	Filters the cashier left empty stay out of the dict. A Query Report needs
+	them present to bind its SQL parameters, but that is put right for every
+	caller in :mod:`ecs_posnext.overrides.report`, not here.
 	"""
-	branch = _pos_branch(pos_profile)
-	if not branch:
-		return filters
+	prepared = dict(filters or {})
+	scope = _pos_scope(pos_profile)
 
 	for f in get_report_filters(report):
-		if _is_branch_filter(f):
-			filters[f["fieldname"]] = _branch_filter_value(f, branch)
+		value = _scoped_value(f, scope)
+		if value is not None:
+			prepared[f["fieldname"]] = value
 
-	return filters
+	return prepared
 
 
 def _as_value_list(options) -> list[str]:

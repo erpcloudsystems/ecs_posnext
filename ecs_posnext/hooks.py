@@ -191,7 +191,9 @@ standard_queries = {
 # Override standard doctype classes
 
 override_doctype_class = {
-	"Sales Invoice": "ecs_posnext.overrides.sales_invoice.CustomSalesInvoice"
+	"Sales Invoice": "ecs_posnext.overrides.sales_invoice.CustomSalesInvoice",
+	# Gives Query Reports optional filters; see the module docstring
+	"Report": "ecs_posnext.overrides.report.POSReport",
 }
 
 # Document Events
