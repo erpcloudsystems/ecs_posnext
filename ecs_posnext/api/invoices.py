@@ -785,6 +785,25 @@ def update_invoice(data):
                     for item in invoice_doc.get("items", []):
                         item.branch = pos_profile_doc.branch
 
+        # Set room / table accounting dimensions if provided (kept as two distinct
+        # fields/doctypes - Room for hotel room-service, Table for restaurant tables)
+        room_value = data.get("room") if isinstance(data, dict) else None
+        if room_value and hasattr(invoice_doc, "room"):
+            invoice_doc.room = room_value
+
+        table_value = data.get("table") if isinstance(data, dict) else None
+        if table_value and hasattr(invoice_doc, "table"):
+            invoice_doc.table = table_value
+
+        # Mirror employee/room onto each item row too (same dimensions already
+        # exist on the item child tables), same convention as branch above.
+        employee_value = data.get("employee") if isinstance(data, dict) else None
+        for item in invoice_doc.get("items", []):
+            if employee_value and hasattr(item, "employee"):
+                item.employee = employee_value
+            if room_value and hasattr(item, "room"):
+                item.room = room_value
+
         company = invoice_doc.get("company") or (
             pos_profile_doc.company if pos_profile_doc else None
         )
@@ -1366,6 +1385,16 @@ def submit_invoice(invoice=None, data=None):
                     "POS Profile Branch"
                 )
 
+        # Set room / table accounting dimensions if provided (kept as two distinct
+        # fields/doctypes - Room for hotel room-service, Table for restaurant tables)
+        room_value = invoice.get("room") if isinstance(invoice, dict) else None
+        if room_value and hasattr(invoice_doc, "room"):
+            invoice_doc.room = room_value
+
+        table_value = invoice.get("table") if isinstance(invoice, dict) else None
+        if table_value and hasattr(invoice_doc, "table"):
+            invoice_doc.table = table_value
+
         # Set accounts for all payment methods before saving
         if doctype == "Sales Invoice" and hasattr(invoice_doc, "payments"):
             for payment in invoice_doc.payments:
@@ -1468,6 +1497,11 @@ def submit_invoice(invoice=None, data=None):
         # Submit invoice
         invoice_doc.submit()
         invoice_submitted = True
+
+        # POS Sales Orders here don't go through a separate delivery/invoicing step -
+        # close them immediately so they don't linger as "To Deliver and Bill".
+        if doctype == "Sales Order":
+            invoice_doc.update_status("Closed")
 
         # Explicitly create Payment Entries for POS invoices
         # (Hooks may silently fail; this ensures PEs are always created)
@@ -3054,4 +3088,288 @@ def process_return_by_cancel(invoice_name, returned_items, pos_opening_shift=Non
         "cancelled_invoice": invoice_name,
         "new_invoice": new_invoice_name,
         "has_remaining_items": bool(remaining_items),
+    }
+
+
+# ==========================================
+# Employee Stock Issue
+# ==========================================
+
+
+@frappe.whitelist()
+def get_employees(pos_profile=None):
+    """Return active employees for the POS employee sale mode."""
+    company = None
+    if pos_profile:
+        company = frappe.db.get_value("POS Profile", pos_profile, "company")
+
+    filters = {"status": "Active"}
+    if company:
+        filters["company"] = company
+
+    employees = frappe.get_all(
+        "Employee",
+        filters=filters,
+        fields=["name", "employee_name", "designation", "department"],
+        order_by="employee_name asc",
+        limit=500,
+    )
+    return employees
+
+
+def get_item_valuation_rate(item_code, warehouse):
+    """
+    Best-known valuation rate for an item: prefer the given warehouse's Bin, then fall back
+    to any other warehouse that has a non-zero valuation rate for the same item. Returns 0
+    if the item has no valuation history anywhere.
+    """
+    rate = frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "valuation_rate")
+    if rate:
+        return flt(rate)
+
+    rate = frappe.db.get_value(
+        "Bin",
+        {"item_code": item_code, "valuation_rate": [">", 0]},
+        "valuation_rate",
+        order_by="modified desc",
+    )
+    return flt(rate) if rate else 0
+
+
+MAX_ITEM_GROUP_DEPTH = 10
+
+
+def get_warehouse_cost_mapping(warehouse, item_group):
+    """
+    Walk up the Item Group tree checking the Warehouse's "Cost Mapping" table
+    (custom_mapping) at each level, until a match is found or the tree root is
+    reached. Returns (cost_center, expense_account), either of which may be None
+    if that column was left blank on the matched row or nothing matched at all.
+    """
+    if not warehouse or not item_group:
+        return None, None
+
+    warehouse_doc = frappe.get_cached_doc("Warehouse", warehouse)
+    mapping_by_group = {
+        row.item_group: (row.cost_center, row.expense_account)
+        for row in (warehouse_doc.get("custom_mapping") or [])
+    }
+
+    current = item_group
+    seen = set()
+    for _i in range(MAX_ITEM_GROUP_DEPTH):
+        if not current or current in seen:
+            break
+        seen.add(current)
+        if current in mapping_by_group:
+            return mapping_by_group[current]
+        current = frappe.db.get_value("Item Group", current, "parent_item_group")
+
+    return None, None
+
+
+@frappe.whitelist()
+def create_employee_stock_issue(pos_profile, items, employee=None, pos_sale_type=None, room=None):
+    """
+    Create a Material Issue Stock Entry for a POS sale (employee issue or plain customer sale).
+
+    Args:
+        pos_profile: POS Profile name (used to get company/warehouse)
+        items: JSON list of {item_code, qty, uom, warehouse}
+        employee: Employee docname (optional - omitted for plain customer sales)
+        pos_sale_type: One of "Benefits" / "Cash" / "Loan" for the custom "POS Sale Type"
+            field (left blank for plain customer sales)
+        room: Room docname for Room Customer sales (optional - omitted for employee sales)
+
+    Returns:
+        dict with name and status of the created Stock Entry
+    """
+    if not pos_profile:
+        frappe.throw(_("POS Profile is required"))
+    if not items:
+        frappe.throw(_("Items are required"))
+
+    if isinstance(items, str):
+        items = json.loads(items)
+
+    if employee and not frappe.db.exists("Employee", employee):
+        frappe.throw(_("Employee {0} does not exist").format(employee))
+
+    profile = frappe.get_doc("POS Profile", pos_profile)
+    company = profile.company
+    default_warehouse = profile.warehouse
+    # Fallback only - the per-item-group Cost Mapping on the Warehouse (below) takes
+    # priority and may cover every item group in the sale without this ever being needed.
+    fallback_cost_center = (
+        (profile.cost_center if hasattr(profile, "cost_center") else None)
+        or frappe.get_cached_value("Company", company, "cost_center")
+    )
+
+    se = frappe.new_doc("Stock Entry")
+    se.stock_entry_type = "Material Issue"
+    se.company = company
+    se.posting_date = nowdate()
+    se.posting_time = nowtime()
+
+    # Link employee/room dimensions if the fields exist on Stock Entry
+    if employee and hasattr(se, "employee"):
+        se.employee = employee
+
+    if room and hasattr(se, "room"):
+        se.room = room
+
+    if pos_sale_type and hasattr(se, "pos_sale_type"):
+        se.pos_sale_type = pos_sale_type
+
+    for item_data in items:
+        item_code = item_data.get("item_code")
+        qty = flt(item_data.get("qty") or item_data.get("quantity") or 1)
+        uom = item_data.get("uom") or frappe.db.get_value("Item", item_code, "stock_uom")
+        warehouse = item_data.get("warehouse") or default_warehouse
+
+        if not item_code:
+            continue
+
+        row = se.append("items", {})
+        row.item_code = item_code
+        row.qty = qty
+        row.uom = uom
+        row.s_warehouse = warehouse
+
+        # Prefer the warehouse's per-item-group Cost Mapping (cost center + expense/
+        # difference account); fall back to the POS Profile/Company cost center
+        # when that item group isn't mapped there.
+        item_group = frappe.db.get_value("Item", item_code, "item_group")
+        mapped_cost_center, mapped_expense_account = get_warehouse_cost_mapping(warehouse, item_group)
+        row.cost_center = mapped_cost_center or fallback_cost_center
+        if mapped_expense_account:
+            row.expense_account = mapped_expense_account
+
+        if not row.cost_center:
+            frappe.throw(
+                _("No Cost Center found for item {0} (item group {1}) in warehouse {2}. "
+                  "Add a row for this item group to the warehouse's Cost Mapping table, "
+                  "or set a Cost Center on POS Profile {3} / Company {4}.")
+                .format(item_code, item_group, warehouse, pos_profile, company)
+            )
+
+        # The issuing warehouse may have no valuation history for this item (e.g. never
+        # received there directly), even though the item has a real, known cost elsewhere.
+        # Use that known rate so the issue is expensed correctly instead of posting at zero.
+        valuation_rate = get_item_valuation_rate(item_code, warehouse)
+        if valuation_rate:
+            row.basic_rate = valuation_rate
+            row.set_basic_rate_manually = 1
+        else:
+            # Truly no valuation rate exists anywhere for this item - only then allow zero value.
+            row.allow_zero_valuation_rate = 1
+
+        # Set employee/room as custom dimensions if dedicated child fields exist
+        if employee and hasattr(row, "employee"):
+            row.employee = employee
+        if room and hasattr(row, "room"):
+            row.room = room
+
+    se.insert(ignore_permissions=True)
+    se.submit()
+
+    frappe.db.commit()
+
+    return {
+        "name": se.name,
+        "status": "Submitted",
+        "employee": employee,
+        "total_items": len(se.items),
+    }
+
+
+@frappe.whitelist()
+def link_pos_documents(sales_order=None, stock_entry=None):
+    """
+    Cross-link a POS Sales Order and its companion Stock Entry (created as two
+    separate documents) so each is reachable from the other.
+    """
+    if not sales_order or not stock_entry:
+        frappe.throw(_("Both Sales Order and Stock Entry are required to link them"))
+
+    frappe.db.set_value("Sales Order", sales_order, "pos_stock_entry", stock_entry)
+    frappe.db.set_value("Stock Entry", stock_entry, "pos_sales_order", sales_order)
+    frappe.db.commit()
+
+    return {"sales_order": sales_order, "stock_entry": stock_entry}
+
+
+@frappe.whitelist()
+def create_employee_loan(pos_profile, employee, loan_amount, sales_order=None, stock_entry=None):
+    """
+    Create a submitted Loan (salary advance) for an employee taking POS items on credit.
+
+    Args:
+        pos_profile: POS Profile name (used to resolve company)
+        employee: Employee docname
+        loan_amount: Value of items taken by the employee
+        sales_order: Companion Sales Order name to cross-link (optional)
+        stock_entry: Companion Stock Entry name to cross-link (optional)
+
+    Returns:
+        dict with name and status of the created Loan
+    """
+    if not pos_profile:
+        frappe.throw(_("POS Profile is required"))
+    if not employee:
+        frappe.throw(_("Employee is required"))
+
+    loan_amount = flt(loan_amount)
+    if loan_amount <= 0:
+        frappe.throw(_("Loan amount must be greater than zero"))
+
+    if not frappe.db.exists("Employee", employee):
+        frappe.throw(_("Employee {0} does not exist").format(employee))
+
+    company = frappe.get_cached_value("POS Profile", pos_profile, "company")
+
+    loan_product = frappe.db.get_value("Loan Product", {"company": company}, "name")
+    if not loan_product:
+        frappe.throw(
+            _("Please configure a Loan Product for company {0} to create employee loans").format(company)
+        )
+
+    product = frappe.get_doc("Loan Product", loan_product)
+
+    loan = frappe.new_doc("Loan")
+    loan.applicant_type = "Employee"
+    loan.applicant = employee
+    loan.loan_product = loan_product
+    loan.company = company
+    loan.posting_date = nowdate()
+    loan.loan_amount = loan_amount
+    loan.rate_of_interest = product.rate_of_interest
+    loan.payment_account = product.payment_account
+    loan.loan_account = product.loan_account
+    loan.interest_income_account = product.interest_income_account
+    loan.penalty_income_account = product.penalty_income_account
+
+    if hasattr(loan, "employee"):
+        loan.employee = employee
+    if sales_order and hasattr(loan, "pos_sales_order"):
+        loan.pos_sales_order = sales_order
+    if stock_entry and hasattr(loan, "pos_stock_entry"):
+        loan.pos_stock_entry = stock_entry
+
+    loan.insert(ignore_permissions=True)
+    loan.submit()
+
+    # Cross-link the companion Sales Order / Stock Entry back to this Loan
+    if sales_order:
+        frappe.db.set_value("Sales Order", sales_order, "pos_loan", loan.name)
+    if stock_entry:
+        frappe.db.set_value("Stock Entry", stock_entry, "pos_loan", loan.name)
+
+    frappe.db.commit()
+
+    return {
+        "name": loan.name,
+        "status": "Sanctioned",
+        "employee": employee,
+        "loan_amount": loan_amount,
     }

@@ -96,6 +96,10 @@ fixtures = [
 				[
 					"Sales Invoice-posa_pos_opening_shift",
 					"Sales Invoice-posa_is_printed",
+					"Sales Invoice-posa_customer_type",
+					"Sales Invoice-room",
+					"Sales Invoice-table",
+					"Stock Entry-pos_sale_type",
 					"Item-custom_company",
 					"Item-custom_allow_rate_edit",
 					"POS Profile-posa_cash_mode_of_payment",

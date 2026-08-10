@@ -230,8 +230,44 @@
 					]"
 					:style="isMobileView ? {} : { minHeight: rightColumnMinHeight }"
 				>
+					<!-- Customer / Employee Toggle -->
+					<div class="flex items-center bg-gray-100 rounded-xl p-0.5 mb-2 flex-shrink-0">
+						<button
+							type="button"
+							:disabled="partyLockedFromOutside"
+							@click="!partyLockedFromOutside && (localSaleType = 'customer', localEmployeeFlow = null, localEmployeeSalesMode = null)"
+							class="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1"
+							:class="[
+								localSaleType === 'customer' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700',
+								partyLockedFromOutside ? 'opacity-60 cursor-not-allowed' : ''
+							]"
+							:title="partyLockedFromOutside ? __('Customer/Employee was already selected before checkout') : ''"
+						>
+							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+							</svg>
+							<span>{{ __('Customer') }}</span>
+						</button>
+						<button
+							type="button"
+							:disabled="partyLockedFromOutside"
+							@click="!partyLockedFromOutside && (localSaleType = 'employee', localEmployeeFlow = null, localEmployeeSalesMode = null)"
+							class="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1"
+							:class="[
+								localSaleType === 'employee' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700',
+								partyLockedFromOutside ? 'opacity-60 cursor-not-allowed' : ''
+							]"
+							:title="partyLockedFromOutside ? __('Customer/Employee was already selected before checkout') : ''"
+						>
+							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+							</svg>
+							<span>{{ __('Employee') }}</span>
+						</button>
+					</div>
+
 					<!-- Customer Inline Search -->
-					<div :class="[
+					<div v-if="localSaleType === 'customer' || (localSaleType === 'employee' && localEmployeeFlow === 'sales' && localEmployeeSalesMode === 'cash')" :class="[
 						'rounded-lg p-2 mb-1.5 lg:mb-2',
 						customerRequired && !effectiveCustomer && !customerNameQuery.trim() ? 'bg-red-50 border-2 border-red-300' : 'bg-blue-50 border border-blue-200'
 					]">
@@ -257,11 +293,12 @@
 							<input
 								v-model="customerNameQuery"
 								type="text"
+								:disabled="hasExternalCustomer"
 								:placeholder="__('Customer name...')"
 								@input="handleCustomerNameInput"
-								@focus="customerNameDropdownOpen = true"
+								@focus="handleCustomerNameFocus"
 								@blur="handleCustomerNameBlur"
-								class="w-full h-10 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+								class="w-full h-10 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
 								:class="customerRequired && !effectiveCustomer && !customerNameQuery.trim() ? 'border-red-300' : 'border-blue-300'"
 							/>
 							<div v-if="customerSearchLoading" class="absolute end-2 top-1/2 -translate-y-1/2">
@@ -288,11 +325,12 @@
 							<input
 								v-model="customerMobileQuery"
 								type="text"
+								:disabled="hasExternalCustomer"
 								:placeholder="__('Mobile number...')"
 								@input="handleCustomerMobileInput"
 								@focus="customerMobileDropdownOpen = true"
 								@blur="handleCustomerMobileBlur"
-								class="w-full h-10 px-3 text-sm border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+								class="w-full h-10 px-3 text-sm border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
 							/>
 							<div
 								v-if="customerMobileDropdownOpen && customerMobileResults.length > 0"
@@ -309,6 +347,57 @@
 								</div>
 							</div>
 						</div>
+						<!-- Room (linked to Room doctype) - optional. Picking a room automatically -->
+						<!-- marks this as a Room Customer; leaving it blank keeps it a Guest -->
+						<!-- Customer. No separate type choice needed. -->
+						<div v-if="localSaleType === 'customer' && (effectiveCustomer || customerNameQuery.trim()) && effectiveCustomer?.name !== 'Employee'" class="mt-2">
+						<div class="flex items-center gap-1 mb-1">
+							<span class="text-xs font-medium text-amber-700">{{ __('Room') }} <span class="text-gray-400 font-normal">({{ __('optional') }})</span></span>
+						</div>
+						<div class="relative">
+							<!-- Selected room badge -->
+							<div v-if="localRoom" class="relative">
+								<div class="w-full h-9 px-3 pe-8 text-sm border border-amber-300 rounded-lg bg-amber-50 flex items-center gap-2">
+									<svg class="w-3.5 h-3.5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+									</svg>
+									<span class="text-sm font-medium text-amber-800 truncate">{{ localRoom }}</span>
+								</div>
+								<button type="button" @mousedown.prevent="localRoom = ''; roomSearch = ''" class="absolute end-2 top-1/2 -translate-y-1/2 text-amber-400 hover:text-amber-700 p-1">
+									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+								</button>
+							</div>
+							<!-- Room search input -->
+							<div v-else class="relative">
+								<div class="absolute inset-y-0 start-0 ps-2 flex items-center pointer-events-none">
+									<svg class="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+									</svg>
+								</div>
+								<input
+									v-model="roomSearch"
+									type="text"
+									:placeholder="__('Room / Table No.')"
+									@focus="handleRoomFocus"
+									@blur="handleRoomBlur"
+									@input="handleRoomSearchInput"
+									class="w-full h-9 ps-8 pe-3 text-sm border border-amber-300 rounded-lg bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent placeholder-gray-400"
+								/>
+								<div v-if="roomDropdownOpen && roomResults.length > 0"
+									class="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto border border-amber-200 rounded-lg bg-white shadow-lg">
+									<div v-for="room in roomResults" :key="room.name"
+										@mousedown.prevent="selectRoom(room)"
+										class="flex items-center gap-2 px-3 py-2 hover:bg-amber-50 cursor-pointer border-b border-amber-100 last:border-b-0">
+										<svg class="w-3.5 h-3.5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+										</svg>
+										<span class="text-sm font-medium text-gray-900">{{ room.room }}</span>
+										<span v-if="room.room_category" class="text-xs text-gray-500 ms-auto">{{ room.room_category }}</span>
+									</div>
+								</div>
+							</div>
+						</div>
+						</div>
 						<div v-if="customerRequired && !effectiveCustomer && !customerNameQuery.trim()" class="mt-1 text-xs text-red-600 flex items-center gap-1">
 							<svg class="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
 								<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
@@ -317,8 +406,104 @@
 						</div>
 					</div>
 
+					<!-- Employee Mode: Employee linked field only -->
+					<div v-if="localSaleType === 'employee'" class="rounded-lg p-2 mb-1.5 lg:mb-2 bg-purple-50 border border-purple-200">
+						<div class="flex items-center gap-1 mb-1">
+							<svg class="w-3.5 h-3.5 text-purple-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+							</svg>
+							<span class="text-xs font-medium text-purple-700">{{ __('Employee') }}<span class="text-red-500 ms-0.5">*</span></span>
+						</div>
+						<!-- Selected employee badge -->
+						<div v-if="localEmployee" class="relative">
+							<div class="w-full h-10 px-3 pe-9 text-sm border border-purple-300 rounded-lg bg-white flex items-center gap-2">
+								<svg class="w-4 h-4 text-purple-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+								</svg>
+								<span class="text-sm font-medium text-gray-900 truncate">{{ localEmployee.employee_name || localEmployee.name }}</span>
+							</div>
+							<button v-if="!hasExternalEmployee" type="button" @click="localEmployee = null; employeeSearch = ''" class="absolute end-2 top-1/2 -translate-y-1/2 text-purple-400 hover:text-purple-700 p-1">
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+							</button>
+						</div>
+						<!-- Employee search input -->
+						<div v-else class="relative">
+							<input
+								v-model="employeeSearch"
+								type="text"
+								:disabled="hasExternalEmployee"
+								:placeholder="__('Search employee...')"
+								@focus="handleEmployeeFocus"
+								@blur="handleEmployeeBlur"
+								@input="handleEmployeeSearchInput"
+								class="w-full h-10 px-3 text-sm border border-purple-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
+							/>
+							<div v-if="employeeDropdownOpen && employeeResults.length > 0"
+								class="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto border border-purple-200 rounded-lg bg-white shadow-lg">
+								<div v-for="emp in employeeResults" :key="emp.name"
+									@mousedown.prevent="selectEmployee(emp)"
+									class="flex flex-col px-3 py-2 hover:bg-purple-50 cursor-pointer border-b border-purple-100 last:border-b-0">
+									<span class="text-sm font-medium text-gray-900">{{ emp.employee_name }}</span>
+									<span v-if="emp.designation" class="text-xs text-gray-500">{{ emp.designation }}</span>
+								</div>
+							</div>
+						</div>
+						<div v-if="!localEmployee" class="mt-1 text-xs text-red-600 flex items-center gap-1">
+							<svg class="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+								<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+							</svg>
+							{{ __('Employee is required') }}
+						</div>
+					</div>
+
+					<!-- Employee Benefits / Sales Toggle -->
+					<div v-if="localSaleType === 'employee' && localEmployee" class="rounded-lg p-2 mb-1.5 lg:mb-2 bg-gray-100 border border-gray-200">
+						<span class="text-xs font-medium text-gray-700 block mb-1">{{ __('Benefits or Sales?') }}<span class="text-red-500 ms-0.5">*</span></span>
+						<div class="flex items-center bg-white rounded-xl p-0.5">
+							<button
+								type="button"
+								@click="localEmployeeFlow = 'benefits'; localEmployeeSalesMode = null"
+								class="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-200"
+								:class="localEmployeeFlow === 'benefits' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+							>
+								{{ __('Benefits') }}
+							</button>
+							<button
+								type="button"
+								@click="localEmployeeFlow = 'sales'"
+								class="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-200"
+								:class="localEmployeeFlow === 'sales' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+							>
+								{{ __('Sales') }}
+							</button>
+						</div>
+					</div>
+
+					<!-- Employee Sales: Cash / Loan Toggle -->
+					<div v-if="localSaleType === 'employee' && localEmployee && localEmployeeFlow === 'sales'" class="rounded-lg p-2 mb-1.5 lg:mb-2 bg-gray-100 border border-gray-200">
+						<span class="text-xs font-medium text-gray-700 block mb-1">{{ __('Cash or Loan?') }}<span class="text-red-500 ms-0.5">*</span></span>
+						<div class="flex items-center bg-white rounded-xl p-0.5">
+							<button
+								type="button"
+								@click="localEmployeeSalesMode = 'cash'"
+								class="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-200"
+								:class="localEmployeeSalesMode === 'cash' ? 'bg-green-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+							>
+								{{ __('Cash') }}
+							</button>
+							<button
+								type="button"
+								@click="localEmployeeSalesMode = 'loan'"
+								class="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-200"
+								:class="localEmployeeSalesMode === 'loan' ? 'bg-amber-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+							>
+								{{ __('Loan') }}
+							</button>
+						</div>
+					</div>
+
 					<!-- Sales Person Selection (top of right column) -->
-					<div v-if="settingsStore.enableSalesPersons" :class="[
+					<div v-if="settingsStore.enableSalesPersons && localSaleType === 'customer'" :class="[
 							'rounded-lg p-2 mb-1.5 lg:mb-2',
 							!isSalesPersonValid ? 'bg-red-50 border-2 border-red-300' : 'bg-purple-50 border border-purple-200'
 						]">
@@ -526,7 +711,7 @@
 					</div>
 
 					<!-- Payment Methods -->
-					<div :class="isSmallMobile ? 'mb-1' : 'mb-1.5 lg:mb-3'">
+					<div v-if="localSaleType === 'customer'" :class="isSmallMobile ? 'mb-1' : 'mb-1.5 lg:mb-3'">
 						<div :class="['flex items-center justify-between', isSmallMobile ? 'mb-0.5' : 'mb-1 lg:mb-2']">
 							<div :class="['text-start font-semibold text-gray-500 uppercase tracking-wide', isSmallMobile ? 'text-[10px]' : 'text-xs']">{{ __('Payment Method') }}</div>
 							<!-- Clear All Payments Button -->
@@ -549,10 +734,7 @@
 							<button
 								v-for="method in filteredPaymentMethods"
 								:key="method.mode_of_payment"
-								@pointerdown="onPaymentMethodDown(method, $event)"
-								@pointerup="onPaymentMethodUp(method)"
-								@pointerleave="onPaymentMethodCancel"
-								@pointercancel="onPaymentMethodCancel"
+								@click="quickAddPayment(method)"
 								:disabled="isWalletPaymentMethod(method.mode_of_payment) && availableWalletBalance <= 0 && getMethodTotal(method.mode_of_payment) === 0"
 								:class="[
 									'inline-flex items-center rounded-lg border-2 transition-all font-medium select-none touch-none',
@@ -624,7 +806,7 @@
 
 
 					<!-- Mobile Payment Section - Dynamic & Responsive -->
-					<div class="lg:hidden flex flex-col" :class="isSmallMobile ? 'gap-1' : 'gap-1.5'">
+					<div v-if="localSaleType === 'customer'" class="lg:hidden flex flex-col" :class="isSmallMobile ? 'gap-1' : 'gap-1.5'">
 						<!-- Mobile Custom Input -->
 						<div v-if="lastSelectedMethod && remainingAmount > 0" :class="['space-y-1 flex-shrink-0', isSmallMobile ? 'mb-1' : 'mb-1.5']">
 							<!-- Custom Amount Row (disabled for non-cash when exact amount mode is active) -->
@@ -760,8 +942,56 @@
 					</div>
 					<!-- End Mobile Payment Section -->
 
+					<!-- Employee Mode Action Button (Mobile only) -->
+					<div v-if="localSaleType === 'employee'" class="lg:hidden mt-2">
+						<button
+							@click="employeeActionConfig.handler && employeeActionConfig.handler()"
+							:disabled="employeeActionConfig.disabled"
+							:class="[
+								'w-full font-bold rounded-lg flex items-center justify-center gap-2',
+								employeeActionConfig.disabled
+									? 'bg-purple-300 text-white cursor-not-allowed'
+									: 'bg-purple-600 text-white active:bg-purple-700',
+								mobileButtonSize.height, mobileButtonSize.text
+							]"
+						>
+							<svg v-if="isSubmitting" :class="mobileButtonSize.icon" class="animate-spin" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							<svg v-else :class="mobileButtonSize.icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+							</svg>
+							<span>{{ isSubmitting ? __('Processing...') : employeeActionConfig.label }}</span>
+						</button>
+					</div>
+
+					<!-- Employee Mode Action Button (Desktop only) -->
+					<div v-if="localSaleType === 'employee'" :class="['hidden lg:flex items-center gap-2', isCompactMode ? 'mt-2' : 'mt-4']">
+						<button
+							@click="employeeActionConfig.handler && employeeActionConfig.handler()"
+							:disabled="employeeActionConfig.disabled"
+							:class="[
+								'flex-1 inline-flex items-center justify-center gap-2 transition-colors focus:outline-none',
+								dynamicButtonHeight, 'text-sm font-semibold px-5 rounded-lg',
+								employeeActionConfig.disabled
+									? 'bg-purple-300 text-white cursor-not-allowed'
+									: 'bg-purple-600 text-white hover:bg-purple-700 active:bg-purple-800'
+							]"
+						>
+							<svg v-if="isSubmitting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							<svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+							</svg>
+							<span>{{ isSubmitting ? __('Processing...') : employeeActionConfig.label }}</span>
+						</button>
+					</div>
+
 					<!-- Action Buttons (Desktop only) -->
-					<div :class="['hidden lg:flex items-center gap-2', isCompactMode ? 'mt-2' : 'mt-4']">
+					<div v-if="localSaleType === 'customer'" :class="['hidden lg:flex items-center gap-2', isCompactMode ? 'mt-2' : 'mt-4']">
 						<!-- Pay on Account Button (if credit sales enabled) -->
 						<button
 							v-if="allowCreditSale"
@@ -832,6 +1062,7 @@ import { useToast } from "@/composables/useToast"
 import { useLongPress } from "@/composables/useLongPress"
 import { usePaymentNumpad } from "@/composables/usePaymentNumpad"
 import { useResponsivePayment } from "@/composables/useResponsivePayment"
+import { useCustomerSearchStore } from "@/stores/customerSearch"
 
 const log = logger.create("PaymentDialog")
 const settingsStore = usePOSSettingsStore()
@@ -916,12 +1147,31 @@ const props = defineProps({
 		type: String,
 		default: null,
 	},
+	room: {
+		type: String,
+		default: "",
+	},
+	customerType: {
+		type: String,
+		default: "",
+	},
+	selectedEmployee: {
+		type: Object,
+		default: null,
+	},
+	saleType: {
+		type: String,
+		default: "customer",
+	},
 })
 
 const emit = defineEmits([
 	"update:modelValue",
 	"payment-completed",
 	"update-additional-discount",
+	"stock-issue",
+	"employee-loan",
+	"employee-cash-sale",
 ])
 
 const show = computed({
@@ -943,6 +1193,10 @@ const customerBalance = ref({
 const loadingCredit = ref(false)
 
 // Customer inline search state
+// Uses the shared customerSearchStore (same POS Profile customer-group filtering
+// as the outside-checkout search in InvoiceCart.vue) so results are consistent
+// and available offline, instead of querying the Customer doctype directly.
+const customerSearchStore = useCustomerSearchStore()
 const customerNameQuery = ref("")
 const customerMobileQuery = ref("")
 const customerNameResults = ref([])
@@ -952,6 +1206,27 @@ const selectedCustomer = ref(null)
 const customerNameDropdownOpen = ref(false)
 const customerMobileDropdownOpen = ref(false)
 const isCreatingCustomer = ref(false)
+
+// Sale type state ('customer' | 'employee')
+const localSaleType = ref("customer")
+
+// Room (linked to Room doctype) state
+const localRoom = ref("")
+const roomSearch = ref("")
+const roomDropdownOpen = ref(false)
+const roomResults = ref([])
+let _roomSearchTimer = null
+
+// Employee state
+const localEmployee = ref(null)
+const employeeSearch = ref("")
+const employeeDropdownOpen = ref(false)
+const employeeResults = ref([])
+let _employeeSearchTimer = null
+
+// Employee flow: 'benefits' | 'sales'; sales sub-mode: 'cash' | 'loan'
+const localEmployeeFlow = ref(null)
+const localEmployeeSalesMode = ref(null)
 
 // Wallet state
 const walletInfo = ref({
@@ -974,6 +1249,16 @@ const customerRequired = computed(() => {
 	const hasProfileCustomer = !!props.profileCustomer
 	return !hasCartCustomer && !hasProfileCustomer
 })
+
+// Once a customer/employee was picked outside the checkout dialog (in
+// InvoiceCart, before "Proceed to payment"), the checkout screen must not
+// let the user swap to a different customer/employee or switch sale type -
+// only the outside cart selection is allowed to change that.
+const hasExternalCustomer = computed(() => {
+	return !!(props.customer?.name || (typeof props.customer === "string" && props.customer))
+})
+const hasExternalEmployee = computed(() => !!props.selectedEmployee)
+const partyLockedFromOutside = computed(() => hasExternalCustomer.value || hasExternalEmployee.value)
 
 // Resolved customer: from search selection (initialized on open), null if typing without selecting
 const effectiveCustomer = computed(() => {
@@ -1437,20 +1722,22 @@ let _nameSearchTimer = null
 let _mobileSearchTimer = null
 
 async function _searchCustomersByName(query) {
-	if (!query || query.length < 2) {
-		customerNameResults.value = []
-		return
-	}
 	customerSearchLoading.value = true
 	try {
-		const results = await call("frappe.client.get_list", {
-			doctype: "Customer",
-			fields: ["name", "customer_name", "mobile_no"],
-			filters: [["customer_name", "like", `%${query}%`]],
-			limit_page_length: 10,
-			order_by: "customer_name asc",
-		})
-		customerNameResults.value = results || []
+		// Ensure the shared, POS-Profile-filtered customer list is loaded
+		// (no-ops if already loaded/fresh this session).
+		await customerSearchStore.loadAllCustomers(props.posProfile)
+
+		const term = (query || "").trim().toLowerCase()
+		const source = customerSearchStore.allCustomers
+		const matches = term.length >= 2
+			? source.filter((c) => (c.customer_name || "").toLowerCase().includes(term))
+			: source
+
+		customerNameResults.value = matches
+			.slice()
+			.sort((a, b) => (a.customer_name || "").localeCompare(b.customer_name || ""))
+			.slice(0, 10)
 	} catch (err) {
 		log.error("[PaymentDialog] Customer name search error:", err)
 		customerNameResults.value = []
@@ -1459,24 +1746,25 @@ async function _searchCustomersByName(query) {
 	}
 }
 
+function handleCustomerNameFocus() {
+	customerNameDropdownOpen.value = true
+	if (!customerNameQuery.value.trim()) {
+		_searchCustomersByName("")
+	}
+}
+
 async function _searchCustomersByMobile(query) {
 	if (!query || query.length < 3) {
 		customerMobileResults.value = []
 		return
 	}
-	try {
-		const results = await call("frappe.client.get_list", {
-			doctype: "Customer",
-			fields: ["name", "customer_name", "mobile_no"],
-			filters: [["mobile_no", "like", `%${query}%`]],
-			limit_page_length: 10,
-			order_by: "customer_name asc",
-		})
-		customerMobileResults.value = results || []
-	} catch (err) {
-		log.error("[PaymentDialog] Customer mobile search error:", err)
-		customerMobileResults.value = []
-	}
+	await customerSearchStore.loadAllCustomers(props.posProfile)
+
+	const term = query.trim().toLowerCase()
+	customerMobileResults.value = customerSearchStore.allCustomers
+		.filter((c) => (c.mobile_no || "").toLowerCase().includes(term))
+		.sort((a, b) => (a.customer_name || "").localeCompare(b.customer_name || ""))
+		.slice(0, 10)
 }
 
 function handleCustomerNameInput() {
@@ -1508,6 +1796,134 @@ function handleCustomerNameBlur() {
 function handleCustomerMobileBlur() {
 	setTimeout(() => { customerMobileDropdownOpen.value = false }, 150)
 }
+
+// ===========================================
+// Room Linked Field Search
+// ===========================================
+async function _searchRooms(query) {
+	try {
+		const filters = query && query.length >= 1
+			? [["room", "like", `%${query}%`]]
+			: []
+		const results = await call("frappe.client.get_list", {
+			doctype: "Room",
+			fields: ["name", "room", "room_category"],
+			filters,
+			limit_page_length: 0,
+			order_by: "room asc",
+		})
+		roomResults.value = results || []
+	} catch (err) {
+		log.error("[PaymentDialog] Room search error:", err)
+		roomResults.value = []
+	}
+}
+
+function handleRoomFocus() {
+	roomDropdownOpen.value = true
+	if (!roomSearch.value.trim()) {
+		_searchRooms("")
+	}
+}
+
+function handleRoomBlur() {
+	setTimeout(() => { roomDropdownOpen.value = false }, 150)
+}
+
+function handleRoomSearchInput() {
+	clearTimeout(_roomSearchTimer)
+	_roomSearchTimer = setTimeout(() => _searchRooms(roomSearch.value), 250)
+}
+
+function selectRoom(room) {
+	localRoom.value = room.room || room.name
+	roomSearch.value = ""
+	roomDropdownOpen.value = false
+}
+
+// ===========================================
+// Employee Inline Search
+// ===========================================
+async function _searchEmployees(query) {
+	try {
+		const results = await call("frappe.client.get_list", {
+			doctype: "Employee",
+			fields: ["name", "employee_name", "designation"],
+			filters: query && query.length >= 1
+				? [["employee_name", "like", `%${query}%`]]
+				: [],
+			limit_page_length: 10,
+			order_by: "employee_name asc",
+		})
+		employeeResults.value = results || []
+	} catch (err) {
+		log.error("[PaymentDialog] Employee search error:", err)
+		employeeResults.value = []
+	}
+}
+
+function handleEmployeeFocus() {
+	employeeDropdownOpen.value = true
+	if (!employeeSearch.value.trim()) {
+		_searchEmployees("")
+	}
+}
+
+function handleEmployeeSearchInput() {
+	clearTimeout(_employeeSearchTimer)
+	_employeeSearchTimer = setTimeout(() => _searchEmployees(employeeSearch.value), 300)
+}
+
+function handleEmployeeBlur() {
+	setTimeout(() => { employeeDropdownOpen.value = false }, 150)
+}
+
+function selectEmployee(emp) {
+	localEmployee.value = emp
+	employeeSearch.value = ""
+	employeeDropdownOpen.value = false
+}
+
+function createStockIssue() {
+	if (!localEmployee.value) return
+	emit("stock-issue", { employee: localEmployee.value })
+	show.value = false
+}
+
+function createEmployeeLoan() {
+	if (!localEmployee.value) return
+	emit("employee-loan", { employee: localEmployee.value })
+	show.value = false
+}
+
+function createEmployeeCashSale() {
+	if (!localEmployee.value || !selectedCustomer.value) return
+	emit("employee-cash-sale", { employee: localEmployee.value, customer: selectedCustomer.value })
+	show.value = false
+}
+
+const employeeActionConfig = computed(() => {
+	if (!localEmployee.value) {
+		return { disabled: true, label: __("Employee Required"), handler: null }
+	}
+	if (localEmployeeFlow.value === "benefits") {
+		return { disabled: props.isSubmitting, label: __("Create Stock Issue"), handler: createStockIssue }
+	}
+	if (localEmployeeFlow.value === "sales") {
+		if (localEmployeeSalesMode.value === "loan") {
+			return { disabled: props.isSubmitting, label: __("Create Loan"), handler: createEmployeeLoan }
+		}
+		if (localEmployeeSalesMode.value === "cash") {
+			return {
+				disabled: props.isSubmitting || !selectedCustomer.value,
+				label: __("Create Sales Order"),
+				handler: createEmployeeCashSale,
+			}
+		}
+		return { disabled: true, label: __("Choose Cash or Loan"), handler: null }
+	}
+	return { disabled: true, label: __("Choose Benefits or Sales"), handler: null }
+})
 
 // Load payment methods - from cache if offline, from server if online
 async function loadPaymentMethods() {
@@ -1883,6 +2299,19 @@ watch(show, (newVal) => {
 			customerNameQuery.value = ""
 			customerMobileQuery.value = ""
 		}
+		// Initialize sale type, room and employee from props
+		localSaleType.value = props.saleType || "customer"
+		localRoom.value = props.room || ""
+		roomSearch.value = ""
+		roomDropdownOpen.value = false
+		roomResults.value = []
+		localEmployee.value = props.selectedEmployee || null
+		employeeSearch.value = ""
+		employeeDropdownOpen.value = false
+		employeeResults.value = []
+		localEmployeeFlow.value = null
+		localEmployeeSalesMode.value = null
+
 		// Set default delivery date to today for Sales Orders
 		deliveryDate.value = isSalesOrder.value ? today : ""
 
@@ -2252,6 +2681,8 @@ function addCreditAccountPayment() {
 		is_credit_sale: true, // Mark as credit sale
 		paid_amount: 0,
 		outstanding_amount: props.grandTotal,
+		room: localRoom.value || null,
+		employee: localEmployee.value || null,
 	}
 
 	log.debug(
@@ -2335,6 +2766,10 @@ async function completePayment() {
 		is_write_off: writeOffAmount.value > 0,
 		// Customer resolved from inline fields (null if using existing cart/profile customer)
 		customer: resolvedCustomer,
+		// Room accounting dimension
+		room: localRoom.value || null,
+		// Employee linked to this sale
+		employee: localEmployee.value || null,
 	}
 
 	log.debug("[PaymentDialog] Emitting payment-completed:", paymentData)

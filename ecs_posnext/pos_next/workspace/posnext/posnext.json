@@ -1,6 +1,7 @@
 {
+ "app": "ecs_posnext",
  "charts": [],
- "content": "[{\"id\":\"cDBfxZcI12\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">POSNext</span>\",\"col\":12}},{\"id\":\"EuDVjJUKSQ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Start POS\",\"col\":3}},{\"id\":\"uXQ4aBaRfk\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"jEFYB2fX3t\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Settings\",\"col\":3}},{\"id\":\"RoWvjX8Ocp\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Profile\",\"col\":3}},{\"id\":\"p4KrSYzInK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Opening Shift\",\"col\":3}},{\"id\":\"VO-VLNdx_2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Closing Shift\",\"col\":3}},{\"id\":\"OYrA05uyCG\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Offer\",\"col\":3}},{\"id\":\"FUd4_fFBgH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Coupon\",\"col\":3}}]",
+ "content": "[{\"id\":\"cDBfxZcI12\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">POSNext</span>\",\"col\":12}},{\"id\":\"EuDVjJUKSQ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Start POS\",\"col\":3}},{\"id\":\"uXQ4aBaRfk\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"jEFYB2fX3t\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Settings\",\"col\":3}},{\"id\":\"RoWvjX8Ocp\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Profile\",\"col\":3}},{\"id\":\"p4KrSYzInK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Opening Shift\",\"col\":3}},{\"id\":\"VO-VLNdx_2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Closing Shift\",\"col\":3}},{\"id\":\"OYrA05uyCG\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Offer\",\"col\":3}},{\"id\":\"FUd4_fFBgH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Coupon\",\"col\":3}},{\"id\":\"h5g3ENKzGz\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Reports</b></span>\",\"col\":12}},{\"id\":\"Ol83F6qG1R\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item Wise Sales History\",\"col\":3}},{\"id\":\"kf6kCHf6rA\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Sales Analytics\",\"col\":3}},{\"id\":\"hS3HzW7TDV\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Sales Order Analysis\",\"col\":3}}]",
  "creation": "2026-01-28 16:48:36.007405",
  "custom_blocks": [],
  "docstatus": 0,
@@ -13,22 +14,6 @@
  "is_hidden": 0,
  "label": "POSNext",
  "links": [
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS",
-   "link_count": 1,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Configuration",
-   "link_count": 2,
-   "onboard": 0,
-   "type": "Card Break"
-  },
   {
    "hidden": 0,
    "is_query_report": 0,
@@ -45,34 +30,6 @@
    "label": "POS Profile",
    "link_count": 0,
    "link_to": "POS Profile",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Shift Management",
-   "link_count": 2,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS Opening Shift",
-   "link_count": 0,
-   "link_to": "POS Opening Shift",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "POS Closing Shift",
-   "link_count": 0,
-   "link_to": "POS Closing Shift",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -104,28 +61,10 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Items",
-   "link_count": 1,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Item",
-   "link_count": 0,
-   "link_to": "Item",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
   }
  ],
- "modified": "2026-04-05 15:02:26.578321",
- "modified_by": "mario@erpcloud.systems",
+ "modified": "2026-07-16 13:34:18.258950",
+ "modified_by": "omar.said@erpcloud.systems",
  "module": "POS Next",
  "name": "POSNext",
  "number_cards": [],
@@ -143,6 +82,14 @@
   {
    "color": "Grey",
    "doc_view": "List",
+   "label": "Item Wise Sales History",
+   "link_to": "Item-wise Sales History",
+   "report_ref_doctype": "Sales Order",
+   "type": "Report"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
    "label": "Item",
    "link_to": "Item",
    "stats_filter": "[]",
@@ -151,10 +98,26 @@
   {
    "color": "Grey",
    "doc_view": "List",
+   "label": "Sales Analytics",
+   "link_to": "Sales Analytics",
+   "report_ref_doctype": "Sales Order",
+   "type": "Report"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
    "label": "Pos Settings",
    "link_to": "POS Settings",
    "stats_filter": "[]",
    "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Sales Order Analysis",
+   "link_to": "Sales Order Analysis",
+   "report_ref_doctype": "Sales Order",
+   "type": "Report"
   },
   {
    "color": "Grey",
@@ -204,5 +167,6 @@
    "type": "DocType"
   }
  ],
- "title": "POSNext"
+ "title": "POSNext",
+ "type": "Workspace"
 }

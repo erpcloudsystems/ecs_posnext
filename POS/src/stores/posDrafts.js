@@ -35,6 +35,7 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 		posProfile,
 		appliedOffers = [],
 		draftId = null,
+		context = {},
 	) {
 		if (invoiceItems.length === 0) {
 			showWarning(__("Cannot save an empty cart as draft"))
@@ -47,6 +48,16 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 				customer: customer,
 				items: invoiceItems,
 				applied_offers: appliedOffers, // Save applied offers
+				// Preserve table/room + sale-type context so resuming a held order
+				// (Customer / Employee Benefits/Cash/Loan) puts the cart back exactly
+				// as it was, instead of resetting to a plain customer sale.
+				// Room (hotel room-service) and Table (restaurant table) are kept as
+				// two distinct fields - they identify different things.
+				room: context.room || "",
+				table: context.table || "",
+				customer_type: context.customerType || "",
+				sale_type: context.saleType || "customer",
+				employee: context.employee || null,
 			}
 
 			let savedDraft
@@ -76,12 +87,32 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 				items: draft.items || [],
 				customer: draft.customer,
 				applied_offers: draft.applied_offers || [], // Restore applied offers
+				room: draft.room || "",
+				table: draft.table || "",
+				customerType: draft.customer_type || "",
+				saleType: draft.sale_type || "customer",
+				employee: draft.employee || null,
 			}
 		} catch (error) {
 			console.error("Error loading draft:", error)
 			showError(__("Failed to load draft"))
 			throw error
 		}
+	}
+
+	/**
+	 * Find an existing open draft already held for the given table, so a second
+	 * "hold" for the same table resumes it instead of creating a duplicate.
+	 * @param {string} tableValue
+	 * @param {string|null} excludeDraftId - the draft currently being edited, if any
+	 */
+	function getOpenDraftForTable(tableValue, excludeDraftId = null) {
+		if (!tableValue) return null
+		return (
+			drafts.value.find(
+				(d) => d.table === tableValue && d.draft_id !== excludeDraftId,
+			) || null
+		)
 	}
 
 	async function deleteDraftById(draftId) {
@@ -105,6 +136,7 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 		loadDrafts,
 		saveDraftInvoice,
 		loadDraft,
+		getOpenDraftForTable,
 		deleteDraft: deleteDraftById,
 	}
 })

@@ -10,6 +10,7 @@ import { offlineState } from "@/utils/offline/offlineState"
 import { useToast } from "@/composables/useToast"
 import { defineStore } from "pinia"
 import { computed, nextTick, ref, toRaw, watch } from "vue"
+import { createResource } from "frappe-ui"
 
 /**
  * Creates an async task queue that ensures only one operation runs at a time.
@@ -95,6 +96,9 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		additionalDiscount,
 		taxInclusive,
 		isSubmitting,
+		room,
+		table,
+		customerType,
 		addItem: addItemToInvoice,
 		removeItem,
 		updateItemQuantity,
@@ -111,6 +115,9 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		recalculateItem,
 		rebuildIncrementalCache,
 		formatItemsForSubmission,
+		setRoom,
+		setTable,
+		setCustomerType,
 	} = useInvoice()
 
 	const offersStore = usePOSOffersStore()
@@ -124,7 +131,8 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	const selectionMode = ref("uom") // 'uom' or 'variant'
 	const suppressOfferReapply = ref(false)
 	const currentDraftId = ref(null)
-	const targetDoctype = ref("Sales Invoice")
+	// POS never creates a Sales Invoice anymore - always a Sales Order (see submitInvoice())
+	const targetDoctype = ref("Sales Order")
 
 	// Offer processing state management
 	const offerProcessingState = ref({
@@ -229,7 +237,10 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		appliedOffers.value = []
 		appliedCoupon.value = null
 		currentDraftId.value = null
-		targetDoctype.value = "Sales Invoice"
+		targetDoctype.value = "Sales Order"
+		saleType.value = "customer"
+		selectedEmployee.value = null
+		pendingEmployeeCashSale.value = false
 
 		// Reset offer processing state
 		suppressOfferReapply.value = false
@@ -248,6 +259,70 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	const deliveryDate = ref("")
 	const writeOffAmount = ref(0)
 
+	// Sale type: 'customer' | 'employee'
+	const saleType = ref("customer")
+	const selectedEmployee = ref(null)
+	// True while an "Employee > Sales > Cash" Sales Order is pending in the payment dialog;
+	// lets the caller know to also create the employee's stock issue once the order is submitted,
+	// and gets force-cleared if the dialog is cancelled so the employee doesn't leak into later sales.
+	const pendingEmployeeCashSale = ref(false)
+
+	const employeeStockIssueResource = createResource({
+		url: "ecs_posnext.api.invoices.create_employee_stock_issue",
+		makeParams(params) {
+			return {
+				pos_profile: params.pos_profile,
+				employee: params.employee || null,
+				items: JSON.stringify(params.items),
+				pos_sale_type: params.pos_sale_type || null,
+				room: params.room || null,
+			}
+		},
+		auto: false,
+	})
+
+	const employeeLoanResource = createResource({
+		url: "ecs_posnext.api.invoices.create_employee_loan",
+		makeParams(params) {
+			return {
+				pos_profile: params.pos_profile,
+				employee: params.employee,
+				loan_amount: params.loan_amount,
+				sales_order: params.salesOrder || null,
+				stock_entry: params.stockEntry || null,
+			}
+		},
+		auto: false,
+	})
+
+	const linkPosDocumentsResource = createResource({
+		url: "ecs_posnext.api.invoices.link_pos_documents",
+		makeParams(params) {
+			return {
+				sales_order: params.salesOrder,
+				stock_entry: params.stockEntry,
+			}
+		},
+		auto: false,
+	})
+
+	function setSaleType(type) {
+		saleType.value = type
+		if (type === "customer") {
+			selectedEmployee.value = null
+		} else {
+			customer.value = null
+		}
+	}
+
+	function setEmployee(employee) {
+		selectedEmployee.value = employee
+	}
+
+	function setPendingEmployeeCashSale(pending) {
+		pendingEmployeeCashSale.value = !!pending
+	}
+
 	function setDeliveryDate(date) {
 		deliveryDate.value = date
 	}
@@ -256,7 +331,125 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		writeOffAmount.value = amount || 0
 	}
 
-	async function submitInvoice() {
+	async function _submitStockEntry(posSaleType, requireEmployee, cartItemsSnapshot = null, roomSnapshot = undefined) {
+		// Accepts an optional pre-captured snapshot of cart items/room, since callers
+		// that already submitted a Sales Order (which clears the cart, including room,
+		// on success) can no longer rely on the live refs by the time they get here.
+		const sourceItems = cartItemsSnapshot || invoiceItems.value
+		if (sourceItems.length === 0) {
+			showWarning(__("Cart is empty"))
+			return
+		}
+		if (requireEmployee && !selectedEmployee.value) {
+			showWarning(__("Please select an employee"))
+			return
+		}
+
+		const items = sourceItems.map((item) => ({
+			item_code: item.item_code,
+			qty: item.quantity,
+			uom: item.uom || item.stock_uom,
+			warehouse: item.warehouse,
+		}))
+
+		const effectiveRoom = roomSnapshot !== undefined ? roomSnapshot : room.value
+
+		try {
+			isSubmitting.value = true
+			const result = await employeeStockIssueResource.submit({
+				pos_profile: posProfile.value,
+				employee: selectedEmployee.value ? (selectedEmployee.value.name || selectedEmployee.value) : null,
+				items,
+				pos_sale_type: posSaleType,
+				// Room only applies to plain Customer sales, never employee-linked ones
+				room: requireEmployee ? null : effectiveRoom,
+			})
+			return result?.message || result
+		} catch (error) {
+			const msg = parseError(error)
+			showError(msg || __("Failed to create stock issue"))
+			throw error
+		} finally {
+			isSubmitting.value = false
+		}
+	}
+
+	async function submitEmployeeIssue(posSaleType = null, cartItemsSnapshot = null, roomSnapshot = undefined) {
+		return await _submitStockEntry(posSaleType, true, cartItemsSnapshot, roomSnapshot)
+	}
+
+	async function submitStockIssue(posSaleType = null, cartItemsSnapshot = null, roomSnapshot = undefined) {
+		return await _submitStockEntry(posSaleType, false, cartItemsSnapshot, roomSnapshot)
+	}
+
+	async function linkPosDocuments(salesOrder, stockEntry) {
+		if (!salesOrder || !stockEntry) return null
+		try {
+			const result = await linkPosDocumentsResource.submit({ salesOrder, stockEntry })
+			return result?.message || result
+		} catch (error) {
+			// Non-critical - both documents already exist and are valid on their own.
+			console.error("Failed to link Sales Order and Stock Entry:", error)
+			return null
+		}
+	}
+
+	async function submitEmployeeLoan() {
+		if (invoiceItems.value.length === 0) {
+			showWarning(__("Cart is empty"))
+			return
+		}
+		if (!selectedEmployee.value) {
+			showWarning(__("Please select an employee"))
+			return
+		}
+
+		const employee = selectedEmployee.value
+		// Capture the amount now - creating the Sales Order below clears the cart on
+		// success, which would zero out grandTotal before the Loan is submitted.
+		const loanAmount = grandTotal.value
+
+		try {
+			isSubmitting.value = true
+			const stockResult = await submitEmployeeIssue("Loan")
+
+			// Also create a Sales Order documenting the sale, against the fixed "Employee"
+			// customer record, same as the Cash flow.
+			setSaleType("customer")
+			setCustomer({ name: "Employee", customer_name: "Employee" })
+			setEmployee(employee)
+			setTargetDoctype("Sales Order")
+			setDeliveryDate(new Date().toISOString().split("T")[0])
+			const orderResult = await createSalesOrder("Loan")
+			const orderName = orderResult ? (orderResult.name || orderResult.message?.name) : null
+
+			const loanResult = await employeeLoanResource.submit({
+				pos_profile: posProfile.value,
+				employee: employee.name || employee,
+				loan_amount: loanAmount,
+				salesOrder: orderName,
+				stockEntry: stockResult?.name,
+			})
+
+			if (stockResult && orderName) {
+				await linkPosDocuments(orderName, stockResult.name)
+			}
+
+			return { stockEntry: stockResult, loan: loanResult?.message || loanResult, order: orderResult }
+		} catch (error) {
+			const msg = parseError(error)
+			showError(msg || __("Failed to create employee loan"))
+			throw error
+		} finally {
+			isSubmitting.value = false
+		}
+	}
+
+	async function submitInvoice(posSaleType = null) {
+		if (saleType.value === "employee") {
+			return await submitEmployeeIssue(posSaleType)
+		}
+
 		if (invoiceItems.value.length === 0) {
 			showWarning(__("Cart is empty"))
 			return
@@ -265,8 +458,20 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			showWarning(__("Please select a customer"))
 			return
 		}
+		if (customerType.value === "Room Customer" && !room.value) {
+			showWarning(__("Please select a Room"))
+			return
+		}
 
-		const result = await baseSubmitInvoice(targetDoctype.value, deliveryDate.value, writeOffAmount.value)
+		// POS never creates a Sales Invoice directly anymore - always a Sales Order
+		// (paired with a Stock Entry by the caller) so stock still moves out correctly.
+		const result = await baseSubmitInvoice(
+			"Sales Order",
+			deliveryDate.value || new Date().toISOString().split("T")[0],
+			writeOffAmount.value,
+			selectedEmployee.value,
+			posSaleType,
+		)
 		// Reset write-off amount after successful submission
 		if (result) {
 			writeOffAmount.value = 0
@@ -274,14 +479,22 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		return result
 	}
 
-	async function createSalesOrder() {
-		return await submitInvoice()
+	async function createSalesOrder(posSaleType = null) {
+		return await submitInvoice(posSaleType)
 	}
 
 
 
 	function setCustomer(selectedCustomer) {
 		customer.value = selectedCustomer
+		if (!selectedCustomer) {
+			setCustomerType("")
+			setRoom("")
+		} else if (!room.value) {
+			// Default to Guest Customer immediately; setRoom() will flip this to
+			// Room Customer automatically if/when a room gets picked.
+			setCustomerType("Guest Customer")
+		}
 	}
 
 	function setPendingItem(item, qty = 1, mode = "uom") {
@@ -1683,6 +1896,9 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		salesTeam,
 		additionalDiscount,
 		taxInclusive,
+		room,
+		table,
+		customerType,
 		pendingItem,
 		pendingItemQty,
 		appliedOffers,
@@ -1705,6 +1921,9 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		updateItemQuantity,
 		clearCart,
 		setCustomer,
+		setRoom,
+		setTable,
+		setCustomerType,
 		setDefaultCustomer,
 		setPendingItem,
 		clearPendingItem,
@@ -1737,6 +1956,18 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		// Write-off feature
 		writeOffAmount,
 		setWriteOffAmount,
+
+		// Employee sale type
+		saleType,
+		selectedEmployee,
+		setSaleType,
+		setEmployee,
+		submitEmployeeIssue,
+		submitStockIssue,
+		submitEmployeeLoan,
+		linkPosDocuments,
+		pendingEmployeeCashSale,
+		setPendingEmployeeCashSale,
 
 		// Utilities
 		cancelPendingOfferProcessing: () => {

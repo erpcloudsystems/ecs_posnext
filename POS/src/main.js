@@ -57,7 +57,7 @@ if ("serviceWorker" in navigator) {
 			import("virtual:pwa-register").then(({ registerSW }) => {
 				registerSW({
 					immediate: true,
-					onNeedRefresh: () => log.info("New content available, reloading..."),
+					onNeedRefresh: () => { log.info("New content available, reloading..."); window.location.reload() },
 					onOfflineReady: () => log.info("App ready to work offline"),
 					onRegistered: (reg) => log.info("Service Worker registered", reg),
 					onRegisterError: (err) => log.error("Service Worker registration error", err),

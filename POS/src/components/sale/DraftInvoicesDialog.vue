@@ -27,9 +27,17 @@
 					>
 						<div class="flex items-start justify-between mb-2">
 							<div class="flex-1">
-								<h4 class="text-sm font-semibold text-gray-900">
-									{{ draft.draft_id }}
-								</h4>
+								<div class="flex items-center gap-1.5">
+									<h4 class="text-sm font-semibold text-gray-900">
+										{{ draft.draft_id }}
+									</h4>
+									<span v-if="draft.table" class="text-[10px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+										{{ __('Table {0}', [draft.table]) }}
+									</span>
+									<span v-if="draft.room" class="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+										{{ __('Room {0}', [draft.room]) }}
+									</span>
+								</div>
 								<p v-if="draft.customer" class="text-xs text-gray-500 mt-0.5">
 									{{ __('Customer: {0}', [(draft.customer?.customer_name || draft.customer?.name || draft.customer)]) }}
 								</p>

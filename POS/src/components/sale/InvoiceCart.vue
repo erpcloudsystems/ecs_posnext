@@ -65,8 +65,39 @@
 	<div class="flex flex-col h-full bg-white">
 		<!-- Header with Customer -->
 		<div class="px-2.5 py-2 border-b border-gray-200 bg-gray-50">
-			<!-- Inline Customer Search/Selection -->
-			<div ref="customerSearchContainer" class="relative">
+
+			<!-- Sale Type Toggle: Customer / Employee -->
+			<div class="flex items-center bg-gray-100 rounded-xl p-0.5 mb-2">
+				<button
+					type="button"
+					@click="cartStore.setSaleType('customer'); employeeFlow = null; employeeSalesMode = null"
+					class="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1"
+					:class="cartStore.saleType === 'customer'
+						? 'bg-white text-blue-600 shadow-sm'
+						: 'text-gray-500 hover:text-gray-700'"
+				>
+					<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+					</svg>
+					<span>{{ __('Customer') }}</span>
+				</button>
+				<button
+					type="button"
+					@click="cartStore.setSaleType('employee'); employeeFlow = null; employeeSalesMode = null"
+					class="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-1"
+					:class="cartStore.saleType === 'employee'
+						? 'bg-white text-purple-600 shadow-sm'
+						: 'text-gray-500 hover:text-gray-700'"
+				>
+					<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+					</svg>
+					<span>{{ __('Employee') }}</span>
+				</button>
+			</div>
+
+			<!-- Inline Customer Search/Selection (Customer mode) -->
+			<div v-show="cartStore.saleType === 'customer'" ref="customerSearchContainer" class="relative">
 				<div v-if="customer">
 					<!-- Two Cards Layout: Customer Card + Document Type Card -->
 					<div class="flex items-stretch gap-2">
@@ -161,11 +192,83 @@
 							</div>
 						</div>
 					</div>
+
+				<!-- Room Field (optional, customer mode only) - picking a room here -->
+				<!-- automatically marks this as a Room Customer; leaving it blank -->
+				<!-- keeps it a Guest Customer. No separate type choice needed. -->
+				<!-- Linked to the Room doctype - same source of truth as the Room -->
+				<!-- picker inside checkout (PaymentDialog.vue), kept as a distinct -->
+				<!-- concept from the restaurant Table number. -->
+				<div v-if="cartStore.saleType === 'customer' && customer" class="mt-2 flex items-center gap-1.5">
+					<div class="relative flex-1">
+						<!-- Selected room badge -->
+						<div v-if="cartStore.room" class="relative">
+							<div class="absolute inset-y-0 start-0 ps-2 flex items-center pointer-events-none">
+								<svg class="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+								</svg>
+							</div>
+							<div class="w-full h-8 ps-7 pe-7 text-xs border border-amber-200 rounded-lg bg-amber-50 flex items-center shadow-sm">
+								<span class="truncate">{{ cartStore.room }}</span>
+							</div>
+							<button
+								type="button"
+								@mousedown.prevent="cartStore.setRoom(''); roomSearch = ''"
+								class="absolute end-1.5 top-1/2 -translate-y-1/2 text-amber-400 hover:text-amber-700 p-0.5"
+								:aria-label="__('Clear room')"
+							>
+								<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+							</button>
+						</div>
+						<!-- Room search input -->
+						<div v-else>
+							<div class="absolute inset-y-0 start-0 ps-2 flex items-center pointer-events-none">
+								<svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+								</svg>
+							</div>
+							<input
+								id="room-input"
+								name="room-input"
+								v-model="roomSearch"
+								type="text"
+								:placeholder="__('Search room...')"
+								@focus="handleRoomFocus"
+								@blur="handleRoomBlur"
+								@input="handleRoomSearchInput"
+								class="w-full h-8 ps-7 pe-3 text-xs border rounded-lg bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent shadow-sm transition-all placeholder-gray-400 border-red-300 ring-1 ring-red-200"
+								:aria-label="__('Search room')"
+								autocomplete="off"
+							/>
+							<div
+								v-if="roomDropdownOpen && roomResults.length > 0"
+								class="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto border border-amber-200 rounded-lg bg-white shadow-lg"
+							>
+								<div
+									v-for="r in roomResults"
+									:key="r.name"
+									@mousedown.prevent="selectRoom(r)"
+									class="flex items-center gap-2 px-3 py-2 hover:bg-amber-50 cursor-pointer border-b border-amber-100 last:border-b-0"
+								>
+									<span class="text-xs font-medium text-gray-900">{{ r.room }}</span>
+									<span v-if="r.room_category" class="text-[10px] text-gray-500 ms-auto">{{ r.room_category }}</span>
+								</div>
+							</div>
+							<div
+								v-else-if="roomDropdownOpen && roomSearch.trim().length > 0"
+								class="absolute z-50 mt-1 w-full border border-amber-200 rounded-lg bg-white shadow-lg px-3 py-2 text-[10px] text-gray-500"
+							>
+								{{ __('No rooms found') }}
+							</div>
+						</div>
+					</div>
+					<span class="text-[10px] text-amber-600 font-medium flex-shrink-0">{{ __('Room') }}<span class="text-red-500">*</span></span>
 				</div>
-				<div v-else>
-					<div class="flex gap-1.5">
-						<!-- Search Input -->
-						<div class="relative flex-1">
+			</div>
+			<div v-else>
+				<div class="flex gap-1.5">
+					<!-- Search Input -->
+					<div class="relative flex-1">
 							<!-- Search Icon Prefix -->
 							<div
 								class="absolute inset-y-0 start-0 ps-3 flex items-center pointer-events-none"
@@ -354,6 +457,146 @@
 						</div>
 					</button>
 				</div>
+			</div>
+			<!-- Employee Search/Selection (Employee mode) -->
+			<div v-show="cartStore.saleType === 'employee'" class="relative mt-0">
+
+				<!-- Employee Selected Card -->
+				<div v-if="cartStore.selectedEmployee">
+					<div class="flex items-center gap-1.5 bg-white border border-purple-200 rounded-xl p-1.5 shadow-sm">
+						<div class="w-8 h-8 bg-gradient-to-br from-purple-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
+							<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+							</svg>
+						</div>
+						<div class="min-w-0 flex-1 px-1">
+							<p class="text-xs font-semibold text-gray-900 truncate leading-tight">
+								{{ cartStore.selectedEmployee.employee_name || cartStore.selectedEmployee.name }}
+							</p>
+							<p v-if="cartStore.selectedEmployee.designation" class="text-[10px] text-gray-500 truncate leading-tight">
+								{{ cartStore.selectedEmployee.designation }}
+							</p>
+						</div>
+						<button
+							type="button"
+							@click.stop="removeEmployee"
+							class="w-7 h-7 flex items-center justify-center text-red-500 hover:bg-red-50 active:bg-red-100 rounded-lg transition-colors touch-manipulation flex-shrink-0"
+							:title="__('Remove employee')"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+							</svg>
+						</button>
+					</div>
+				</div>
+
+				<!-- Employee Search Input -->
+				<div v-else>
+					<div class="relative">
+						<div class="absolute inset-y-0 start-0 ps-3 flex items-center pointer-events-none">
+							<svg
+								v-if="employeesLoaded || !posProfile"
+								class="w-4 h-4 text-purple-400"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+							</svg>
+							<div v-else class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-purple-500"></div>
+						</div>
+						<input
+							id="cart-employee-search"
+							name="cart-employee-search"
+							:value="employeeSearch"
+							@input="handleEmployeeSearchInput"
+							@focus="handleEmployeeSearchFocus"
+							@blur="handleEmployeeSearchBlur"
+							@keydown="handleEmployeeKeydown"
+							type="text"
+							:placeholder="__('Search employee...')"
+							class="w-full h-10 ps-9 pe-3 text-xs border border-purple-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent shadow-sm transition-shadow"
+							autocomplete="off"
+							:aria-label="__('Search employee')"
+						/>
+					</div>
+
+					<!-- Employee Dropdown -->
+					<div
+						v-if="employeeSearchFocused || employeeSearch.trim().length >= 1"
+						class="absolute z-50 mt-0.5 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-hidden will-change-transform"
+					>
+						<div v-if="employeeResults.length > 0" class="max-h-48 overflow-y-auto overscroll-contain">
+							<button
+								type="button"
+								v-for="(emp, index) in employeeResults"
+								:key="emp.name"
+								@mousedown.prevent="selectEmployee(emp)"
+								:class="[
+									'w-full text-start px-2 py-1.5 flex items-center gap-1.5 border-b border-gray-100 last:border-0 touch-manipulation select-none cursor-pointer',
+									index === employeeSelectedIndex ? 'bg-purple-100' : 'hover:bg-purple-50 active:bg-purple-100',
+								]"
+							>
+								<div class="w-6 h-6 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0 pointer-events-none">
+									<span class="text-[10px] font-bold text-purple-600">{{ getInitials(emp.employee_name) }}</span>
+								</div>
+								<div class="flex-1 min-w-0 pointer-events-none">
+									<p class="text-[11px] font-semibold text-gray-900 truncate">{{ emp.employee_name }}</p>
+									<p v-if="emp.designation" class="text-[9px] text-gray-500">{{ emp.designation }}</p>
+								</div>
+							</button>
+						</div>
+						<div v-else class="px-2 py-2 text-center text-[11px] text-gray-500">
+							{{ employeesLoaded ? __('No employees found') : __('Loading...') }}
+						</div>
+					</div>
+				</div>
+
+			<!-- Employee Benefits / Sales Toggle -->
+			<div v-if="cartStore.selectedEmployee" class="rounded-lg p-2 mt-1.5 bg-gray-100 border border-gray-200">
+				<span class="text-[11px] font-medium text-gray-700 block mb-1">{{ __('Benefits or Sales?') }}<span class="text-red-500 ms-0.5">*</span></span>
+				<div class="flex items-center bg-white rounded-xl p-0.5">
+					<button
+						type="button"
+						@click="employeeFlow = 'benefits'; employeeSalesMode = null"
+						class="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-200"
+						:class="employeeFlow === 'benefits' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+					>
+						{{ __('Benefits') }}
+					</button>
+					<button
+						type="button"
+						@click="employeeFlow = 'sales'"
+						class="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-200"
+						:class="employeeFlow === 'sales' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+					>
+						{{ __('Sales') }}
+					</button>
+				</div>
+			</div>
+
+			<!-- Employee Sales: Cash / Loan Toggle -->
+			<div v-if="cartStore.selectedEmployee && employeeFlow === 'sales'" class="rounded-lg p-2 mt-1.5 bg-gray-100 border border-gray-200">
+				<span class="text-[11px] font-medium text-gray-700 block mb-1">{{ __('Cash or Loan?') }}<span class="text-red-500 ms-0.5">*</span></span>
+				<div class="flex items-center bg-white rounded-xl p-0.5">
+					<button
+						type="button"
+						@click="employeeSalesMode = 'cash'"
+						class="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-200"
+						:class="employeeSalesMode === 'cash' ? 'bg-green-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+					>
+						{{ __('Cash') }}
+					</button>
+					<button
+						type="button"
+						@click="employeeSalesMode = 'loan'"
+						class="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-all duration-200"
+						:class="employeeSalesMode === 'loan' ? 'bg-amber-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+					>
+						{{ __('Loan') }}
+					</button>
+				</div>
+			</div>
 			</div>
 		</div>
 
@@ -1167,33 +1410,47 @@
 
 			<!-- Action Buttons -->
 			<div class="flex gap-1.5">
-				<!-- Checkout Button (Primary - 50% width) -->
+				<!-- Checkout / Issue Button (Primary - 50% width) -->
 				<button
 					type="button"
 					@click="handleProceedToPayment"
-					:disabled="items.length === 0"
+					:disabled="items.length === 0 || isSubmittingEmployeeIssue || (cartStore.saleType === 'employee' && employeeIssueDisabled)"
 					:class="[
 						'flex-1 py-2.5 px-3 rounded-lg font-bold text-xs text-white transition-all flex items-center justify-center touch-manipulation',
-						items.length === 0
+						items.length === 0 || isSubmittingEmployeeIssue || (cartStore.saleType === 'employee' && employeeIssueDisabled)
 							? 'bg-gray-300 cursor-not-allowed'
-							: 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-lg hover:shadow-xl active:scale-[0.98]',
+							: cartStore.saleType === 'employee'
+								? 'bg-purple-600 hover:bg-purple-700 active:bg-purple-800 shadow-lg hover:shadow-xl active:scale-[0.98]'
+								: 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-lg hover:shadow-xl active:scale-[0.98]',
 					]"
-					:aria-label="__('Proceed to payment')"
+					:aria-label="cartStore.saleType === 'employee' ? employeeIssueLabel : __('Proceed to payment')"
 				>
-					<svg
-						class="w-4 h-4 me-1.5"
-						fill="none"
-						stroke="currentColor"
-						viewBox="0 0 24 24"
-						stroke-width="2"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-						/>
-					</svg>
-					<span>{{ __("Checkout") }}</span>
+					<template v-if="cartStore.saleType === 'employee'">
+						<svg v-if="isSubmittingEmployeeIssue" class="w-4 h-4 me-1.5 animate-spin" fill="none" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+						</svg>
+						<svg v-else class="w-4 h-4 me-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+						</svg>
+						<span>{{ employeeIssueLabel }}</span>
+					</template>
+					<template v-else>
+						<svg
+							class="w-4 h-4 me-1.5"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+							stroke-width="2"
+						>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+							/>
+						</svg>
+						<span>{{ __("Checkout") }}</span>
+					</template>
 				</button>
 
 				<!-- Hold Order Button (Secondary - 50% width) -->
@@ -1241,6 +1498,8 @@
  * ============================================================================
  */
 import { usePOSCartStore } from "@/stores/posCart";
+import { usePOSUIStore } from "@/stores/posUI";
+import { useToast } from "@/composables/useToast";
 import { usePOSSettingsStore } from "@/stores/posSettings";
 import { usePOSOffersStore } from "@/stores/posOffers";
 import { useCustomerSearchStore } from "@/stores/customerSearch";
@@ -1253,7 +1512,7 @@ import { logger } from "@/utils/logger";
 import { FeatherIcon } from "frappe-ui";
 
 const log = logger.create("InvoiceCart");
-import { createResource } from "frappe-ui";
+import { createResource, call } from "frappe-ui";
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue";
 import EditItemDialog from "./EditItemDialog.vue";
 
@@ -1263,12 +1522,103 @@ import EditItemDialog from "./EditItemDialog.vue";
  * ============================================================================
  */
 const cartStore = usePOSCartStore(); // Pinia store for cart state management
+const uiStore = usePOSUIStore(); // Pinia store for UI state
+const { showWarning, showSuccess } = useToast();
 const settingsStore = usePOSSettingsStore(); // Pinia store for POS settings
 const offersStore = usePOSOffersStore(); // Pinia store for offers/promotions
 const customerSearchStore = useCustomerSearchStore(); // Pinia store for customer search
 const { formatQuantity } = useFormatters(); // Quantity formatting utilities
 
-function handleProceedToPayment() {
+const isSubmittingEmployeeIssue = ref(false);
+
+// Employee flow: 'benefits' | 'sales'; sales sub-mode: 'cash' | 'loan'
+const employeeFlow = ref(null);
+const employeeSalesMode = ref(null);
+
+const employeeIssueDisabled = computed(() => {
+	if (!cartStore.selectedEmployee) return true;
+	if (!employeeFlow.value) return true;
+	if (employeeFlow.value === "sales" && !employeeSalesMode.value) return true;
+	return false;
+});
+
+const employeeIssueLabel = computed(() => {
+	if (isSubmittingEmployeeIssue.value) return __("Issuing...");
+	if (!employeeFlow.value) return __("Choose Benefits/Sales");
+	if (employeeFlow.value === "benefits") return __("Issue");
+	if (employeeSalesMode.value === "loan") return __("Create Loan");
+	if (employeeSalesMode.value === "cash") return __("Proceed to Payment");
+	return __("Choose Cash/Loan");
+});
+
+async function handleProceedToPayment() {
+	if (cartStore.saleType === "employee") {
+		if (!cartStore.selectedEmployee) {
+			showWarning(__("Please select an employee first"));
+			await nextTick();
+			const empInput = document.getElementById("cart-employee-search");
+			if (empInput) empInput.focus();
+			return;
+		}
+		if (props.items.length === 0) {
+			return;
+		}
+		if (!employeeFlow.value) {
+			showWarning(__("Please choose Benefits or Sales"));
+			return;
+		}
+		if (employeeFlow.value === "sales" && !employeeSalesMode.value) {
+			showWarning(__("Please choose Cash or Loan"));
+			return;
+		}
+
+		if (employeeFlow.value === "sales" && employeeSalesMode.value === "cash") {
+			// Hand off to the normal Sales Order flow (PaymentDialog), always against the fixed
+			// "Employee" customer record; the actual employee goes on the Sales Order's own
+			// "employee" field, and stays attached so handlePaymentCompleted can create the
+			// stock issue afterward.
+			const employee = cartStore.selectedEmployee;
+			cartStore.setSaleType("customer");
+			cartStore.setCustomer({ name: "Employee", customer_name: "Employee" });
+			cartStore.setEmployee(employee);
+			cartStore.setTargetDoctype("Sales Order");
+			cartStore.setPendingEmployeeCashSale(true);
+			employeeFlow.value = null;
+			employeeSalesMode.value = null;
+			emit("proceed-to-payment");
+			return;
+		}
+
+		try {
+			isSubmittingEmployeeIssue.value = true;
+			if (employeeFlow.value === "sales") {
+				const result = await cartStore.submitEmployeeLoan();
+				if (result) {
+					const orderName = result.order?.name || result.order?.message?.name;
+					uiStore.showStockEntrySuccess(result.stockEntry?.name);
+					showSuccess(__("Sales Order {0} and Loan {1} created", [orderName, result.loan?.name]));
+					cartStore.clearCart();
+					cartStore.setEmployee(null);
+					cartStore.setSaleType("customer");
+					employeeFlow.value = null;
+					employeeSalesMode.value = null;
+				}
+			} else {
+				const result = await cartStore.submitEmployeeIssue("Benefits");
+				if (result) {
+					uiStore.showStockEntrySuccess(result.name);
+					cartStore.clearCart();
+					cartStore.setEmployee(null);
+					cartStore.setSaleType("customer");
+					employeeFlow.value = null;
+					employeeSalesMode.value = null;
+				}
+			}
+		} finally {
+			isSubmittingEmployeeIssue.value = false;
+		}
+		return;
+	}
 	emit("proceed-to-payment");
 }
 
@@ -1381,6 +1731,19 @@ const selectedIndex = ref(-1); // Keyboard navigation index for search results
 const availableGiftCards = ref([]); // Available gift cards for current customer
 const previousCustomer = ref(null); // Store previous customer for restore on blur
 
+// Room search state (Room doctype - hotel room-service, distinct from Table)
+const roomSearch = ref("");
+const roomDropdownOpen = ref(false);
+const roomResults = ref([]);
+let _roomSearchTimer = null;
+
+// Employee search state
+const employeeSearch = ref("");
+const employeeSearchFocused = ref(false);
+const employeeSelectedIndex = ref(-1);
+const allEmployees = ref([]);
+const employeesLoaded = ref(false);
+
 // Edit item dialog state
 const showEditDialog = ref(false); // Controls edit dialog visibility
 const selectedItem = ref(null); // Item being edited
@@ -1416,6 +1779,29 @@ if (props.posProfile) {
 if (props.posProfile) {
 	offersStore.ensureOffersFetched(props.posProfile);
 }
+
+// Employee loading resource
+const employeesResource = createResource({
+	url: "ecs_posnext.api.invoices.get_employees",
+	makeParams() {
+		return { pos_profile: props.posProfile };
+	},
+	auto: false,
+	onSuccess(data) {
+		allEmployees.value = data?.message || data || [];
+		employeesLoaded.value = true;
+	},
+});
+
+watch(
+	() => cartStore.saleType,
+	(type) => {
+		if (type === "employee" && !employeesLoaded.value && props.posProfile) {
+			employeesResource.reload();
+		}
+	},
+	{ immediate: true }
+);
 
 /**
  * Gift Cards Resource
@@ -1494,22 +1880,24 @@ const customerMap = computed(() => {
 const customerResults = computed(() => {
 	const searchValue = customerSearch.value.trim().toLowerCase();
 
-	// When focused with no/short search term, show frequent customers (top 5)
+	// When focused with no/short search term, show frequent customers first,
+	// then fill any remaining slots (up to 5 total) with other customers -
+	// so a short customer list is always fully visible, not just whichever
+	// customers happen to have been used before.
 	if (searchValue.length < 2) {
 		if (customerSearchFocused.value) {
-			// Get frequent customer IDs from the store
 			const frequentIds = customerSearchStore.frequentCustomers.slice(0, 5);
-			if (frequentIds.length > 0) {
-				// O(1) lookup using pre-computed map instead of O(n) find
-				const frequentCustomers = [];
-				for (const id of frequentIds) {
-					const cust = customerMap.value.get(id);
-					if (cust) frequentCustomers.push(cust);
-				}
-				return frequentCustomers;
+			const frequentCustomers = [];
+			for (const id of frequentIds) {
+				const cust = customerMap.value.get(id);
+				if (cust) frequentCustomers.push(cust);
 			}
-			// If no frequent customers, show first 5 from the list
-			return allCustomers.value.slice(0, 5);
+			if (frequentCustomers.length >= 5) {
+				return frequentCustomers.slice(0, 5);
+			}
+			const seen = new Set(frequentCustomers.map((c) => c.name));
+			const filler = allCustomers.value.filter((c) => !seen.has(c.name));
+			return [...frequentCustomers, ...filler].slice(0, 5);
 		}
 		return [];
 	}
@@ -1536,6 +1924,29 @@ const customerResults = computed(() => {
  */
 watch(customerResults, () => {
 	selectedIndex.value = -1;
+});
+
+// Employee search results - filtered from cached list
+const employeeResults = computed(() => {
+	const searchValue = employeeSearch.value.trim().toLowerCase();
+	if (searchValue.length < 1) {
+		if (employeeSearchFocused.value) {
+			return allEmployees.value.slice(0, 8);
+		}
+		return [];
+	}
+	return allEmployees.value
+		.filter((emp) => {
+			const name = (emp.employee_name || "").toLowerCase();
+			const id = (emp.name || "").toLowerCase();
+			const dept = (emp.department || "").toLowerCase();
+			return name.includes(searchValue) || id.includes(searchValue) || dept.includes(searchValue);
+		})
+		.slice(0, 20);
+});
+
+watch(employeeResults, () => {
+	employeeSelectedIndex.value = -1;
 });
 
 /**
@@ -1681,6 +2092,50 @@ function selectCustomer(cust) {
 }
 
 /**
+ * Room search (Room doctype) for Room Customer sales - mirrors the Room
+ * dropdown used inside checkout (PaymentDialog.vue) so both are backed by
+ * the same linked master data instead of free text.
+ */
+async function _searchRooms(query) {
+	try {
+		const filters = query && query.length >= 1
+			? [["room", "like", `%${query}%`]]
+			: [];
+		const results = await call("frappe.client.get_list", {
+			doctype: "Room",
+			fields: ["name", "room", "room_category"],
+			filters,
+			limit_page_length: 0,
+			order_by: "room asc",
+		});
+		roomResults.value = results || [];
+	} catch (err) {
+		log.error("Room search error:", err);
+		roomResults.value = [];
+	}
+}
+
+function handleRoomFocus() {
+	roomDropdownOpen.value = true;
+	_searchRooms(roomSearch.value);
+}
+
+function handleRoomBlur() {
+	setTimeout(() => { roomDropdownOpen.value = false; }, 150);
+}
+
+function handleRoomSearchInput() {
+	clearTimeout(_roomSearchTimer);
+	_roomSearchTimer = setTimeout(() => _searchRooms(roomSearch.value), 250);
+}
+
+function selectRoom(r) {
+	cartStore.setRoom(r.room || r.name);
+	roomSearch.value = "";
+	roomDropdownOpen.value = false;
+}
+
+/**
  * Remove the selected customer.
  * Clears the customer and focuses the search input.
  */
@@ -1713,6 +2168,61 @@ function createNewCustomer() {
 	customerSearchFocused.value = false;
 	// Emit event to open customer creation dialog
 	emit("create-customer", searchValue);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Employee Search Functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+function handleEmployeeSearchInput(event) {
+	employeeSearch.value = event.target.value;
+}
+
+function handleEmployeeSearchFocus() {
+	employeeSearchFocused.value = true;
+	if (!employeesLoaded.value && props.posProfile) {
+		employeesResource.reload();
+	}
+}
+
+function handleEmployeeSearchBlur() {
+	setTimeout(() => {
+		employeeSearchFocused.value = false;
+	}, 100);
+}
+
+function handleEmployeeKeydown(event) {
+	if (employeeResults.value.length === 0) return;
+	if (event.key === "ArrowDown") {
+		event.preventDefault();
+		employeeSelectedIndex.value = Math.min(employeeSelectedIndex.value + 1, employeeResults.value.length - 1);
+	} else if (event.key === "ArrowUp") {
+		event.preventDefault();
+		employeeSelectedIndex.value = Math.max(employeeSelectedIndex.value - 1, -1);
+	} else if (event.key === "Enter") {
+		event.preventDefault();
+		if (employeeSelectedIndex.value >= 0) {
+			selectEmployee(employeeResults.value[employeeSelectedIndex.value]);
+		} else if (employeeResults.value.length === 1) {
+			selectEmployee(employeeResults.value[0]);
+		}
+	} else if (event.key === "Escape") {
+		employeeSearch.value = "";
+	}
+}
+
+function selectEmployee(emp) {
+	cartStore.setEmployee(emp);
+	employeeSearch.value = "";
+	employeeSelectedIndex.value = -1;
+	employeeSearchFocused.value = false;
+}
+
+function removeEmployee() {
+	cartStore.setEmployee(null);
+	cartStore.setSaleType("customer");
+	employeeFlow.value = null;
+	employeeSalesMode.value = null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

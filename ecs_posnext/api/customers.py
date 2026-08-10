@@ -8,7 +8,7 @@ from frappe import _
 
 
 @frappe.whitelist()
-def get_customers(search_term="", pos_profile=None, limit=20, modified_since=None):
+def get_customers(search_term="", pos_profile=None, limit=20, modified_since=None, start=0):
 
     """
     Search customers for inline customer selection in POS.
@@ -18,25 +18,35 @@ def get_customers(search_term="", pos_profile=None, limit=20, modified_since=Non
         pos_profile (str): POS Profile to filter by customer group
         limit (int): Maximum number of results to return
         modified_since (str): Fetch customers modified after this timestamp (ISO format)
+        start (int): Offset for pagination
 
     Returns:
         list: List of customer dictionaries with name, customer_name, mobile_no, email_id, disabled
     """
     try:
+        start = int(start or 0)
         frappe.logger().debug(
-            f"get_customers called with search_term={search_term}, pos_profile={pos_profile}, limit={limit}, modified_since={modified_since}"
+            f"get_customers called with search_term={search_term}, pos_profile={pos_profile}, limit={limit}, modified_since={modified_since}, start={start}"
         )
 
         filters = {}
 
-        # Filter by POS Profile customer group if specified
+        # Filter by POS Profile customer groups (child table) if specified
         if pos_profile:
             frappe.logger().debug(f"Loading POS Profile: {pos_profile}")
             profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
-            # Check if customer_group field exists (it may not exist in all versions)
-            if hasattr(profile_doc, "customer_group") and profile_doc.customer_group:
-                filters["customer_group"] = profile_doc.customer_group
-                frappe.logger().debug(f"Filtering by customer_group: {profile_doc.customer_group}")
+            if profile_doc.get("customer_groups"):
+                from erpnext.accounts.doctype.pos_profile.pos_profile import get_child_nodes
+
+                allowed_groups = []
+                for row in profile_doc.customer_groups:
+                    allowed_groups.extend(
+                        node["name"] for node in get_child_nodes("Customer Group", row.customer_group)
+                    )
+
+                if allowed_groups:
+                    filters["customer_group"] = ["in", allowed_groups]
+                    frappe.logger().debug(f"Filtering by customer_groups: {allowed_groups}")
 
         if modified_since:
             # Delta sync: include disabled customers so frontend can purge them
@@ -49,7 +59,8 @@ def get_customers(search_term="", pos_profile=None, limit=20, modified_since=Non
         result = frappe.get_all(
             "Customer",
             filters=filters,
-            fields=["name", "customer_name", "mobile_no", "email_id", "disabled"],
+            fields=["name", "customer_name", "mobile_no", "email_id", "disabled", "customer_group"],
+            limit_start=start,
             limit=customer_limit,
             order_by="customer_name asc",
         )

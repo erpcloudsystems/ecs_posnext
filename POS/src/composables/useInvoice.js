@@ -35,6 +35,9 @@ export function useInvoice() {
 	const couponCode = ref(null)
 	const taxRules = ref([]) // Tax rules from POS Profile
 	const taxInclusive = ref(false) // Tax inclusive setting from POS Settings
+	const room = ref("") // Accounting dimension: Room (hotel room-service, linked to Room doctype)
+	const table = ref("") // Accounting dimension: Table (restaurant table, linked to Table doctype)
+	const customerType = ref("") // "Room Customer" | "Guest Customer"
 
 	// Submission state - prevents duplicate submissions
 	const isSubmitting = ref(false)
@@ -911,6 +914,8 @@ export function useInvoice() {
 		targetDoctype = "Sales Invoice",
 		deliveryDate = null,
 		writeOffAmount = 0,
+		employee = null,
+		posSaleType = null,
 	) {
 		/**
 		 * Two-step submission process with mutex protection:
@@ -925,6 +930,8 @@ export function useInvoice() {
 		 * @param {string} targetDoctype - The document type to create (Sales Invoice or Sales Order)
 		 * @param {string|null} deliveryDate - Delivery date for Sales Orders
 		 * @param {number} writeOffAmount - Amount to write off (small remaining balances)
+		 * @param {Object|string|null} employee - Employee to link on the document (e.g. Sales Order's custom "employee" field)
+		 * @param {string|null} posSaleType - "Benefits" / "Cash" / "Loan" for the custom "POS Sale Type" field
 		 */
 		return await submitMutex.withLock(async () => {
 			// Check if already submitting (belt and suspenders with mutex)
@@ -963,6 +970,29 @@ export function useInvoice() {
 
 				if (targetDoctype === "Sales Order" && deliveryDate) {
 					invoiceData.delivery_date = deliveryDate
+				}
+
+				// Link the employee (e.g. Sales Order's custom "employee" field) if provided
+				if (employee) {
+					invoiceData.employee = employee?.name || employee
+				}
+
+				// Tag the POS sale type (Benefits/Cash/Loan) if provided
+				if (posSaleType) {
+					invoiceData.pos_sale_type = posSaleType
+				}
+
+				// Add room / table accounting dimensions if provided
+				if (room.value) {
+					invoiceData.room = room.value
+				}
+				if (table.value) {
+					invoiceData.table = table.value
+				}
+
+				// Add POS customer type (Room Customer / Guest Customer) if chosen
+				if (customerType.value) {
+					invoiceData.posa_customer_type = customerType.value
 				}
 
 				// Add sales_team if provided
@@ -1116,6 +1146,9 @@ export function useInvoice() {
 		payments.value = []
 		additionalDiscount.value = 0
 		couponCode.value = null
+		room.value = ""
+		table.value = ""
+		customerType.value = ""
 
 		// Reset incremental cache
 		_cachedSubtotal.value = 0
@@ -1125,6 +1158,27 @@ export function useInvoice() {
 
 		// Set default customer from POS Profile if available
 		setDefaultCustomer()
+	}
+
+	function setRoom(value) {
+		room.value = value || ""
+		// Auto-derive customer type from whether a room is set - no explicit
+		// Guest/Room Customer choice needed anywhere in the UI.
+		if (room.value) {
+			customerType.value = "Room Customer"
+		} else if (customer.value) {
+			customerType.value = "Guest Customer"
+		} else {
+			customerType.value = ""
+		}
+	}
+
+	function setTable(value) {
+		table.value = value || ""
+	}
+
+	function setCustomerType(value) {
+		customerType.value = value || ""
 	}
 
 	/**
@@ -1143,6 +1197,9 @@ export function useInvoice() {
 		payments.value = []
 		additionalDiscount.value = 0
 		couponCode.value = null
+		room.value = ""
+		table.value = ""
+		customerType.value = ""
 
 		// Reset incremental cache
 		_cachedSubtotal.value = 0
@@ -1221,6 +1278,9 @@ export function useInvoice() {
 		taxRules,
 		taxInclusive,
 		isSubmitting,
+		room,
+		table,
+		customerType,
 
 		// Computed
 		subtotal,
@@ -1257,6 +1317,9 @@ export function useInvoice() {
 		rebuildIncrementalCache,
 		formatItemsForSubmission,
 		resolveUomPricing,
+		setRoom,
+		setTable,
+		setCustomerType,
 
 		// Resources
 		updateInvoiceResource,

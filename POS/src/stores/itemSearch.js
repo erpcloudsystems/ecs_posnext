@@ -159,10 +159,10 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	// Navigation step: 'price_list' -> 'groups' -> 'items'
 	const navigationStep = computed(() => {
 		if (!selectedPriceList.value) return 'price_list'
-		if (loadingGroups.value) return 'groups'
-		if (currentGroupChildren.value.length > 0) return 'groups'
-		if (groupBreadcrumb.value.length > 0 && currentGroupChildren.value.length === 0) return 'items'
-		if (!selectedItemGroup.value && groupBreadcrumb.value.length === 0) return 'groups'
+		if (loadingGroups.value) return 'loading'
+		// Show group cards only when actively navigating (breadcrumb exists + has children to show)
+		if (groupBreadcrumb.value.length > 0 && currentGroupChildren.value.length > 0) return 'groups'
+		// Always show items at root level and when no sub-group navigation is in progress
 		return 'items'
 	})
 
@@ -571,23 +571,11 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			// - This client-side filter is just a safety net
 
 			if (selectedItemGroup.value) {
-				// User selected a specific item group tab
-				// Items are ALREADY server-filtered, but verify for safety
+				// User selected a specific item group tab — filter by that group + its descendants
 				const groupsToFilter = getGroupsToFilter(selectedItemGroup.value)
 				list = sourceItems.filter(i => groupsToFilter.has(i.item_group))
-			} else if (profileItemGroups.value && profileItemGroups.value.length > 0) {
-				// "All Items" tab - items fetched without group filter
-				// Still filter by allowed groups as sanity check
-				const allowedGroups = new Set(profileItemGroups.value.map(g => g.item_group))
-				// Also include child groups in allowed set
-				itemGroups.value.forEach(g => {
-					if (g.child_groups) {
-						g.child_groups.forEach(child => allowedGroups.add(child))
-					}
-				})
-				list = sourceItems.filter(i => allowedGroups.has(i.item_group))
 			} else {
-				// No filters - show all items as-is
+				// "All" tab — show all loaded items as-is (server handles group filtering when needed)
 				list = sourceItems
 			}
 
@@ -2139,17 +2127,24 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			// Stop any existing sync before loading items for new profile
 			stopBackgroundCacheSync()
 
-			// Load available price lists for card selection
-			loadPriceLists(profile)
+			// Load available price lists and auto-select first available
+			const priceLists = await loadPriceLists(profile)
+			if (!selectedPriceList.value && priceLists.length >= 1) {
+				selectedPriceList.value = priceLists[0].name
+				localStorage.setItem("pos_selected_price_list", priceLists[0].name)
+				log.info(`Auto-selected price list: ${priceLists[0].name}`)
+			}
 
-			// If a price list was previously selected, resume group navigation
+			// If a price list is selected, load items and group children (for tabs)
 			if (selectedPriceList.value) {
-				await loadGroupChildren(null)
-				if (autoLoadItems && currentGroupChildren.value.length === 0) {
+				// Load group children in background (non-blocking) for tab navigation
+				loadGroupChildren(null)
+				// Always load items immediately so they show without needing group navigation
+				if (autoLoadItems) {
 					loadAllItems(profile)
 				}
 			}
-			// If no price list selected, wait for user to pick one
+			// If no price lists configured at all, wait for user to configure one
 		} catch (error) {
 			log.error("Error fetching POS Profile data", error)
 

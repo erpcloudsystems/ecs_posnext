@@ -26,7 +26,6 @@ ITEM_RESULT_FIELDS = [
 	"variant_of",
 	"custom_company",
 	"custom_allow_rate_edit",
-	"custom_not_included",
 	"disabled",
 ]
 
@@ -543,7 +542,6 @@ def get_item_variants(template_item, pos_profile):
 				Item.brand,
 				Item.custom_company,
 				Item.custom_allow_rate_edit,
-				Item.custom_not_included,
 				Item.variant_of,
 			)
 			.where(Item.variant_of == template_item)
@@ -740,6 +738,15 @@ def _build_item_base_conditions(pos_profile_doc, item_group=None, exclude_varian
 		placeholders = ", ".join(["%s"] * len(item_groups))
 		conditions.append(f"i.item_group IN ({placeholders})")
 		where_params.extend(item_groups)
+	elif getattr(pos_profile_doc, "item_groups", None):
+		# POS Profile has item group restrictions — apply them even when no tab is selected
+		all_allowed_groups = set()
+		for ig in pos_profile_doc.item_groups:
+			all_allowed_groups.update(_get_item_group_with_descendants(ig.item_group))
+		if all_allowed_groups:
+			placeholders = ", ".join(["%s"] * len(all_allowed_groups))
+			conditions.append(f"i.item_group IN ({placeholders})")
+			where_params.extend(sorted(all_allowed_groups))
 
 	extra_joins = ""
 	join_params = []

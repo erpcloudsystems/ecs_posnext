@@ -12,6 +12,7 @@ export const usePOSUIStore = defineStore("posUI", () => {
 	// Dialog states using the dialog composable
 	const { isOpen: showPaymentDialog } = useDialog("payment")
 	const { isOpen: showCustomerDialog } = useDialog("customer")
+	const { isOpen: showCustomerTypeDialog } = useDialog("customerType")
 	const { isOpen: showSuccessDialog } = useDialog("success")
 	const { isOpen: showOpenShiftDialog } = useDialog("openShift")
 	const { isOpen: showCloseShiftDialog } = useDialog("closeShift")
@@ -43,6 +44,8 @@ export const usePOSUIStore = defineStore("posUI", () => {
 	const lastInvoiceName = ref("")
 	const lastInvoiceTotal = ref(0)
 	const lastPaidAmount = ref(0)
+	const lastStockEntryName = ref("")
+	const isStockEntrySuccess = ref(false)
 
 	// Customer dialog state
 	const initialCustomerName = ref("")
@@ -98,9 +101,16 @@ export const usePOSUIStore = defineStore("posUI", () => {
 	}
 
 	function showSuccess(invoiceName, total, paidAmount = null) {
+		isStockEntrySuccess.value = false
 		lastInvoiceName.value = invoiceName
 		lastInvoiceTotal.value = total
 		lastPaidAmount.value = paidAmount !== null ? paidAmount : total
+		showSuccessDialog.value = true
+	}
+
+	function showStockEntrySuccess(stockEntryName) {
+		isStockEntrySuccess.value = true
+		lastStockEntryName.value = stockEntryName
 		showSuccessDialog.value = true
 	}
 
@@ -148,6 +158,7 @@ export const usePOSUIStore = defineStore("posUI", () => {
 		// Close all dialogs on logout to prevent stale state
 		showPaymentDialog.value = false
 		showCustomerDialog.value = false
+		showCustomerTypeDialog.value = false
 		showSuccessDialog.value = false
 		showOpenShiftDialog.value = false
 		showCloseShiftDialog.value = false
@@ -171,6 +182,7 @@ export const usePOSUIStore = defineStore("posUI", () => {
 		isLoading,
 		showPaymentDialog,
 		showCustomerDialog,
+		showCustomerTypeDialog,
 		showSuccessDialog,
 		showOpenShiftDialog,
 		showCloseShiftDialog,
@@ -196,6 +208,8 @@ export const usePOSUIStore = defineStore("posUI", () => {
 		lastInvoiceName,
 		lastInvoiceTotal,
 		lastPaidAmount,
+		lastStockEntryName,
+		isStockEntrySuccess,
 		initialCustomerName,
 		mobileActiveTab,
 		windowWidth,
@@ -212,6 +226,7 @@ export const usePOSUIStore = defineStore("posUI", () => {
 		showError,
 		clearError,
 		showSuccess,
+		showStockEntrySuccess,
 		setInitialCustomerName,
 		setLeftPanelWidth,
 		setResizing,

@@ -458,7 +458,14 @@
 			:target-doctype="cartStore.targetDoctype"
 			:is-submitting="cartStore.isSubmitting"
 			:profile-customer="shiftStore.profileCustomer"
+			:room="cartStore.room"
+			:customer-type="cartStore.customerType"
+			:selected-employee="cartStore.selectedEmployee"
+			:sale-type="cartStore.saleType"
 			@payment-completed="handlePaymentCompleted"
+			@stock-issue="handleStockIssueFromDialog"
+			@employee-loan="handleEmployeeLoan"
+			@employee-cash-sale="handleEmployeeCashSale"
 			@update-additional-discount="handleAdditionalDiscountUpdate"
 		/>
 
@@ -468,6 +475,78 @@
 				:pos-profile="shiftStore.profileName"
 				@customer-selected="handleCustomerSelected"
 			/>
+
+			<!-- Hold: Table Selection Dialog -->
+			<Dialog
+				v-model="showHoldTableNumberDialog"
+				:options="{ title: __('Select Table'), size: 'xs' }"
+			>
+				<template #body-content>
+					<div class="py-1">
+						<label class="text-xs font-medium text-gray-700 block mb-1">
+							{{ __('Table') }}<span class="text-red-500 ms-0.5">*</span>
+						</label>
+						<div class="relative">
+							<!-- Selected table badge -->
+							<div v-if="holdTableNumberInput" class="relative">
+								<div class="w-full h-10 px-3 pe-8 text-sm border border-blue-300 rounded-lg bg-blue-50 flex items-center gap-2">
+									<span class="text-sm font-medium text-blue-800 truncate">{{ holdTableNumberInput }}</span>
+								</div>
+								<button
+									type="button"
+									@mousedown.prevent="holdTableNumberInput = ''; holdTableSearch = ''"
+									class="absolute end-2 top-1/2 -translate-y-1/2 text-blue-400 hover:text-blue-700 p-1"
+								>
+									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+								</button>
+							</div>
+							<!-- Table search input -->
+							<div v-else>
+								<input
+									v-model="holdTableSearch"
+									type="text"
+									:placeholder="__('Search table...')"
+									autofocus
+									@focus="handleHoldTableFocus"
+									@blur="handleHoldTableBlur"
+									@input="handleHoldTableSearchInput"
+									class="w-full h-10 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+								/>
+								<div
+									v-if="holdTableDropdownOpen && holdTableResults.length > 0"
+									class="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto border border-gray-200 rounded-lg bg-white shadow-lg"
+								>
+									<div
+										v-for="t in holdTableResults"
+										:key="t.name"
+										@mousedown.prevent="selectHoldTable(t)"
+										class="flex items-center gap-2 px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+									>
+										<span class="text-sm font-medium text-gray-900">{{ t.table_number }}</span>
+										<span v-if="t.area" class="text-xs text-gray-500 ms-auto">{{ t.area }}</span>
+									</div>
+								</div>
+								<div
+									v-else-if="holdTableDropdownOpen && holdTableSearch.trim().length > 0"
+									class="absolute z-50 mt-1 w-full border border-gray-200 rounded-lg bg-white shadow-lg px-3 py-2 text-xs text-gray-500"
+								>
+									{{ __('No tables found') }}
+								</div>
+							</div>
+						</div>
+					</div>
+				</template>
+				<template #actions>
+					<div class="flex gap-2 w-full">
+						<Button class="flex-1" variant="subtle" @click="showHoldTableNumberDialog = false">
+							{{ __("Cancel") }}
+						</Button>
+						<Button class="flex-1" variant="solid" theme="blue" @click="confirmHoldTableNumber">
+							{{ __("Hold") }}
+						</Button>
+					</div>
+				</template>
+			</Dialog>
 
 			<!-- Shift Opening Dialog -->
 			<ShiftOpeningDialog
@@ -823,7 +902,7 @@
 			<!-- Success Dialog -->
 			<Dialog
 				v-model="uiStore.showSuccessDialog"
-				:options="{ title: __('Invoice Created Successfully'), size: 'md' }"
+				:options="{ title: uiStore.isStockEntrySuccess ? __('Stock Entry Created Successfully') : __('Invoice Created Successfully'), size: 'md' }"
 			>
 				<template #body-content>
 					<div class="text-center py-6">
@@ -844,14 +923,19 @@
 								/>
 							</svg>
 						</div>
-						<h3 class="mt-4 text-lg font-medium text-gray-900">
-							{{
-								__("Invoice {0} created successfully!", [uiStore.lastInvoiceName])
-							}}
-						</h3>
-						<p class="mt-2 text-sm text-gray-500">
-							{{ __("Paid: {0}", [formatCurrency(uiStore.lastPaidAmount)]) }}
-						</p>
+						<template v-if="uiStore.isStockEntrySuccess">
+							<h3 class="mt-4 text-lg font-medium text-gray-900">
+								{{ __("Stock Entry {0} created successfully!", [uiStore.lastStockEntryName]) }}
+							</h3>
+						</template>
+						<template v-else>
+							<h3 class="mt-4 text-lg font-medium text-gray-900">
+								{{ __("Invoice {0} created successfully!", [uiStore.lastInvoiceName]) }}
+							</h3>
+							<p class="mt-2 text-sm text-gray-500">
+								{{ __("Paid: {0}", [formatCurrency(uiStore.lastPaidAmount)]) }}
+							</p>
+						</template>
 					</div>
 				</template>
 				<template #actions>
@@ -860,6 +944,7 @@
 							{{ __("Close") }}
 						</Button>
 						<Button
+							v-if="!uiStore.isStockEntrySuccess"
 							variant="solid"
 							theme="blue"
 							@click="
@@ -1041,8 +1126,13 @@ const itemsSelectorRef = ref(null);
 const offersDialogRef = ref(null);
 const containerRef = ref(null);
 const dividerRef = ref(null);
-const pendingPaymentAfterCustomer = ref(false);
 const logoutAfterClose = ref(false);
+const showHoldTableNumberDialog = ref(false);
+const holdTableNumberInput = ref("");
+const holdTableSearch = ref("");
+const holdTableDropdownOpen = ref(false);
+const holdTableResults = ref([]);
+let _holdTableSearchTimer = null;
 const editCustomer = ref(null); // Customer being edited (null for create mode)
 const showClearCacheDialog = ref(false);
 const clearCacheOverlayRef = ref(null);
@@ -1808,11 +1898,6 @@ function handleCustomerSelected(selectedCustomer) {
 		cartStore.setCustomer(selectedCustomer);
 		uiStore.showCustomerDialog = false;
 		showSuccess(__("{0} selected", [selectedCustomer.customer_name]));
-
-		if (pendingPaymentAfterCustomer.value) {
-			pendingPaymentAfterCustomer.value = false;
-			uiStore.showPaymentDialog = true;
-		}
 	} else {
 		cartStore.setCustomer(null);
 	}
@@ -1866,15 +1951,103 @@ async function handleErrorRetry() {
 	}
 }
 
+// If the cashier cancels the payment dialog mid "Employee > Sales > Cash" flow, don't let the
+// employee/pending flag leak into the next, unrelated sale.
+// PaymentDialog closes itself (sets showPaymentDialog=false) immediately after emitting
+// payment-completed, well before handlePaymentCompleted's async work (submitting the Sales
+// Order, then the employee's Stock Entry) finishes - so this watcher fires while that's still
+// in flight. Without employeeCashSaleCompleting, it would wipe selectedEmployee out from under
+// submitEmployeeIssue(), silently skipping the Stock Entry it's supposed to create.
+let employeeCashSaleCompleting = false;
+watch(
+	() => uiStore.showPaymentDialog,
+	(isOpen) => {
+		if (!isOpen && cartStore.pendingEmployeeCashSale && !employeeCashSaleCompleting) {
+			cartStore.setPendingEmployeeCashSale(false);
+			cartStore.setEmployee(null);
+		}
+	},
+);
+
+async function handleStockIssueFromDialog({ employee }) {
+	if (!employee) return;
+	cartStore.setSaleType("employee");
+	cartStore.setEmployee(employee);
+	uiStore.showPaymentDialog = false;
+	await cartStore.submitEmployeeIssue();
+}
+
+async function handleEmployeeLoan({ employee }) {
+	if (!employee) return;
+	cartStore.setEmployee(employee);
+	uiStore.showPaymentDialog = false;
+	try {
+		const result = await cartStore.submitEmployeeLoan();
+		if (result) {
+			showSuccess(
+				__("Stock Entry {0} and Loan {1} created", [result.stockEntry?.name, result.loan?.name]),
+			);
+			cartStore.clearCart();
+		}
+	} catch (error) {
+		// Errors are already toasted inside submitEmployeeLoan
+	}
+}
+
+async function handleEmployeeCashSale({ employee, customer }) {
+	if (!employee || !customer) return;
+	// Ensure submitInvoice() takes the normal Sales Order path, not the employee stock-issue short-circuit
+	cartStore.setSaleType("customer");
+	cartStore.setCustomer(customer);
+	cartStore.setEmployee(employee);
+	cartStore.setTargetDoctype("Sales Order");
+	cartStore.setDeliveryDate(new Date().toISOString().split("T")[0]);
+	uiStore.showPaymentDialog = false;
+	try {
+		// Create the Material Issue FIRST. If it fails, this throws and the Sales
+		// Order below is never created - the whole sale stops here.
+		const stockResult = await cartStore.submitEmployeeIssue();
+		const order = await cartStore.createSalesOrder();
+		if (order) {
+			const orderName = order.name || order.message?.name || __("Unknown");
+			await cartStore.linkPosDocuments(orderName, stockResult?.name);
+			showSuccess(
+				__("Sales Order {0} and Stock Entry {1} created", [orderName, stockResult?.name]),
+			);
+			cartStore.clearCart();
+		}
+	} catch (error) {
+		// Errors are already toasted inside the store actions
+	} finally {
+		cartStore.setTargetDoctype("Sales Invoice");
+	}
+}
+
 async function handlePaymentCompleted(paymentData) {
+	// Set synchronously, before any await, so the showPaymentDialog watcher above
+	// (which PaymentDialog triggers by closing itself right after emitting this
+	// event) doesn't mistake this in-flight completion for a cancellation.
+	employeeCashSaleCompleting = true;
 	try {
 		// Apply customer from payment dialog inline fields if provided
 		if (paymentData.customer) {
 			cartStore.setCustomer(paymentData.customer);
 		}
+		// Apply room (accounting dimension) if provided
+		if (paymentData.room !== undefined && paymentData.room !== null) {
+			cartStore.setRoom(paymentData.room);
+		}
+		// Apply employee if provided
+		if (paymentData.employee) {
+			cartStore.setEmployee(paymentData.employee);
+		}
 		const customerValue = cartStore.customer?.name || cartStore.customer;
 		if (!customerValue && !shiftStore.profileCustomer) {
 			showWarning(__("Please select a customer"));
+			return;
+		}
+		if (cartStore.customerType === "Room Customer" && !cartStore.room) {
+			showWarning(__("Please select a Room"));
 			return;
 		}
 
@@ -1926,6 +2099,8 @@ async function handlePaymentCompleted(paymentData) {
 				total_tax: cartStore.totalTax,
 				total_discount: cartStore.totalDiscount,
 				write_off_amount: paymentData.write_off_amount || 0,
+				room: cartStore.room || null,
+				posa_customer_type: cartStore.customerType || null,
 			};
 
 			await offlineStore.saveInvoiceOffline(invoiceData);
@@ -1946,15 +2121,28 @@ async function handlePaymentCompleted(paymentData) {
 
 			showSuccess(__("Invoice saved offline. Will sync when online"));
 		} else {
-			// Get item codes from cart before clearing
 			const soldItemCodes = cartStore.invoiceItems.map((item) => item.item_code);
+			const isEmployeeCashSale = cartStore.pendingEmployeeCashSale;
 
-			const result = await cartStore.submitInvoice();
+			// Create the Material Issue FIRST, before the Sales Order. If it fails, the
+			// error propagates to the outer catch below and the whole sale stops here -
+			// no Sales Order gets created without a matching stock movement.
+			const stockResult = isEmployeeCashSale
+				? await cartStore.submitEmployeeIssue("Cash")
+				: await cartStore.submitStockIssue();
+
+			const result = await cartStore.submitInvoice(isEmployeeCashSale ? "Cash" : null);
 
 			if (result) {
 				const invoiceName = result.name || result.message?.name || __("Unknown");
 				const invoiceTotal = result.grand_total || result.total || 0;
 				const paidAmount = paymentData.paid_amount || invoiceTotal;
+
+				// Every Sales Order needs a companion Stock Entry, since the order alone
+				// doesn't move stock. Link the two together now that both exist.
+				if (stockResult) {
+					await cartStore.linkPosDocuments(invoiceName, stockResult.name);
+				}
 
 				uiStore.showPaymentDialog = false;
 				cartStore.clearCart();
@@ -1974,17 +2162,21 @@ async function handlePaymentCompleted(paymentData) {
 					log.debug("Background invoice cache refresh failed:", err)
 				);
 
+				const docsCreatedLabel = stockResult
+					? __("Sales Order {0} and Stock Entry {1}", [invoiceName, stockResult.name])
+					: __("Sales Order {0}", [invoiceName]);
+
 				if (shiftStore.autoPrintEnabled || posSettingsStore.silentPrint) {
 					try {
 						await handlePrintInvoice({ name: invoiceName });
-						showSuccess(__("Invoice {0} created and sent to printer", [invoiceName]));
+						showSuccess(__("{0} created and sent to printer", [docsCreatedLabel]));
 					} catch (error) {
 						log.error("Auto-print error:", error);
-						showWarning(__("Invoice {0} created but print failed", [invoiceName]));
+						showWarning(__("{0} created but print failed", [docsCreatedLabel]));
 					}
 				} else {
 					uiStore.showSuccess(invoiceName, invoiceTotal, paidAmount);
-					showSuccess(__("Invoice {0} created successfully", [invoiceName]));
+					showSuccess(__("{0} created successfully", [docsCreatedLabel]));
 				}
 			}
 		}
@@ -2007,6 +2199,9 @@ async function handlePaymentCompleted(paymentData) {
 		} else {
 			showWarning(errorContext.message);
 		}
+	} finally {
+		cartStore.setPendingEmployeeCashSale(false);
+		employeeCashSaleCompleting = false;
 	}
 }
 
@@ -2129,13 +2324,99 @@ function logoutWithCloseShift() {
 	uiStore.showCloseShiftDialog = true;
 }
 
-async function handleSaveDraft() {
+// Table search (Table doctype) for the Hold dialog - mirrors the Room dropdown
+// pattern used for Room Customers in PaymentDialog.vue.
+async function _searchHoldTables(query) {
+	try {
+		const filters = query && query.length >= 1
+			? [["table_number", "like", `%${query}%`]]
+			: [];
+		const results = await call("frappe.client.get_list", {
+			doctype: "Table",
+			fields: ["name", "table_number", "area"],
+			filters,
+			limit_page_length: 10,
+			order_by: "table_number asc",
+		});
+		holdTableResults.value = results || [];
+	} catch (err) {
+		log.error("[POSSale] Table search error:", err);
+		holdTableResults.value = [];
+	}
+}
+
+function handleHoldTableFocus() {
+	holdTableDropdownOpen.value = true;
+	_searchHoldTables(holdTableSearch.value);
+}
+
+function handleHoldTableBlur() {
+	setTimeout(() => { holdTableDropdownOpen.value = false; }, 150);
+}
+
+function handleHoldTableSearchInput() {
+	clearTimeout(_holdTableSearchTimer);
+	_holdTableSearchTimer = setTimeout(() => _searchHoldTables(holdTableSearch.value), 250);
+}
+
+function selectHoldTable(table) {
+	holdTableNumberInput.value = table.table_number || table.name;
+	holdTableSearch.value = "";
+	holdTableDropdownOpen.value = false;
+}
+
+function handleSaveDraft() {
+	// A Table always identifies where a held order is sitting, independent of
+	// whether the sale also has a Room (Room Customers can have both - the
+	// Room is their billing/account link, the Table is where they're seated).
+	if (!cartStore.table) {
+		holdTableNumberInput.value = "";
+		holdTableSearch.value = "";
+		showHoldTableNumberDialog.value = true;
+		return;
+	}
+	performSaveDraft();
+}
+
+async function confirmHoldTableNumber() {
+	if (!holdTableNumberInput.value.trim()) {
+		showWarning(__("Please select a table"));
+		return;
+	}
+	const tableValue = holdTableNumberInput.value.trim();
+	showHoldTableNumberDialog.value = false;
+
+	// If this table already has an open draft, resume it instead of holding a
+	// duplicate order for the same table. Any items already in the current
+	// cart are preserved as their own (untagged) draft, not lost.
+	// Refresh the drafts list first - it's only loaded on-demand (e.g. when
+	// the Draft Invoices dialog has been opened), not kept live in memory.
+	await draftsStore.loadDrafts();
+	const existingDraft = draftsStore.getOpenDraftForTable(tableValue, cartStore.currentDraftId);
+	if (existingDraft) {
+		showWarning(__("Table {0} already has an open order - resuming it", [tableValue]));
+		await handleLoadDraft(existingDraft);
+		return;
+	}
+
+	cartStore.setTable(tableValue);
+	await performSaveDraft();
+}
+
+async function performSaveDraft() {
 	const savedDraft = await draftsStore.saveDraftInvoice(
 		cartStore.invoiceItems,
 		cartStore.customer,
 		cartStore.posProfile,
 		cartStore.appliedOffers,
-		cartStore.currentDraftId
+		cartStore.currentDraftId,
+		{
+			room: cartStore.room,
+			table: cartStore.table,
+			customerType: cartStore.customerType,
+			saleType: cartStore.saleType,
+			employee: cartStore.selectedEmployee,
+		}
 	);
 	if (savedDraft) {
 		cartStore.clearCart();
@@ -2153,7 +2434,14 @@ async function handleLoadDraft(draft) {
 				cartStore.customer,
 				cartStore.posProfile,
 				cartStore.appliedOffers,
-				cartStore.currentDraftId
+				cartStore.currentDraftId,
+				{
+					room: cartStore.room,
+					table: cartStore.table,
+					customerType: cartStore.customerType,
+					saleType: cartStore.saleType,
+					employee: cartStore.selectedEmployee,
+				}
 			);
 
 			if (!saved) {
@@ -2169,7 +2457,20 @@ async function handleLoadDraft(draft) {
 
 		const draftData = await draftsStore.loadDraft(draft);
 		cartStore.invoiceItems = draftData.items;
-		cartStore.setCustomer(draftData.customer);
+
+		// Restore the sale type/context the draft was held under (Customer with a
+		// Room/Table, or an Employee Benefits/Cash/Loan cart) instead of always
+		// resetting to a plain customer sale.
+		cartStore.setSaleType(draftData.saleType || "customer");
+		if (draftData.saleType === "employee" && draftData.employee) {
+			cartStore.setEmployee(draftData.employee);
+		} else {
+			cartStore.setCustomer(draftData.customer);
+			cartStore.setRoom(draftData.room || "");
+			cartStore.setTable(draftData.table || "");
+			cartStore.setCustomerType(draftData.customerType || "");
+		}
+
 		cartStore.currentDraftId = draft.draft_id; // Set current draft ID
 
 		// Rebuild incremental cache to recalculate totals
