@@ -505,9 +505,13 @@ class OfflineStateManager {
 
 	/**
 	 * Get current offline status
+	 *
+	 * Offline mode is disabled: a stale local price cache silently sold an
+	 * item at rate 0 (ACC-SINV-2026-76902). Always report online so no code
+	 * path falls back to cached items/prices.
 	 */
 	get isOffline() {
-		return this._manualOffline || !this._browserOnline || !this._serverOnline
+		return false
 	}
 
 	/**
@@ -637,8 +641,7 @@ class OfflineStateManager {
 
 		this._syncToWindow()
 
-		// Start network monitoring
-		this._networkMonitor.start()
+		// Network monitoring disabled along with offline mode (see isOffline getter)
 
 		log.info('Offline state initialized', this.getState())
 	}

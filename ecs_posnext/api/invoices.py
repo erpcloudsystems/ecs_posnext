@@ -855,40 +855,39 @@ def update_invoice(data):
             # Don't let a stale/absent name in the payload clobber the loaded doc.
             data.pop("name", None)
 
-            # Preserve custom_item_status for existing items before update overwrites them
-            # Build a map: item_code -> list of statuses (handles duplicate item_codes)
-            existing_item_statuses = {}
+            # The kitchen screen writes custom_item_status straight to the DB
+            # (kitchen_order.update_item_status) while the waiter's cart only
+            # snapshots it once, when the draft is opened, and echoes that
+            # stale snapshot back on every later Hold/save — without ever
+            # sending the row's `name`. Left alone this (a) lets a stale
+            # "Pending" overwrite a row the kitchen already moved to
+            # "Preparing", and (b) makes Frappe's update_child_table treat
+            # every incoming row as brand new, deleting and recreating the
+            # whole item table (and its row names) on every save.
+            #
+            # Fix both by matching incoming rows to existing DB rows (by
+            # item_code, FIFO in line order — same order the cart and the
+            # DB rows share) and stamping the DB row's real `name` and
+            # current `custom_item_status` onto the payload *before*
+            # invoice_doc.update() builds the new child docs. Matched rows
+            # keep their identity (so the kitchen's status always wins);
+            # unmatched rows are genuinely new lines and fall through to
+            # the "Pending" default applied below.
+            existing_rows_by_item = {}
             for item in invoice_doc.get("items", []):
-                status = item.get("custom_item_status")
-                if status:
-                    existing_item_statuses.setdefault(item.item_code, []).append(status)
+                existing_rows_by_item.setdefault(item.item_code, []).append(
+                    {"name": item.name, "custom_item_status": item.custom_item_status or "Pending"}
+                )
+
+            for incoming in data.get("items") or []:
+                bucket = existing_rows_by_item.get(incoming.get("item_code"))
+                if not bucket:
+                    continue
+                matched = bucket.pop(0)
+                incoming["name"] = matched["name"]
+                incoming["custom_item_status"] = matched["custom_item_status"]
 
             invoice_doc.update(data)
-
-            # Restore custom_item_status on items after update
-            # Priority: 1) frontend-sent status, 2) previously saved status from DB
-            restore_map = {}  # item_code -> list of statuses (copy for consumption)
-            for k, v in existing_item_statuses.items():
-                restore_map[k] = list(v)
-
-            # Pass 1: for items that already carry a status from the frontend,
-            # consume the matching DB snapshot entry. This prevents a leftover
-            # status (e.g. an existing "Preparing" line) from bleeding onto a
-            # newly added line of the same item_code, which would otherwise
-            # inherit it via the FIFO restore below.
-            for item in invoice_doc.get("items", []):
-                status = item.get("custom_item_status")
-                if status and item.item_code in restore_map and status in restore_map[item.item_code]:
-                    restore_map[item.item_code].remove(status)
-
-            # Pass 2: restore from the remaining DB snapshot only for items that
-            # don't already have a status. Lines with no remaining snapshot entry
-            # (e.g. genuinely new items) fall through and default to "Pending" below.
-            for item in invoice_doc.get("items", []):
-                if item.get("custom_item_status") and item.custom_item_status != "":
-                    continue
-                if item.item_code in restore_map and restore_map[item.item_code]:
-                    item.custom_item_status = restore_map[item.item_code].pop(0)
         else:
             invoice_doc = frappe.get_doc(data)
 
