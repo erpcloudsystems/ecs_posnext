@@ -241,7 +241,7 @@ const selectedRate = computed(() => {
 const isWeekend = computed(() => {
 	if (!store.visitDate) return false
 	const day = new Date(`${store.visitDate}T00:00:00`).getDay()
-	return day === 4 || day === 5
+	return day === 4 || day === 5 || day === 6
 })
 
 // Once a visit date is picked, only show the UOM variants matching that day type
