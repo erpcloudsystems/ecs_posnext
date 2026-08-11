@@ -22,6 +22,7 @@
   "erpnext_integration_section",
   "erpnext_coupon_code",
   "pricing_rule",
+  "pos_offer",
   "discount_section",
   "discount_type",
   "discount_percentage",
@@ -131,6 +132,13 @@
    "label": "Referral Code",
    "options": "Referral Code",
    "read_only": 1
+  },
+  {
+   "fieldname": "pos_offer",
+   "fieldtype": "Link",
+   "label": "POS Offer",
+   "options": "POS Offer",
+   "description": "Optional. When set to a POS Offer with \"Apply Rule On Item Code\", this coupon's discount only applies to items in that offer's item list instead of the whole cart."
   },
   {
    "fieldname": "discount_section",
