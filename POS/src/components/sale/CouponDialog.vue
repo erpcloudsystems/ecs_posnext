@@ -282,39 +282,80 @@ async function applyCoupon() {
 		}
 
 		const coupon = validationData.coupon
-
-		// Check minimum amount (on subtotal before tax)
-		if (coupon.min_amount && props.subtotal < coupon.min_amount) {
-			errorMessage.value = __('This coupon requires a minimum purchase of ', [formatCurrency(coupon.min_amount)])
-			showWarning(errorMessage.value)
-			return
-		}
-
-		// Calculate discount on subtotal (before tax) using centralized helper
-		// Transform server coupon format to discount object format
+		const restriction = coupon.item_restriction
 		const discountObj = {
 			percentage: coupon.discount_type === "Percentage" ? coupon.discount_percentage : 0,
 			amount: coupon.discount_type === "Amount" ? coupon.discount_amount : 0,
 		}
 
-		let discountAmount = calculateDiscountAmount(discountObj, props.subtotal)
+		if (restriction?.apply_on === "Item Code") {
+			// Coupon linked to a POS Offer with "Apply Rule On Item Code" - only
+			// discount matching cart lines instead of the whole cart.
+			const matches = (props.items || []).filter((item) => restriction.item_codes.includes(item.item_code))
+			if (!matches.length) {
+				errorMessage.value = __("This coupon does not apply to any item in your cart")
+				showWarning(errorMessage.value)
+				return
+			}
 
-		// Apply maximum discount limit if specified
-		if (coupon.max_amount && discountAmount > coupon.max_amount) {
-			discountAmount = coupon.max_amount
-		}
+			const matchSubtotal = matches.reduce((sum, item) => {
+				const rate = item.is_rate_manually_edited === 1 ? item.rate : item.price_list_rate || item.rate
+				return sum + item.quantity * rate
+			}, 0)
 
-		// Clamp discount to subtotal to prevent negative totals
-		discountAmount = Math.min(discountAmount, props.subtotal)
+			if (coupon.min_amount && matchSubtotal < coupon.min_amount) {
+				errorMessage.value = __("This coupon requires a minimum purchase of {0} on eligible items", [
+					formatCurrency(coupon.min_amount),
+				])
+				showWarning(errorMessage.value)
+				return
+			}
 
-		appliedDiscount.value = {
-			name: coupon.coupon_name || coupon.coupon_code,
-			code: couponCode.value.toUpperCase(),
-			percentage: coupon.discount_percentage || 0,
-			amount: discountAmount,
-			type: coupon.discount_type,
-			coupon: coupon,
-			apply_on: coupon.apply_on,
+			let discountAmount = calculateDiscountAmount(discountObj, matchSubtotal)
+			if (coupon.max_amount && discountAmount > coupon.max_amount) {
+				discountAmount = coupon.max_amount
+			}
+			discountAmount = Math.min(discountAmount, matchSubtotal)
+
+			appliedDiscount.value = {
+				name: coupon.coupon_name || coupon.coupon_code,
+				code: couponCode.value.toUpperCase(),
+				amount: discountAmount,
+				type: coupon.discount_type,
+				coupon: coupon,
+				scope: "items",
+				itemCodes: matches.map((item) => item.item_code),
+				itemDiscountPercentage: matchSubtotal > 0 ? (discountAmount / matchSubtotal) * 100 : 0,
+			}
+		} else {
+			// Check minimum amount (on subtotal before tax)
+			if (coupon.min_amount && props.subtotal < coupon.min_amount) {
+				errorMessage.value = __('This coupon requires a minimum purchase of ', [formatCurrency(coupon.min_amount)])
+				showWarning(errorMessage.value)
+				return
+			}
+
+			// Calculate discount on subtotal (before tax) using centralized helper
+			let discountAmount = calculateDiscountAmount(discountObj, props.subtotal)
+
+			// Apply maximum discount limit if specified
+			if (coupon.max_amount && discountAmount > coupon.max_amount) {
+				discountAmount = coupon.max_amount
+			}
+
+			// Clamp discount to subtotal to prevent negative totals
+			discountAmount = Math.min(discountAmount, props.subtotal)
+
+			appliedDiscount.value = {
+				name: coupon.coupon_name || coupon.coupon_code,
+				code: couponCode.value.toUpperCase(),
+				percentage: coupon.discount_percentage || 0,
+				amount: discountAmount,
+				type: coupon.discount_type,
+				coupon: coupon,
+				scope: "total",
+				apply_on: coupon.apply_on,
+			}
 		}
 
 		emit("discount-applied", appliedDiscount.value)

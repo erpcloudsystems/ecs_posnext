@@ -415,7 +415,14 @@ export const usePOSCartStore = defineStore("posCart", () => {
 
 	// Discount & Offer Management
 	function applyDiscountToCart(discount) {
-		applyDiscount(discount)
+		if (discount?.scope === "items") {
+			// Coupon linked to a POS Offer with "Apply Rule On Item Code" - discount
+			// only the matching lines (same convention as posOfferEngine's Item
+			// Price offers), instead of the Grand-Total-level applyDiscount() below.
+			applyItemCodeDiscount(discount.itemCodes, discount.itemDiscountPercentage)
+		} else {
+			applyDiscount(discount)
+		}
 		appliedCoupon.value = discount
 		showSuccess(__("{0} applied successfully", [discount.name]))
 	}
@@ -423,9 +430,32 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	function removeDiscountFromCart() {
 		suppressOfferReapply.value = true
 		appliedOffers.value = []
-		removeDiscount()
+		if (appliedCoupon.value?.scope === "items") {
+			clearItemCodeDiscount(appliedCoupon.value.itemCodes)
+		} else {
+			removeDiscount()
+		}
 		appliedCoupon.value = null
 		showSuccess(__("Discount has been removed from cart"))
+	}
+
+	function applyItemCodeDiscount(itemCodes, percentage) {
+		invoiceItems.value.forEach((item) => {
+			if (!itemCodes.includes(item.item_code)) return
+			item.discount_percentage = percentage
+			recalculateItem(item)
+		})
+		rebuildIncrementalCache()
+	}
+
+	function clearItemCodeDiscount(itemCodes) {
+		invoiceItems.value.forEach((item) => {
+			if (itemCodes && !itemCodes.includes(item.item_code)) return
+			item.discount_percentage = 0
+			item.discount_amount = 0
+			recalculateItem(item)
+		})
+		rebuildIncrementalCache()
 	}
 
 	function buildOfferEvaluationPayload(currentProfile) {

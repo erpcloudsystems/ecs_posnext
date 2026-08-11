@@ -245,17 +245,24 @@ def validate_build_coupon(coupon_code, phone=None):
 
 
 @frappe.whitelist()
-def create_booking(items, branch, visit_date, phone, customer_name=None, coupon_code=None, discount_amount=0):
+def create_booking(
+	items, branch, visit_date, phone, customer_name=None, coupon_code=None, discount_amount=0, discount_scope=None
+):
 	"""Create a party-reservation Sales Order directly from the POS Build page.
 
-	`items` is a JSON list of {item_code, qty, uom, slot} - the main package plus
-	any additional add-on items the cashier attached to the same reservation.
+	`items` is a JSON list of {item_code, qty, uom, slot, discount_percentage} - the
+	main package plus any additional add-on items the cashier attached to the same
+	reservation. `discount_percentage` is only set on rows an item-code-scoped
+	coupon applies to (see validate_build_coupon/item_restriction).
 	`branch` is the selected Dimension Branch (room, or whole-branch catch-all).
-	`coupon_code`/`discount_amount`: same trust model as invoices.py's
-	update_invoice() - the frontend computes discount_amount from the coupon's
-	discount_type/percentage/amount (via the same calculateDiscountAmount
+	`coupon_code`/`discount_amount`/`discount_scope`: same trust model as
+	invoices.py's update_invoice() - the frontend computes the discount from the
+	coupon's discount_type/percentage/amount (via the same calculateDiscountAmount
 	helper the main POS cart uses), and the server only re-validates the code
-	itself before accepting the client-supplied amount.
+	itself before accepting the client-supplied amounts. `discount_scope ==
+	"items"` means the discount was already baked into each row's
+	discount_percentage/rate below, so no header-level discount is applied on top
+	of it (that would double-discount the same items).
 	"""
 	_ensure_build_access()
 	from ecs_vim.api import check_available
@@ -302,14 +309,21 @@ def create_booking(items, branch, visit_date, phone, customer_name=None, coupon_
 		if min_qty and qty < min_qty:
 			qty = min_qty
 		uom = entry.get("uom")
+		base_rate = _resolve_rate_for_uom(item_code, uom, price_list)
 		row = {
 			"item_code": item_code,
 			"item_name": item_doc.item_name,
 			"qty": qty,
-			"rate": _resolve_rate_for_uom(item_code, uom, price_list),
+			"price_list_rate": base_rate,
+			"rate": base_rate,
 			"delivery_date": visit_date,
 			"warehouse": warehouse,
 		}
+		item_discount_percentage = flt(entry.get("discount_percentage"))
+		if item_discount_percentage:
+			item_discount_percentage = min(max(item_discount_percentage, 0), 100)
+			row["discount_percentage"] = item_discount_percentage
+			row["rate"] = flt(base_rate * (1 - item_discount_percentage / 100), 2)
 		if uom:
 			row["uom"] = uom
 		if item_doc.non_sharable_slot and entry.get("slot"):
@@ -329,7 +343,7 @@ def create_booking(items, branch, visit_date, phone, customer_name=None, coupon_
 	}
 
 	discount_amount = flt(discount_amount)
-	if coupon_code and discount_amount > 0:
+	if coupon_code and discount_scope != "items" and discount_amount > 0:
 		so_dict["coupon_code"] = coupon_code
 		so_dict["apply_discount_on"] = (coupon_doc or {}).get("apply_on") or "Grand Total"
 		so_dict["discount_amount"] = discount_amount

@@ -585,6 +585,21 @@ def validate_coupon(coupon_code: str, customer: str, company: str) -> Dict:
 	if coupon.customer and coupon.customer != customer:
 		return {"valid": False, "message": _("This coupon is not valid for this customer")}
 
+	# Item-code scoped discount: if this coupon is linked to a POS Offer configured
+	# with "Apply Rule On Item Code" (same pattern as posawesome's POS Offer /
+	# POS Offer Item Code), the discount only applies to items in that offer's list
+	# instead of the whole cart. Callers that don't check for this key keep getting
+	# the existing whole-cart behavior.
+	if coupon.get("pos_offer"):
+		offer_apply_on = frappe.db.get_value("POS Offer", coupon.pos_offer, "apply_on")
+		if offer_apply_on == "Item Code":
+			item_codes = frappe.get_all(
+				"POS Offer Item Code",
+				filters={"parent": coupon.pos_offer, "parenttype": "POS Offer"},
+				pluck="item_code",
+			)
+			coupon["item_restriction"] = {"apply_on": "Item Code", "item_codes": item_codes}
+
 	return {
 		"valid": True,
 		"coupon": coupon

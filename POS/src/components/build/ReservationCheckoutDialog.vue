@@ -63,7 +63,7 @@
 					<div v-else class="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-3 py-2">
 						<div class="text-sm text-green-800">
 							<span class="font-semibold">{{ store.appliedCoupon.code }}</span>
-							<span class="text-green-600"> -{{ formatCurrencyCode(store.appliedCoupon.amount, currency) }}</span>
+							<span class="text-green-600"> -{{ formatCurrencyCode(discountDisplay, currency) }}</span>
 						</div>
 						<button type="button" @click="removeCoupon" class="text-green-700 hover:text-red-600 text-xs font-medium">
 							{{ __('Remove') }}
@@ -75,11 +75,11 @@
 				<div class="flex flex-col gap-1 px-1">
 					<div v-if="store.appliedCoupon" class="flex justify-between text-xs text-gray-500">
 						<span>{{ __('Subtotal') }}</span>
-						<span>{{ formatCurrencyCode(store.total, currency) }}</span>
+						<span>{{ formatCurrencyCode(subtotalDisplay, currency) }}</span>
 					</div>
 					<div v-if="store.appliedCoupon" class="flex justify-between text-xs text-green-600">
 						<span>{{ __('Discount') }}</span>
-						<span>-{{ formatCurrencyCode(store.appliedCoupon.amount, currency) }}</span>
+						<span>-{{ formatCurrencyCode(discountDisplay, currency) }}</span>
 					</div>
 					<div class="flex justify-between text-sm font-semibold text-gray-900">
 						<span>{{ __('Total') }}</span>
@@ -167,7 +167,21 @@ const couponCode = ref("")
 const applyingCoupon = ref(false)
 const couponError = ref(null)
 
-const netTotal = computed(() => Math.max(store.total - (store.appliedCoupon?.amount || 0), 0))
+// Item-scoped coupons bake their discount into item.rate (store.total is already
+// post-discount); Grand Total/Net Total coupons keep the flat-subtract behavior.
+const subtotalDisplay = computed(() =>
+	store.appliedCoupon?.scope === "items" ? store.subtotalBeforeDiscount : store.total,
+)
+const discountDisplay = computed(() =>
+	store.appliedCoupon?.scope === "items"
+		? Math.max(store.subtotalBeforeDiscount - store.total, 0)
+		: store.appliedCoupon?.amount || 0,
+)
+const netTotal = computed(() =>
+	store.appliedCoupon?.scope === "items"
+		? store.total
+		: Math.max(store.total - (store.appliedCoupon?.amount || 0), 0),
+)
 
 const canBook = computed(() => {
 	if (booking.value || !store.items.length || !store.room || !store.visitDate || !store.phone) return false
@@ -207,31 +221,78 @@ async function applyCoupon() {
 		}
 
 		const coupon = validation.coupon
-		if (coupon.min_amount && store.total < coupon.min_amount) {
-			couponError.value = __("This coupon requires a minimum purchase of {0}", [
-				formatCurrencyCode(coupon.min_amount, props.currency),
-			])
-			showWarning(couponError.value)
-			return
+		const code = couponCode.value.toUpperCase()
+		const restriction = coupon.item_restriction
+
+		if (restriction?.apply_on === "Item Code") {
+			// Offer-linked coupon restricted to specific item codes (posawesome-style
+			// "Apply Rule On Item Code") - discount only the matching cart lines.
+			const matches = store.items.filter((item) => restriction.item_codes.includes(item.item_code))
+			if (!matches.length) {
+				couponError.value = __("This coupon does not apply to any item in this reservation")
+				showWarning(couponError.value)
+				return
+			}
+
+			const matchSubtotal = matches.reduce((sum, item) => sum + item.qty * item.rate, 0)
+			if (coupon.min_amount && matchSubtotal < coupon.min_amount) {
+				couponError.value = __("This coupon requires a minimum purchase of {0} on eligible items", [
+					formatCurrencyCode(coupon.min_amount, props.currency),
+				])
+				showWarning(couponError.value)
+				return
+			}
+
+			const discountObj = {
+				percentage: coupon.discount_type === "Percentage" ? coupon.discount_percentage : 0,
+				amount: coupon.discount_type === "Amount" ? coupon.discount_amount : 0,
+			}
+			let discountAmount = calculateDiscountAmount(discountObj, matchSubtotal)
+			if (coupon.max_amount && discountAmount > coupon.max_amount) {
+				discountAmount = coupon.max_amount
+			}
+			discountAmount = Math.min(discountAmount, matchSubtotal)
+
+			const ratio = matchSubtotal > 0 ? discountAmount / matchSubtotal : 0
+			store.applyItemCodeDiscount(
+				matches.map((item) => item.item_code),
+				ratio,
+			)
+
+			store.appliedCoupon = {
+				code,
+				scope: "items",
+				itemCodes: matches.map((item) => item.item_code),
+			}
+		} else {
+			if (coupon.min_amount && store.total < coupon.min_amount) {
+				couponError.value = __("This coupon requires a minimum purchase of {0}", [
+					formatCurrencyCode(coupon.min_amount, props.currency),
+				])
+				showWarning(couponError.value)
+				return
+			}
+
+			const discountObj = {
+				percentage: coupon.discount_type === "Percentage" ? coupon.discount_percentage : 0,
+				amount: coupon.discount_type === "Amount" ? coupon.discount_amount : 0,
+			}
+			let discountAmount = calculateDiscountAmount(discountObj, store.total)
+			if (coupon.max_amount && discountAmount > coupon.max_amount) {
+				discountAmount = coupon.max_amount
+			}
+			discountAmount = Math.min(discountAmount, store.total)
+
+			store.appliedCoupon = {
+				code,
+				scope: "total",
+				amount: discountAmount,
+				apply_on: coupon.apply_on,
+			}
 		}
 
-		const discountObj = {
-			percentage: coupon.discount_type === "Percentage" ? coupon.discount_percentage : 0,
-			amount: coupon.discount_type === "Amount" ? coupon.discount_amount : 0,
-		}
-		let discountAmount = calculateDiscountAmount(discountObj, store.total)
-		if (coupon.max_amount && discountAmount > coupon.max_amount) {
-			discountAmount = coupon.max_amount
-		}
-		discountAmount = Math.min(discountAmount, store.total)
-
-		store.appliedCoupon = {
-			code: couponCode.value.toUpperCase(),
-			amount: discountAmount,
-			apply_on: coupon.apply_on,
-		}
 		couponCode.value = ""
-		showSuccess(__("{0} applied successfully", [store.appliedCoupon.code]))
+		showSuccess(__("{0} applied successfully", [code]))
 	} catch (err) {
 		couponError.value = err?.messages?.[0] || err?.message || __("Failed to apply coupon")
 		showError(couponError.value)
@@ -241,6 +302,9 @@ async function applyCoupon() {
 }
 
 function removeCoupon() {
+	if (store.appliedCoupon?.scope === "items") {
+		store.clearItemCodeDiscount(store.appliedCoupon.itemCodes)
+	}
 	store.appliedCoupon = null
 	couponError.value = null
 }
@@ -250,19 +314,25 @@ async function confirmBooking() {
 	bookingError.value = null
 	bookingResult.value = null
 	try {
+		const itemScoped = store.appliedCoupon?.scope === "items"
 		const response = await call("ecs_posnext.api.build_booking.create_booking", {
 			items: store.items.map((item) => ({
 				item_code: item.item_code,
 				qty: item.qty,
 				uom: item.uom,
 				slot: item.slot,
+				discount_percentage:
+					itemScoped && item.original_rate
+						? Math.min(100, Math.max(0, ((item.original_rate - item.rate) / item.original_rate) * 100))
+						: 0,
 			})),
 			branch: store.room,
 			visit_date: store.visitDate,
 			phone: store.phone,
 			customer_name: store.customerLookup.found ? null : store.customerName,
 			coupon_code: store.appliedCoupon?.code || null,
-			discount_amount: store.appliedCoupon?.amount || 0,
+			discount_amount: itemScoped ? 0 : store.appliedCoupon?.amount || 0,
+			discount_scope: store.appliedCoupon?.scope || null,
 		})
 		bookingResult.value = response?.message || response
 		if (bookingResult.value?.sales_order) {

@@ -219,8 +219,7 @@ doc_events = {
 		"before_cancel": "ecs_posnext.api.sales_invoice_hooks.before_cancel",
 		"on_submit": [
 			"ecs_posnext.realtime_events.emit_stock_update_event",
-			"ecs_posnext.api.wallet.process_loyalty_to_wallet",
-			"ecs_posnext.api.sales_invoice_hooks.create_payment_entry_on_submit"
+			"ecs_posnext.api.wallet.process_loyalty_to_wallet"
 		],
 		"on_cancel": [
 			"ecs_posnext.realtime_events.emit_stock_update_event",
