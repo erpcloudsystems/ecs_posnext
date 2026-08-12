@@ -1960,6 +1960,19 @@ def _finalize_invoice_submit(
         # check_if_latest() compares against the actual current row.
         invoice_doc.reload()
 
+        # `flags` live only on this Python object, never in the DB, so the
+        # `ignore_pos_profile` flag _prepare_invoice_for_submit set on Step 1's
+        # invoice_doc does not carry over to this freshly loaded one. Without
+        # it, submit()'s own validate() pass lets set_pos_fields() silently
+        # assign a random enabled POS Profile to a POS invoice that was
+        # deliberately created without one (e.g. a deposit invoice from the
+        # Sales Order desk form) — which then also flips any inclusive tax
+        # rows to that profile's own tax_inclusive setting via
+        # sales_invoice_hooks.apply_tax_inclusive(), silently changing the
+        # grand total right at submit.
+        if doctype == DOCTYPE_SALES_INVOICE and not invoice.get("pos_profile") and not invoice_doc.pos_profile:
+            invoice_doc.flags.ignore_pos_profile = True
+
         # Submit invoice
         _with_deadlock_retry(invoice_doc.submit)
         invoice_submitted = True

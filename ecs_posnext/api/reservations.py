@@ -280,6 +280,12 @@ def create_deposit_invoice(
     # custom_zatca_tax_category still defaults to "Standard", which makes ZATCA's
     # e-invoice XML generation blow up (it indexes taxes[0] unconditionally for a
     # Standard-rated invoice).
+    #
+    # `amount` is the exact figure the cashier collects and records under
+    # `payments` below, so tax must be forced inclusive here (regardless of the
+    # SO template's own setting) — otherwise VAT is added on top of `amount`,
+    # the grand total no longer matches what was collected, and the invoice
+    # comes out "Partly Paid".
     taxes_and_charges = so.get("taxes_and_charges")
     taxes = [
         {
@@ -287,7 +293,7 @@ def create_deposit_invoice(
             "account_head": t.account_head,
             "rate": t.rate,
             "description": t.description,
-            "included_in_print_rate": t.included_in_print_rate,
+            "included_in_print_rate": 1,
             "cost_center": t.cost_center,
         }
         for t in so.get("taxes", [])
