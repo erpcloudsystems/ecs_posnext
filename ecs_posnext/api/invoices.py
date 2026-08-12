@@ -402,106 +402,6 @@ def _reapply_payment_amounts(invoice_doc, original_payments, doctype="Sales Invo
         invoice_doc.paid_amount = total_paid
 
 
-def create_payment_entries_for_invoice(invoice_doc):
-    """
-    Explicitly create Payment Entries for a submitted POS Sales Invoice.
-    This runs after invoice submit to guarantee PE creation even if hooks fail silently.
-    """
-    if not cint(invoice_doc.get("is_pos")):
-        return
-    if not invoice_doc.get("payments"):
-        return
-
-    # Fetch existing Payment Entries for this invoice once (one query) instead
-    # of re-querying per payment row. Same guard, same result, fewer round trips.
-    existing_pe_modes = set(
-        frappe.get_all(
-            "Payment Entry",
-            filters={
-                "reference_no": invoice_doc.name,
-                "party": invoice_doc.customer,
-                "docstatus": ["!=", 2],
-            },
-            pluck="mode_of_payment",
-        )
-    )
-
-    created = []
-    for payment in invoice_doc.payments:
-        amount = flt(payment.get("amount") or 0)
-        if amount <= 0:
-            continue
-
-        mode_of_payment = payment.get("mode_of_payment")
-        if not mode_of_payment:
-            continue
-
-        if mode_of_payment in existing_pe_modes:
-            continue
-
-        account_info = get_payment_account(mode_of_payment, invoice_doc.company)
-        if not account_info or not account_info.get("account"):
-            frappe.msgprint(
-                _(
-                    "Payment Entry not created for mode {0}: no account found. Please configure Mode of Payment Account for company {1}."
-                ).format(mode_of_payment, invoice_doc.company),
-                alert=True,
-                indicator="orange",
-            )
-            continue
-
-        pe = frappe.new_doc("Payment Entry")
-        pe.payment_type = "Receive"
-        pe.party_type = "Customer"
-        pe.party = invoice_doc.customer
-        pe.company = invoice_doc.company
-        pe.posting_date = invoice_doc.posting_date
-        pe.mode_of_payment = mode_of_payment
-        pe.paid_from = invoice_doc.debit_to
-        pe.paid_to = account_info["account"]
-        pe.paid_amount = amount
-        pe.received_amount = amount
-        pe.reference_no = invoice_doc.name
-        pe.reference_date = invoice_doc.posting_date
-
-        # Try to create PE linked to invoice; if already paid via GL entries, create standalone
-        try:
-            pe.append(
-                "references",
-                {
-                    "reference_doctype": "Sales Invoice",
-                    "reference_name": invoice_doc.name,
-                    "total_amount": invoice_doc.grand_total,
-                    "outstanding_amount": invoice_doc.outstanding_amount,
-                    "allocated_amount": amount,
-                },
-            )
-            pe.insert(ignore_permissions=True)
-            pe.submit()
-            created.append(pe.name)
-            existing_pe_modes.add(mode_of_payment)
-        except frappe.ValidationError as e:
-            if (
-                "already been fully paid" in str(e)
-                or "cannot be greater than outstanding amount" in str(e)
-            ):
-                pe.references = []
-                pe.insert(ignore_permissions=True)
-                pe.submit()
-                created.append(pe.name)
-                existing_pe_modes.add(mode_of_payment)
-            else:
-                raise
-
-    if created:
-        frappe.msgprint(
-            _("Created Payment Entries: {0}").format(
-                ", ".join(created)
-            ),
-            alert=True,
-        )
-
-
 # ==========================================
 # Stock Validation Functions
 # ==========================================
@@ -1976,10 +1876,6 @@ def _finalize_invoice_submit(
         # Submit invoice
         _with_deadlock_retry(invoice_doc.submit)
         invoice_submitted = True
-
-        # Explicitly create Payment Entries for POS invoices
-        # (Hooks may silently fail; this ensures PEs are always created)
-        create_payment_entries_for_invoice(invoice_doc)
 
         # Handle wallet transaction reversal for returns
         if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
