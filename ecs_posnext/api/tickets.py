@@ -62,6 +62,37 @@ def search_tickets(search_keys):
     return search_redeem_tickets(search_keys, include_expired=1)
 
 
+@frappe.whitelist()
+def get_customer_membership(customer=None):
+    """Active membership summary for a customer, for the POS customer badge.
+
+    A ticket counts as an active membership when: vendor == customer,
+    valid_to >= today, remaining_usage > 0, and its item is a Subscription
+    item (Item.custom_item_type == "Subscription").
+    """
+    if not customer:
+        return {"count": 0, "tickets": []}
+
+    subscription_items = frappe.db.get_all(
+        "Item", filters={"custom_item_type": "Subscription"}, pluck="name"
+    )
+    if not subscription_items:
+        return {"count": 0, "tickets": []}
+
+    tickets = frappe.db.get_all(
+        "Ticket",
+        filters={
+            "vendor": customer,
+            "valid_to": [">=", today()],
+            "remaining_usage": [">", 0],
+            "item": ["in", subscription_items],
+        },
+        fields=["name", "item", "valid_to", "remaining_usage", "global_maximum_usage"],
+        order_by="valid_to asc",
+    )
+    return {"count": len(tickets), "tickets": tickets}
+
+
 def _get_wristband_item_code(ticket):
     """POS Global Settings.wristband_item, falling back to the ticket's own item."""
     item_code = frappe.db.get_single_value("POS Global Settings", "wristband_item")

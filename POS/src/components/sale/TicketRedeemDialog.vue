@@ -164,7 +164,7 @@
 					</div>
 
 					<!-- Renew (recharge same ticket + paid invoice) -->
-					<div class="bg-white rounded-lg border border-amber-200 p-3">
+					<div v-if="t.show_renew" class="bg-white rounded-lg border border-amber-200 p-3">
 						<div class="text-[11px] font-semibold text-amber-700 mb-1.5">{{ __("Renew (recharge this ticket)") }}</div>
 						<div class="flex flex-wrap items-end gap-3">
 							<div>

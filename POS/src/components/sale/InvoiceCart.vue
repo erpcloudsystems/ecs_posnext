@@ -164,6 +164,32 @@
 						</div>
 					</div>
 
+					<!-- Active Membership row: customer holds a valid, still-usable Subscription ticket -->
+					<div
+						v-if="membershipStore.hasMembership"
+						class="mt-2 bg-amber-50 border border-amber-300 rounded-xl p-2 flex items-center gap-2"
+					>
+						<div class="w-7 h-7 bg-amber-500 rounded-lg flex items-center justify-center flex-shrink-0">
+							<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3a2 2 0 00-2 2v14l4-2 4 2 4-2 4 2V5a2 2 0 00-2-2H5z" />
+							</svg>
+						</div>
+						<div class="min-w-0 flex-1">
+							<div class="flex items-center justify-between gap-2">
+								<span class="text-[11px] font-bold text-amber-800">{{ __('Active Membership') }}</span>
+								<span class="text-[10px] font-semibold text-amber-700 flex-shrink-0">
+									{{ __('{0} ticket(s)', [membershipStore.count]) }}
+								</span>
+							</div>
+							<div v-if="membershipStore.soonestTicket" class="flex items-center justify-between gap-2 mt-0.5">
+								<span class="text-[10px] text-amber-700 truncate">{{ membershipStore.soonestTicket.item }}</span>
+								<span class="text-[10px] text-amber-600 flex-shrink-0">
+									{{ __('{0} left · valid to {1}', [membershipStore.soonestTicket.remaining_usage, membershipStore.soonestTicket.valid_to]) }}
+								</span>
+							</div>
+						</div>
+					</div>
+
 					<!-- Loyalty Reward card -->
 					<div
 						v-if="loyaltyStore.enabled && loyaltyStore.hasBalance"
@@ -1327,6 +1353,7 @@ import { usePOSSettingsStore } from "@/stores/posSettings"
 import { usePOSOffersStore } from "@/stores/posOffers"
 import { useCustomerSearchStore } from "@/stores/customerSearch"
 import { useLoyaltyStore } from "@/stores/loyalty"
+import { useMembershipStore } from "@/stores/membership"
 import {
 	DEFAULT_CURRENCY,
 	formatCurrency as formatCurrencyUtil,
@@ -1354,6 +1381,7 @@ const settingsStore = usePOSSettingsStore() // Pinia store for POS settings
 const offersStore = usePOSOffersStore() // Pinia store for offers/promotions
 const customerSearchStore = useCustomerSearchStore() // Pinia store for customer search
 const loyaltyStore = useLoyaltyStore() // Pinia store for loyalty wallet (points + cashback)
+const membershipStore = useMembershipStore() // Pinia store for active membership (Subscription ticket) badge
 const { formatQuantity } = useFormatters() // Quantity formatting utilities
 
 function handleProceedToPayment() {
@@ -1455,6 +1483,7 @@ watch(
 	() => props.customer?.name || props.customer,
 	(cust) => {
 		loyaltyStore.loadLoyalty(cust || null)
+		membershipStore.loadMembership(cust || null)
 	},
 	{ immediate: true },
 )
