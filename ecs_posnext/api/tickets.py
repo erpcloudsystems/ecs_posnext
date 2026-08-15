@@ -300,7 +300,11 @@ def renew_ticket(
 
     # 2) Recharge the ticket (controller does not recompute these on save).
     ticket.global_maximum_usage = (ticket.global_maximum_usage or 0) + added_uses
-    ticket.remaining_usage = (ticket.remaining_usage or 0) + added_uses
+
+    # Renewal restarts the ticket's usage: current usage is cleared and the
+    # full (new) maximum becomes available again.
+    ticket.current_usage = 0
+    ticket.remaining_usage = ticket.global_maximum_usage
 
     ticket.used_free_wristband = 0
     ticket.remaining_free_wristband = cint(ticket.maximum_free_wristband)
@@ -349,6 +353,7 @@ def renew_ticket(
         "renewal_invoice": draft.get("name"),
         "valid_to": str(ticket.valid_to),
         "global_maximum_usage": ticket.global_maximum_usage,
+        "current_usage": ticket.current_usage,
         "remaining_usage": ticket.remaining_usage,
         "used_free_wristband": ticket.used_free_wristband,
         "remaining_free_wristband": ticket.remaining_free_wristband,
