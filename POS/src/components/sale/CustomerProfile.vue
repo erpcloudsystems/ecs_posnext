@@ -234,6 +234,42 @@
 					<!-- New Complaint Form -->
 					<div class="bg-red-50 rounded-lg border border-red-100 p-2 space-y-2">
 						<p class="text-[10px] font-bold text-red-700 uppercase">{{ __("New Complaint") }}</p>
+
+						<!-- Related Order (optional) -->
+						<div class="space-y-1">
+							<div class="flex gap-1.5">
+								<input
+									v-model="newComplaint.orderReference"
+									type="text"
+									:placeholder="__('Related order # (optional)')"
+									class="flex-1 h-7 px-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-red-400"
+									@keyup.enter="loadComplaintOrderContext"
+								/>
+								<button
+									type="button"
+									@click="loadComplaintOrderContext"
+									:disabled="!newComplaint.orderReference || newComplaint.loadingOrder"
+									class="px-2 h-7 text-[10px] font-bold bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors shrink-0"
+								>{{ newComplaint.loadingOrder ? __("...") : __("Load") }}</button>
+							</div>
+							<button
+								v-if="profile?.last_order?.invoice_name && newComplaint.orderReference !== profile.last_order.invoice_name"
+								type="button"
+								@click="useLastOrderForComplaint"
+								class="text-[9px] font-bold text-blue-600 hover:text-blue-800"
+							>{{ __("Use Last Order") }} ({{ profile.last_order.invoice_name }})</button>
+							<div v-if="newComplaint.orderContext" class="p-1.5 bg-white border border-gray-100 rounded-lg text-[9px] text-gray-600 grid grid-cols-2 gap-x-2 gap-y-0.5">
+								<span>{{ __("Order #") }}: <b>{{ newComplaint.orderContext.order_number || "—" }}</b></span>
+								<span>{{ __("Status") }}: <b>{{ newComplaint.orderContext.order_status || "—" }}</b></span>
+								<span>{{ __("Date") }}: <b>{{ formatDate(newComplaint.orderContext.order_datetime) || "—" }}</b></span>
+								<span>{{ __("Branch") }}: <b>{{ newComplaint.orderContext.branch || "—" }}</b></span>
+								<span>{{ __("Business Day") }}: <b>{{ newComplaint.orderContext.pos_business_day || "—" }}</b></span>
+								<span>{{ __("Cashier Shift") }}: <b>{{ newComplaint.orderContext.pos_cashier_shift || "—" }}</b></span>
+								<span>{{ __("Delivery") }}: <b>{{ newComplaint.orderContext.delivery_type || "—" }}</b></span>
+								<span>{{ __("Assigned To") }}: <b>{{ newComplaint.orderContext.assigned_delivery || "—" }}</b></span>
+							</div>
+						</div>
+
 						<select
 							v-model="newComplaint.type"
 							class="w-full h-7 px-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-red-400 bg-white"
@@ -282,17 +318,15 @@
 								<span class="text-[10px] font-bold text-gray-700">{{ c.custom_complaint_number || c.name }}</span>
 								<span
 									class="px-1.5 py-0.5 text-[9px] font-bold rounded-full"
-									:class="{
-										'bg-red-100 text-red-700': c.status === 'Open',
-										'bg-yellow-100 text-yellow-700': c.status === 'In Progress',
-										'bg-green-100 text-green-700': c.status === 'Resolved',
-										'bg-gray-100 text-gray-600': c.status === 'Rejected',
-									}"
+									:class="complaintStatusClass(c.status)"
 								>{{ c.status }}</span>
 							</div>
 							<p v-if="c.type" class="text-[9px] text-blue-600 mb-0.5">{{ c.type }}</p>
 							<p class="text-[10px] text-gray-600 line-clamp-2">{{ c.complaint_details }}</p>
-							<p class="text-[9px] text-gray-400 mt-0.5">{{ formatDate(c.complaint_date || c.creation) }}</p>
+							<div class="flex items-center justify-between mt-0.5">
+								<p class="text-[9px] text-gray-400">{{ formatDate(c.complaint_date || c.creation) }}</p>
+								<p v-if="c.custom_order_reference" class="text-[9px] text-indigo-600 font-bold">{{ c.custom_order_reference }}</p>
+							</div>
 						</div>
 					</div>
 					<div v-else class="text-center py-3">
@@ -343,7 +377,7 @@ const complaintsLoading = ref(false)
 const complaintSubmitting = ref(false)
 const complaintTypes = ref([])
 const branches = ref([])
-const newComplaint = ref({ details: "", type: "", branch: "" })
+const newComplaint = ref({ details: "", type: "", branch: "", orderReference: "", orderContext: null, loadingOrder: false })
 
 const tabs = computed(() => [
 	{ id: "favorites", label: __("Favorites"), badge: null },
@@ -352,6 +386,21 @@ const tabs = computed(() => [
 	{ id: "coupons", label: __("Coupons"), badge: profile.value?.coupons_unused || null },
 	{ id: "complaints", label: __("Complaints"), badge: complaints.value.length || null },
 ])
+
+const COMPLAINT_STATUS_BADGE = {
+	"New": "bg-red-100 text-red-700",
+	"Under Review": "bg-yellow-100 text-yellow-700",
+	"Pending Approval": "bg-amber-100 text-amber-700",
+	"Approved": "bg-blue-100 text-blue-700",
+	"Rejected": "bg-gray-100 text-gray-600",
+	"Coupon Issued": "bg-purple-100 text-purple-700",
+	"Coupon Redeemed": "bg-teal-100 text-teal-700",
+	"Closed": "bg-green-100 text-green-700",
+}
+
+function complaintStatusClass(status) {
+	return COMPLAINT_STATUS_BADGE[status] || "bg-gray-100 text-gray-600"
+}
 
 // A coupon is expired when its valid_upto date is before today.
 function isCouponExpired(coupon) {
@@ -511,6 +560,30 @@ async function loadComplaintTypes() {
 	} catch {}
 }
 
+async function loadComplaintOrderContext() {
+	if (!newComplaint.value.orderReference) return
+	newComplaint.value.loadingOrder = true
+	try {
+		const context = await call("ecs_posnext.api.customers.get_order_context_for_complaint", {
+			order_doctype: "Sales Invoice",
+			order_reference: newComplaint.value.orderReference,
+		})
+		newComplaint.value.orderContext = context
+		if (context.branch) newComplaint.value.branch = context.branch
+	} catch (err) {
+		showError(err.message || __("Order not found"))
+		newComplaint.value.orderContext = null
+	} finally {
+		newComplaint.value.loadingOrder = false
+	}
+}
+
+function useLastOrderForComplaint() {
+	if (!profile.value?.last_order?.invoice_name) return
+	newComplaint.value.orderReference = profile.value.last_order.invoice_name
+	loadComplaintOrderContext()
+}
+
 async function submitComplaint() {
 	if (!newComplaint.value.details.trim() || !customerName.value || !newComplaint.value.branch) return
 	complaintSubmitting.value = true
@@ -520,10 +593,12 @@ async function submitComplaint() {
 			complaint_details: newComplaint.value.details.trim(),
 			complaint_type: newComplaint.value.type || null,
 			branch: newComplaint.value.branch,
+			order_doctype: newComplaint.value.orderContext ? "Sales Invoice" : null,
+			order_reference: newComplaint.value.orderContext ? newComplaint.value.orderReference : null,
 		})
 		if (result) {
 			complaints.value.unshift(result)
-			newComplaint.value = { details: "", type: "", branch: props.branch || "" }
+			newComplaint.value = { details: "", type: "", branch: props.branch || "", orderReference: "", orderContext: null, loadingOrder: false }
 			showSuccess(__("Complaint {0} submitted", [result.custom_complaint_number]))
 		}
 	} catch (err) {

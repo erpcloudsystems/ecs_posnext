@@ -45,10 +45,7 @@
 						class="h-9 px-3 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
 					>
 						<option value="">{{ __("All Status") }}</option>
-						<option value="Open">{{ __("Open") }}</option>
-						<option value="In Progress">{{ __("In Progress") }}</option>
-						<option value="Resolved">{{ __("Resolved") }}</option>
-						<option value="Rejected">{{ __("Rejected") }}</option>
+						<option v-for="s in COMPLAINT_STATUSES" :key="s" :value="s">{{ __(s) }}</option>
 					</select>
 
 					<!-- Search -->
@@ -105,26 +102,14 @@
 			</div>
 
 			<!-- Summary cards -->
-			<div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+			<div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-3">
 				<div class="bg-white rounded-xl border border-gray-200 p-4 text-center shadow-sm">
 					<p class="text-2xl font-bold text-gray-900">{{ report.summary.total }}</p>
 					<p class="text-xs text-gray-500 mt-1">{{ __("Total") }}</p>
 				</div>
-				<div class="bg-red-50 rounded-xl border border-red-100 p-4 text-center shadow-sm">
-					<p class="text-2xl font-bold text-red-600">{{ report.summary.Open || 0 }}</p>
-					<p class="text-xs text-red-500 mt-1">{{ __("Open") }}</p>
-				</div>
-				<div class="bg-yellow-50 rounded-xl border border-yellow-100 p-4 text-center shadow-sm">
-					<p class="text-2xl font-bold text-yellow-600">{{ report.summary['In Progress'] || 0 }}</p>
-					<p class="text-xs text-yellow-500 mt-1">{{ __("In Progress") }}</p>
-				</div>
-				<div class="bg-green-50 rounded-xl border border-green-100 p-4 text-center shadow-sm">
-					<p class="text-2xl font-bold text-green-600">{{ report.summary.Resolved || 0 }}</p>
-					<p class="text-xs text-green-500 mt-1">{{ __("Resolved") }}</p>
-				</div>
-				<div class="bg-gray-50 rounded-xl border border-gray-200 p-4 text-center shadow-sm">
-					<p class="text-2xl font-bold text-gray-500">{{ report.summary.Rejected || 0 }}</p>
-					<p class="text-xs text-gray-400 mt-1">{{ __("Rejected") }}</p>
+				<div v-for="s in COMPLAINT_STATUSES" :key="s" class="bg-gray-50 rounded-xl border border-gray-200 p-4 text-center shadow-sm">
+					<p class="text-2xl font-bold" :class="statusTextClass(s)">{{ report.summary[s] || 0 }}</p>
+					<p class="text-xs mt-1 text-gray-500">{{ __(s) }}</p>
 				</div>
 			</div>
 
@@ -178,15 +163,7 @@
 								<span v-else class="text-gray-300 text-xs">—</span>
 							</td>
 							<td class="px-4 py-2">
-								<span
-									class="px-2 py-0.5 text-[10px] font-bold rounded-full"
-									:class="{
-										'bg-red-100 text-red-700': c.status === 'Open',
-										'bg-yellow-100 text-yellow-700': c.status === 'In Progress',
-										'bg-green-100 text-green-700': c.status === 'Resolved',
-										'bg-gray-100 text-gray-600': c.status === 'Rejected',
-									}"
-								>{{ c.status }}</span>
+								<span class="px-2 py-0.5 text-[10px] font-bold rounded-full" :class="statusBadgeClass(c.status)">{{ c.status }}</span>
 							</td>
 						</tr>
 					</tbody>
@@ -265,26 +242,18 @@
 							<!-- Response By -->
 							<td class="px-4 py-3">
 								<div v-if="c.custom_response_by">
-									<p class="text-sm font-medium" :class="isOverdue(c.custom_response_by) && c.status === 'Open' ? 'text-red-600' : 'text-gray-700'">
+									<p class="text-sm font-medium" :class="isOverdue(c.custom_response_by) && c.status === 'New' ? 'text-red-600' : 'text-gray-700'">
 										{{ formatDateTime(c.custom_response_by) }}
 									</p>
-									<p v-if="isOverdue(c.custom_response_by) && c.status === 'Open'" class="text-xs text-red-500 font-bold">{{ __("Overdue") }}</p>
-									<p v-else-if="c.status === 'Open'" class="text-xs text-gray-400">{{ timeUntil(c.custom_response_by) }}</p>
+									<p v-if="isOverdue(c.custom_response_by) && c.status === 'New'" class="text-xs text-red-500 font-bold">{{ __("Overdue") }}</p>
+									<p v-else-if="c.status === 'New'" class="text-xs text-gray-400">{{ timeUntil(c.custom_response_by) }}</p>
 								</div>
 								<span v-else class="text-gray-300 text-sm">—</span>
 							</td>
 
 							<!-- Status badge -->
 							<td class="px-4 py-3">
-								<span
-									class="px-2 py-0.5 text-xs font-bold rounded-full"
-									:class="{
-										'bg-red-100 text-red-700': c.status === 'Open',
-										'bg-yellow-100 text-yellow-700': c.status === 'In Progress',
-										'bg-green-100 text-green-700': c.status === 'Resolved',
-										'bg-gray-100 text-gray-600': c.status === 'Rejected',
-									}"
-								>{{ c.status }}</span>
+								<span class="px-2 py-0.5 text-xs font-bold rounded-full" :class="statusBadgeClass(c.status)">{{ c.status }}</span>
 							</td>
 
 							<!-- Open -->
@@ -351,6 +320,37 @@
 							<p v-if="dialog.selectedCustomer" class="mt-1 text-xs text-green-600 font-medium">
 								✓ {{ dialog.selectedCustomer.customer_name }}
 							</p>
+						</div>
+
+						<!-- Related Order (optional) -->
+						<div>
+							<label class="block text-xs font-bold text-gray-600 mb-1">{{ __("Related Order") }} <span class="text-gray-400 font-normal">({{ __("optional") }})</span></label>
+							<div class="flex gap-2">
+								<input
+									v-model="dialog.orderReference"
+									type="text"
+									:placeholder="__('Sales Invoice number...')"
+									class="flex-1 h-9 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+									@keyup.enter="loadOrderContext"
+								/>
+								<button
+									type="button"
+									@click="loadOrderContext"
+									:disabled="!dialog.orderReference || dialog.loadingOrder"
+									class="px-3 h-9 text-xs font-bold bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
+								>{{ dialog.loadingOrder ? __("Loading...") : __("Load") }}</button>
+							</div>
+							<div v-if="dialog.orderContext" class="mt-2 p-3 bg-gray-50 border border-gray-100 rounded-lg text-[11px] text-gray-600 grid grid-cols-2 gap-x-3 gap-y-1">
+								<span>{{ __("Order Number") }}: <b>{{ dialog.orderContext.order_number || "—" }}</b></span>
+								<span>{{ __("Customer") }}: <b>{{ dialog.orderContext.customer || "—" }}</b></span>
+								<span>{{ __("Branch") }}: <b>{{ dialog.orderContext.branch || "—" }}</b></span>
+								<span>{{ __("Order Status") }}: <b>{{ dialog.orderContext.order_status || "—" }}</b></span>
+								<span>{{ __("Order Date & Time") }}: <b>{{ formatDateTime(dialog.orderContext.order_datetime) || "—" }}</b></span>
+								<span>{{ __("Delivery Type") }}: <b>{{ dialog.orderContext.delivery_type || "—" }}</b></span>
+								<span>{{ __("Business Day") }}: <b>{{ dialog.orderContext.pos_business_day || "—" }}</b></span>
+								<span>{{ __("Cashier Shift") }}: <b>{{ dialog.orderContext.pos_cashier_shift || "—" }}</b></span>
+								<span>{{ __("Assigned Delivery") }}: <b>{{ dialog.orderContext.assigned_delivery || "—" }}</b></span>
+							</div>
 						</div>
 
 						<!-- Complaint Type -->
@@ -438,12 +438,7 @@
 							<span class="text-sm font-bold text-gray-900 truncate">{{ drawer.data?.custom_complaint_number || drawer.data?.name }}</span>
 							<span
 								class="px-2 py-0.5 text-[10px] font-bold rounded-full shrink-0"
-								:class="{
-									'bg-red-100 text-red-700': drawer.form.status === 'Open',
-									'bg-yellow-100 text-yellow-700': drawer.form.status === 'In Progress',
-									'bg-green-100 text-green-700': drawer.form.status === 'Resolved',
-									'bg-gray-100 text-gray-600': drawer.form.status === 'Rejected',
-								}"
+								:class="statusBadgeClass(drawer.form.status)"
 							>{{ drawer.form.status }}</span>
 						</div>
 						<button @click="closeDrawer" class="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-lg transition-colors shrink-0">
@@ -475,6 +470,45 @@
 							</div>
 						</div>
 
+						<!-- Approved compensation coupons — any agent can read these out and apply at checkout -->
+						<div v-if="drawer.compensationCoupons.length" class="mx-5 mt-4 space-y-2">
+							<p class="text-[10px] font-bold text-emerald-700 uppercase">{{ __("Available Compensation Coupon(s)") }}</p>
+							<div
+								v-for="cc in drawer.compensationCoupons"
+								:key="cc.name"
+								class="flex items-center justify-between gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl"
+							>
+								<div class="min-w-0">
+									<p class="text-sm font-bold text-emerald-800 tracking-wide">{{ cc.coupon_code }}</p>
+									<p class="text-[10px] text-emerald-600">
+										{{ cc.discount_type === 'Percentage' ? `${cc.discount_percentage}%` : formatCurrency(cc.discount_amount) }}
+										<span v-if="cc.valid_upto"> · {{ __("Expires") }} {{ formatDate(cc.valid_upto) }}</span>
+										<span v-if="cc.complaint_number"> · {{ cc.complaint_number }}</span>
+									</p>
+								</div>
+								<button
+									@click="copyCode(cc.coupon_code)"
+									class="px-2.5 h-7 text-[10px] font-bold text-emerald-700 bg-white border border-emerald-300 rounded-lg hover:bg-emerald-100 transition-colors shrink-0"
+								>{{ __("Copy Code") }}</button>
+							</div>
+						</div>
+
+						<!-- Linked Order -->
+						<div v-if="drawer.data?.custom_order_reference" class="mx-5 mt-4">
+							<p class="text-[10px] font-bold text-gray-500 uppercase mb-1.5">{{ __("Linked Order") }}</p>
+							<div class="bg-indigo-50 border border-indigo-100 rounded-lg p-3 text-[11px] text-gray-700 grid grid-cols-2 gap-x-3 gap-y-1.5">
+								<span>{{ __("Order Number") }}: <b>{{ drawer.data.custom_order_reference }}</b></span>
+								<span>{{ __("Customer") }}: <b>{{ drawer.data.order_context?.customer || drawer.data.customer_name || "—" }}</b></span>
+								<span>{{ __("Branch") }}: <b>{{ drawer.data.order_context?.branch || "—" }}</b></span>
+								<span>{{ __("Order Status") }}: <b>{{ drawer.data.order_context?.order_status || "—" }}</b></span>
+								<span>{{ __("Order Date & Time") }}: <b>{{ formatDateTime(drawer.data.order_context?.order_datetime) || "—" }}</b></span>
+								<span>{{ __("Delivery Type") }}: <b>{{ drawer.data.order_context?.delivery_type || "—" }}</b></span>
+								<span>{{ __("Business Day") }}: <b>{{ drawer.data.custom_pos_business_day || "—" }}</b></span>
+								<span>{{ __("Cashier Shift") }}: <b>{{ drawer.data.custom_pos_cashier_shift || "—" }}</b></span>
+								<span>{{ __("Assigned Delivery") }}: <b>{{ drawer.data.custom_assigned_delivery || "—" }}</b></span>
+							</div>
+						</div>
+
 						<!-- Original complaint text -->
 						<div class="mx-5 mt-4">
 							<p class="text-[10px] font-bold text-gray-500 uppercase mb-1.5">{{ __("Complaint Details") }}</p>
@@ -488,7 +522,7 @@
 								<label class="block text-[10px] font-bold text-gray-500 uppercase mb-2">{{ __("Status") }}</label>
 								<div class="flex flex-wrap gap-2">
 									<button
-										v-for="s in ['Open','In Progress','Resolved','Rejected']"
+										v-for="s in COMPLAINT_STATUSES"
 										:key="s"
 										@click="drawer.form.status = s"
 										:class="drawer.form.status === s ? statusActiveClass(s) : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
@@ -685,17 +719,17 @@
 					<div class="px-5 py-4 border-t border-gray-100 flex-shrink-0 flex items-center justify-between gap-3">
 						<div class="flex gap-2">
 							<button
-								v-if="drawer.form.status !== 'Resolved'"
-								@click="quickAction('Resolved')"
+								v-if="drawer.form.status !== 'Closed'"
+								@click="quickAction('Closed')"
 								:disabled="drawer.saving"
 								class="px-3 h-8 text-xs font-bold bg-green-100 text-green-700 hover:bg-green-200 rounded-lg transition-all disabled:opacity-50"
-							>✓ {{ __("Mark Resolved") }}</button>
+							>✓ {{ __("Close Complaint") }}</button>
 							<button
-								v-if="drawer.form.status === 'Open'"
-								@click="quickAction('In Progress')"
+								v-if="drawer.form.status === 'New'"
+								@click="quickAction('Under Review')"
 								:disabled="drawer.saving"
 								class="px-3 h-8 text-xs font-bold bg-yellow-100 text-yellow-700 hover:bg-yellow-200 rounded-lg transition-all disabled:opacity-50"
-							>▶ {{ __("Start") }}</button>
+							>▶ {{ __("Start Review") }}</button>
 						</div>
 						<div class="flex gap-2">
 							<button @click="closeDrawer" class="px-4 h-9 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors">
@@ -765,7 +799,11 @@ const drawer = ref({
 	form: { status: "", assigned_to: "", type: "", response_by: "", resolution_notes: "" },
 	couponOpen: false,
 	coupon: { discount_type: "Percentage", discount_value: null, valid_upto: "", max_uses: 1, include_fees: false, fees_amount: null, generated: null, requested: false, issuing: false },
+	compensationCoupons: [],
 })
+
+// The full configurable complaint lifecycle
+const COMPLAINT_STATUSES = ["New", "Under Review", "Pending Approval", "Approved", "Rejected", "Coupon Issued", "Coupon Redeemed", "Closed"]
 
 // Dialog state
 const dialog = ref({
@@ -779,6 +817,9 @@ const dialog = ref({
 	branch: "",
 	responseBy: "",
 	details: "",
+	orderReference: "",
+	orderContext: null,
+	loadingOrder: false,
 })
 
 let customerSearchTimer = null
@@ -897,6 +938,27 @@ function openNewDialog() {
 		branch: "",
 		responseBy: "",
 		details: "",
+		orderReference: "",
+		orderContext: null,
+		loadingOrder: false,
+	}
+}
+
+async function loadOrderContext() {
+	if (!dialog.value.orderReference) return
+	dialog.value.loadingOrder = true
+	try {
+		const context = await call("ecs_posnext.api.customers.get_order_context_for_complaint", {
+			order_doctype: "Sales Invoice",
+			order_reference: dialog.value.orderReference,
+		})
+		dialog.value.orderContext = context
+		if (context.branch) dialog.value.branch = context.branch
+	} catch (err) {
+		showError(err.message || __("Order not found"))
+		dialog.value.orderContext = null
+	} finally {
+		dialog.value.loadingOrder = false
 	}
 }
 
@@ -942,6 +1004,8 @@ async function submitNewComplaint() {
 			complaint_type: dialog.value.type || null,
 			branch: dialog.value.branch || null,
 			response_by: responseBy,
+			order_doctype: dialog.value.orderContext ? "Sales Invoice" : null,
+			order_reference: dialog.value.orderContext ? dialog.value.orderReference : null,
 		})
 		if (result) {
 			complaints.value.unshift(result)
@@ -968,11 +1032,32 @@ async function changeStatus(complaint, newStatus) {
 	}
 }
 
+const STATUS_COLORS = {
+	"New": { badge: "bg-red-100 text-red-700", text: "text-red-600", active: "bg-red-500 text-white" },
+	"Under Review": { badge: "bg-yellow-100 text-yellow-700", text: "text-yellow-600", active: "bg-yellow-500 text-white" },
+	"Pending Approval": { badge: "bg-amber-100 text-amber-700", text: "text-amber-600", active: "bg-amber-500 text-white" },
+	"Approved": { badge: "bg-blue-100 text-blue-700", text: "text-blue-600", active: "bg-blue-500 text-white" },
+	"Rejected": { badge: "bg-gray-100 text-gray-600", text: "text-gray-500", active: "bg-gray-500 text-white" },
+	"Coupon Issued": { badge: "bg-purple-100 text-purple-700", text: "text-purple-600", active: "bg-purple-500 text-white" },
+	"Coupon Redeemed": { badge: "bg-teal-100 text-teal-700", text: "text-teal-600", active: "bg-teal-500 text-white" },
+	"Closed": { badge: "bg-green-100 text-green-700", text: "text-green-600", active: "bg-green-500 text-white" },
+}
+
+function statusBadgeClass(s) {
+	return (STATUS_COLORS[s] || STATUS_COLORS["Rejected"]).badge
+}
+
+function statusTextClass(s) {
+	return (STATUS_COLORS[s] || STATUS_COLORS["Rejected"]).text
+}
+
 function statusActiveClass(s) {
-	if (s === "Open") return "bg-red-500 text-white"
-	if (s === "In Progress") return "bg-yellow-500 text-white"
-	if (s === "Resolved") return "bg-green-500 text-white"
-	return "bg-gray-500 text-white"
+	return (STATUS_COLORS[s] || STATUS_COLORS["Rejected"]).active
+}
+
+function formatCurrency(value) {
+	if (!value) return ""
+	return Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
 async function openDetail(row) {
@@ -995,6 +1080,15 @@ async function openDetail(row) {
 		}
 		drawer.value.couponOpen = false
 		drawer.value.coupon = { discount_type: "Percentage", discount_value: null, valid_upto: "", max_uses: 1, include_fees: false, fees_amount: null, generated: null, issuing: false }
+		drawer.value.compensationCoupons = []
+		if (detail.customer) {
+			try {
+				const custDetail = await call("ecs_posnext.api.customers.get_customer_profile", {
+					customer: detail.customer,
+				})
+				drawer.value.compensationCoupons = custDetail?.compensation_coupons || []
+			} catch {}
+		}
 	} catch (err) {
 		showError(__("Failed to load complaint details"))
 		drawer.value.show = false

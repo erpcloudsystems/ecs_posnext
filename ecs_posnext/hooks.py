@@ -108,6 +108,11 @@ fixtures = [
 					"Sales Invoice Item-posa_row_id",
 					"Customer Complaint-custom_complaint_number",
 					"Customer Complaint-custom_response_by",
+					"Customer Complaint-custom_order_doctype",
+					"Customer Complaint-custom_order_reference",
+					"Customer Complaint-custom_pos_business_day",
+					"Customer Complaint-custom_pos_cashier_shift",
+					"Customer Complaint-custom_assigned_delivery",
 					"Driver-dispatch_current_status",
 					"Driver-dispatch_active_shift",
 					"Payment Entry-custom_dispatch_shift",
@@ -156,7 +161,7 @@ fixtures = [
     {
         "dt": "Role",
         "filters": [
-            ["role_name", "in", ["POSNext Cashier", "Kitchen", "POSNext Supervisor", "POSNext Branch Manager", "POSNext Operations Manager"]]
+            ["role_name", "in", ["POSNext Cashier", "Kitchen", "POSNext Supervisor", "POSNext Branch Manager", "POSNext Operations Manager", "CallCenterAgent", "Call center supervisor", "Call center manager", "Deputy Call Center Manager"]]
         ]
     },
     {
@@ -258,7 +263,8 @@ doc_events = {
 	"Sales Invoice": {
 		"validate": [
 			"ecs_posnext.api.sales_invoice_hooks.validate",
-			"ecs_posnext.api.wallet.validate_wallet_payment"
+			"ecs_posnext.api.wallet.validate_wallet_payment",
+			"ecs_posnext.api.business_day.guard_closed_business_day"
 		],
 		"before_cancel": [
 			"ecs_posnext.api.business_day.block_closed_period_invoice_cancel",
@@ -288,6 +294,21 @@ doc_events = {
 	"POS Opening Shift": {
 		"on_submit": "ecs_posnext.api.cashier_shift.sync_cashier_shift_on_opening",
 		"on_cancel": "ecs_posnext.api.cashier_shift.void_cashier_shift_on_opening_cancel"
+	},
+	# Closings may only be printed within their own business day (blocked afterwards).
+	"POS Cashier Shift Closing": {
+		"before_print": "ecs_posnext.api.closing_print_guard.before_print_closing"
+	},
+	"POS Business Day": {
+		# Editing a CLOSED business day is blocked for branch roles (close transition allowed).
+		"validate": "ecs_posnext.api.business_day.guard_closed_business_day",
+		"before_print": "ecs_posnext.api.closing_print_guard.before_print_closing"
+	},
+	# On a closed business day, branch roles may CREATE Payment Entries (late COD) but may
+	# not edit or cancel existing ones.
+	"Payment Entry": {
+		"validate": "ecs_posnext.api.business_day.guard_closed_business_day",
+		"before_cancel": "ecs_posnext.api.business_day.guard_closed_business_day"
 	}
 }
 

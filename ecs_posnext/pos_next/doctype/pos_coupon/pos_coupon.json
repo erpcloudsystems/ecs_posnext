@@ -35,6 +35,7 @@
   "valid_upto",
   "maximum_use",
   "used",
+  "last_used_on",
   "one_use",
   "column_break_11",
   "description"
@@ -216,6 +217,13 @@
    "fieldtype": "Int",
    "in_list_view": 1,
    "label": "Used",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_used_on",
+   "fieldtype": "Datetime",
+   "label": "Last Redeemed On",
    "no_copy": 1,
    "read_only": 1
   },

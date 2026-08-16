@@ -48,7 +48,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Action",
-   "options": "Opening Shift\nClosing Shift\nEdit Actual Cash\nShortage\nOverage\nManager Approval\nBusiness Day Closing\nOverride\nReopening Business Day\nReturn",
+   "options": "Opening Shift\nClosing Shift\nEdit Actual Cash\nShortage\nOverage\nManager Approval\nBusiness Day Closing\nOverride\nReopening Business Day\nReturn\nComplaint Created\nComplaint Status Change\nCoupon Request\nCoupon Approval\nCoupon Rejection\nCoupon Redemption",
    "read_only": 1
   },
   {

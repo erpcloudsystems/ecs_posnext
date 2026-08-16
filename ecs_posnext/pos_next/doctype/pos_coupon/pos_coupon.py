@@ -163,12 +163,37 @@ def increment_coupon_usage(coupon_code):
         coupon = frappe.get_doc("POS Coupon", {"coupon_code": coupon_code.upper()})
         coupon.used = (coupon.used or 0) + 1
         coupon.db_set('used', coupon.used)
+        coupon.db_set('last_used_on', frappe.utils.now())
         frappe.db.commit()
+        _mark_complaint_coupon_redeemed(coupon.name)
     except Exception as e:
         frappe.log_error(
             title="Coupon Usage Increment Failed",
             message=f"Failed to increment usage for coupon {coupon_code}: {str(e)}"
         )
+
+
+def _mark_complaint_coupon_redeemed(pos_coupon_name):
+    """If this coupon was minted as complaint compensation, flip the linked
+    Customer Complaint to 'Coupon Redeemed' and write an audit log entry."""
+    try:
+        ccr_name = frappe.db.get_value("Compensation Coupon Request", {"pos_coupon": pos_coupon_name}, "name")
+        if not ccr_name:
+            return
+
+        complaint = frappe.db.get_value("Compensation Coupon Request", ccr_name, "complaint")
+        if complaint and frappe.db.exists("Customer Complaint", complaint):
+            frappe.db.set_value("Customer Complaint", complaint, "status", "Coupon Redeemed")
+
+        from ecs_posnext.api.business_day import log_pos_event
+        log_pos_event(
+            action="Coupon Redemption",
+            reference_doctype="POS Coupon",
+            reference_name=pos_coupon_name,
+            reason=f"Compensation coupon redeemed at checkout (complaint {complaint or '-'})",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "Complaint Coupon Redemption Tracking Failed")
 
 
 def decrement_coupon_usage(coupon_code):

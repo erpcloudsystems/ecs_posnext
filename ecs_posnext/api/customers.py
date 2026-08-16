@@ -544,6 +544,27 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
     except Exception:
         pass
 
+    # Approved, unused compensation coupons — surfaced as a "customer notification"
+    # so any Call Center Agent can read the code out and apply it at checkout.
+    compensation_coupons = []
+    try:
+        if frappe.db.exists("DocType", "POS Coupon"):
+            compensation_coupons = frappe.db.sql(
+                """
+                SELECT
+                    pc.name, pc.coupon_code, pc.discount_type, pc.discount_percentage,
+                    pc.discount_amount, pc.valid_upto, ccr.complaint_number
+                FROM `tabPOS Coupon` pc
+                INNER JOIN `tabCompensation Coupon Request` ccr ON ccr.pos_coupon = pc.name
+                WHERE pc.customer = %s AND pc.used = 0 AND pc.disabled = 0
+                ORDER BY pc.valid_upto ASC
+                """,
+                (customer,),
+                as_dict=True,
+            )
+    except Exception:
+        pass
+
     return {
         "customer_name": cust.customer_name,
         "customer_type": customer_type,
@@ -561,6 +582,7 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
         "coupons": coupons,
         "coupons_total": coupons_total,
         "coupons_unused": coupons_unused,
+        "compensation_coupons": compensation_coupons,
         "mobile_no": cust.get("mobile_no") or "",
         "loyalty_program": cust.get("loyalty_program") or "",
     }
@@ -637,6 +659,7 @@ def get_customer_complaints(customer, limit=20):
             "type",
             "custom_response_by",
             "creation",
+            "custom_order_reference",
         ],
         order_by="creation desc",
         limit=frappe.utils.cint(limit),
@@ -644,7 +667,59 @@ def get_customer_complaints(customer, limit=20):
 
 
 @frappe.whitelist()
-def create_customer_complaint(customer, complaint_details, complaint_type=None, branch=None, response_by=None):
+def get_order_context_for_complaint(order_doctype, order_reference):
+    """Resolve order/branch/business-day/cashier-shift/delivery context for a
+    complaint being filed against a specific order (Sales Invoice/Sales Order).
+    """
+    if not order_doctype or not order_reference:
+        frappe.throw(_("Order doctype and reference are required"))
+    if order_doctype not in ("Sales Invoice", "Sales Order"):
+        frappe.throw(_("Invalid order doctype"))
+    if not frappe.db.exists(order_doctype, order_reference):
+        frappe.throw(_("{0} {1} not found").format(order_doctype, order_reference))
+
+    order = frappe.db.get_value(
+        order_doctype, order_reference,
+        [
+            "name", "customer", "branch", "status", "docstatus",
+            "posting_date", "posting_time", "custom_order_type",
+            "custom_pos_business_day", "custom_pos_cashier_shift",
+        ],
+        as_dict=True,
+    )
+
+    # An order can go through several Delivery Assignments (reassignment after
+    # a failed/returned delivery) — only the latest one is relevant here.
+    delivery_assignment = frappe.db.get_value(
+        "Delivery Assignment",
+        {"order_doctype": order_doctype, "order_reference": order_reference},
+        ["name", "status"],
+        as_dict=True,
+        order_by="creation desc",
+    )
+
+    # "Delivery Type" reflects the delivery's live status (Assigned/Picked Up/
+    # Out for Delivery/Delivered/Returned/Failed) from its Delivery Assignment.
+    # Orders with no assignment (e.g. Pickup/Dine-in) fall back to the order's
+    # own channel (custom_order_type).
+    delivery_type = (delivery_assignment.get("status") if delivery_assignment else None) or order.custom_order_type or ""
+
+    return {
+        "order_number": order.name,
+        "customer": order.customer,
+        "branch": order.branch or "",
+        "order_status": order.status,
+        "order_datetime": f"{order.posting_date} {order.posting_time}" if order.posting_date else None,
+        "delivery_type": delivery_type,
+        "pos_business_day": order.custom_pos_business_day or "",
+        "pos_cashier_shift": order.custom_pos_cashier_shift or "",
+        "assigned_delivery": delivery_assignment.get("name") if delivery_assignment else "",
+    }
+
+
+@frappe.whitelist()
+def create_customer_complaint(customer, complaint_details, complaint_type=None, branch=None, response_by=None,
+                              order_doctype=None, order_reference=None):
     """Create a new Customer Complaint and assign a sequential complaint number."""
     if not customer or not complaint_details:
         frappe.throw(_("Customer and complaint details are required"))
@@ -657,6 +732,11 @@ def create_customer_complaint(customer, complaint_details, complaint_type=None, 
     count = frappe.db.count("Customer Complaint")
     complaint_number = "CC-{:05d}".format(count + 1)
 
+    order_context = {}
+    if order_doctype and order_reference:
+        order_context = get_order_context_for_complaint(order_doctype, order_reference)
+        branch = branch or order_context.get("branch")
+
     doc = frappe.get_doc({
         "doctype": "Customer Complaint",
         "customer": customer,
@@ -665,12 +745,27 @@ def create_customer_complaint(customer, complaint_details, complaint_type=None, 
         "complaint_details": complaint_details,
         "type": complaint_type or None,
         "branch": branch or None,
-        "status": "Open",
+        "status": "New",
+        "complaint_date": frappe.utils.now_datetime(),
         "custom_complaint_number": complaint_number,
         "custom_response_by": response_by or None,
+        "custom_order_doctype": order_doctype or None,
+        "custom_order_reference": order_reference or None,
+        "custom_pos_business_day": order_context.get("pos_business_day") or None,
+        "custom_pos_cashier_shift": order_context.get("pos_cashier_shift") or None,
+        "custom_assigned_delivery": order_context.get("assigned_delivery") or None,
     })
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
+
+    from ecs_posnext.api.business_day import log_pos_event
+    log_pos_event(
+        action="Complaint Created",
+        reference_doctype="Customer Complaint",
+        reference_name=doc.name,
+        new_value="New",
+        reason=f"Complaint {complaint_number} filed for customer {customer}",
+    )
 
     return {
         "name": doc.name,
@@ -683,25 +778,59 @@ def create_customer_complaint(customer, complaint_details, complaint_type=None, 
         "complaint_details": doc.complaint_details,
         "type": doc.type,
         "custom_response_by": str(doc.custom_response_by) if doc.custom_response_by else None,
+        "custom_order_doctype": doc.custom_order_doctype,
+        "custom_order_reference": doc.custom_order_reference,
+        "custom_pos_business_day": doc.custom_pos_business_day,
+        "custom_pos_cashier_shift": doc.custom_pos_cashier_shift,
+        "custom_assigned_delivery": doc.custom_assigned_delivery,
     }
+
+
+COMPLAINT_STATUSES = [
+    "New", "Under Review", "Pending Approval", "Approved", "Rejected",
+    "Coupon Issued", "Coupon Redeemed", "Closed",
+]
 
 
 @frappe.whitelist()
 def update_complaint_status(complaint_name, status):
     """Update the status of a complaint."""
-    valid_statuses = ["Open", "In Progress", "Resolved", "Rejected"]
-    if status not in valid_statuses:
+    if status not in COMPLAINT_STATUSES:
         frappe.throw(_("Invalid status"))
 
+    old_status = frappe.db.get_value("Customer Complaint", complaint_name, "status")
     frappe.db.set_value("Customer Complaint", complaint_name, "status", status)
     frappe.db.commit()
+
+    from ecs_posnext.api.business_day import log_pos_event
+    log_pos_event(
+        action="Complaint Status Change",
+        reference_doctype="Customer Complaint",
+        reference_name=complaint_name,
+        old_value=old_status,
+        new_value=status,
+    )
     return {"status": status}
 
 
 @frappe.whitelist()
 def get_complaint_detail(complaint_name):
-    """Return full complaint document for the detail drawer."""
+    """Return full complaint document for the detail drawer, including the
+    linked order's context (Order Number, Branch, Business Day, Cashier Shift,
+    Customer, Order Date & Time, Order Status, Delivery Type, Assigned Delivery)
+    when the complaint was filed against a specific order.
+    """
     doc = frappe.get_doc("Customer Complaint", complaint_name)
+
+    order_context = None
+    if doc.get("custom_order_doctype") and doc.get("custom_order_reference"):
+        try:
+            order_context = get_order_context_for_complaint(
+                doc.custom_order_doctype, doc.custom_order_reference
+            )
+        except Exception:
+            order_context = None
+
     return {
         "name": doc.name,
         "custom_complaint_number": doc.get("custom_complaint_number") or "",
@@ -718,6 +847,12 @@ def get_complaint_detail(complaint_name):
         "creation": str(doc.creation),
         "modified": str(doc.modified),
         "owner": doc.owner,
+        "custom_order_doctype": doc.get("custom_order_doctype") or "",
+        "custom_order_reference": doc.get("custom_order_reference") or "",
+        "custom_pos_business_day": doc.get("custom_pos_business_day") or "",
+        "custom_pos_cashier_shift": doc.get("custom_pos_cashier_shift") or "",
+        "custom_assigned_delivery": doc.get("custom_assigned_delivery") or "",
+        "order_context": order_context,
     }
 
 
@@ -727,10 +862,10 @@ def update_complaint(complaint_name, status=None, assigned_to=None,
     """Update editable fields on a Customer Complaint."""
     doc = frappe.get_doc("Customer Complaint", complaint_name)
     changed = False
+    old_status = doc.status
 
     if status and status != doc.status:
-        valid = ["Open", "In Progress", "Resolved", "Rejected"]
-        if status not in valid:
+        if status not in COMPLAINT_STATUSES:
             frappe.throw(_("Invalid status"))
         doc.status = status
         changed = True
@@ -754,6 +889,16 @@ def update_complaint(complaint_name, status=None, assigned_to=None,
     if changed:
         doc.save(ignore_permissions=True)
         frappe.db.commit()
+
+        if doc.status != old_status:
+            from ecs_posnext.api.business_day import log_pos_event
+            log_pos_event(
+                action="Complaint Status Change",
+                reference_doctype="Customer Complaint",
+                reference_name=doc.name,
+                old_value=old_status,
+                new_value=doc.status,
+            )
 
     return {
         "name": doc.name,
@@ -1104,7 +1249,20 @@ def request_complaint_coupon(customer, discount_type, discount_value,
         "status": "Pending",
         "requested_by": frappe.session.user,
     }).insert(ignore_permissions=True)
+
+    if complaint_name and frappe.db.exists("Customer Complaint", complaint_name):
+        frappe.db.set_value("Customer Complaint", complaint_name, "status", "Pending Approval")
+
     frappe.db.commit()
+
+    from ecs_posnext.api.business_day import log_pos_event
+    log_pos_event(
+        action="Coupon Request",
+        reference_doctype="Compensation Coupon Request",
+        reference_name=doc.name,
+        new_value="Pending",
+        reason=f"Compensation coupon requested for customer {customer}" + (f" (complaint {complaint_number})" if complaint_number else ""),
+    )
 
     _publish_coupon_request_changed("create", doc.branch)
     return {"name": doc.name, "status": "Pending"}
@@ -1134,6 +1292,32 @@ def get_pending_coupon_requests():
     )
 
 
+def _notify_coupon_request_decision(doc, decision, extra_message=None):
+    """Notify the requesting agent that their coupon request was approved/rejected."""
+    if not doc.requested_by:
+        return
+    subject = _("Your compensation coupon request was {0}").format(decision)
+    message = _("Coupon request {0} for customer {1} was {2} by {3}.").format(
+        doc.name, doc.customer_name or doc.customer, decision.lower(), frappe.session.user
+    )
+    if extra_message:
+        message = f"{message} {extra_message}"
+    try:
+        notification = frappe.new_doc("Notification Log")
+        notification.update({
+            "subject": subject,
+            "email_content": message,
+            "for_user": doc.requested_by,
+            "type": "Alert",
+            "document_type": "Compensation Coupon Request",
+            "document_name": doc.name,
+        })
+        notification.flags.ignore_permissions = True
+        notification.insert(ignore_permissions=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "Coupon request decision notification failed")
+
+
 @frappe.whitelist()
 def approve_coupon_request(name):
     """Approve a request — mint the POS Coupon and mark the request Approved."""
@@ -1159,8 +1343,23 @@ def approve_coupon_request(name):
     doc.coupon_code = result.get("coupon_code")
     doc.pos_coupon = result.get("name")
     doc.save(ignore_permissions=True)
+
+    if doc.complaint and frappe.db.exists("Customer Complaint", doc.complaint):
+        frappe.db.set_value("Customer Complaint", doc.complaint, "status", "Coupon Issued")
+
     frappe.db.commit()
 
+    from ecs_posnext.api.business_day import log_pos_event
+    log_pos_event(
+        action="Coupon Approval",
+        reference_doctype="Compensation Coupon Request",
+        reference_name=doc.name,
+        old_value="Pending",
+        new_value="Approved",
+        reason=f"Coupon {result.get('coupon_code')} minted for customer {doc.customer}",
+    )
+
+    _notify_coupon_request_decision(doc, "Approved", extra_message=_("Coupon code: {0}").format(result.get("coupon_code")))
     _publish_coupon_request_changed("approve", doc.branch)
     return {"status": "Approved", "coupon_code": result.get("coupon_code")}
 
@@ -1175,7 +1374,21 @@ def reject_coupon_request(name):
     doc.status = "Rejected"
     doc.approved_by = frappe.session.user
     doc.save(ignore_permissions=True)
+
+    if doc.complaint and frappe.db.exists("Customer Complaint", doc.complaint):
+        frappe.db.set_value("Customer Complaint", doc.complaint, "status", "Under Review")
+
     frappe.db.commit()
 
+    from ecs_posnext.api.business_day import log_pos_event
+    log_pos_event(
+        action="Coupon Rejection",
+        reference_doctype="Compensation Coupon Request",
+        reference_name=doc.name,
+        old_value="Pending",
+        new_value="Rejected",
+    )
+
+    _notify_coupon_request_decision(doc, "Rejected")
     _publish_coupon_request_changed("reject", doc.branch)
     return {"status": "Rejected"}
