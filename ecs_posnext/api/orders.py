@@ -19,19 +19,29 @@ from ecs_posnext.api.constants import THIRD_PARTY_ITEM_TYPES
 
 
 @frappe.whitelist()
-def get_third_party_sales_orders(company=None, search_term=None, start=0, page_length=20):
+def get_third_party_sales_orders(
+	company=None, search_term=None, last_modified=None, last_name=None, page_length=20
+):
 	"""List Sales Orders that include a third-party billed item.
 
 	Args:
 		company: Optional company filter.
 		search_term: Optional search on order name or customer name.
-		start: Pagination offset.
+		last_modified: Cursor - `modified` of the last row from the previous page.
+		last_name: Cursor - `name` of the last row from the previous page (tie-breaker).
 		page_length: Page size.
 
 	Returns:
 		List of dicts with the same shape as the previous frappe.client.get_list
 		call (name, customer, customer_name, customer_mobile, transaction_date,
-		grand_total, status, docstatus), ordered by most recently modified.
+		grand_total, status, docstatus, modified), ordered by most recently modified.
+
+	Uses keyset pagination on (modified, name) instead of OFFSET: `modified` is
+	mutable (e.g. it's bumped when a linked Sales Invoice is submitted and updates
+	the order's billing status), so an OFFSET page can drift once earlier rows are
+	resaved between requests, silently skipping records on the next "Load More".
+	Keyset pagination always fetches rows strictly after the last one the caller
+	already has, so it can't skip records regardless of concurrent writes.
 	"""
 	so = frappe.qb.DocType("Sales Order")
 	soi = frappe.qb.DocType("Sales Order Item")
@@ -52,11 +62,12 @@ def get_third_party_sales_orders(company=None, search_term=None, start=0, page_l
 			so.grand_total,
 			so.status,
 			so.docstatus,
+			so.modified,
 		)
 		.where(item.custom_item_type.isin(THIRD_PARTY_ITEM_TYPES))
 		.groupby(so.name)
 		.orderby(so.modified, order=Order.desc)
-		.offset(cint(start))
+		.orderby(so.name, order=Order.desc)
 		.limit(cint(page_length))
 	)
 
@@ -66,5 +77,11 @@ def get_third_party_sales_orders(company=None, search_term=None, start=0, page_l
 	if search_term:
 		term = f"%{cstr(search_term)}%"
 		query = query.where((so.name.like(term)) | (so.customer_name.like(term)))
+
+	if last_modified and last_name:
+		query = query.where(
+			(so.modified < last_modified)
+			| ((so.modified == last_modified) & (so.name < last_name))
+		)
 
 	return query.run(as_dict=True)

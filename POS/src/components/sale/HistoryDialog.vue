@@ -313,7 +313,10 @@ const invoicesResource = createResource({
 // Orders tab state
 // ============================================================================
 const orders = ref([])
-const orderPage = ref(0)
+// Keyset cursor (last row's modified/name) instead of an offset: `modified` shifts
+// whenever an order is resaved (e.g. invoice settlement), so offset-based paging
+// can drift and silently skip records on "Load More". A cursor can't skip rows.
+const orderCursor = ref(null)
 const orderHasMore = ref(true)
 const isLoadingMoreOrders = ref(false)
 
@@ -323,7 +326,8 @@ const ordersResource = createResource({
 		return {
 			company: props.company || undefined,
 			search_term: searchTerm.value || undefined,
-			start: orderPage.value * pageSize,
+			last_modified: orderCursor.value?.modified || undefined,
+			last_name: orderCursor.value?.name || undefined,
 			page_length: pageSize,
 		}
 	},
@@ -333,6 +337,10 @@ const ordersResource = createResource({
 			const newOrders = data.map((order) => ({ ...order, doctype: "Sales Order" }))
 			orders.value = isLoadingMoreOrders.value ? [...orders.value, ...newOrders] : newOrders
 			orderHasMore.value = data.length === pageSize
+			if (data.length) {
+				const last = data[data.length - 1]
+				orderCursor.value = { modified: last.modified, name: last.name }
+			}
 			isLoadingMoreOrders.value = false
 		}
 	},
@@ -368,7 +376,7 @@ function loadInvoices() {
 }
 
 function loadOrders() {
-	orderPage.value = 0
+	orderCursor.value = null
 	isLoadingMoreOrders.value = false
 	ordersResource.reload()
 }
@@ -384,7 +392,6 @@ function loadMore() {
 		isLoadingMoreInvoices.value = true
 		invoicesResource.reload()
 	} else {
-		orderPage.value++
 		isLoadingMoreOrders.value = true
 		ordersResource.reload()
 	}

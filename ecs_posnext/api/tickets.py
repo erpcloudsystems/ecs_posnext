@@ -135,6 +135,9 @@ def give_free_wristband(
         frappe.throw(_("POS Profile is required"))
 
     ticket = frappe.get_doc("Ticket", ticket_name)
+    if ticket.get("is_frozen"):
+        reason = ticket.get("frozen_reason")
+        frappe.throw(_("This ticket is frozen") + (f": {reason}" if reason else ""))
     if cint(ticket.remaining_free_wristband) <= 0:
         frappe.throw(_("This ticket has no remaining free wristband"))
 
@@ -270,6 +273,10 @@ def renew_ticket(
         frappe.throw(_("POS Profile is required"))
 
     ticket = frappe.get_doc("Ticket", ticket_name)
+    if ticket.get("is_frozen"):
+        reason = ticket.get("frozen_reason")
+        frappe.throw(_("This ticket is frozen and cannot be renewed") + (f": {reason}" if reason else ""))
+
     pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
 
     # 1) Paid renewal invoice. Bill the ticket's OWN item so the sale reports
