@@ -408,6 +408,9 @@
 										<button @click="orderCollect(a)" :disabled="statusLoading" class="flex-1 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded-lg text-xs font-bold transition-colors active:scale-95 disabled:opacity-50">
 											💰 {{ __('Collect & Deliver') }}
 										</button>
+										<button @click="orderReturnToUnassigned(a)" :disabled="statusLoading" :title="__('Driver problem — send back for reassignment')" class="py-1.5 px-2.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs transition-colors disabled:opacity-50">
+											↩ {{ __('Return to Unassigned') }}
+										</button>
 										<button @click="orderFailed(a)" :disabled="statusLoading" class="py-1.5 px-2.5 bg-red-800 hover:bg-red-700 text-red-200 rounded-lg text-xs font-bold transition-colors disabled:opacity-50">
 											❌ {{ __('Failed') }}
 										</button>
@@ -541,6 +544,29 @@
 			</div>
 		</div>
 
+		<!-- Return to Unassigned modal (driver reassignment, not a failed delivery or order return) -->
+		<div v-if="returnToUnassignedModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+			<div class="bg-gray-800 rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 text-white">
+				<h3 class="text-xl font-bold mb-1 text-amber-400">↩ {{ __('Return to Unassigned') }}</h3>
+				<p class="text-gray-400 text-sm mb-4">{{ returnToUnassignedModal.driver_name }} — {{ returnToUnassignedModal.assignment.order_reference || returnToUnassignedModal.assignment.custom_number_order }}</p>
+				<div class="mb-4">
+					<label class="block text-xs text-gray-400 mb-1 uppercase tracking-wider">{{ __('Reason (optional)') }}</label>
+					<textarea v-model="returnToUnassignedReason" rows="3"
+						class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
+						:placeholder="__('e.g. driver unavailable, vehicle issue…')" />
+				</div>
+				<div v-if="returnToUnassignedError" class="mb-4 p-3 bg-red-900/50 text-red-300 text-sm rounded-lg border border-red-700">{{ returnToUnassignedError }}</div>
+				<p class="text-xs text-amber-400 mb-4">{{ __('The order will go back to Unassigned for reassignment to another driver. Use this only for driver issues — not a failed delivery or a problem with the order itself.') }}</p>
+				<div class="flex gap-3">
+					<button @click="returnToUnassignedModal = null; returnToUnassignedReason = ''; returnToUnassignedError = null" class="flex-1 py-2.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm transition-colors">{{ __('Cancel') }}</button>
+					<button @click="confirmReturnToUnassigned" :disabled="statusLoading"
+						class="flex-1 py-2.5 bg-amber-700 hover:bg-amber-600 text-white rounded-lg text-sm font-bold disabled:opacity-50 transition-colors active:scale-95">
+						{{ statusLoading ? __('Saving…') : __('Return to Unassigned') }}
+					</button>
+				</div>
+			</div>
+		</div>
+
 		<!-- Return Request modal -->
 		<div v-if="returnRequestModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
 			<div class="bg-gray-800 rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 text-white">
@@ -628,6 +654,9 @@ const posProfiles = ref([])
 const deliveryFailedModal = ref(null)
 const deliveryFailedReason = ref("")
 const deliveryFailedError = ref(null)
+const returnToUnassignedModal = ref(null)
+const returnToUnassignedReason = ref("")
+const returnToUnassignedError = ref(null)
 const returnRequestModal = ref(null)
 const returnRequestReason = ref("")
 const returnRequestError = ref(null)
@@ -835,6 +864,33 @@ function orderFailed(a) {
 	deliveryFailedModal.value = { driver_name: a.driver_name, assignments: [a] }
 	deliveryFailedReason.value = ""
 	deliveryFailedError.value = null
+}
+
+// "Return to Unassigned" — driver problem (not a failed delivery, not an order return):
+// release the order from the current driver so it can be reassigned to another one.
+function orderReturnToUnassigned(a) {
+	returnToUnassignedModal.value = { driver_name: a.driver_name, assignment: a }
+	returnToUnassignedReason.value = ""
+	returnToUnassignedError.value = null
+}
+
+async function confirmReturnToUnassigned() {
+	statusLoading.value = true
+	returnToUnassignedError.value = null
+	try {
+		await call("ecs_posnext.ecs_posnext.api.dispatcher.return_to_unassigned", {
+			assignment: returnToUnassignedModal.value.assignment.name,
+			reason: returnToUnassignedReason.value.trim(),
+		})
+		showSuccess(__("Order returned to Unassigned"))
+		returnToUnassignedModal.value = null
+		returnToUnassignedReason.value = ""
+		await Promise.all([loadOrders(), loadDrivers(), loadActiveAssignments()])
+	} catch (e) {
+		returnToUnassignedError.value = errMsg(e)
+	} finally {
+		statusLoading.value = false
+	}
 }
 
 // ── Talabat handover — hand to the platform's own driver ────────────────────

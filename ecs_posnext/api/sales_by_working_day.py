@@ -280,6 +280,7 @@ def get_sales_by_working_day(filters=None):
         payments, params, branches, pos_profiles, cashiers, mops,
         extra_actual=_outside_snapshot_actuals(join_so, cond, cond_order, pe_window_cond, mops, params),
     )
+    _attach_change_amounts(payments, join_so, cond, cond_order, mops, params)
 
     invoices_items = frappe.db.sql(
         f"""
@@ -583,6 +584,7 @@ def get_sales_by_date_range(filters=None):
         payments, params, branches, pos_profiles, cashiers, mops,
         extra_actual=_outside_snapshot_actuals(join_so, cond, cond_order, pe_window_cond, mops, params),
     )
+    _attach_change_amounts(payments, join_so, cond, cond_order, mops, params)
 
     invoices_items = frappe.db.sql(
         f"""
@@ -728,6 +730,37 @@ def _attach_actual_payments(payments, params, branches, pos_profiles, cashiers, 
         amount = (flt(a["actual"]) if a else 0) + flt(extra_actual.get(mode, 0))
         if amount:
             payments.append({"mode_of_payment": mode, "amount": 0, "actual": amount})
+
+
+def _attach_change_amounts(payments, join_so, cond, cond_order, mops, params):
+    """Attach `change` (cash change handed back to customers) onto each cash-mode row.
+
+    `amount` above is the raw tendered `Sales Invoice Payment.amount` — it does not
+    net out change, unlike the Business Day Closing Report's Expected (which nets it
+    via `compute_cash_figures`). Surfacing `change` alongside `amount` lets the two
+    reports be reconciled instead of just looking mismatched.
+    """
+    rows = frappe.db.sql(
+        f"""
+        SELECT sip.mode_of_payment, SUM(si.change_amount) AS change_amount
+        FROM `tabSales Invoice` si
+        JOIN `tabSales Invoice Payment` sip ON sip.parent = si.name
+        JOIN `tabMode of Payment` mop ON mop.name = sip.mode_of_payment
+        {join_so}
+        WHERE {cond}
+        {cond_order}
+        AND mop.type = 'Cash'
+        AND IFNULL(si.change_amount, 0) != 0
+        {("AND sip.mode_of_payment in %(mops)s" if mops else "")}
+        GROUP BY sip.mode_of_payment
+        """,
+        params,
+        as_dict=True,
+    )
+    change_map = {r.mode_of_payment: flt(r.change_amount) for r in rows}
+    for row in payments:
+        row["change"] = change_map.get(row["mode_of_payment"], 0)
+        row["net_amount"] = flt(row["amount"]) - row["change"]
 
 
 def _attach_invoice_modes(detail):

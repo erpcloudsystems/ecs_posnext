@@ -351,9 +351,14 @@ export const usePOSCartStore = defineStore("posCart", () => {
 
 		// Populate items
 		for (const item of invoice.items || []) {
+			// Unique per original invoice row so rows sharing the same item_code
+			// (e.g. same item sold at two different rates) are never merged or
+			// mismatched when we look the cart line back up below.
+			const rowId = item.name || `resume-${item.item_code}-${item.idx}`
 			const itemDetails = await getCachedItem(item.item_code)
 			if (itemDetails) {
 				const detailsToUse = { ...itemDetails }
+				detailsToUse.posa_row_id = rowId
 				if (item.uom) detailsToUse.uom = item.uom
 				if (item.warehouse) detailsToUse.warehouse = item.warehouse
 				if (item.rate !== undefined) detailsToUse.rate = item.rate
@@ -382,9 +387,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 				addItemToInvoice(detailsToUse, item.qty)
 
 				const cartItem = invoiceItems.value.find(
-					(i) =>
-						i.item_code === item.item_code &&
-						i.uom === (item.uom || detailsToUse.uom),
+					(i) => i.posa_row_id === rowId,
 				)
 				if (cartItem && item.rate !== undefined) {
 					cartItem.rate = item.rate
@@ -403,6 +406,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 					uom: item.uom,
 					stock_uom: item.uom,
 					warehouse: item.warehouse,
+					posa_row_id: rowId,
 				}
 				addItemToInvoice(fallbackItem, item.qty)
 			}

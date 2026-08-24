@@ -724,6 +724,30 @@ def mark_delivery_failed(assignment, reason=""):
 
 
 @frappe.whitelist()
+def return_to_unassigned(assignment, reason=""):
+	"""
+	Send an order back to Unassigned so it can be reassigned to a different driver.
+
+	This is distinct from:
+	- mark_delivery_failed: the delivery attempt itself actually failed.
+	- Delivery Return Request: a problem with the order requiring a normal return.
+
+	Use this when the assigned driver has a problem (unavailable, vehicle issue, etc.)
+	and the order itself is still fine to deliver — it just needs a different driver.
+	Cancels the current Delivery Assignment so the order reappears on the unassigned
+	board with no live assignment against it.
+	"""
+	doc = frappe.get_doc("Delivery Assignment", assignment)
+	if doc.status in ("Delivered", "Returned", "Failed"):
+		frappe.throw(_("Assignment {0} is already in a terminal state.").format(assignment))
+	doc.delivery_notes = reason or doc.delivery_notes
+	doc.save(ignore_permissions=True)
+	doc.cancel(ignore_permissions=True)
+	frappe.publish_realtime("dispatch_desk_refresh", {"shift": doc.shift})
+	return {"status": "Unassigned", "order_reference": doc.order_reference}
+
+
+@frappe.whitelist()
 def cancel_failed_delivery_order(assignment):
 	"""
 	Cancel the Sales Invoice linked to a Failed delivery assignment.

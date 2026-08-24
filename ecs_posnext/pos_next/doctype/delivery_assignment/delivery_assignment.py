@@ -50,6 +50,16 @@ class DeliveryAssignment(Document):
 		self._fetch_order_details()
 		self._handle_status_transition()
 
+	def before_cancel(self):
+		if self.status in ("Delivered", "Returned", "Failed"):
+			frappe.throw(_("Assignment {0} is already in a terminal state and cannot be cancelled.").format(self.name))
+
+	def on_cancel(self):
+		# Cancelling an in-progress assignment (e.g. "Return to Unassigned") releases the
+		# order back to the unassigned pool. Sync the driver's availability since this
+		# bypasses the normal before_save status transition.
+		_sync_driver_availability(self.driver, exclude_assignment=self.name)
+
 	def _validate_shift_open(self):
 		shift_status = frappe.db.get_value("POS Opening Shift", self.shift, "status")
 		if shift_status != "Open":

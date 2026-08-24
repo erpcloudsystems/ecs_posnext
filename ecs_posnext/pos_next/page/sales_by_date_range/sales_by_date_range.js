@@ -286,14 +286,26 @@ function render_app_dr() {
                 <tr>
                   <th>{{ __("Mode of Payment") }}</th>
                   <th>{{ __("Amount") }}</th>
+                  <th>{{ __("Change") }}</th>
+                  <th>{{ __("Net (After Change)") }}</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="row in payments" :key="row.mode_of_payment">
                   <td>{{ row.mode_of_payment }}</td>
                   <td>{{ format_currency(row.amount) }}</td>
+                  <td>{{ format_currency(row.change) }}</td>
+                  <td>{{ format_currency(row.net_amount) }}</td>
                 </tr>
               </tbody>
+              <tfoot>
+                <tr>
+                  <th>{{ __("Grand Total") }}</th>
+                  <th>{{ format_currency(payments_grand_total.amount) }}</th>
+                  <th>{{ format_currency(payments_grand_total.change) }}</th>
+                  <th>{{ format_currency(payments_grand_total.net_amount) }}</th>
+                </tr>
+              </tfoot>
             </table>
           </div>
 
@@ -381,6 +393,19 @@ function render_app_dr() {
     `,
 		mounted() {
 			// Don't build controls until mode is selected
+		},
+		computed: {
+			payments_grand_total() {
+				return this.payments.reduce(
+					(acc, row) => {
+						acc.amount += Number(row.amount) || 0;
+						acc.change += Number(row.change) || 0;
+						acc.net_amount += Number(row.net_amount) || 0;
+						return acc;
+					},
+					{ amount: 0, change: 0, net_amount: 0 }
+				);
+			},
 		},
 		methods: {
 			selectMode(selectedMode) {

@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\": \"hdr_br\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\">Branch Requisition</span>\", \"col\": 12}}, {\"id\": \"sc_pkg\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Packaging & Supplies Request\", \"col\": 4}}, {\"id\": \"sc_prd\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Products Request\", \"col\": 4}}, {\"id\": \"sp_br\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"cd_br\", \"type\": \"card\", \"data\": {\"card_name\": \"Branch Requisition Forms\", \"col\": 4}}]",
+ "content": "[{\"id\":\"hdr_br\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Branch Requisition</span>\",\"col\":12}},{\"id\":\"sc_pkg\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Packaging & Supplies Request\",\"col\":4}},{\"id\":\"sc_prd\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Products Request\",\"col\":4}},{\"id\":\"a-ihJHg3nQ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Blind Inventory Count\",\"col\":3}},{\"id\":\"sp_br\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"cd_br\",\"type\":\"card\",\"data\":{\"card_name\":\"Branch Requisition Forms\",\"col\":4}}]",
  "creation": "2026-08-05 10:00:00",
  "custom_blocks": [],
  "docstatus": 0,
@@ -14,32 +14,35 @@
  "label": "Branch Requisition",
  "links": [
   {
-   "type": "Card Break",
+   "hidden": 0,
+   "is_query_report": 0,
    "label": "Branch Requisition Forms",
-   "hidden": 0,
+   "link_count": 0,
    "onboard": 0,
-   "is_query_report": 0
+   "type": "Card Break"
   },
   {
-   "type": "Link",
+   "hidden": 0,
+   "is_query_report": 0,
    "label": "Packaging & Supplies Request",
-   "link_type": "DocType",
+   "link_count": 0,
    "link_to": "Packaging Supplies Request",
-   "hidden": 0,
-   "is_query_report": 0,
-   "onboard": 0
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
   },
   {
-   "type": "Link",
-   "label": "Products Request",
-   "link_type": "DocType",
-   "link_to": "Products Request",
    "hidden": 0,
    "is_query_report": 0,
-   "onboard": 0
+   "label": "Products Request",
+   "link_count": 0,
+   "link_to": "Products Request",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-08-05 10:00:00",
+ "modified": "2026-08-06 14:49:31.188548",
  "modified_by": "Administrator",
  "module": "POS Next",
  "name": "Branch Requisition",
@@ -48,22 +51,40 @@
  "parent_page": "",
  "public": 1,
  "quick_lists": [],
- "roles": [],
+ "roles": [
+  {
+   "role": "Bransh Manager"
+  },
+  {
+   "role": "Assistant branch manager"
+  },
+  {
+   "role": "Branch supervisor"
+  }
+ ],
  "sequence_id": 99.0,
  "shortcuts": [
   {
-   "type": "DocType",
-   "label": "Packaging & Supplies Request",
-   "link_to": "Packaging Supplies Request",
    "color": "Grey",
-   "doc_view": "List"
+   "doc_view": "List",
+   "label": "Blind Inventory Count",
+   "link_to": "Blind Inventory Count",
+   "stats_filter": "[]",
+   "type": "DocType"
   },
   {
-   "type": "DocType",
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Packaging & Supplies Request",
+   "link_to": "Packaging Supplies Request",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
    "label": "Products Request",
    "link_to": "Products Request",
-   "color": "Grey",
-   "doc_view": "List"
+   "type": "DocType"
   }
  ],
  "title": "Branch Requisition"
