@@ -7,7 +7,7 @@ import string
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, cstr, flt, getdate, nowdate
+from frappe.utils import cint, cstr, flt, get_first_day, getdate, nowdate
 from frappe.utils.xlsxutils import read_xlsx_file_from_attached_file
 
 
@@ -244,7 +244,8 @@ class POSOrderInvoiceFix(Document):
 					si.customer = row.customer
 					si.debit_to = get_party_account("Customer", si.customer, si.company)
 
-				si.posting_date = nowdate()
+				month_start = get_first_day(nowdate())
+				si.posting_date = max(getdate(row.transaction_date or nowdate()), month_start)
 
 				# pulls in the rest of the POS Profile's fields (price list, accounts,
 				# update_stock, tax settings, item defaults, available payment modes...)
