@@ -7,6 +7,9 @@ import openpyxl
 import frappe
 from frappe import _
 from frappe.desk.utils import provide_binary_file
+from frappe.utils import getdate, get_datetime
+
+from ecs_posnext.api.sales_by_working_day import _compute_window
 
 
 @frappe.whitelist()
@@ -22,7 +25,7 @@ def get_daily_item_sales_summary(filters=None):
         f"""
         SELECT
             sii.item_code,
-            sii.item_name,
+            MAX(sii.item_name) AS item_name,
             SUM(sii.qty) AS total_qty,
             COUNT(DISTINCT si.name) AS invoice_count,
             SUM({net_expr}) AS total_amount
@@ -30,8 +33,8 @@ def get_daily_item_sales_summary(filters=None):
         JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
         LEFT JOIN `tabPOS Profile` pp ON pp.name = si.pos_profile
         WHERE {cond}
-        GROUP BY sii.item_code, sii.item_name
-        ORDER BY sii.item_name
+        GROUP BY sii.item_code
+        ORDER BY item_name
         """,
         params,
         as_dict=True,
@@ -41,7 +44,7 @@ def get_daily_item_sales_summary(filters=None):
         f"""
         SELECT
             sii.item_code,
-            sii.item_name,
+            MAX(sii.item_name) AS item_name,
             {branch_expr} AS branch,
             SUM(sii.qty) AS total_qty,
             COUNT(DISTINCT si.name) AS invoice_count,
@@ -50,8 +53,8 @@ def get_daily_item_sales_summary(filters=None):
         JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
         LEFT JOIN `tabPOS Profile` pp ON pp.name = si.pos_profile
         WHERE {cond}
-        GROUP BY sii.item_code, sii.item_name, {branch_expr}
-        ORDER BY sii.item_name, branch
+        GROUP BY sii.item_code, {branch_expr}
+        ORDER BY item_name, branch
         """,
         params,
         as_dict=True,
@@ -125,6 +128,28 @@ def _build_conditions(filters):
             frappe.throw(_("Sales Invoice has no Business Day link column."))
         conditions.append(f"si.`{business_day_col}` = %(business_day)s")
         params["business_day"] = business_day
+
+    # Working Day / Date Range window — same semantics as the Sales by Working Day
+    # report: "Whole Day" (and the other shifts) span 9am to 9am the next calendar
+    # day, not midnight to midnight.
+    mode = filters.get("mode") or "whole_day"
+    if mode == "date_range":
+        from_date = filters.get("from_date") or getdate()
+        to_date = filters.get("to_date") or getdate()
+        start_dt = get_datetime(f"{from_date} 00:00:00")
+        end_dt = get_datetime(f"{to_date} 23:59:59")
+    else:
+        working_day = filters.get("working_day") or getdate()
+        shift = filters.get("shift") or "Whole Day"
+        start_dt, end_dt = _compute_window(working_day, shift)
+
+    params["start_dt"] = start_dt
+    params["end_dt"] = end_dt
+    params["start_date"] = start_dt.date()
+    params["end_date"] = end_dt.date()
+    time_cond = "timestamp(si.posting_date, ifnull(si.posting_time, '00:00:00')) BETWEEN %(start_dt)s AND %(end_dt)s"
+    date_only_cond = "(si.posting_time is null or si.posting_time = '') and si.posting_date between %(start_date)s and %(end_date)s"
+    conditions.append(f"(({time_cond}) OR ({date_only_cond}))")
 
     branch_expr = _branch_expr()
     if branches:

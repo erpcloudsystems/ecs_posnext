@@ -58,6 +58,11 @@ function init_app() {
 				loading: false,
 				filters: {
 					business_day: "",
+					mode: "whole_day",
+					working_day: frappe.datetime.get_today(),
+					shift: "Whole Day",
+					from_date: frappe.datetime.get_today(),
+					to_date: frappe.datetime.get_today(),
 					branches: [],
 					warehouses: [],
 					item_groups: [],
@@ -68,6 +73,7 @@ function init_app() {
 				totals: {},
 				ctrls: {},
 				showBranchBreakdown: true,
+				requestSeq: 0,
 			};
 		},
 		computed: {
@@ -79,14 +85,43 @@ function init_app() {
 					{ key: "total_amount", label: __("Total Sales Amount"), color: "#16a34a", isCount: false },
 				].map((c) => ({ ...c, value: this.totals[c.key] || 0 }));
 			},
-			// item_code -> list of its branch rows, for nesting under each summary row
-			branchesByItem() {
-				const map = {};
+			// Flattened list of table rows (item summary + optional branch breakdown),
+			// each with a globally unique key, so Vue never has to guess how to
+			// reconcile rows between renders.
+			displayRows() {
+				const branchesByItem = {};
 				(this.branch_detail || []).forEach((row) => {
-					if (!map[row.item_code]) map[row.item_code] = [];
-					map[row.item_code].push(row);
+					if (!branchesByItem[row.item_code]) branchesByItem[row.item_code] = [];
+					branchesByItem[row.item_code].push(row);
 				});
-				return map;
+
+				const rows = [];
+				(this.item_summary || []).forEach((item) => {
+					rows.push({
+						key: "item::" + item.item_code,
+						type: "item",
+						item_code: item.item_code,
+						item_name: item.item_name,
+						branch: __("All Branches"),
+						total_qty: item.total_qty,
+						invoice_count: item.invoice_count,
+						total_amount: item.total_amount,
+					});
+					if (!this.showBranchBreakdown) return;
+					(branchesByItem[item.item_code] || []).forEach((branchRow) => {
+						rows.push({
+							key: "branch::" + item.item_code + "::" + branchRow.branch,
+							type: "branch",
+							item_code: "",
+							item_name: "",
+							branch: branchRow.branch,
+							total_qty: branchRow.total_qty,
+							invoice_count: branchRow.invoice_count,
+							total_amount: branchRow.total_amount,
+						});
+					});
+				});
+				return rows;
 			},
 		},
 		mounted() {
@@ -162,17 +197,42 @@ function init_app() {
 			},
 			fetchData() {
 				this.loading = true;
+				const requestId = ++this.requestSeq;
 				frappe.call({
 					method: "ecs_posnext.api.daily_item_sales_summary.get_daily_item_sales_summary",
 					args: { filters: this.filters },
 				}).then((r) => {
+					if (requestId !== this.requestSeq) return;
 					const data = r.message || {};
 					this.item_summary = data.item_summary || [];
 					this.branch_detail = data.branch_detail || [];
 					this.totals = data.totals || {};
-				}).finally(() => {
-					this.loading = false;
+				}).always(() => {
+					if (requestId === this.requestSeq) this.loading = false;
 				});
+			},
+			clearFilters() {
+				this.filters = {
+					business_day: "",
+					mode: "whole_day",
+					working_day: frappe.datetime.get_today(),
+					shift: "Whole Day",
+					from_date: frappe.datetime.get_today(),
+					to_date: frappe.datetime.get_today(),
+					branches: [],
+					warehouses: [],
+					item_groups: [],
+					items: [],
+				};
+				Object.values(this.ctrls).forEach((ctrl) => {
+					if (!ctrl) return;
+					if (typeof ctrl.clear_all_selections === "function") {
+						ctrl.clear_all_selections();
+					} else {
+						ctrl.set_value("");
+					}
+				});
+				this.fetchData();
 			},
 			exportExcel() {
 				open_url_post(
@@ -188,6 +248,33 @@ function init_app() {
 						<div>
 							<div class="diss-filter-label">{{ __('Business Day') }}</div>
 							<div ref="businessDayCtrl"></div>
+						</div>
+						<div>
+							<div class="diss-filter-label">{{ __('Mode') }}</div>
+							<select class="form-control" v-model="filters.mode" @change="fetchData">
+								<option value="whole_day">{{ __('Working Day') }}</option>
+								<option value="date_range">{{ __('Date Range') }}</option>
+							</select>
+						</div>
+						<div v-if="filters.mode === 'whole_day'">
+							<div class="diss-filter-label">{{ __('Working Day') }}</div>
+							<input type="date" class="form-control" v-model="filters.working_day" @change="fetchData" />
+						</div>
+						<div v-if="filters.mode === 'whole_day'">
+							<div class="diss-filter-label">{{ __('Shift') }}</div>
+							<select class="form-control" v-model="filters.shift" @change="fetchData">
+								<option value="Whole Day">{{ __('Whole Day') }}</option>
+								<option value="Morning">{{ __('Morning') }}</option>
+								<option value="Evening">{{ __('Evening') }}</option>
+							</select>
+						</div>
+						<div v-if="filters.mode === 'date_range'">
+							<div class="diss-filter-label">{{ __('From Date') }}</div>
+							<input type="date" class="form-control" v-model="filters.from_date" @change="fetchData" />
+						</div>
+						<div v-if="filters.mode === 'date_range'">
+							<div class="diss-filter-label">{{ __('To Date') }}</div>
+							<input type="date" class="form-control" v-model="filters.to_date" @change="fetchData" />
 						</div>
 						<div>
 							<div class="diss-filter-label">{{ __('Branch') }}</div>
@@ -207,6 +294,7 @@ function init_app() {
 						</div>
 						<div>
 							<button type="button" class="btn btn-primary btn-sm" :disabled="loading" @click="fetchData">{{ __('Refresh') }}</button>
+							<button type="button" class="btn btn-default btn-sm" :disabled="loading" @click="clearFilters">{{ __('Clear') }}</button>
 							<button type="button" class="btn btn-secondary btn-sm" @click.prevent="exportExcel()">{{ __('Excel') }}</button>
 						</div>
 					</div>
@@ -238,30 +326,19 @@ function init_app() {
 							</tr>
 						</thead>
 						<tbody>
-							<template v-for="row in item_summary">
-								<tr class="diss-item-row" :key="row.item_code">
-									<td>{{ row.item_code }}</td>
-									<td>{{ row.item_name }}</td>
-									<td>{{ __('All Branches') }}</td>
-									<td class="text-right">{{ formatNumber(row.total_qty) }}</td>
-									<td class="text-right">{{ formatNumber(row.invoice_count) }}</td>
-									<td class="text-right">{{ formatCurrency(row.total_amount) }}</td>
-								</tr>
-								<tr
-									class="diss-branch-row"
-									v-if="showBranchBreakdown"
-									v-for="branchRow in (branchesByItem[row.item_code] || [])"
-									:key="row.item_code + '-' + branchRow.branch"
-								>
-									<td></td>
-									<td></td>
-									<td>{{ branchRow.branch }}</td>
-									<td class="text-right">{{ formatNumber(branchRow.total_qty) }}</td>
-									<td class="text-right">{{ formatNumber(branchRow.invoice_count) }}</td>
-									<td class="text-right">{{ formatCurrency(branchRow.total_amount) }}</td>
-								</tr>
-							</template>
-							<tr v-if="!item_summary.length">
+							<tr
+								v-for="row in displayRows"
+								:key="row.key"
+								:class="row.type === 'item' ? 'diss-item-row' : 'diss-branch-row'"
+							>
+								<td>{{ row.item_code }}</td>
+								<td>{{ row.item_name }}</td>
+								<td>{{ row.branch }}</td>
+								<td class="text-right">{{ formatNumber(row.total_qty) }}</td>
+								<td class="text-right">{{ formatNumber(row.invoice_count) }}</td>
+								<td class="text-right">{{ formatCurrency(row.total_amount) }}</td>
+							</tr>
+							<tr v-if="!displayRows.length">
 								<td colspan="6" class="text-muted text-center">{{ __('No sales found for the selected filters.') }}</td>
 							</tr>
 						</tbody>
