@@ -96,6 +96,8 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		taxInclusive,
 		loyaltyPointsToRedeem,
 		loyaltyCashbackToUse,
+		bonusPointsPercentage,
+		bonusCashbackPercentage,
 		cardApprovalCodes,
 		isTabbyPayment,
 		bundleSelections,
@@ -1965,6 +1967,10 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		// Loyalty redemption (loyalty_engine)
 		loyaltyPointsToRedeem,
 		loyaltyCashbackToUse,
+
+		// Loyalty earn bonus from applied Cashback/Points POS Offers (loyalty_engine)
+		bonusPointsPercentage,
+		bonusCashbackPercentage,
 
 		// Card approval codes (Span/DigitalPay) + Tabby payment flag
 		cardApprovalCodes,

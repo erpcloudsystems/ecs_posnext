@@ -49,6 +49,9 @@
   "rate",
   "discount_amount",
   "discount_percentage",
+  "reward_percentage_section",
+  "cashback_percentage",
+  "points_percentage",
   "loyalty_point_scheme_section",
   "loyalty_program",
   "loyalty_points",
@@ -246,6 +249,26 @@
    "label": "Product Discount Scheme"
   },
   {
+   "depends_on": "eval:doc.offer==\"Cashback\" || doc.offer==\"Points\"",
+   "fieldname": "reward_percentage_section",
+   "fieldtype": "Section Break",
+   "label": "Reward Percentage"
+  },
+  {
+   "depends_on": "eval:doc.offer==\"Cashback\"",
+   "description": "Percentage of the eligible order value credited to the customer as cashback, on top of their tier's normal cashback rate.",
+   "fieldname": "cashback_percentage",
+   "fieldtype": "Percent",
+   "label": "Cashback Percentage"
+  },
+  {
+   "depends_on": "eval:doc.offer==\"Points\"",
+   "description": "Percentage of the eligible order value credited to the customer as loyalty points, on top of their tier's normal points rate.",
+   "fieldname": "points_percentage",
+   "fieldtype": "Percent",
+   "label": "Points Percentage"
+  },
+  {
    "fieldname": "loyalty_point_scheme_section",
    "fieldtype": "Section Break",
    "label": "Loyalty Point Scheme"
@@ -277,7 +300,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Promo Type",
-   "options": "Item Price\nGive Product\nGrand Total\nLoyalty Point",
+   "options": "Item Price\nGive Product\nGrand Total\nLoyalty Point\nCashback\nPoints",
    "reqd": 1
   },
   {

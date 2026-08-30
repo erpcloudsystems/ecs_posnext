@@ -199,7 +199,7 @@
 					>
 						<div class="flex flex-col">
 							<span class="text-sm font-medium text-gray-800">{{ offer.title || offer.name }}</span>
-							<span class="text-[11px] text-gray-500">{{ offer.offer }}<span v-if="offer.discount_percentage"> · {{ offer.discount_percentage }}%</span></span>
+							<span class="text-[11px] text-gray-500">{{ offer.offer }}<span v-if="offer.discount_percentage"> · {{ offer.discount_percentage }}%</span><span v-else-if="offer.offer === 'Cashback'"> · {{ offer.cashback_percentage }}%</span><span v-else-if="offer.offer === 'Points'"> · {{ offer.points_percentage }}%</span></span>
 						</div>
 						<Button
 							:variant="isPosOfferApplied(offer) ? 'subtle' : 'solid'"

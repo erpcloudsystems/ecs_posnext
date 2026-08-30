@@ -230,6 +230,14 @@ export const usePOSOfferEngineStore = defineStore("posOfferEngine", () => {
 					cart.recalculateItem?.(it)
 				})
 			}
+		} else if (offer.offer === "Cashback") {
+			// No cart/discount effect — adds an earn bonus on top of the customer's
+			// tier rate. loyalty_engine reads custom_bonus_cashback_percentage on submit.
+			cart.bonusCashbackPercentage =
+				num(cart.bonusCashbackPercentage) + num(offer.cashback_percentage)
+		} else if (offer.offer === "Points") {
+			cart.bonusPointsPercentage =
+				num(cart.bonusPointsPercentage) + num(offer.points_percentage)
 		}
 		// "Loyalty Point" offers are handled by loyalty_engine on submit.
 
@@ -242,6 +250,16 @@ export const usePOSOfferEngineStore = defineStore("posOfferEngine", () => {
 		const cart = usePOSCartStore()
 		if (offer.offer === "Grand Total") {
 			cart.removeDiscountFromCart?.()
+		} else if (offer.offer === "Cashback") {
+			cart.bonusCashbackPercentage = Math.max(
+				0,
+				num(cart.bonusCashbackPercentage) - num(offer.cashback_percentage),
+			)
+		} else if (offer.offer === "Points") {
+			cart.bonusPointsPercentage = Math.max(
+				0,
+				num(cart.bonusPointsPercentage) - num(offer.points_percentage),
+			)
 		}
 		appliedPosOffers.value = appliedPosOffers.value.filter(
 			(n) => n !== offer.name,

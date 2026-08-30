@@ -29,6 +29,16 @@ frappe.ui.form.on("POS Offer", {
 				frappe.throw("Loyalty Points most be more then zero");
 			}
 		}
+		if (frm.doc.offer === "Cashback") {
+			if (!frm.doc.cashback_percentage > 0) {
+				frappe.throw("Cashback Percentage most be more then zero");
+			}
+		}
+		if (frm.doc.offer === "Points") {
+			if (!frm.doc.points_percentage > 0) {
+				frappe.throw("Points Percentage most be more then zero");
+			}
+		}
 		if (
 			frm.doc.apply_type === "Item Group" &&
 			frm.doc.offer === "Give Product" &&
@@ -104,9 +114,11 @@ const controllers = (frm) => {
 	frm.toggle_display("given_qty", frm.doc.offer === "Give Product");
 	frm.toggle_reqd("given_qty", frm.doc.offer === "Give Product");
 
-	frm.toggle_display("price_discount_scheme_section", frm.doc.offer !== "Loyalty Point");
-	frm.toggle_display("discount_type", frm.doc.offer !== "Loyalty Point");
-	frm.toggle_reqd("discount_type", frm.doc.offer !== "Loyalty Point");
+	const is_reward_offer = frm.doc.offer === "Cashback" || frm.doc.offer === "Points";
+
+	frm.toggle_display("price_discount_scheme_section", frm.doc.offer !== "Loyalty Point" && !is_reward_offer);
+	frm.toggle_display("discount_type", frm.doc.offer !== "Loyalty Point" && !is_reward_offer);
+	frm.toggle_reqd("discount_type", frm.doc.offer !== "Loyalty Point" && !is_reward_offer);
 
 	frm.toggle_display("rate", frm.doc.discount_type === "Rate");
 	frm.toggle_reqd("rate", frm.doc.discount_type === "Rate");
@@ -124,6 +136,14 @@ const controllers = (frm) => {
 	frm.toggle_display("loyalty_points", frm.doc.offer === "Loyalty Point");
 	frm.toggle_reqd("loyalty_points", frm.doc.offer === "Loyalty Point");
 
+	frm.toggle_display("reward_percentage_section", is_reward_offer);
+
+	frm.toggle_display("cashback_percentage", frm.doc.offer === "Cashback");
+	frm.toggle_reqd("cashback_percentage", frm.doc.offer === "Cashback");
+
+	frm.toggle_display("points_percentage", frm.doc.offer === "Points");
+	frm.toggle_reqd("points_percentage", frm.doc.offer === "Points");
+
 	if (frm.doc.offer === "Grand Total") {
 		frm.set_df_property("discount_type", "options", ["Discount Percentage"]);
 	} else {
@@ -136,7 +156,14 @@ const controllers = (frm) => {
 	}
 
 	if (frm.doc.apply_on === "Transaction") {
-		frm.set_df_property("offer", "options", ["", "Give Product", "Grand Total", "Loyalty Point"]);
+		frm.set_df_property("offer", "options", [
+			"",
+			"Give Product",
+			"Grand Total",
+			"Loyalty Point",
+			"Cashback",
+			"Points",
+		]);
 	} else {
 		frm.set_df_property("offer", "options", [
 			"",
@@ -144,6 +171,8 @@ const controllers = (frm) => {
 			"Give Product",
 			"Grand Total",
 			"Loyalty Point",
+			"Cashback",
+			"Points",
 		]);
 	}
 

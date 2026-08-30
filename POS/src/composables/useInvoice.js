@@ -42,6 +42,10 @@ export function useInvoice() {
 	// debits the wallet on submit.
 	const loyaltyPointsToRedeem = ref(0)
 	const loyaltyCashbackToUse = ref(0)
+	// Bonus earn percentages from applied "Cashback"/"Points" POS Offers, added on top
+	// of the customer's tier rate by loyalty_engine on submit (see posOfferEngine.js).
+	const bonusPointsPercentage = ref(0)
+	const bonusCashbackPercentage = ref(0)
 	// Active selling price list for the cart (defaults to the POS Profile's price list).
 	const activePriceList = ref(null)
 	// Credit-card approval codes captured from the Span/DigitalPay terminal (one per
@@ -980,6 +984,8 @@ export function useInvoice() {
 			coupon_code: couponCode.value,
 			custom_loyalty_points_to_redeem: loyaltyPointsToRedeem.value || 0,
 			custom_cashback_to_use: loyaltyCashbackToUse.value || 0,
+			custom_bonus_points_percentage: bonusPointsPercentage.value || 0,
+			custom_bonus_cashback_percentage: bonusCashbackPercentage.value || 0,
 			selling_price_list: activePriceList.value || undefined,
 			posa_bundle_selections: Object.keys(bundleSelections.value).length
 				? JSON.stringify(bundleSelections.value)
@@ -1055,6 +1061,8 @@ export function useInvoice() {
 					coupon_code: couponCode.value,
 					custom_loyalty_points_to_redeem: loyaltyPointsToRedeem.value || 0,
 					custom_cashback_to_use: loyaltyCashbackToUse.value || 0,
+					custom_bonus_points_percentage: bonusPointsPercentage.value || 0,
+					custom_bonus_cashback_percentage: bonusCashbackPercentage.value || 0,
 					selling_price_list: activePriceList.value || undefined,
 					posa_bundle_selections: Object.keys(bundleSelections.value).length
 						? JSON.stringify(bundleSelections.value)
@@ -1175,6 +1183,8 @@ export function useInvoice() {
 					coupon_code: couponCode.value,
 					custom_loyalty_points_to_redeem: loyaltyPointsToRedeem.value || 0,
 					custom_cashback_to_use: loyaltyCashbackToUse.value || 0,
+					custom_bonus_points_percentage: bonusPointsPercentage.value || 0,
+					custom_bonus_cashback_percentage: bonusCashbackPercentage.value || 0,
 					selling_price_list: activePriceList.value || undefined,
 					posa_bundle_selections: Object.keys(bundleSelections.value).length
 						? JSON.stringify(bundleSelections.value)
@@ -1325,6 +1335,8 @@ export function useInvoice() {
 		couponCode.value = null
 		loyaltyPointsToRedeem.value = 0
 		loyaltyCashbackToUse.value = 0
+		bonusPointsPercentage.value = 0
+		bonusCashbackPercentage.value = 0
 		cardApprovalCodes.value = []
 		isTabbyPayment.value = false
 		bundleSelections.value = {}
@@ -1357,6 +1369,8 @@ export function useInvoice() {
 		couponCode.value = null
 		loyaltyPointsToRedeem.value = 0
 		loyaltyCashbackToUse.value = 0
+		bonusPointsPercentage.value = 0
+		bonusCashbackPercentage.value = 0
 
 		// Reset incremental cache
 		_cachedSubtotal.value = 0
@@ -1434,6 +1448,8 @@ export function useInvoice() {
 		couponCode,
 		loyaltyPointsToRedeem,
 		loyaltyCashbackToUse,
+		bonusPointsPercentage,
+		bonusCashbackPercentage,
 		cardApprovalCodes,
 		isTabbyPayment,
 		bundleSelections,
