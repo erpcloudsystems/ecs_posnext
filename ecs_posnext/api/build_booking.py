@@ -252,17 +252,21 @@ def create_booking(
 
 	`items` is a JSON list of {item_code, qty, uom, slot, discount_percentage} - the
 	main package plus any additional add-on items the cashier attached to the same
-	reservation. `discount_percentage` is only set on rows an item-code-scoped
-	coupon applies to (see validate_build_coupon/item_restriction).
+	reservation. The incoming `discount_percentage` (if any) is only set on rows
+	an item-code-scoped coupon applies to (see validate_build_coupon/
+	item_restriction) - a whole-cart coupon's discount_percentage is computed
+	server-side below instead, from `discount_amount`.
 	`branch` is the selected Dimension Branch (room, or whole-branch catch-all).
 	`coupon_code`/`discount_amount`/`discount_scope`: same trust model as
 	invoices.py's update_invoice() - the frontend computes the discount from the
 	coupon's discount_type/percentage/amount (via the same calculateDiscountAmount
 	helper the main POS cart uses), and the server only re-validates the code
-	itself before accepting the client-supplied amounts. `discount_scope ==
-	"items"` means the discount was already baked into each row's
-	discount_percentage/rate below, so no header-level discount is applied on top
-	of it (that would double-discount the same items).
+	itself before accepting the client-supplied amount. Unlike the main POS cart
+	(which applies whole-cart coupons as a header-level Additional Discount to
+	avoid clashing with its pricing-rule engine), this booking flow has no such
+	engine, so both item-scoped and whole-cart coupons are baked directly into
+	each row's discount_percentage/rate - there is no header-level discount
+	applied on top of it (that would double-discount the same items).
 	"""
 	_ensure_build_access()
 	from ecs_vim.api import check_available
@@ -344,14 +348,32 @@ def create_booking(
 
 	discount_amount = flt(discount_amount)
 	if coupon_code and discount_scope != "items" and discount_amount > 0:
-		so_dict["coupon_code"] = coupon_code
-		so_dict["apply_discount_on"] = (coupon_doc or {}).get("apply_on") or "Grand Total"
-		so_dict["discount_amount"] = discount_amount
+		# Bake the whole-cart coupon into each row's rate instead of a header-level
+		# discount_amount/apply_discount_on - besides avoiding the Sales Order
+		# coupon_code Link crash (see comment below), a uniform per-item
+		# discount_percentage keeps each row's rate*qty proportional to the
+		# original amount, so it's equivalent to (and replaces) a flat
+		# Grand-Total/Net-Total discount without needing a separate field.
+		base_amount = sum(flt(row["rate"]) * flt(row["qty"]) for row in item_rows)
+		if base_amount > 0:
+			coupon_pct = min(100.0, (discount_amount / base_amount) * 100)
+			for row in item_rows:
+				existing_pct = flt(row.get("discount_percentage"))
+				combined_pct = 100 - (100 - existing_pct) * (100 - coupon_pct) / 100
+				row["discount_percentage"] = flt(combined_pct, 2)
+				row["rate"] = flt(row["price_list_rate"] * (1 - combined_pct / 100), 2)
 
+	# Note: so_dict never sets "coupon_code" - Sales Order.coupon_code is a Link
+	# to the native "Coupon Code" doctype, not our "POS Coupon" doctype, so
+	# setting it here would fail Link validation on insert() against a code
+	# that doesn't exist there.
 	so = frappe.get_doc(so_dict)
 
 	so.flags.ignore_permissions = True
 	so.insert()
+
+	if coupon_code and discount_scope != "items" and discount_amount > 0:
+		so.add_comment("Info", _("POS Coupon {0} applied ({1} off)").format(coupon_code, discount_amount))
 
 	if coupon_code and frappe.db.table_exists("POS Coupon"):
 		try:
