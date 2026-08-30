@@ -574,7 +574,7 @@ def get_coupons(company=None, include_disabled=False, coupon_type=None):
 		"name", "coupon_name", "coupon_code", "coupon_type",
 		"customer", "customer_name",
 		"valid_from", "valid_upto", "maximum_use", "used",
-		"one_use", "company", "campaign"
+		"one_use", "company", "campaign", "balance_amount", "discount_type"
 	]
 
 	# Check for optional fields
@@ -603,7 +603,10 @@ def get_coupons(company=None, include_disabled=False, coupon_type=None):
 			coupon["status"] = "Not Started"
 		elif coupon.valid_upto and getdate(coupon.valid_upto) < today:
 			coupon["status"] = "Expired"
-		elif coupon.maximum_use and coupon.used >= coupon.maximum_use:
+		elif coupon.coupon_type == "Gift Card" and coupon.discount_type == "Amount" and flt(coupon.balance_amount) <= 0:
+			coupon["status"] = "Exhausted"
+		elif not (coupon.coupon_type == "Gift Card" and coupon.discount_type == "Amount") \
+				and coupon.maximum_use and coupon.used >= coupon.maximum_use:
 			coupon["status"] = "Exhausted"
 		else:
 			coupon["status"] = "Active"

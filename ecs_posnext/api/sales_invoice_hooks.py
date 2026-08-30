@@ -212,6 +212,33 @@ def before_cancel(doc, method=None):
 		)
 
 
+def restore_coupon_usage_on_cancel(doc, method=None):
+	"""
+	Restore POS Coupon usage when a Sales Invoice that redeemed one is cancelled.
+	For Gift Cards this puts the redeemed amount back into the card's remaining
+	balance so it can be used again.
+
+	Args:
+		doc: Sales Invoice document
+		method: Hook method name (unused)
+	"""
+	coupon_code = doc.get("coupon_code")
+	if not coupon_code:
+		return
+
+	if not frappe.db.table_exists("POS Coupon"):
+		return
+
+	try:
+		from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import decrement_coupon_usage
+		decrement_coupon_usage(coupon_code, doc.discount_amount)
+	except Exception as e:
+		frappe.log_error(
+			title="Coupon Usage Restore Failed",
+			message=f"Invoice: {doc.name}, Coupon: {coupon_code}, Error: {str(e)}"
+		)
+
+
 def cancel_payment_entries_on_cancel(doc, method=None):
 	"""
 	Cancel all submitted Payment Entries linked to this POS Sales Invoice.

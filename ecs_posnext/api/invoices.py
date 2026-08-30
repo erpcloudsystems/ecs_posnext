@@ -1681,7 +1681,7 @@ def _prepare_invoice_for_submit(invoice=None, data=None):
             if frappe.db.table_exists("POS Coupon"):
                 try:
                     from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import increment_coupon_usage
-                    increment_coupon_usage(coupon_code)
+                    increment_coupon_usage(coupon_code, invoice_doc.discount_amount)
                 except Exception as e:
                     frappe.log_error(
                         title="Failed to increment coupon usage",

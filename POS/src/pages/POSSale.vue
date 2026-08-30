@@ -26,11 +26,13 @@
 				:is-refreshing="stockStore.refreshing"
 				:silent-print-enabled="posSettingsStore.silentPrint"
 				:qz-connected="qzConnected"
+				:attendance-count="shiftStore.attendanceCount"
 				@sync-click="handleSyncClick"
 				@printer-click="uiStore.showHistoryDialog = true"
 				@refresh-click="handleRefresh"
 				@clear-cache="handleClearCache"
 				@logout="uiStore.showLogoutDialog = true"
+				@attendance-click="uiStore.showAttendanceDialog = true"
 			>
 				<template #menu-items>
 					<button
@@ -577,6 +579,13 @@
 				@print-order="handlePrintOrder"
 			/>
 
+			<!-- Attendance Dialog -->
+			<AttendanceDialog
+				v-model="uiStore.showAttendanceDialog"
+				:count="shiftStore.attendanceCount"
+				@save="handleSaveAttendance"
+			/>
+
 			<!-- Offline Invoices Dialog -->
 			<OfflineInvoicesDialog
 				v-model="uiStore.showOfflineInvoicesDialog"
@@ -994,6 +1003,7 @@ import LoadingSpinner from "@/components/common/LoadingSpinner.vue";
 import POSFooter from "@/components/common/POSFooter.vue";
 import ManagementSlider from "@/components/pos/ManagementSlider.vue";
 import POSHeader from "@/components/pos/POSHeader.vue";
+import AttendanceDialog from "@/components/sale/AttendanceDialog.vue";
 import BatchSerialDialog from "@/components/sale/BatchSerialDialog.vue";
 import CouponDialog from "@/components/sale/CouponDialog.vue";
 import CreateCustomerDialog from "@/components/sale/CreateCustomerDialog.vue";
@@ -1454,6 +1464,7 @@ onMounted(async () => {
 				? offlineStore.checkOfflineCacheAvailability()
 				: offlineStore.preloadDataForOffline(shiftStore.currentProfile),
 			draftsStore.updateDraftsCount(),
+			shiftStore.fetchAttendanceCount(),
 		]);
 
 		// Wait for settings (required for tax rules) + all background ops
@@ -2465,6 +2476,17 @@ async function handleRefresh() {
 
 function handleClearCache() {
 	showClearCacheDialog.value = true;
+}
+
+async function handleSaveAttendance(numberOfEntries) {
+	try {
+		await shiftStore.saveAttendanceCount(numberOfEntries);
+		uiStore.showAttendanceDialog = false;
+		showSuccess(__("Attendance updated"));
+	} catch (error) {
+		log.error("Error saving attendance:", error);
+		showError(error.message || __("Failed to save attendance"));
+	}
 }
 
 async function confirmClearCache() {

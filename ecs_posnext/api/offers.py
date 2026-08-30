@@ -534,10 +534,21 @@ def get_active_coupons(customer: str, company: str) -> List[Dict]:
 			"company": company,
 			"coupon_type": "Gift Card",
 			"customer": customer,
-			"used": 0,
+			"disabled": 0,
 		},
-		fields=["name", "coupon_code", "coupon_name", "valid_from", "valid_upto"],
+		fields=[
+			"name", "coupon_code", "coupon_name", "valid_from", "valid_upto",
+			"discount_type", "balance_amount", "used",
+		],
 	)
+
+	# Amount-based gift cards are usable while a balance remains; the older
+	# Percentage-based gift cards (e.g. referral rewards) stay single-use.
+	coupons = [
+		c for c in coupons
+		if (c.discount_type == "Amount" and flt(c.balance_amount) > 0)
+		or (c.discount_type != "Amount" and not c.used)
+	]
 
 	return coupons
 
@@ -566,7 +577,10 @@ def validate_coupon(coupon_code: str, customer: str, company: str) -> Dict:
 		return {"valid": False, "message": _("This coupon is disabled")}
 
 	# Check usage limits
-	if coupon.coupon_type == "Gift Card":
+	if coupon.coupon_type == "Gift Card" and coupon.discount_type == "Amount":
+		if flt(coupon.balance_amount) <= 0:
+			return {"valid": False, "message": _("This gift card has no remaining balance")}
+	elif coupon.coupon_type == "Gift Card":
 		if coupon.used:
 			return {"valid": False, "message": _("This gift card has already been used")}
 	else:

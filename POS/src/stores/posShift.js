@@ -1,5 +1,6 @@
 import { useShift, shiftState } from "@/composables/useShift"
 import { DEFAULT_CURRENCY, DEFAULT_LOCALE } from "@/utils/currency"
+import { createResource } from "frappe-ui"
 import { defineStore } from "pinia"
 import { computed, ref } from "vue"
 
@@ -12,6 +13,9 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 	const currentTime = ref("")
 	const shiftDuration = ref("")
 	const shiftTimerPaused = ref(false)
+
+	// Attendance state
+	const attendanceCount = ref(0)
 
 	// Computed
 	const profileName = computed(() => currentProfile.value?.name)
@@ -94,6 +98,42 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 		return hasOpenShift.value
 	}
 
+	// Attendance resources
+	const getAttendanceResource = createResource({
+		url: "ecs_posnext.api.attendance.get_attendance",
+		auto: false,
+		onSuccess(data) {
+			attendanceCount.value = data?.number_of_entries || 0
+		},
+		onError() {
+			attendanceCount.value = 0
+		},
+	})
+
+	const saveAttendanceResource = createResource({
+		url: "ecs_posnext.api.attendance.save_attendance",
+		auto: false,
+		onSuccess(data) {
+			attendanceCount.value = data?.number_of_entries || 0
+		},
+	})
+
+	async function fetchAttendanceCount() {
+		if (!currentShift.value?.name) {
+			attendanceCount.value = 0
+			return
+		}
+		await getAttendanceResource.fetch({ pos_shift: currentShift.value.name })
+	}
+
+	async function saveAttendanceCount(numberOfEntries) {
+		if (!currentShift.value?.name) return
+		await saveAttendanceResource.submit({
+			pos_shift: currentShift.value.name,
+			number_of_entries: numberOfEntries,
+		})
+	}
+
 	return {
 		// State
 		currentProfile,
@@ -102,6 +142,7 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 		currentTime,
 		shiftDuration,
 		shiftTimerPaused,
+		attendanceCount,
 
 		// Computed
 		profileName,
@@ -122,5 +163,7 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 		startTimers,
 		checkShift,
 		checkOpeningShift,
+		fetchAttendanceCount,
+		saveAttendanceCount,
 	}
 })

@@ -23,9 +23,13 @@ class POSCoupon(Document):
     def validate(self):
         # Gift Card validations
         if self.coupon_type == "Gift Card":
-            self.maximum_use = 1
             if not self.customer:
                 frappe.throw(_("Please select the customer for Gift Card."))
+            if self.discount_type != "Amount":
+                # Balance tracking only makes sense for a fixed monetary value.
+                # Percentage-based gift cards (e.g. referral rewards) keep the
+                # older single-use behavior instead.
+                self.maximum_use = 1
 
         # Discount validations
         if not self.discount_type:
@@ -41,6 +45,13 @@ class POSCoupon(Document):
                 frappe.throw(_("Discount Amount is required"))
             if flt(self.discount_amount) <= 0:
                 frappe.throw(_("Discount Amount must be greater than 0"))
+
+        # Gift Card balance: starts out equal to the card's face value (Discount
+        # Amount) and is only ever reduced by redemptions from here on, so only
+        # seed it when the card is first created. Percentage-based gift cards
+        # have no fixed value to track, so they fall back to maximum_use above.
+        if self.coupon_type == "Gift Card" and self.discount_type == "Amount" and self.is_new():
+            self.balance_amount = self.discount_amount
 
         # Minimum amount validation
         if self.min_amount and flt(self.min_amount) < 0:
@@ -84,7 +95,11 @@ def check_coupon_code(coupon_code, customer=None, company=None):
             return res
 
     # Check usage limits
-    if coupon.used and coupon.maximum_use and coupon.used >= coupon.maximum_use:
+    if coupon.coupon_type == "Gift Card" and coupon.discount_type == "Amount":
+        if flt(coupon.balance_amount) <= 0:
+            res["msg"] = _("Sorry, this gift card has no remaining balance")
+            return res
+    elif coupon.used and coupon.maximum_use and coupon.used >= coupon.maximum_use:
         res["msg"] = _("Sorry, this coupon code has been fully redeemed")
         return res
 
@@ -144,6 +159,10 @@ def apply_coupon_discount(coupon, cart_total, net_total=None):
     if coupon.max_amount and flt(discount) > flt(coupon.max_amount):
         discount = flt(coupon.max_amount)
 
+    # A Gift Card can never redeem more than its remaining balance
+    if coupon.coupon_type == "Gift Card" and coupon.discount_type == "Amount" and flt(discount) > flt(coupon.balance_amount):
+        discount = flt(coupon.balance_amount)
+
     # Ensure discount doesn't exceed cart total
     if discount > base_amount:
         discount = base_amount
@@ -157,12 +176,22 @@ def apply_coupon_discount(coupon, cart_total, net_total=None):
     }
 
 
-def increment_coupon_usage(coupon_code):
-    """Increment the usage counter for a coupon"""
+def increment_coupon_usage(coupon_code, discount_amount=0):
+    """Increment the usage counter for a coupon.
+
+    For Gift Cards, also deducts the amount actually redeemed on this invoice
+    from the card's remaining balance, so it keeps working across multiple
+    invoices until that balance is exhausted.
+    """
     try:
         coupon = frappe.get_doc("POS Coupon", {"coupon_code": coupon_code.upper()})
         coupon.used = (coupon.used or 0) + 1
         coupon.db_set('used', coupon.used)
+
+        if coupon.coupon_type == "Gift Card" and coupon.discount_type == "Amount":
+            new_balance = max(0, flt(coupon.balance_amount) - flt(discount_amount))
+            coupon.db_set('balance_amount', new_balance)
+
         frappe.db.commit()
     except Exception as e:
         frappe.log_error(
@@ -171,14 +200,23 @@ def increment_coupon_usage(coupon_code):
         )
 
 
-def decrement_coupon_usage(coupon_code):
-    """Decrement the usage counter for a coupon (for cancelled invoices)"""
+def decrement_coupon_usage(coupon_code, discount_amount=0):
+    """Decrement the usage counter for a coupon (for cancelled invoices).
+
+    For Gift Cards, restores the redeemed amount back to the remaining
+    balance, capped at the card's original face value.
+    """
     try:
         coupon = frappe.get_doc("POS Coupon", {"coupon_code": coupon_code.upper()})
         if coupon.used and coupon.used > 0:
             coupon.used = coupon.used - 1
             coupon.db_set('used', coupon.used)
-            frappe.db.commit()
+
+        if coupon.coupon_type == "Gift Card" and coupon.discount_type == "Amount":
+            new_balance = min(flt(coupon.balance_amount) + flt(discount_amount), flt(coupon.discount_amount))
+            coupon.db_set('balance_amount', new_balance)
+
+        frappe.db.commit()
     except Exception as e:
         frappe.log_error(
             title="Coupon Usage Decrement Failed",

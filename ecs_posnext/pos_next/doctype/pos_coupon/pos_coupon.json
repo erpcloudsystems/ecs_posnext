@@ -19,6 +19,7 @@
   "disabled",
   "company",
   "campaign",
+  "balance_amount",
   "erpnext_integration_section",
   "erpnext_coupon_code",
   "pricing_rule",
@@ -38,7 +39,8 @@
   "used",
   "one_use",
   "column_break_11",
-  "description"
+  "description",
+  "referral_code"
  ],
  "fields": [
   {
@@ -111,20 +113,20 @@
    "label": "ERPNext Integration"
   },
   {
+   "description": "Linked ERPNext Coupon Code for accounting integration",
    "fieldname": "erpnext_coupon_code",
    "fieldtype": "Link",
    "label": "ERPNext Coupon Code",
    "options": "Coupon Code",
-   "read_only": 1,
-   "description": "Linked ERPNext Coupon Code for accounting integration"
+   "read_only": 1
   },
   {
+   "description": "Auto-generated Pricing Rule for discount application",
    "fieldname": "pricing_rule",
    "fieldtype": "Link",
    "label": "Pricing Rule",
    "options": "Pricing Rule",
-   "read_only": 1,
-   "description": "Auto-generated Pricing Rule for discount application"
+   "read_only": 1
   },
   {
    "fieldname": "referral_code",
@@ -134,11 +136,11 @@
    "read_only": 1
   },
   {
+   "description": "Optional. When set to a POS Offer with \"Apply Rule On Item Code\", this coupon's discount only applies to items in that offer's item list instead of the whole cart.",
    "fieldname": "pos_offer",
    "fieldtype": "Link",
    "label": "POS Offer",
-   "options": "POS Offer",
-   "description": "Optional. When set to a POS Offer with \"Apply Rule On Item Code\", this coupon's discount only applies to items in that offer's item list instead of the whole cart."
+   "options": "POS Offer"
   },
   {
    "fieldname": "discount_section",
@@ -181,10 +183,10 @@
    "precision": "2"
   },
   {
+   "description": "Maximum discount that can be applied",
    "fieldname": "max_amount",
    "fieldtype": "Currency",
    "label": "Maximum Discount Amount",
-   "description": "Maximum discount that can be applied",
    "options": "Company:company:default_currency",
    "precision": "2"
   },
@@ -267,14 +269,25 @@
    "fieldtype": "Data",
    "label": "Email ID",
    "options": "Email"
+  },
+  {
+   "description": "Remaining redeemable value of this gift card. Set to the Discount Amount when the card is created, and reduced automatically each time it is used. The gift card can no longer be used once this reaches 0.",
+   "fieldname": "balance_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Remaining Balance",
+   "no_copy": 1,
+   "options": "Company:company:default_currency",
+   "precision": "2"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2021-07-30 00:17:17.711972",
+ "modified": "2026-08-30 15:43:28.852005",
  "modified_by": "Administrator",
  "module": "POS Next",
  "name": "POS Coupon",
+ "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
   {
@@ -327,8 +340,10 @@
   }
  ],
  "quick_entry": 1,
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
+ "states": [],
  "title_field": "coupon_code",
  "track_changes": 1
 }

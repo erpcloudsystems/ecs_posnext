@@ -96,6 +96,28 @@
 						</span>
 					</button>
 
+					<!-- Attendance -->
+					<button
+						@click="$emit('attendance-click')"
+						class="p-1.5 sm:p-2 hover:bg-gray-100 active:bg-gray-200 rounded-lg transition-colors relative group touch-manipulation"
+						:title="__('POS Attendance: {0} ({1})', [attendanceCount, __('Click to update')])"
+						:aria-label="__('POS Attendance')"
+					>
+						<svg
+							class="w-4 h-4 sm:w-5 sm:h-5 text-blue-600"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+						>
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a4 4 0 10-3.24-6.32" />
+						</svg>
+						<span
+							class="absolute -top-1 -end-1 bg-blue-600 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-md"
+						>
+							{{ attendanceCount }}
+						</span>
+					</button>
+
 					<!-- Cache Status Indicator -->
 					<div class="relative">
 						<button
@@ -293,6 +315,7 @@ const emit = defineEmits([
 	"menu-opened",
 	"menu-closed",
 	"clear-cache",
+	"attendance-click",
 ])
 
 function handleClearCacheClick() {
@@ -377,6 +400,10 @@ const props = defineProps({
 	qzConnected: {
 		type: Boolean,
 		default: false,
+	},
+	attendanceCount: {
+		type: Number,
+		default: 0,
 	},
 })
 

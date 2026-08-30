@@ -69,6 +69,9 @@
 												{{ card.coupon_code }}
 											</h4>
 											<p class="text-xs text-gray-600">{{ card.coupon_name }}</p>
+											<p v-if="card.discount_type === 'Amount'" class="text-xs font-semibold text-purple-700">
+												{{ __('Balance: {0}', [formatCurrency(card.balance_amount)]) }}
+											</p>
 										</div>
 									</div>
 								</div>
@@ -283,9 +286,15 @@ async function applyCoupon() {
 
 		const coupon = validationData.coupon
 		const restriction = coupon.item_restriction
+		// Amount-based Gift Cards redeem against their remaining balance, not their
+		// original face value (discount_amount), so later uses only draw down what's left.
+		const giftCardAmount =
+			coupon.coupon_type === "Gift Card" && coupon.discount_type === "Amount"
+				? coupon.balance_amount
+				: coupon.discount_amount
 		const discountObj = {
 			percentage: coupon.discount_type === "Percentage" ? coupon.discount_percentage : 0,
-			amount: coupon.discount_type === "Amount" ? coupon.discount_amount : 0,
+			amount: coupon.discount_type === "Amount" ? giftCardAmount : 0,
 		}
 
 		if (restriction?.apply_on === "Item Code") {

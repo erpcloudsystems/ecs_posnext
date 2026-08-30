@@ -127,9 +127,11 @@
 						</div>
 						<div class="flex items-center justify-between text-xs">
 							<span class="text-gray-500">
-								{{ coupon.maximum_use 
-									? __('Used: {0}/{1}', [coupon.used, coupon.maximum_use])
-									: __('Used: {0}', [coupon.used]) }}
+								{{ coupon.coupon_type === 'Gift Card' && coupon.discount_type === 'Amount'
+									? __('Balance: {0}', [formatCurrency(coupon.balance_amount)])
+									: coupon.maximum_use
+										? __('Used: {0}/{1}', [coupon.used, coupon.maximum_use])
+										: __('Used: {0}', [coupon.used]) }}
 							</span>
 							<span class="text-gray-500">
 								{{ coupon.valid_upto ? formatDate(coupon.valid_upto) : __('No expiry') }}
@@ -450,6 +452,12 @@
 										<label class="block text-sm font-medium text-gray-700 mb-2 text-start">{{ __('Times Used') }}</label>
 										<div class="px-3 py-2 bg-gray-50 rounded-lg">
 											<p class="text-lg font-bold text-gray-900">{{ couponDetails.used || 0 }}</p>
+										</div>
+									</div>
+									<div v-if="!isCreating && form.coupon_type === 'Gift Card' && couponDetails.discount_type === 'Amount'">
+										<label class="block text-sm font-medium text-gray-700 mb-2 text-start">{{ __('Remaining Balance') }}</label>
+										<div class="px-3 py-2 bg-gray-50 rounded-lg">
+											<p class="text-lg font-bold text-gray-900">{{ formatCurrency(couponDetails.balance_amount) }}</p>
 										</div>
 									</div>
 								</div>
