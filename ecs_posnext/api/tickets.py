@@ -15,6 +15,15 @@ from ecs_posnext.api.reservations import _default_mode_of_payment
 
 RENEWAL_ITEM_CODE = "TICKET-RENEWAL"
 
+# Membership/subscription items eligible for the "Upgrade" action on the
+# Ticket Redeem & Renewal dialog.
+SUBSCRIPTION_ITEM_CODES = [
+    "DAZ 1 Month Membership",
+    "DAZ 3 Months Membership",
+    "DAZ 6 Months Membership",
+    "DAZ 1 Year Membership",
+]
+
 
 def _get_or_create_renewal_item():
     """Dedicated renewal service item (no Ticket Settings → no new ticket generated)."""
@@ -364,4 +373,77 @@ def renew_ticket(
         "remaining_usage": ticket.remaining_usage,
         "used_free_wristband": ticket.used_free_wristband,
         "remaining_free_wristband": ticket.remaining_free_wristband,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Upgrade (buy a new membership subscription for the ticket's customer) — NEW
+# ---------------------------------------------------------------------------
+
+
+def _get_subscription_item_rate(item_code, pos_profile):
+    """Selling price for a membership item; falls back to the item's standard rate."""
+    price_list = (
+        frappe.db.get_value("POS Profile", pos_profile, "selling_price_list")
+        if pos_profile
+        else None
+    )
+    rate = None
+    if price_list:
+        rate = frappe.db.get_value(
+            "Item Price", {"item_code": item_code, "price_list": price_list}, "price_list_rate"
+        )
+    if rate is None:
+        rate = frappe.db.get_value("Item", item_code, "standard_rate") or 0
+    return flt(rate)
+
+
+@frappe.whitelist()
+def upgrade_ticket_subscription(ticket_name, item_code, pos_profile=None):
+    """Upgrade a subscription ticket to a different membership plan.
+
+    Only available for tickets whose item is one of SUBSCRIPTION_ITEM_CODES.
+    Creates + submits a "Daz Yearly Subscription" for the ticket's customer
+    with the chosen plan. Submitting it is what actually creates the new
+    Ticket(s) (Daz Yearly Subscription.on_submit) and, in the background,
+    the paid Sales Invoice — this endpoint does not create either directly.
+    """
+    if item_code not in SUBSCRIPTION_ITEM_CODES:
+        frappe.throw(_("{0} is not a valid subscription plan").format(item_code))
+
+    ticket = frappe.get_doc("Ticket", ticket_name)
+    if ticket.item not in SUBSCRIPTION_ITEM_CODES:
+        frappe.throw(_("This ticket is not a subscription ticket and cannot be upgraded"))
+    if not ticket.vendor:
+        frappe.throw(_("This ticket has no customer to upgrade"))
+
+    item = frappe.get_cached_doc("Item", item_code)
+    company = frappe.db.get_value("POS Profile", pos_profile, "company") if pos_profile else None
+    company = company or frappe.defaults.get_global_default("company")
+
+    subscription = frappe.new_doc("Daz Yearly Subscription")
+    subscription.customer = ticket.vendor
+    subscription.company = company
+    subscription.append(
+        "items",
+        {
+            "item_code": item_code,
+            "item_name": item.item_name,
+            "description": item.item_name,
+            "qty": 1,
+            "uom": "Ticket",
+            "conversion_factor": 1,
+            "rate": _get_subscription_item_rate(item_code, pos_profile),
+        },
+    )
+    subscription.flags.ignore_permissions = True
+    subscription.insert(ignore_permissions=True)
+    subscription.submit()
+    frappe.db.commit()
+
+    new_ticket = frappe.db.get_value("Ticket Chiled", {"parent": subscription.name}, "ticket")
+
+    return {
+        "subscription": subscription.name,
+        "new_ticket": new_ticket,
     }

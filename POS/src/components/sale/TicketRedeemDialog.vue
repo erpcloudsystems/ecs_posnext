@@ -201,6 +201,27 @@
 							</button>
 						</div>
 					</div>
+
+					<!-- Upgrade (buy a new membership plan for this customer) -->
+					<div v-if="isSubscriptionTicket(t)" class="bg-white rounded-lg border border-purple-200 p-3 mt-2">
+						<div class="text-[11px] font-semibold text-purple-700 mb-1.5">{{ __("Upgrade Subscription") }}</div>
+						<div class="flex flex-wrap items-end gap-3">
+							<div>
+								<label class="block text-[10px] text-gray-500 mb-0.5">{{ __("New Plan") }}</label>
+								<select v-model="t._upgradeItem" class="h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-purple-500">
+									<option v-for="p in subscriptionPlans" :key="p.value" :value="p.value">{{ __(p.label) }}</option>
+								</select>
+							</div>
+							<button
+								type="button"
+								class="h-9 px-4 text-xs font-semibold rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+								:disabled="t._busy || !t._upgradeItem"
+								@click="confirmUpgrade(t)"
+							>
+								{{ t._busy ? __("Processing...") : __("Upgrade") }}
+							</button>
+						</div>
+					</div>
 				</div>
 			</div>
 		</template>
@@ -230,6 +251,30 @@
 				</Button>
 				<Button class="flex-1" variant="solid" theme="amber" @click="proceedRenew">
 					{{ __("Renew") }}
+				</Button>
+			</div>
+		</template>
+	</Dialog>
+
+	<!-- Upgrade Subscription Confirmation -->
+	<Dialog
+		v-model="showUpgradeConfirm"
+		:options="{ title: __('Upgrade Subscription?'), size: 'xs' }"
+	>
+		<template #body-content>
+			<div class="py-3">
+				<p class="text-sm text-gray-600">
+					{{ __("Are you sure you want to upgrade this customer to {0}?", [upgradePlanLabel]) }}
+				</p>
+			</div>
+		</template>
+		<template #actions>
+			<div class="flex gap-2 w-full">
+				<Button class="flex-1" variant="subtle" @click="showUpgradeConfirm = false">
+					{{ __("Cancel") }}
+				</Button>
+				<Button class="flex-1" variant="solid" theme="purple" @click="proceedUpgrade">
+					{{ __("Upgrade") }}
 				</Button>
 			</div>
 		</template>
@@ -297,6 +342,23 @@ const renewShouldPrint = ref(false)
 const showWristbandConfirm = ref(false)
 const ticketForWristband = ref(null)
 const activeTab = ref("active")
+const showUpgradeConfirm = ref(false)
+const ticketToUpgrade = ref(null)
+
+// Membership items eligible for the Upgrade action (mirrors
+// ecs_posnext.api.tickets.SUBSCRIPTION_ITEM_CODES).
+const subscriptionPlans = [
+	{ value: "DAZ 1 Month Membership", label: "1 Month" },
+	{ value: "DAZ 3 Months Membership", label: "3 Months" },
+	{ value: "DAZ 6 Months Membership", label: "6 Months" },
+	{ value: "DAZ 1 Year Membership", label: "1 Year" },
+]
+const subscriptionPlanValues = subscriptionPlans.map((p) => p.value)
+
+const upgradePlanLabel = computed(() => {
+	const plan = subscriptionPlans.find((p) => p.value === ticketToUpgrade.value?._upgradeItem)
+	return plan ? __(plan.label) : ""
+})
 
 const show = computed({
 	get: () => props.modelValue,
@@ -311,6 +373,10 @@ function isExpired(t) {
 // A ticket is expired for tab purposes if its valid-to date has passed OR it has no uses left.
 function isTicketExpired(t) {
 	return isExpired(t) || Number(t.remaining_usage) <= 0
+}
+
+function isSubscriptionTicket(t) {
+	return subscriptionPlanValues.includes(t.item)
 }
 
 const activeTickets = computed(() => tickets.value.filter((t) => !isTicketExpired(t)))
@@ -329,6 +395,7 @@ function decorate(rows) {
 			_renewUses: 1,
 			_renewAmount: Number(t.rate) || 0,
 			_renewMop: props.paymentMethods[0] || "",
+			_upgradeItem: subscriptionPlanValues.find((v) => v !== t.item) || subscriptionPlanValues[0],
 			_busy: false,
 		}))
 		// Sort by expiry date, furthest expiry first (expired tickets still shown, just sorted lower).
@@ -450,6 +517,38 @@ async function doRenew(t, print) {
 	} catch (e) {
 		console.error("Renew failed", e)
 		showError(parseError(e).message || __("Renew failed"))
+	} finally {
+		t._busy = false
+	}
+}
+
+function confirmUpgrade(t) {
+	ticketToUpgrade.value = t
+	showUpgradeConfirm.value = true
+}
+
+async function proceedUpgrade() {
+	showUpgradeConfirm.value = false
+	if (ticketToUpgrade.value) {
+		await doUpgrade(ticketToUpgrade.value)
+		ticketToUpgrade.value = null
+	}
+}
+
+async function doUpgrade(t) {
+	if (t._busy) return
+	t._busy = true
+	try {
+		await call("ecs_posnext.api.tickets.upgrade_ticket_subscription", {
+			ticket_name: t.name,
+			item_code: t._upgradeItem,
+			pos_profile: props.posProfile,
+		})
+		showSuccess(__("Upgraded {0} to a new subscription", [t.name]))
+		await refresh()
+	} catch (e) {
+		console.error("Upgrade failed", e)
+		showError(parseError(e).message || __("Upgrade failed"))
 	} finally {
 		t._busy = false
 	}
