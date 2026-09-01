@@ -3,15 +3,18 @@
 		<template #body-content>
 			<div class="flex flex-col gap-2">
 				<label class="block text-start text-sm font-medium text-gray-700">
-					{{ __("Number of Entries") }}
+					{{ __("Entries to Add") }}
 				</label>
 				<Input
 					v-model="numberOfEntries"
 					type="number"
 					min="0"
 					step="1"
-					:placeholder="__('Enter number of entries')"
+					:placeholder="__('Enter number of entries to add')"
 				/>
+				<p class="text-start text-xs text-gray-500">
+					{{ __("Current total: {0}", [count]) }}
+				</p>
 			</div>
 		</template>
 
@@ -65,7 +68,7 @@ watch(
 	() => props.modelValue,
 	(isOpen) => {
 		if (isOpen) {
-			numberOfEntries.value = props.count || 0
+			numberOfEntries.value = 0
 		}
 	}
 )

@@ -30,7 +30,7 @@ def save_attendance(pos_shift, number_of_entries):
 
 	if existing_name:
 		doc = frappe.get_doc("Pos Attendance", existing_name)
-		doc.number_of_entries = number_of_entries
+		doc.number_of_entries = cint(doc.number_of_entries) + number_of_entries
 		doc.save(ignore_permissions=True)
 	else:
 		shift = frappe.get_doc("POS Opening Shift", pos_shift)
