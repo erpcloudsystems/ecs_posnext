@@ -1399,6 +1399,7 @@ function handleProceedToPayment() {
  * @prop {Number} discountAmount - Total discount amount applied
  * @prop {Number} grandTotal - Final total (subtotal - discount + tax)
  * @prop {String} posProfile - Current POS Profile name
+ * @prop {String} company - Current POS Profile's company
  * @prop {String} currency - Currency code for formatting (e.g., "USD", "EUR")
  * @prop {Array} appliedOffers - List of currently applied promotional offers
  * @prop {Array} warehouses - Available warehouses for item selection
@@ -1430,6 +1431,7 @@ const props = defineProps({
 		default: 0,
 	},
 	posProfile: String,
+	company: String,
 	currency: {
 		type: String,
 		default: DEFAULT_CURRENCY,
@@ -1569,7 +1571,7 @@ const giftCardsResource = createResource({
 	makeParams() {
 		return {
 			customer: props.customer?.name || props.customer,
-			company: props.posProfile, // Will get company from profile
+			company: props.company,
 		}
 	},
 	auto: false,

@@ -324,6 +324,7 @@
 								:discount-amount="cartStore.totalDiscount"
 								:grand-total="cartStore.grandTotal"
 								:pos-profile="shiftStore.profileName"
+								:company="shiftStore.profileCompany"
 								:currency="shiftStore.profileCurrency"
 								:applied-offers="cartStore.appliedOffers"
 								:warehouses="profileWarehouses"
