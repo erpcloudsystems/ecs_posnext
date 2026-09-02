@@ -369,18 +369,22 @@ def get_sales_persons(pos_profile=None):
 		return []
 
 
-# Designation for which a Sales Person must be marked Present for the running shift
-# to appear in POS
+# Designation for which a Sales Person must be on shift (see _counts_as_on_shift)
+# for the running shift to appear in POS
 CRAFTSMAN_DESIGNATION = "صنايعى"
 
 
 def _hide_unmarked_craftsmen(sales_persons_list):
 	"""Exclude Sales Persons whose Employee Designation is CRAFTSMAN_DESIGNATION
-	and who have not been marked Present in Attendance for the running shift."""
+	and whose Attendance for the running shift does not put them on shift."""
 	employee_ids = [sp.employee for sp in sales_persons_list if sp.get("employee")]
 	if not employee_ids:
 		return sales_persons_list
 
+	# Reading Employee and Attendance here requires the POS user's role to carry
+	# read on both (POSNext Cashier does, via the app's Custom DocPerm fixtures).
+	# Without it get_list raises, get_sales_persons swallows the PermissionError,
+	# and every sales person silently disappears from the POS.
 	designations = {
 		emp.name: emp.designation
 		for emp in frappe.get_list(
@@ -406,8 +410,29 @@ def _hide_unmarked_craftsmen(sales_persons_list):
 	]
 
 
+def _counts_as_on_shift(row):
+	"""Whether an Attendance row means "this person is working today".
+
+	Present is the plain case. A Half Day means the person works part of the day,
+	so it counts too - a Half Day is emphatically not an absence, and a sales
+	person marked Half Day straight from the POS (or by HR, or through a half-day
+	Leave Application) must still be selectable.
+
+	The one exception is ``early_exit``, the flag
+	``employee_attendance.convert_attendance_to_half_day`` writes when a Present
+	day is corrected because the person left before the shift ended: they have
+	gone home, so they drop out of POS. Its counterpart ``late_entry`` needs no
+	special handling here - a late arrival is working now, which is what Half Day
+	already implies.
+	"""
+	if row.status == "Present":
+		return True
+
+	return row.status == "Half Day" and not row.early_exit
+
+
 def _get_employees_present_now(employee_ids):
-	"""Employees marked Present for the shift that is currently running.
+	"""Employees who are on shift right now for the shift that is currently running.
 
 	Filtering on today's date alone breaks overnight shifts: attendance for a
 	09:00 -> 03:00 shift is stamped on the day the shift STARTED, so after midnight
@@ -423,19 +448,25 @@ def _get_employees_present_now(employee_ids):
 	now = frappe.utils.now_datetime()
 	today = frappe.utils.getdate(now)
 
+	# Requires read on Attendance for the POS user's role; POSNext Cashier gets it
+	# from the app's Custom DocPerm fixtures. Without it this raises, and the
+	# PermissionError is swallowed by get_sales_persons into an empty picker.
 	attendance_rows = frappe.get_list(
 		"Attendance",
 		filters={
 			"employee": ["in", employee_ids],
 			"attendance_date": ["between", [frappe.utils.add_days(today, -1), today]],
-			"status": "Present",
+			"status": ["in", ["Present", "Half Day"]],
 			"docstatus": 1,
 		},
-		fields=["employee", "attendance_date", "shift"],
+		fields=["employee", "attendance_date", "shift", "status", "late_entry", "early_exit"],
 	)
 
 	present = set()
 	for row in attendance_rows:
+		if not _counts_as_on_shift(row):
+			continue
+
 		attendance_date = frappe.utils.getdate(row.attendance_date)
 		if attendance_date == today:
 			present.add(row.employee)

@@ -166,7 +166,17 @@ def get_employees(date: str | datetime.date, company: str | None = None, branch:
 
 		attendance_list = frappe.get_list(
 			"Attendance",
-			fields=["employee", "employee_name", "status", "shift"],
+			# name/late_entry/early_exit let the POS decide whether a marked row can
+			# still be converted to Half Day, and which direction it came from
+			fields=[
+				"name",
+				"employee",
+				"employee_name",
+				"status",
+				"shift",
+				"late_entry",
+				"early_exit",
+			],
 			filters=attendance_filters,
 			order_by="employee_name",
 		)
@@ -265,3 +275,190 @@ def mark_employee_attendance(
 		create_op_sync_record(op_id, "attendance", "Attendance", f"{marked_count} marked")
 
 	frappe.db.commit()
+
+
+# Correcting an already-marked day cancels a submitted Attendance record, so
+# unlike plain marking it is restricted. Cashiers do it from the POS; System
+# Manager is kept so the same correction is available from the desk.
+HALF_DAY_ROLES = ("POSNext Cashier", "System Manager")
+
+
+def _check_half_day_permitted():
+	"""Whitelisted methods bypass DocType permissions, so check the role explicitly."""
+	if not set(HALF_DAY_ROLES) & set(frappe.get_roles()):
+		frappe.throw(
+			_("Only {0} can change a marked attendance to Half Day.").format(
+				_(HALF_DAY_ROLES[0])
+			),
+			frappe.PermissionError,
+		)
+
+
+# Why an already-marked day turns into a Half Day, mapped to the status the
+# existing Attendance record must currently hold for that reason to make sense.
+HALF_DAY_REASONS = {
+	# Marked Present, then left before the shift ended: a full day is no longer true
+	"early_exit": "Present",
+	# Marked Absent, then turned up after the shift started: not a full absence after all
+	"late_entry": "Absent",
+}
+
+
+def _find_submitted_attendance(employee: str, attendance_date, company: str | None = None) -> str | None:
+	"""Name of the submitted Attendance for ``employee`` on ``attendance_date``.
+
+	Newest first, because an amend chain leaves the live record as the most
+	recently created one.
+	"""
+	filters = {
+		"employee": employee,
+		"attendance_date": attendance_date,
+		"docstatus": 1,
+	}
+	if company:
+		filters["company"] = company
+
+	rows = frappe.get_list(
+		"Attendance",
+		filters=filters,
+		fields=["name"],
+		order_by="creation desc",
+		limit=1,
+	)
+	return rows[0].name if rows else None
+
+
+@frappe.whitelist()
+def convert_attendance_to_half_day(
+	employee_list: list | str,
+	date: str | datetime.date,
+	reason: str,
+	company: str | None = None,
+	branch: str | None = None,
+	op_id: str | None = None,
+) -> dict:
+	"""Turn an already-marked Present/Absent day into a Half Day.
+
+	Two cases, both of which surface only once attendance exists for the day:
+
+	* ``early_exit``  - the sales person was marked Present and then left early.
+	* ``late_entry``  - the sales person was marked Absent and then turned up late.
+
+	Attendance.status is not ``allow_on_submit``, so a submitted record cannot be
+	edited in place. The record is therefore cancelled and re-created as an
+	amendment: the Half Day row links back to the original through
+	``amended_from``, so the correction keeps an audit trail instead of silently
+	overwriting HR data. ``late_entry`` / ``early_exit`` are stamped on the new
+	row - they are what tells the POS craftsman gate apart a sales person who has
+	just arrived from one who has already gone home, since both read "Half Day".
+
+	Employees whose record does not match ``reason`` are skipped and reported
+	rather than throwing, so one stale row cannot abort the whole batch.
+
+	Offline-safe: a re-synced ``op_id`` is a no-op, and an employee already on the
+	expected Half Day is skipped, making the operation idempotent per
+	(employee, date, reason).
+
+	Restricted to HALF_DAY_ROLES: cancelling a submitted HR record is a bigger
+	step than marking an unmarked day, which stays open to any POS user.
+	"""
+	import json
+
+	from ecs_posnext.api.offline_ops import create_op_sync_record, ensure_op_once
+
+	_check_half_day_permitted()
+
+	if reason not in HALF_DAY_REASONS:
+		frappe.throw(
+			_("Reason must be one of {0}").format(", ".join(sorted(HALF_DAY_REASONS)))
+		)
+
+	if isinstance(employee_list, str):
+		employee_list = json.loads(employee_list)
+
+	if not employee_list:
+		frappe.throw(_("Please select at least one employee."))
+
+	# Idempotency: this offline op already ran
+	if op_id and ensure_op_once(op_id, "attendance_half_day"):
+		return {"updated": [], "skipped": [], "already_synced": True}
+
+	expected_status = HALF_DAY_REASONS[reason]
+	attendance_date = frappe.utils.getdate(date)
+	branch_field = BRANCH_FIELD if frappe.get_meta("Attendance").has_field(BRANCH_FIELD) else None
+
+	updated, skipped = [], []
+
+	for employee in employee_list:
+		name = _find_submitted_attendance(employee, attendance_date, company)
+		if not name:
+			skipped.append({"employee": employee, "message": _("No submitted attendance for this date")})
+			continue
+
+		old = frappe.get_doc("Attendance", name)
+
+		if old.status == "Half Day":
+			# Already converted - most likely a re-sync or a double tap
+			skipped.append({"employee": employee, "message": _("Already marked Half Day")})
+			continue
+
+		if old.status != expected_status:
+			skipped.append(
+				{
+					"employee": employee,
+					"message": _("Status is {0}, expected {1}").format(
+						_(old.status), _(expected_status)
+					),
+				}
+			)
+			continue
+
+		old.flags.ignore_permissions = True
+		old.cancel()
+
+		# Amendment rather than a fresh insert: carries in/out times, working hours
+		# and site custom fields over, and links back to the cancelled original
+		new = frappe.copy_doc(old)
+		new.amended_from = old.name
+		new.status = "Half Day"
+		# Only the flag for this correction is set; the other is cleared so a
+		# record cannot end up looking like both a late arrival and an early exit
+		new.late_entry = 1 if reason == "late_entry" else 0
+		new.early_exit = 1 if reason == "early_exit" else 0
+		if branch_field and not new.get(branch_field):
+			new.set(
+				branch_field,
+				branch or frappe.db.get_value("Employee", employee, "branch"),
+			)
+
+		new.flags.ignore_permissions = True
+		new.insert(ignore_permissions=True)
+		new.submit()
+		new.add_comment(
+			"Comment",
+			text=_("Marked Half Day from POS ({0}). Amended from {1}, which was {2}.").format(
+				_("left early") if reason == "early_exit" else _("arrived late"),
+				old.name,
+				_(expected_status),
+			),
+		)
+
+		updated.append(
+			{
+				"employee": employee,
+				"employee_name": new.employee_name,
+				"attendance": new.name,
+				"cancelled": old.name,
+				"status": new.status,
+			}
+		)
+
+	# Record the offline op so re-syncs short-circuit above
+	if op_id:
+		create_op_sync_record(
+			op_id, "attendance_half_day", "Attendance", f"{len(updated)} converted"
+		)
+
+	frappe.db.commit()
+
+	return {"updated": updated, "skipped": skipped}

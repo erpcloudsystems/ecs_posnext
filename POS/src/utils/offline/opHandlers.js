@@ -212,6 +212,22 @@ export const registerOfflineOpHandlers = () => {
 		}),
 	})
 
+	// --- attendance_half_day ----------------------------------------------
+	// Converting an already-marked day to Half Day (left early / arrived late).
+	// Kept as its own op type so the server can dedup it separately from the
+	// original Present/Absent marking for the same employee and date.
+	registerOpHandler("attendance_half_day", {
+		method:
+			"ecs_posnext.api.employee_attendance.convert_attendance_to_half_day",
+		buildParams: (data) => ({
+			employee_list: JSON.stringify(data.employee_list || []),
+			reason: data.reason,
+			date: data.date,
+			company: data.company || null,
+			branch: data.branch || null,
+		}),
+	})
+
 	// --- daily_payment ----------------------------------------------------
 	registerOpHandler("daily_payment", {
 		method: "ecs_posnext.api.daily_payment.create_daily_payment",

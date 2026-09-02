@@ -73,14 +73,14 @@
 							<!-- Already Marked -->
 							<div v-if="marked.length" class="mb-5 bg-white rounded-xl border border-gray-200 shadow-sm p-4">
 								<h3 class="text-sm font-semibold text-gray-700 mb-3">{{ __('Marked Attendance') }}</h3>
-								<div class="flex flex-col gap-2 max-h-40 overflow-y-auto">
+								<div class="flex flex-col gap-2 max-h-56 overflow-y-auto">
 									<div
 										v-for="entry in marked"
 										:key="entry.employee"
-										class="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-50"
+										class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg bg-gray-50"
 									>
 										<span class="text-sm text-gray-800">{{ entry.employee }} : {{ entry.employee_name }}</span>
-										<div class="flex items-center gap-2">
+										<div class="flex items-center gap-2 flex-wrap">
 											<span
 												v-if="entry.shift"
 												class="text-xs font-medium px-2 py-0.5 rounded bg-blue-100 text-blue-700"
@@ -93,6 +93,48 @@
 											>
 												{{ entry.status }}
 											</span>
+											<!-- Which correction produced this Half Day -->
+											<span
+												v-if="halfDayNote(entry)"
+												class="text-xs font-medium px-2 py-0.5 rounded bg-gray-200 text-gray-700"
+											>
+												{{ halfDayNote(entry) }}
+											</span>
+
+											<!-- Half Day correction: cancels the record and re-creates it as
+											     an amendment, so it asks before committing -->
+											<template v-if="halfDayReason(entry)">
+												<template v-if="confirmingEmployee === entry.employee">
+													<span class="text-xs text-gray-600">{{ __('Mark Half Day?') }}</span>
+													<button
+														@click="convertToHalfDay(entry)"
+														:disabled="converting"
+														class="text-xs font-semibold px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700 transition-colors disabled:opacity-60"
+													>
+														{{ converting ? __('Saving...') : __('Confirm') }}
+													</button>
+													<button
+														@click="confirmingEmployee = null"
+														:disabled="converting"
+														class="text-xs font-semibold px-2 py-1 rounded bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors disabled:opacity-60"
+													>
+														{{ __('Cancel') }}
+													</button>
+												</template>
+												<button
+													v-else
+													@click="confirmingEmployee = entry.employee"
+													:disabled="converting"
+													class="flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded border border-amber-300 text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-60"
+													:title="halfDayActionTitle(entry)"
+												>
+													<FeatherIcon
+														:name="halfDayReason(entry) === 'late_entry' ? 'log-in' : 'log-out'"
+														class="w-3 h-3"
+													/>
+													{{ halfDayActionLabel(entry) }}
+												</button>
+											</template>
 										</div>
 									</div>
 								</div>
@@ -219,6 +261,12 @@ const selectedEmployees = ref([])
 const selectAll = ref(false)
 const status = ref("")
 
+// Half Day correction — the employee whose row is awaiting confirmation.
+// Converting cancels a submitted Attendance record and re-creates it as an
+// amendment, so it is never a single unguarded tap.
+const confirmingEmployee = ref(null)
+const converting = ref(false)
+
 // Shift — system-determined (the Shift Type flagged as default), never user-picked.
 // Only ever written from the server response in loadShiftTypes().
 const shiftTypes = ref([])
@@ -249,6 +297,7 @@ function resetState() {
 	selectAll.value = false
 	status.value = ""
 	loaded.value = false
+	confirmingEmployee.value = null
 }
 
 function handleClose() {
@@ -259,6 +308,86 @@ function statusBadgeClass(status) {
 	if (status === "Present") return "bg-green-100 text-green-700"
 	if (status === "Half Day") return "bg-amber-100 text-amber-700"
 	return "bg-red-100 text-red-700"
+}
+
+/**
+ * Which Half Day correction, if any, this marked row can take:
+ *  - Present -> "early_exit": the sales person left before the shift ended
+ *  - Absent  -> "late_entry": the sales person turned up after it started
+ * Anything else (Half Day, On Leave, Work From Home) offers no action.
+ */
+function halfDayReason(entry) {
+	if (entry?.status === "Present") return "early_exit"
+	if (entry?.status === "Absent") return "late_entry"
+	return null
+}
+
+function halfDayActionLabel(entry) {
+	return halfDayReason(entry) === "late_entry"
+		? __("Arrived Late")
+		: __("Left Early")
+}
+
+function halfDayActionTitle(entry) {
+	return halfDayReason(entry) === "late_entry"
+		? __("Arrived after the shift started — mark Half Day")
+		: __("Left before the shift ended — mark Half Day")
+}
+
+/** Label an existing Half Day with the correction that produced it. */
+function halfDayNote(entry) {
+	if (entry?.status !== "Half Day") return ""
+	if (entry.late_entry && !entry.early_exit) return __("Arrived late")
+	if (entry.early_exit && !entry.late_entry) return __("Left early")
+	return ""
+}
+
+async function convertToHalfDay(entry) {
+	const reason = halfDayReason(entry)
+	if (!reason || converting.value) return
+
+	converting.value = true
+	try {
+		const payload = {
+			employee_list: [entry.employee],
+			reason,
+			date: date.value,
+			company: props.company || null,
+			branch: props.branch || null,
+		}
+
+		if (isOffline()) {
+			// Server dedups per (employee, date, reason) on flush
+			await enqueueOperation("attendance_half_day", payload)
+			showSuccess(__("Half Day queued — will sync when back online"))
+			// Reflect it locally: loadEmployees() cannot re-read the server offline
+			entry.status = "Half Day"
+			entry.late_entry = reason === "late_entry" ? 1 : 0
+			entry.early_exit = reason === "early_exit" ? 1 : 0
+			return
+		}
+
+		const result = await call(
+			"ecs_posnext.api.employee_attendance.convert_attendance_to_half_day",
+			payload,
+		)
+		// Rows that no longer match the expected status are reported, not thrown
+		const skipped = result?.skipped || []
+		if (!result?.updated?.length && skipped.length) {
+			showError(skipped[0].message || __("Attendance could not be changed"))
+		} else {
+			showSuccess(__("Attendance changed to Half Day"))
+			// A late arrival becomes selectable in POS, an early exit stops being so
+			emit("marked")
+		}
+		await loadEmployees()
+	} catch (error) {
+		log.error("Error converting attendance to half day:", error)
+		showError(error.message || __("Failed to change attendance"))
+	} finally {
+		converting.value = false
+		confirmingEmployee.value = null
+	}
 }
 
 function toggleSelectAll() {
@@ -328,6 +457,7 @@ async function loadEmployees() {
 	selectedEmployees.value = []
 	selectAll.value = false
 	status.value = ""
+	confirmingEmployee.value = null
 	try {
 		if (isOffline()) {
 			// Offline: server can't tell us who is already marked, so present the

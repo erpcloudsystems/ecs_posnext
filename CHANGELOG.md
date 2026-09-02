@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Half Day Correction for Marked Attendance**
+  - The **Marked Attendance** list in the POS Employee Attendance dialog is no longer read-only: each row now offers a Half Day correction for the two cases that come up mid-shift
+  - **Left Early** on a `Present` row and **Arrived Late** on an `Absent` row both change the day to `Half Day`; rows already on `Half Day`, `On Leave` or `Work From Home` offer no action
+  - Every correction asks for confirmation first, because `Attendance.status` is not `allow_on_submit`: the submitted record is cancelled and re-created as an **amendment** (`amended_from`), so the original stays in place as history instead of being overwritten. The new row carries a comment naming the correction and the record it replaced
+  - `late_entry` / `early_exit` are stamped on the amended row, which is what tells the two directions apart once both read `Half Day`
+  - The POS craftsman gate reads `early_exit`: a craftsman who **left early** stops being selectable as a Sales Person, while a **late arrival** becomes selectable
+  - New endpoint `employee_attendance.convert_attendance_to_half_day`, idempotent per (employee, date, reason). Employees whose record no longer matches the requested correction are reported back as skipped rather than aborting the batch
+  - Restricted to **POSNext Cashier** and **System Manager**: cancelling a submitted HR record is a bigger step than marking an unmarked day, which stays open to any POS user
+  - Offline-safe: queued as the new `attendance_half_day` operation type, deduplicated separately from the original Present/Absent marking for the same employee and date
 - **Reports in POS**
   - New Single DocType **POS Report Settings** to select which reports appear in the POS, with per-row label, Feather icon, optional POS Profile scope, and an enable toggle (child table **POS Report Setting Item**); duplicate and disabled-report rows are rejected on save
   - Added a **Reports** icon to the POS management sidebar, directly below Employee Attendance
@@ -28,6 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All existing payment dialog functionality (sales persons, payment methods, write-off, etc.) is preserved
 
 ### Fixed
+- **POS Attendance and Sales Persons Failed for Cashiers Without HR Permissions**
+  - `POSNext Cashier` was granted no read permission on **Attendance** or **Shift Type**, so `get_employees` raised `PermissionError` and the Employee Attendance dialog could not load at all
+  - The same Attendance read sits inside `get_sales_persons`, whose blanket `except Exception` turned the error into an empty list — so for a real cashier **every** sales person silently disappeared from the POS, not just craftsmen
+  - Fixed by granting the role the permissions it actually needs rather than bypassing them: new **Custom DocPerm** fixture entries give `POSNext Cashier` **read** on `Attendance`, `Shift Type` and `Employee`, with `write`, `create`, `submit`, `cancel`, `amend` and `export` all left at 0. All three doctypes already carried Custom DocPerm rows, so the additions are purely additive and the standard HR permissions are untouched
+  - Every query stays on `frappe.get_list`, so DocType permissions and User Permissions continue to apply to what a cashier can see. Writes keep using `ignore_permissions` behind the server-side role guard, so a cashier still cannot edit or cancel Attendance from the desk
+- **Sales Persons Marked Half Day Disappeared From POS**
+  - The POS craftsman gate only ever accepted `Present`, so a craftsman marked `Half Day` was hidden as if absent — whether the Half Day came from the POS attendance dialog, from HR, or from a half-day Leave Application
+  - A `Half Day` now counts as being on shift, because it is emphatically not an absence. The single exception is a Half Day flagged `early_exit`, where the person is known to have gone home
 - **Offline Customer Search & Creation in Payment Dialog**
   - `PaymentDialog.vue` now uses the shared `customerSearchStore` for customer search (same as the cart's customer search)
   - Name and mobile customer searches in the Complete Payment dialog work offline by filtering the cached customer list
