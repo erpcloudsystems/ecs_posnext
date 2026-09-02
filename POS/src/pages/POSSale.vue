@@ -1716,11 +1716,12 @@ function handleShiftClosed() {
 		// Clear all dialog states to prevent stale state on next login
 		uiStore.resetAllDialogs();
 		session.logout.submit();
-	} else {
-		setTimeout(() => {
-			uiStore.showOpenShiftDialog = true;
-		}, 500);
 	}
+
+	// Deliberately no auto-open of the shift dialog here. Popping it up right
+	// after a close made cashiers open a shift they never sold on; those empty
+	// shifts stay Open and then block the next real one. The "No open shift"
+	// screen offers an explicit Open Shift button instead.
 }
 
 function handleItemSelected(item, autoAdd = false) {

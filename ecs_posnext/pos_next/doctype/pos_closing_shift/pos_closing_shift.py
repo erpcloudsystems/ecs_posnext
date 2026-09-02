@@ -70,19 +70,39 @@ class POSClosingShift(Document):
         self._compute_daily_payments_and_tip()
 
     def validate_closing_amounts(self):
-        """Every payment method must have an actual counted amount greater than zero."""
-        precision = frappe.get_cached_value("System Settings", None, "currency_precision") or 3
-        invalid_modes = [
-            d.mode_of_payment
-            for d in self.payment_reconciliation
-            if flt(d.closing_amount, precision) <= 0
-        ]
+        """Validate the counted amounts against what the shift actually expected.
 
-        if invalid_modes:
+        A positive count is required only where money was expected. A payment
+        method with no opening balance and no movement during the shift expects
+        0, so counting 0 is the correct answer — demanding a positive number
+        there left such shifts impossible to close, which kept the opening shift
+        Open forever and blocked opening the next one. Negative counts are never
+        valid.
+        """
+        precision = frappe.get_cached_value("System Settings", None, "currency_precision") or 3
+
+        negative_modes = []
+        uncounted_modes = []
+        for d in self.payment_reconciliation:
+            closing_amount = flt(d.closing_amount, precision)
+            if closing_amount < 0:
+                negative_modes.append(d.mode_of_payment)
+            elif flt(d.expected_amount, precision) > 0 and closing_amount <= 0:
+                uncounted_modes.append(d.mode_of_payment)
+
+        if negative_modes:
+            frappe.throw(
+                _("Actual counted amount cannot be negative for the following payment methods: {0}").format(
+                    frappe.bold(", ".join(negative_modes))
+                ),
+                title=_("Invalid Closing Amount"),
+            )
+
+        if uncounted_modes:
             frappe.throw(
                 _(
                     "Actual counted amount must be greater than 0 for the following payment methods: {0}"
-                ).format(frappe.bold(", ".join(invalid_modes))),
+                ).format(frappe.bold(", ".join(uncounted_modes))),
                 title=_("Invalid Closing Amount"),
             )
 

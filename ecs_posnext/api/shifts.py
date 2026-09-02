@@ -6,7 +6,7 @@ from __future__ import unicode_literals
 import json
 import frappe
 from frappe import _
-from frappe.utils import nowdate, nowtime, get_datetime
+from frappe.utils import convert_utc_to_system_timezone, get_datetime, nowdate, nowtime
 from ecs_posnext.api.utilities import get_wallet_payment_modes
 
 
@@ -163,6 +163,23 @@ def get_shift_invoices(pos_profile=None, pos_opening_shift=None, limit=10):
 	return {"pos_opening_shift": shift, "invoices": invoices}
 
 
+def _to_system_timezone(timestamp):
+	"""Parse a client-supplied timestamp into a naive system-timezone datetime.
+
+	The POS sends offline timestamps as ``new Date().toISOString()``, i.e. UTC
+	with a trailing ``Z``. Datetime columns are naive and hold system-timezone
+	values, so storing the parsed value as-is shifted every offline timestamp by
+	the UTC offset — on a ``Africa/Cairo`` site that is 2-3 hours, which also
+	lands a shift opened just after midnight on the previous calendar day.
+	Timestamps that carry no offset are already system-local and pass through.
+	"""
+	parsed = get_datetime(timestamp)
+	if parsed is None or parsed.tzinfo is None:
+		return parsed
+
+	return convert_utc_to_system_timezone(parsed).replace(tzinfo=None)
+
+
 @frappe.whitelist()
 def create_opening_shift(pos_profile, company, balance_details, op_id=None, period_start_date=None):
 	"""Create a new POS Opening Shift.
@@ -196,7 +213,9 @@ def create_opening_shift(pos_profile, company, balance_details, op_id=None, peri
 	new_pos_opening = frappe.get_doc(
 		{
 			"doctype": "POS Opening Shift",
-			"period_start_date": get_datetime(period_start_date) if period_start_date else get_datetime(),
+			"period_start_date": _to_system_timezone(period_start_date)
+			if period_start_date
+			else get_datetime(),
 			"posting_date": nowdate(),
 			"posting_time": nowtime(),
 			"user": frappe.session.user,

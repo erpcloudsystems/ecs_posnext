@@ -191,6 +191,9 @@ export function useShift() {
 		balance_details,
 		profile = null,
 	}) => {
+		// UTC ISO (with the trailing Z) is the wire format: the server converts it
+		// to the system timezone in create_opening_shift. Do not send a naive
+		// local string — the server cannot tell it apart from a system-local one.
 		const startedAt = new Date().toISOString()
 		const localName = `OFFLINE-OPEN-${generateOfflineId()}`
 

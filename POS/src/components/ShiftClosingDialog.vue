@@ -624,33 +624,40 @@ function updateClosingAmount(payment, value) {
   calculateDifference(payment)
 }
 
-// A counted amount is only valid when it is filled in AND greater than zero.
-// Zero means the cashier hasn't actually counted that payment method yet, so
-// closing the shift with it is blocked.
+function isBlankClosingAmount(payment) {
+  return (
+    payment.closing_amount === null ||
+    payment.closing_amount === undefined ||
+    payment.closing_amount === ""
+  )
+}
+
+// Whether the shift expected any money through this payment method at all
+// (opening balance or sales). When it expected nothing, 0 is the correct count.
+function expectsMoney(payment) {
+  return (Number.parseFloat(payment.expected_amount) || 0) > 0
+}
+
+// A counted amount is valid when it is filled in, not negative, and greater
+// than zero wherever money was actually expected. A payment method with no
+// opening balance and no movement expects 0, so counting 0 is right — requiring
+// a positive number there made such shifts impossible to close, leaving the
+// opening shift Open forever and blocking the next one. Mirrors
+// POSClosingShift.validate_closing_amounts on the server.
 function isValidClosingAmount(payment) {
-  if (
-    payment.closing_amount === null ||
-    payment.closing_amount === undefined ||
-    payment.closing_amount === ""
-  ) {
-    return false
-  }
+  if (isBlankClosingAmount(payment)) return false
   const amount = Number.parseFloat(payment.closing_amount)
-  return Number.isFinite(amount) && amount > 0
+  if (!Number.isFinite(amount) || amount < 0) return false
+  return expectsMoney(payment) ? amount > 0 : true
 }
 
+// Only a zero that is actually wrong — i.e. money was expected but none counted.
 function isZeroClosingAmount(payment) {
-  if (
-    payment.closing_amount === null ||
-    payment.closing_amount === undefined ||
-    payment.closing_amount === ""
-  ) {
-    return false
-  }
-  return Number.parseFloat(payment.closing_amount) === 0
+  if (isBlankClosingAmount(payment)) return false
+  return expectsMoney(payment) && Number.parseFloat(payment.closing_amount) === 0
 }
 
-// Payment methods still missing a valid counted amount
+// Payment methods whose counted amount is missing or inconsistent
 const invalidPayments = computed(() => {
   if (!closingData.value || !closingData.value.payment_reconciliation) return []
   return closingData.value.payment_reconciliation.filter(
@@ -669,24 +676,26 @@ const validationMessage = computed(() => {
       zeroPayments.value.map((p) => p.mode_of_payment).join(', '),
     ])
   }
-  return __('Please enter all closing amounts (0 is not allowed)')
+  return __('Please enter a valid counted amount for every payment method')
 })
 
 const canSubmit = computed(() => {
   if (!closingData.value || !closingData.value.payment_reconciliation)
     return false
 
-  // Every payment method must have a counted amount greater than zero
+  // Every payment method must have a counted amount that matches what the
+  // shift expected (see isValidClosingAmount)
   return invalidPayments.value.length === 0
 })
 
 async function submitClosing() {
   if (!closingData.value) return
 
-  // Block closing when any payment method has no (or a zero) counted amount
+  // Block closing while any payment method is uncounted, negative, or zero
+  // where money was expected
   if (invalidPayments.value.length) {
     errorMessage.value = __(
-      'Actual counted amount must be greater than 0 for every payment method. Please review: {0}',
+      'Please enter a valid counted amount for: {0}',
       [invalidPayments.value.map((p) => p.mode_of_payment).join(', ')],
     )
     return

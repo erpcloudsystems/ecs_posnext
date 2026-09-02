@@ -1545,3 +1545,6 @@ Points applied: {0}. Please pay remaining {1} with {2},تم خصم النقاط:
 "If QZ Tray is unavailable, printing will fall back to the browser dialog.","إذا لم يكن QZ Tray متاحاً، ستتم الطباعة عبر نافذة المتصفح.",""
 "Silent Print: Connected","طباعة صامتة: متصل",""
 "Silent Print: Disconnected","طباعة صامتة: غير متصل",""
+"Please enter a valid counted amount for every payment method","يرجى إدخال مبلغ فعلي صحيح لكل طريقة دفع",""
+"Please enter a valid counted amount for: {0}","يرجى إدخال مبلغ فعلي صحيح لـ: {0}",""
+"Actual counted amount cannot be negative for the following payment methods: {0}","المبلغ الفعلي لا يمكن أن يكون بالسالب لطرق الدفع التالية: {0}",""
