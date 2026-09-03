@@ -730,18 +730,9 @@ async function submitClosing() {
       }
     }
 
-    // If hideExpectedAmount is enabled, show success report before closing
-    if (hideExpectedAmount.value) {
-      showSuccessReport.value = true
-      // Auto-expand invoice details in success report
-      if (invoiceCount.value > 0 && invoiceCount.value <= 10) {
-        showInvoiceDetails.value = true
-      }
-    } else {
-      // Normal mode: close immediately
-      emit("shift-closed")
-      closeDialog()
-    }
+    // Shift is closed: dismiss the dialog right away, no success report
+    emit("shift-closed")
+    closeDialog()
   } catch (error) {
     console.error("Error submitting closing shift:", error)
     errorMessage.value = 'Failed to close shift. Please verify all amounts and try again.'
