@@ -88,6 +88,16 @@ SCOPED_FILTERS = (
 	(POS_PROFILE_DOCTYPE, POS_PROFILE_FIELDNAMES),
 )
 
+# The same scope, for a Query Report that shows no filter for it: the query names
+# the parameter and the shift answers it. Keyed by the doctype the value belongs
+# to, like the scope itself. Kept in step with
+# ``ecs_posnext.overrides.report.SCOPE_PARAMETERS``, which is what binds None for
+# these when the run is not a POS one.
+SCOPED_PARAMETERS = {
+	"branch": BRANCH_DOCTYPE,
+	"pos_profile": POS_PROFILE_DOCTYPE,
+}
+
 # Keys worth keeping off a parsed filter definition; the rest (get_query,
 # on_change, get_data, formatter, ...) are functions with no server-side meaning.
 FILTER_KEYS = {
@@ -750,7 +760,36 @@ def _prepare_filters(report, filters: dict, pos_profile: str | None) -> dict:
 		if value is not None:
 			prepared[f["fieldname"]] = value
 
+	prepared.update(_scoped_parameters(report, scope))
+
 	return prepared
+
+
+def _scoped_parameters(report, scope: dict[str, str]) -> dict[str, str]:
+	"""The shift's values for the query parameters ``report`` declares no filter for.
+
+	A report can be scoped without offering the cashier a branch to pick - the
+	query names the parameter and gets the answer from here. Without this the
+	report would fall back to whatever scope the query applies when nothing pins
+	the run, which for a cashier is every branch they are a POS user of rather
+	than the one they are standing in.
+
+	A parameter the report *does* declare a filter for is left alone: that one is
+	handled above, where the filter it belongs to is also locked in the filter bar.
+	"""
+	if report.report_type != "Query Report":
+		return {}
+
+	from ecs_posnext.overrides.report import QUERY_PARAMETER
+
+	named = set(QUERY_PARAMETER.findall(report.query or ""))
+	declared = {f["fieldname"] for f in get_report_filters(report)}
+
+	return {
+		name: scope[doctype]
+		for name, doctype in SCOPED_PARAMETERS.items()
+		if name in named and name not in declared and scope.get(doctype)
+	}
 
 
 def _as_value_list(options) -> list[str]:
