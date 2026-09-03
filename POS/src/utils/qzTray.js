@@ -203,6 +203,15 @@ async function importSigningKey(privateKeyPem, algorithm) {
 		log.warn(
 			"WebCrypto unavailable — QZ Tray requests will be signed server-side",
 		)
+		// Worth spelling out, because the cost is easy to miss: every QZ Tray call
+		// (connect, printer lookup, and the print itself) then needs its own
+		// round trip to the server for a signature, on every single receipt.
+		if (!globalThis.isSecureContext) {
+			log.warn(
+				"This page is not a secure context, which is why the browser will not sign locally. " +
+					"Serving the POS over https (or from localhost) removes several server round trips per receipt.",
+			)
+		}
 		return null
 	}
 
@@ -397,6 +406,32 @@ export async function connect({ force = false } = {}) {
 		return await _connectPromise
 	} finally {
 		_connectPromise = null
+	}
+}
+
+/**
+ * Warm up QZ Tray ahead of the first sale, without blocking anything.
+ *
+ * The signing handshake and the websocket port walk cost a noticeable amount on
+ * a cold page, and until now that was paid by whichever receipt happened to be
+ * printed first — i.e. with a customer waiting. Called at shift open, where
+ * there is nobody to keep waiting.
+ *
+ * Never throws, never forces past the post-failure cooldown, and does nothing on
+ * a till that has no QZ Tray.
+ */
+export async function prewarm() {
+	try {
+		if (qz.websocket.isActive()) return
+
+		const ok = await connect()
+		if (!ok) return
+
+		// Settle the printer too, so the first receipt has nothing left to discover.
+		await resolvePrinter()
+		log.debug("QZ Tray pre-warmed")
+	} catch (err) {
+		log.debug("QZ Tray pre-warm skipped:", err?.message || err)
 	}
 }
 

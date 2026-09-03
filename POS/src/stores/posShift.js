@@ -1,5 +1,6 @@
 import { useShift, shiftState } from "@/composables/useShift"
 import { DEFAULT_CURRENCY, DEFAULT_LOCALE } from "@/utils/currency"
+import { prewarm as qzPrewarm } from "@/utils/qzTray"
 import { defineStore } from "pinia"
 import { computed, ref } from "vue"
 
@@ -91,6 +92,14 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 
 	async function checkShift() {
 		await checkOpeningShift.fetch()
+
+		// With a shift open the till is about to start selling, so get QZ Tray's
+		// handshake out of the way now rather than on the first receipt. Deliberately
+		// not awaited: printing still works without it, this only moves the cost.
+		if (hasOpenShift.value && autoPrintEnabled.value) {
+			qzPrewarm()
+		}
+
 		return hasOpenShift.value
 	}
 

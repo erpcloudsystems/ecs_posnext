@@ -110,13 +110,18 @@ export const useStockStore = defineStore('stock', () => {
 	// Called after invoice submission, manual refresh, or warehouse change
 	// Snapshots reservations before fetching to prevent UI flicker
 	// This is the fallback when realtime Socket.IO is down
-	const refresh = async (itemCodes, targetWarehouse) => {
+	//
+	// `background: true` skips the snapshot/restore. Use it only when the refresh
+	// is no longer awaited by the caller: restoring a snapshot taken before the
+	// fetch would overwrite reservations the cashier made for the *next* sale
+	// while this request was in flight, leaving displayed stock too high.
+	const refresh = async (itemCodes, targetWarehouse, { background = false } = {}) => {
 		if (!targetWarehouse && !warehouse.value) return
 
 		refreshing.value = true
 
 		// Snapshot current reservations to restore after fetch
-		const reservationSnapshot = new Map(reserved.value)
+		const reservationSnapshot = background ? null : new Map(reserved.value)
 
 		try {
 			const codesToRefresh = itemCodes || Array.from(server.value.keys())
@@ -137,13 +142,13 @@ export const useStockStore = defineStore('stock', () => {
 			await offlineWorker.updateStockQuantities(stockData).catch(() => {})
 
 			// Restore reservations after fetch completes
-			reserved.value = reservationSnapshot
+			if (reservationSnapshot) reserved.value = reservationSnapshot
 
 			log.success(`Refreshed ${stockData.length} items`)
 		} catch (error) {
 			log.error('Refresh failed', error)
 			// Restore reservations even on error
-			reserved.value = reservationSnapshot
+			if (reservationSnapshot) reserved.value = reservationSnapshot
 		} finally {
 			refreshing.value = false
 		}

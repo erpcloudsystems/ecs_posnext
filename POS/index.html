@@ -14,6 +14,16 @@
   <meta name="apple-mobile-web-app-title" content="POSNext" />
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%234F46E5' d='M20 7h-4V4c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2v3H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2zM10 4h4v3h-4V4zm10 16H4V9h16v11z'/></svg>" />
   <title>POSNext</title>
+  <!--
+    The receipt print format loads these two families. The receipt is measured in
+    a hidden iframe before printing, and that measurement waits on
+    document.fonts.ready - so warming the browser's HTTP cache here means the
+    first sale of a shift does not pay for the download while a customer waits.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Cairo:wght@500;700&display=swap" />
 </head>
 
 <body>

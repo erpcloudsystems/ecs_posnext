@@ -7,6 +7,8 @@ from frappe.model.document import Document
 from frappe.utils import flt
 from erpnext.accounts.utils import get_balance_on
 
+from ecs_posnext.api.utilities import is_wallet_payment_mode
+
 
 class Wallet(Document):
 	def validate(self):
@@ -148,28 +150,27 @@ def get_pending_wallet_payments(customer, exclude_invoice=None):
 	invoices = frappe.get_all(
 		"Sales Invoice",
 		filters=filters,
-		fields=["name"]
+		pluck="name"
+	)
+
+	invoice_names = [name for name in invoices if name != exclude_invoice]
+	if not invoice_names:
+		return 0.0
+
+	# One query for every payment row across all of those invoices, instead of one
+	# per invoice plus one per row to classify its mode of payment. Reached from
+	# `Wallet.update_balance`, which runs while a POS sale is being submitted.
+	payments = frappe.get_all(
+		"Sales Invoice Payment",
+		filters={"parent": ["in", invoice_names], "parenttype": "Sales Invoice"},
+		fields=["mode_of_payment", "amount"]
 	)
 
 	pending_amount = 0.0
 
-	for invoice in invoices:
-		if exclude_invoice and invoice.name == exclude_invoice:
-			continue
-
-		# Get wallet payments from this invoice
-		payments = frappe.get_all(
-			"Sales Invoice Payment",
-			filters={"parent": invoice.name},
-			fields=["mode_of_payment", "amount"]
-		)
-
-		for payment in payments:
-			is_wallet = frappe.db.get_value(
-				"Mode of Payment", payment.mode_of_payment, "is_wallet_payment"
-			)
-			if is_wallet:
-				pending_amount += flt(payment.amount)
+	for payment in payments:
+		if is_wallet_payment_mode(payment.mode_of_payment):
+			pending_amount += flt(payment.amount)
 
 	return pending_amount
 

@@ -37,13 +37,14 @@ function formatCurrency(amount) {
  */
 async function fetchPrintHTML(
 	invoiceName,
-	{ printFormat, letterhead = null, noLetterhead = 1 } = {},
+	{ printFormat, letterhead = null, noLetterhead = 1, inlineAssets = 0 } = {},
 ) {
 	const result = await call("ecs_posnext.api.invoices.get_invoice_print_html", {
 		invoice_name: invoiceName,
 		print_format: printFormat || DEFAULT_PRINT_FORMAT,
 		letterhead,
 		no_letterhead: noLetterhead,
+		inline_assets: inlineAssets,
 	})
 
 	const html = result?.html || result?.message?.html
@@ -161,9 +162,26 @@ function measureReceiptHeightMM(fullHTML, contentWidthMM) {
 /**
  * Resolve print format & letterhead from a POS Profile.
  * Returns defaults when the profile lookup fails so callers always get a value.
+ *
+ * `preset` lets a caller that already holds the POS Profile (the sale screen has
+ * it in `shiftStore.currentProfile`) supply the two fields directly, so a sale
+ * does not spend an HTTP round trip re-reading them from the server. Callers
+ * without a loaded profile pass nothing and fall through to the fetch below.
  */
-async function resolvePrintSettings(posProfile, printFormat, letterhead) {
+async function resolvePrintSettings(
+	posProfile,
+	printFormat,
+	letterhead,
+	preset = null,
+) {
 	if (printFormat) return { printFormat, letterhead }
+
+	if (preset?.printFormat) {
+		return {
+			printFormat: preset.printFormat,
+			letterhead: letterhead || preset.letterhead || null,
+		}
+	}
 
 	if (posProfile) {
 		try {
@@ -356,6 +374,11 @@ export async function silentPrintInvoice(
 			printFormat: format,
 			letterhead,
 			noLetterhead: letterhead ? 0 : 1,
+			// Ask for the images already inlined as data URIs. The measurement
+			// iframe below waits for every image to load, and pulling the logo and
+			// QR over the till's network just to work out a page height was the
+			// slowest and least predictable part of printing a receipt.
+			inlineAssets: 1,
 		})
 		const measured = await measureReceiptHeightMM(
 			`<!DOCTYPE html>
@@ -515,6 +538,10 @@ export async function downloadInvoicePDF(
  * @param {string|null} [printFormat]
  * @param {Object} [options]
  * @param {string|null} [options.posProfile] - profile to take print format/letterhead from
+ * @param {{printFormat: string, letterhead: string|null}|null} [options.printSettings]
+ *   already-known print format/letterhead, to skip the POS Profile fetch
+ * @param {Promise<string>|null} [options.printerPromise] - in-flight printer
+ *   detection started before the invoice existed, to skip the QZ handshake here
  * @returns {Promise<{method: "silent"|"download", success: boolean, printer?: string, filename?: string, reason?: string}>}
  */
 export async function autoPrintInvoice(
@@ -531,11 +558,18 @@ export async function autoPrintInvoice(
 		options.posProfile,
 		printFormat,
 		options.letterhead,
+		options.printSettings,
 	)
 
 	let reason
 	try {
-		const printer = await resolvePrinter()
+		// Printer detection needs nothing from the invoice, so the sale screen
+		// starts it before submitting and hands us the promise — the QZ connect
+		// and signing handshake then costs nothing on this clock. Every other
+		// caller passes nothing and detection happens here as before.
+		const printer = options.printerPromise
+			? await options.printerPromise
+			: await resolvePrinter()
 		if (!printer) throw new Error("No printer found on this machine")
 
 		await silentPrintInvoice(invoiceName, settings.printFormat, printer, {

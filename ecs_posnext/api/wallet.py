@@ -10,6 +10,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, cint
 
+from ecs_posnext.api.utilities import is_wallet_payment_mode
+
 
 def validate_wallet_payment(doc, method=None):
 	"""
@@ -133,13 +135,7 @@ def get_wallet_amount_from_payments(payments):
 		if not payment.mode_of_payment:
 			continue
 
-		is_wallet = frappe.db.get_value(
-			"Mode of Payment",
-			payment.mode_of_payment,
-			"is_wallet_payment"
-		)
-
-		if is_wallet:
+		if is_wallet_payment_mode(payment.mode_of_payment):
 			wallet_amount += flt(payment.amount)
 
 	return wallet_amount
@@ -210,27 +206,28 @@ def get_pending_wallet_payments(customer, exclude_invoice=None):
 	invoices = frappe.get_all(
 		"Sales Invoice",
 		filters=filters,
-		fields=["name"]
+		pluck="name"
+	)
+
+	invoice_names = [name for name in invoices if name != exclude_invoice]
+	if not invoice_names:
+		return 0.0
+
+	# One query for every payment row across all of those invoices, rather than
+	# one query per invoice and then one per row to classify its mode of payment.
+	# A customer with a long tail of open POS invoices used to make this cost
+	# hundreds of round trips, on each of the three validate passes per sale.
+	payments = frappe.get_all(
+		"Sales Invoice Payment",
+		filters={"parent": ["in", invoice_names], "parenttype": "Sales Invoice"},
+		fields=["mode_of_payment", "amount"]
 	)
 
 	pending_amount = 0.0
 
-	for invoice in invoices:
-		if exclude_invoice and invoice.name == exclude_invoice:
-			continue
-
-		payments = frappe.get_all(
-			"Sales Invoice Payment",
-			filters={"parent": invoice.name},
-			fields=["mode_of_payment", "amount"]
-		)
-
-		for payment in payments:
-			is_wallet = frappe.db.get_value(
-				"Mode of Payment", payment.mode_of_payment, "is_wallet_payment"
-			)
-			if is_wallet:
-				pending_amount += flt(payment.amount)
+	for payment in payments:
+		if is_wallet_payment_mode(payment.mode_of_payment):
+			pending_amount += flt(payment.amount)
 
 	return pending_amount
 

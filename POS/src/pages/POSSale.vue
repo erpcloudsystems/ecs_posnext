@@ -1023,7 +1023,7 @@ import { parseError } from "@/utils/errorHandler";
 import { offlineWorker } from "@/utils/offline/workerClient";
 import { cacheInvoiceHistory, getCachedInvoiceHistory } from "@/utils/offline/sync";
 import { autoPrintInvoice, printInvoice, printInvoiceByName, printWithSilentFallback } from "@/utils/printInvoice";
-import { qzConnected, connect as qzConnect, disconnect as qzDisconnect } from "@/utils/qzTray";
+import { qzConnected, connect as qzConnect, disconnect as qzDisconnect, resolvePrinter } from "@/utils/qzTray";
 
 import { Button, Dialog, createResource } from "frappe-ui";
 import { call } from "@/utils/apiWrapper";
@@ -1981,6 +1981,17 @@ async function handlePaymentCompleted(paymentData) {
 			// Get item codes from cart before clearing
 			const soldItemCodes = cartStore.invoiceItems.map((item) => item.item_code);
 
+			// Printer detection needs nothing from the invoice, so start it now and
+			// let the QZ Tray connect + signing handshake run alongside the submit
+			// instead of adding itself to the cashier's wait afterwards.
+			const willAutoPrint =
+				shiftStore.autoPrintEnabled || posSettingsStore.silentPrint;
+			const printerPromise = willAutoPrint ? resolvePrinter() : null;
+			// Keep a pre-detection failure from surfacing as an unhandled rejection
+			// if the sale itself fails before the promise is consumed. autoPrintInvoice
+			// still sees the original rejection and reports it in its toast.
+			if (printerPromise) printerPromise.catch(() => {});
+
 			const result = await cartStore.submitInvoice();
 
 			if (result) {
@@ -1998,50 +2009,69 @@ async function handlePaymentCompleted(paymentData) {
 					draftsStore.deleteDraft(draftIdToDelete);
 				}
 
-				// Refresh stock - Direct API (50-200ms), no Socket.IO lag!
-				await stockStore.refresh(soldItemCodes, shiftStore.profileWarehouse);
+				if (willAutoPrint) {
+					// Tell the cashier the sale is done straight away. Printing is
+					// issued here but not awaited: the invoice is already submitted and
+					// the cart is already cleared, so nothing the cashier does next
+					// depends on the paper. The outcome toast still reports what
+					// happened once the receipt has actually spooled.
+					showSuccess(__("Invoice {0} created — printing…", [invoiceName]));
+
+					// autoPrintInvoice never opens the browser print dialog: it prints
+					// silently to a detected printer, or saves the receipt as a PDF when
+					// the till has none. Nothing for the cashier to click either way.
+					autoPrintInvoice({ name: invoiceName }, null, {
+						posProfile: shiftStore.profileName,
+						// The POS Profile is already loaded, so skip the per-sale
+						// frappe.client.get that only re-read these two fields.
+						printSettings: {
+							printFormat: shiftStore.currentProfile?.print_format || null,
+							letterhead: shiftStore.currentProfile?.letter_head || null,
+						},
+						printerPromise,
+					})
+						.then((printResult) => {
+							if (printResult.method === "silent") {
+								showSuccess(__("Invoice {0} created and sent to printer", [invoiceName]));
+							} else if (printResult.success) {
+								// No printer reachable — say where the receipt went, otherwise a
+								// till with a broken printer looks like it silently skipped printing.
+								showWarning(
+									__("Invoice {0} created. No printer found — receipt saved to Downloads as {1}", [
+										invoiceName,
+										printResult.filename,
+									])
+								);
+							} else {
+								showWarning(
+									__("Invoice {0} created but printing failed: {1}", [
+										invoiceName,
+										printResult.reason || __("Unknown error"),
+									])
+								);
+							}
+						})
+						.catch((error) => {
+							log.error("Auto-print error:", error);
+							showWarning(__("Invoice {0} created but print failed", [invoiceName]));
+						});
+				} else {
+					uiStore.showSuccess(invoiceName, invoiceTotal, paidAmount);
+					showSuccess(__("Invoice {0} created successfully", [invoiceName]));
+				}
+
+				// Post-sale housekeeping, deliberately after the print request has gone
+				// out. Neither of these appears on the receipt, and emit_stock_update_event
+				// already broadcast the same quantities during on_submit, so gating the
+				// receipt on them only made the cashier wait.
+				stockStore
+					.refresh(soldItemCodes, shiftStore.profileWarehouse, { background: true })
+					.catch((err) => log.debug("Background stock refresh failed:", err));
 
 				// Refresh invoice history cache in background (non-blocking)
 				loadInvoiceHistoryData().catch((err) =>
 					log.debug("Background invoice cache refresh failed:", err)
 				);
-
-				if (shiftStore.autoPrintEnabled || posSettingsStore.silentPrint) {
-					try {
-						// autoPrintInvoice never opens the browser print dialog: it prints
-						// silently to a detected printer, or saves the receipt as a PDF when
-						// the till has none. Nothing for the cashier to click either way.
-						const printResult = await autoPrintInvoice({ name: invoiceName }, null, {
-						posProfile: shiftStore.profileName,
-					});
-
-						if (printResult.method === "silent") {
-							showSuccess(__("Invoice {0} created and sent to printer", [invoiceName]));
-						} else if (printResult.success) {
-							// No printer reachable — say where the receipt went, otherwise a
-							// till with a broken printer looks like it silently skipped printing.
-							showWarning(
-								__("Invoice {0} created. No printer found — receipt saved to Downloads as {1}", [
-									invoiceName,
-									printResult.filename,
-								])
-							);
-						} else {
-							showWarning(
-								__("Invoice {0} created but printing failed: {1}", [
-									invoiceName,
-									printResult.reason || __("Unknown error"),
-								])
-							);
-						}
-					} catch (error) {
-						log.error("Auto-print error:", error);
-						showWarning(__("Invoice {0} created but print failed", [invoiceName]));
-					}
-				} else {
-					uiStore.showSuccess(invoiceName, invoiceTotal, paidAmount);
-					showSuccess(__("Invoice {0} created successfully", [invoiceName]));
-				}
 			}
 		}
 	} catch (error) {

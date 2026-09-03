@@ -508,7 +508,10 @@
 import { Button, Dialog, Input } from "frappe-ui"
 import { storeToRefs } from "pinia"
 import { computed, reactive, ref, watch } from "vue"
+import { call } from "@/utils/apiWrapper"
 import { isOffline } from "@/utils/offline/sync"
+import { printHtmlString } from "@/utils/reportOutput"
+import { renderReportPrintFormat } from "@/utils/reportPrintFormat"
 import { useFormatters } from "../composables/useFormatters"
 import { useShift } from "../composables/useShift"
 import { usePOSSettingsStore } from "../stores/posSettings"
@@ -728,6 +731,11 @@ async function submitClosing() {
       if (result && result.name) {
         printClosingShift(result.name)
       }
+
+      // ...and the item-level summary for the same shift day. Not awaited: the
+      // shift is closed either way, so the dialog should not sit open waiting
+      // for a report to render.
+      printItemSalesSummary(closingData.value)
     }
 
     // Shift is closed: dismiss the dialog right away, no success report
@@ -750,6 +758,93 @@ function printClosingShift(name) {
     _t: Date.now(),
   })
   window.open(`/printview?${params.toString()}`, '_blank', 'width=800,height=600')
+}
+
+// The report printed alongside the Z-report, and the Print Format it is printed
+// with. Both are named the same thing; the format is the one linked to the
+// report, so the receipt is identical to the one Reports prints.
+const ITEM_SALES_SUMMARY_REPORT = "POS Item Sales Summary"
+const ITEM_SALES_SUMMARY_FORMAT = "POS Item Sales Summary"
+
+// The shift day the report groups by runs 09:00 -> 09:00, so a shift opened
+// after midnight still belongs to the day before. Kept in step with the CASE
+// that buckets the day in the report query (Report: POS Item Sales Summary).
+const SHIFT_DAY_START_HOUR = 9
+
+/**
+ * The shift day `period_start_date` falls in, as YYYY-MM-DD.
+ *
+ * Read off the string rather than a Date so the day is the one the server
+ * stamped, whatever timezone the browser is in. Returns null if unparseable.
+ */
+function shiftDayOf(periodStartDate) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2})/.exec(String(periodStartDate || ""))
+  if (!parts) return null
+
+  const [year, month, day, hour] = parts.slice(1).map(Number)
+  if (hour >= SHIFT_DAY_START_HOUR) return parts[0].slice(0, 10)
+
+  // UTC arithmetic so subtracting the day cannot land on a DST boundary
+  return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10)
+}
+
+/**
+ * Print the shift day's item sales summary, right after the Z-report.
+ *
+ * Goes through the POS report endpoints so the branch scope and the permission
+ * checks are the ones Reports already applies. The format is a client-side (JS)
+ * template, so it is rendered here and not on the server.
+ *
+ * Never throws: by the time this runs the shift is closed, and a report that
+ * fails to print must not read to the cashier as a closing that failed.
+ */
+async function printItemSalesSummary(data) {
+  const shiftDate = shiftDayOf(data?.period_start_date)
+  if (!shiftDate) {
+    console.error(
+      "Cannot print item sales summary: unreadable shift start",
+      data?.period_start_date,
+    )
+    return
+  }
+
+  const posProfile = data?.pos_profile || null
+  const filters = { shift_date: shiftDate }
+
+  try {
+    const [report, layout] = await Promise.all([
+      call("ecs_posnext.api.reports.run_pos_report", {
+        report_name: ITEM_SALES_SUMMARY_REPORT,
+        filters: JSON.stringify(filters),
+        pos_profile: posProfile,
+      }),
+      call("ecs_posnext.api.reports.get_print_template", {
+        report_name: ITEM_SALES_SUMMARY_REPORT,
+        print_layout: ITEM_SALES_SUMMARY_FORMAT,
+        pos_profile: posProfile,
+      }),
+    ])
+
+    if (!layout?.template) {
+      console.error("Item sales summary print format is empty")
+      return
+    }
+
+    printHtmlString(
+      renderReportPrintFormat({
+        template: layout.template,
+        letterhead: layout.letterhead,
+        orientation: "Portrait",
+        reportName: ITEM_SALES_SUMMARY_REPORT,
+        title: __("POS Item Sales Summary"),
+        columns: report?.columns || [],
+        rows: report?.result || [],
+        filters,
+      }),
+    )
+  } catch (error) {
+    console.error("Error printing item sales summary:", error)
+  }
 }
 
 // Render a Z-report locally when closing offline (the server regenerates the

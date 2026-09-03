@@ -12,6 +12,8 @@ from frappe.utils import cint, flt
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
 from erpnext.accounts.utils import get_account_currency
 
+from ecs_posnext.api.utilities import is_wallet_payment_mode
+
 def _get_post_change_gl_entries_setting():
 	"""
 	Get post_change_gl_entries setting compatible with ERPNext v15 and v16.
@@ -25,6 +27,21 @@ def _get_post_change_gl_entries_setting():
 	Returns:
 		int: 1 if post_change_gl_entries is enabled, 0 otherwise (default: 0)
 	"""
+	# Resolved once per process. Which doctype holds the field is fixed by the
+	# installed ERPNext version, and the setting itself is a rarely-touched
+	# singleton, so re-running the schema probe and the Singles query on every
+	# POS submit only cost round trips.
+	cached = frappe.local.__dict__.get("_ecs_posnext_post_change_gl_entries")
+	if cached is not None:
+		return cached
+
+	value = _read_post_change_gl_entries_setting()
+	frappe.local._ecs_posnext_post_change_gl_entries = value
+	return value
+
+
+def _read_post_change_gl_entries_setting():
+	"""Uncached read behind `_get_post_change_gl_entries_setting`."""
 	# Check if field exists in Accounts Settings schema (v15)
 	meta = frappe.get_meta("Accounts Settings")
 	if meta.has_field("post_change_gl_entries"):
@@ -137,12 +154,8 @@ class CustomSalesInvoice(SalesInvoice):
 		returns Customer as party_type and the invoice customer as party.
 		For regular payments, returns empty strings.
 		"""
-		is_wallet_mode_of_payment = frappe.db.get_value(
-			"Mode of Payment", mode_of_payment, "is_wallet_payment"
-		)
-
 		party_type, party = "", ""
-		if is_wallet_mode_of_payment:
+		if is_wallet_payment_mode(mode_of_payment):
 			party_type, party = "Customer", self.customer
 
 		return party_type, party
