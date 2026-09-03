@@ -798,9 +798,14 @@ def update_invoice(data):
         # Mirror employee/room onto each item row too (same dimensions already
         # exist on the item child tables), same convention as branch above.
         employee_value = data.get("employee") if isinstance(data, dict) else None
+        # Clearing matters as much as setting: a plain customer sale sends no employee,
+        # and if this call is updating a document that was previously an employee order,
+        # the old employee must not stay behind on it.
+        if isinstance(data, dict) and hasattr(invoice_doc, "employee"):
+            invoice_doc.employee = employee_value or None
         for item in invoice_doc.get("items", []):
-            if employee_value and hasattr(item, "employee"):
-                item.employee = employee_value
+            if hasattr(item, "employee"):
+                item.employee = employee_value or None
             if room_value and hasattr(item, "room"):
                 item.room = room_value
 
@@ -3136,38 +3141,6 @@ def get_item_valuation_rate(item_code, warehouse):
     return flt(rate) if rate else 0
 
 
-MAX_ITEM_GROUP_DEPTH = 10
-
-
-def get_warehouse_cost_mapping(warehouse, item_group):
-    """
-    Walk up the Item Group tree checking the Warehouse's "Cost Mapping" table
-    (custom_mapping) at each level, until a match is found or the tree root is
-    reached. Returns (cost_center, expense_account), either of which may be None
-    if that column was left blank on the matched row or nothing matched at all.
-    """
-    if not warehouse or not item_group:
-        return None, None
-
-    warehouse_doc = frappe.get_cached_doc("Warehouse", warehouse)
-    mapping_by_group = {
-        row.item_group: (row.cost_center, row.expense_account)
-        for row in (warehouse_doc.get("custom_mapping") or [])
-    }
-
-    current = item_group
-    seen = set()
-    for _i in range(MAX_ITEM_GROUP_DEPTH):
-        if not current or current in seen:
-            break
-        seen.add(current)
-        if current in mapping_by_group:
-            return mapping_by_group[current]
-        current = frappe.db.get_value("Item Group", current, "parent_item_group")
-
-    return None, None
-
-
 @frappe.whitelist()
 def create_employee_stock_issue(pos_profile, items, employee=None, pos_sale_type=None, room=None):
     """
@@ -3198,9 +3171,7 @@ def create_employee_stock_issue(pos_profile, items, employee=None, pos_sale_type
     profile = frappe.get_doc("POS Profile", pos_profile)
     company = profile.company
     default_warehouse = profile.warehouse
-    # Fallback only - the per-item-group Cost Mapping on the Warehouse (below) takes
-    # priority and may cover every item group in the sale without this ever being needed.
-    fallback_cost_center = (
+    cost_center = (
         (profile.cost_center if hasattr(profile, "cost_center") else None)
         or frappe.get_cached_value("Company", company, "cost_center")
     )
@@ -3236,21 +3207,15 @@ def create_employee_stock_issue(pos_profile, items, employee=None, pos_sale_type
         row.uom = uom
         row.s_warehouse = warehouse
 
-        # Prefer the warehouse's per-item-group Cost Mapping (cost center + expense/
-        # difference account); fall back to the POS Profile/Company cost center
-        # when that item group isn't mapped there.
-        item_group = frappe.db.get_value("Item", item_code, "item_group")
-        mapped_cost_center, mapped_expense_account = get_warehouse_cost_mapping(warehouse, item_group)
-        row.cost_center = mapped_cost_center or fallback_cost_center
-        if mapped_expense_account:
-            row.expense_account = mapped_expense_account
+        # Cost center comes from the POS Profile / Company only. The expense (difference)
+        # account is deliberately left unset so ERPNext resolves it from its own defaults.
+        row.cost_center = cost_center
 
         if not row.cost_center:
             frappe.throw(
-                _("No Cost Center found for item {0} (item group {1}) in warehouse {2}. "
-                  "Add a row for this item group to the warehouse's Cost Mapping table, "
-                  "or set a Cost Center on POS Profile {3} / Company {4}.")
-                .format(item_code, item_group, warehouse, pos_profile, company)
+                _("No Cost Center found for item {0} in warehouse {1}. "
+                  "Set a Cost Center on POS Profile {2} / Company {3}.")
+                .format(item_code, warehouse, pos_profile, company)
             )
 
         # The issuing warehouse may have no valuation history for this item (e.g. never

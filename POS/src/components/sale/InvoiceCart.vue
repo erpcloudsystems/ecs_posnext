@@ -2099,8 +2099,8 @@ function selectCustomer(cust) {
 async function _searchRooms(query) {
 	try {
 		const filters = query && query.length >= 1
-			? [["room", "like", `%${query}%`]]
-			: [];
+			? [["room", "like", `%${query}%`], ["is_active", "=", 1]]
+			: [["is_active", "=", 1]];
 		const results = await call("frappe.client.get_list", {
 			doctype: "Room",
 			fields: ["name", "room", "room_category"],

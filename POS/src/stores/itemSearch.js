@@ -156,10 +156,38 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	const groupBreadcrumb = ref([]) // Stack of { name, label } for nested navigation
 	const currentGroupChildren = ref([]) // Current group's children for card display
 	const loadingGroups = ref(false)
+
+	// ------------------------------------------------------------------
+	// Item Group picker state — paginated "load more groups" UX.
+	// Lets the cashier reach item groups beyond the ones pre-configured
+	// on the POS Profile, without loading the whole tree up front.
+	// ------------------------------------------------------------------
+	const GROUP_PAGE_SIZE = 40
+	const showGroupPicker = ref(false)
+	const groupPickerGroups = ref([])
+	const groupPickerSearch = ref("")
+	const groupPickerParent = ref(null) // drill-down parent inside the picker
+	const groupPickerBreadcrumb = ref([])
+	const groupPickerStart = ref(0)
+	const groupPickerHasMore = ref(false)
+	const groupPickerTotal = ref(0)
+	const groupPickerLoading = ref(false)
+	const groupPickerLoadingMore = ref(false)
+	let groupPickerSearchTimer = null // debounce for picker search input
+	// Groups picked from the picker that aren't part of the profile config —
+	// kept so they stay visible (and selectable) as chips in the tab bar.
+	const pinnedItemGroups = ref([])
+	// Card-grid browsing (Step 2) — reachable from the tab bar, pages in more groups
+	const browsingGroups = ref(false)
+	const groupCardsHasMore = ref(false)
+	const loadingMoreGroupCards = ref(false)
+
 	// Navigation step: 'price_list' -> 'groups' -> 'items'
 	const navigationStep = computed(() => {
 		if (!selectedPriceList.value) return 'price_list'
 		if (loadingGroups.value) return 'loading'
+		// Explicit "browse groups" mode keeps the card grid open at root level
+		if (browsingGroups.value) return 'groups'
 		// Show group cards only when actively navigating (breadcrumb exists + has children to show)
 		if (groupBreadcrumb.value.length > 0 && currentGroupChildren.value.length > 0) return 'groups'
 		// Always show items at root level and when no sub-group navigation is in progress
@@ -532,10 +560,21 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	 * @returns {Array<Object>} Filtered items with injected stock quantities
 	 */
 	/**
+	 * Look up hierarchy info for a group — profile groups first, then groups the
+	 * cashier pinned from the "more groups" picker.
+	 */
+	const findKnownGroup = (groupName) => {
+		if (!groupName) return null
+		return itemGroups.value?.find(g => g.item_group === groupName)
+			|| pinnedItemGroups.value?.find(g => g.item_group === groupName)
+			|| null
+	}
+
+	/**
 	 * Get all groups to filter by, including child groups for parent item groups.
 	 */
 	const getGroupsToFilter = (groupName) => {
-		const groupInfo = itemGroups.value?.find(g => g.item_group === groupName)
+		const groupInfo = findKnownGroup(groupName)
 		if (groupInfo?.child_groups?.length) {
 			return new Set([groupName, ...groupInfo.child_groups])
 		}
@@ -1095,7 +1134,9 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 
 		const effectiveLimit = limit || itemsPerPage.value
 
-		// Get expanded groups (parent + children) for filtering
+		// Expand only profile groups client-side — their child_groups are already known.
+		// For any other group (e.g. picked from the "more groups" picker) the single-group
+		// endpoint expands descendants server-side, so one call is enough.
 		const groupInfo = itemGroups.value?.find(g => g.item_group === itemGroup)
 		const groupsToFetch = groupInfo?.child_groups?.length
 			? [itemGroup, ...groupInfo.child_groups]
@@ -1781,6 +1822,11 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			searchDebounceTimer = null
 		}
 
+		if (groupPickerSearchTimer) {
+			clearTimeout(groupPickerSearchTimer)
+			groupPickerSearchTimer = null
+		}
+
 		// Clean up real-time POS Profile update handler
 		if (posProfileUpdateCleanup) {
 			posProfileUpdateCleanup()
@@ -1999,6 +2045,248 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		replaceAllItems([])
 	}
 
+	// ========================================================================
+	// ITEM GROUP PICKER — paginated group discovery ("load more groups")
+	// ========================================================================
+
+	/** Drop every picker/browse artefact (used when the POS Profile changes). */
+	function resetGroupPickerState() {
+		if (groupPickerSearchTimer) {
+			clearTimeout(groupPickerSearchTimer)
+			groupPickerSearchTimer = null
+		}
+		showGroupPicker.value = false
+		groupPickerGroups.value = []
+		groupPickerSearch.value = ""
+		groupPickerParent.value = null
+		groupPickerBreadcrumb.value = []
+		groupPickerStart.value = 0
+		groupPickerHasMore.value = false
+		groupPickerTotal.value = 0
+		pinnedItemGroups.value = []
+		browsingGroups.value = false
+		groupCardsHasMore.value = false
+	}
+
+	/**
+	 * Fetch one page of item groups from the server.
+	 *
+	 * @param {Object} opts
+	 * @param {number} opts.start - Offset for offset-based paging
+	 * @param {string} opts.search - Optional name filter
+	 * @param {string} opts.parentGroup - Restrict to direct children of this group
+	 * @param {Array<string>} opts.exclude - Names already on screen (server filters them out)
+	 * @returns {Promise<{groups: Array, hasMore: boolean, nextStart: number, total: number}>}
+	 */
+	async function fetchItemGroupPage({ start = 0, search = null, parentGroup = null, exclude = [] } = {}) {
+		const empty = { groups: [], hasMore: false, nextStart: start, total: 0 }
+
+		// Group discovery needs the server — the offline cache only holds the
+		// groups that were already synced with the catalog.
+		if (isOffline()) {
+			log.warn("Cannot load more item groups while offline")
+			return empty
+		}
+
+		try {
+			const data = await call("ecs_posnext.api.items.search_item_groups", {
+				pos_profile: posProfile.value || undefined,
+				search_term: search?.trim() || undefined,
+				parent_group: parentGroup || undefined,
+				exclude: exclude?.length ? JSON.stringify(exclude) : undefined,
+				start,
+				page_length: GROUP_PAGE_SIZE,
+			})
+			const res = data?.message || data || {}
+			return {
+				groups: res.groups || [],
+				hasMore: !!res.has_more,
+				nextStart: res.next_start ?? start,
+				total: res.total || 0,
+			}
+		} catch (error) {
+			log.error("Failed to load item groups page:", error)
+			return empty
+		}
+	}
+
+	async function openItemGroupPicker() {
+		showGroupPicker.value = true
+		if (!groupPickerGroups.value.length) {
+			await reloadItemGroupPicker()
+		}
+	}
+
+	function closeItemGroupPicker() {
+		showGroupPicker.value = false
+	}
+
+	/** Reload the picker list from offset 0 using the current search/parent. */
+	async function reloadItemGroupPicker() {
+		groupPickerLoading.value = true
+		try {
+			const page = await fetchItemGroupPage({
+				start: 0,
+				search: groupPickerSearch.value,
+				parentGroup: groupPickerParent.value,
+			})
+			groupPickerGroups.value = page.groups
+			groupPickerHasMore.value = page.hasMore
+			groupPickerStart.value = page.nextStart
+			groupPickerTotal.value = page.total
+		} finally {
+			groupPickerLoading.value = false
+		}
+	}
+
+	function setItemGroupPickerSearch(term) {
+		groupPickerSearch.value = term
+		if (groupPickerSearchTimer) clearTimeout(groupPickerSearchTimer)
+		groupPickerSearchTimer = setTimeout(() => {
+			groupPickerSearchTimer = null
+			// Searching looks across the whole tree, so leave drill-down mode
+			groupPickerParent.value = null
+			groupPickerBreadcrumb.value = []
+			reloadItemGroupPicker()
+		}, 300)
+	}
+
+	/** Append the next page of groups to the picker list. */
+	async function loadMoreItemGroups() {
+		if (groupPickerLoadingMore.value || !groupPickerHasMore.value) return
+
+		groupPickerLoadingMore.value = true
+		try {
+			const page = await fetchItemGroupPage({
+				start: groupPickerStart.value,
+				search: groupPickerSearch.value,
+				parentGroup: groupPickerParent.value,
+			})
+			const seen = new Set(groupPickerGroups.value.map(g => g.item_group))
+			const fresh = page.groups.filter(g => !seen.has(g.item_group))
+			groupPickerGroups.value = [...groupPickerGroups.value, ...fresh]
+			groupPickerStart.value = page.nextStart
+			groupPickerTotal.value = page.total
+			groupPickerHasMore.value = page.hasMore
+			log.debug(`Loaded ${fresh.length} more item groups (${groupPickerGroups.value.length}/${page.total})`)
+		} finally {
+			groupPickerLoadingMore.value = false
+		}
+	}
+
+	/** Drill into a parent group's children inside the picker. */
+	async function drillIntoPickerGroup(group) {
+		const groupName = group?.item_group || group
+		if (!groupName) return
+		groupPickerBreadcrumb.value = [...groupPickerBreadcrumb.value, groupName]
+		groupPickerParent.value = groupName
+		groupPickerSearch.value = ""
+		await reloadItemGroupPicker()
+	}
+
+	/** Step back one level inside the picker (index < 0 goes to the root list). */
+	async function pickerNavigateTo(index = -1) {
+		const crumbs = index < 0 ? [] : groupPickerBreadcrumb.value.slice(0, index + 1)
+		groupPickerBreadcrumb.value = crumbs
+		groupPickerParent.value = crumbs.length ? crumbs[crumbs.length - 1] : null
+		await reloadItemGroupPicker()
+	}
+
+	/**
+	 * Keep a picked group visible as a chip in the tab bar, resolving its
+	 * descendants so offline filtering covers sub-groups too.
+	 */
+	async function pinItemGroup(group) {
+		const groupName = group?.item_group || group
+		if (!groupName || findKnownGroup(groupName)) return
+
+		let childGroups = []
+		if (group?.is_group && !isOffline()) {
+			try {
+				const data = await call("ecs_posnext.api.items.get_item_group_descendants", {
+					item_group: groupName,
+				})
+				const descendants = data?.message || data || []
+				childGroups = descendants.filter(g => g !== groupName)
+			} catch (error) {
+				log.warn(`Could not resolve sub-groups of ${groupName}:`, error.message)
+			}
+		}
+
+		pinnedItemGroups.value = [
+			...pinnedItemGroups.value,
+			{ item_group: groupName, is_group: !!group?.is_group, child_groups: childGroups },
+		]
+	}
+
+	/** Select a group from the picker: pin it, close the picker, load its items. */
+	async function selectItemGroupFromPicker(group) {
+		const groupName = group?.item_group || group
+		if (!groupName) return
+
+		await pinItemGroup(group)
+		showGroupPicker.value = false
+		browsingGroups.value = false
+		groupBreadcrumb.value = []
+		currentGroupChildren.value = []
+		await setSelectedItemGroup(groupName)
+	}
+
+	function unpinItemGroup(groupName) {
+		pinnedItemGroups.value = pinnedItemGroups.value.filter(g => g.item_group !== groupName)
+		if (selectedItemGroup.value === groupName) {
+			setSelectedItemGroup(null)
+		}
+	}
+
+	/** Open the card grid at root level with a first page of groups. */
+	async function browseAllGroups() {
+		browsingGroups.value = true
+		groupBreadcrumb.value = []
+		loadingGroups.value = true
+		try {
+			const page = await fetchItemGroupPage({ start: 0 })
+			currentGroupChildren.value = page.groups
+			groupCardsHasMore.value = page.hasMore
+		} finally {
+			loadingGroups.value = false
+		}
+	}
+
+	function exitGroupBrowsing() {
+		browsingGroups.value = false
+		groupCardsHasMore.value = false
+		if (groupBreadcrumb.value.length === 0) {
+			currentGroupChildren.value = []
+		}
+	}
+
+	/**
+	 * Append the next page of groups to the card grid.
+	 * Uses exclude-based paging (start stays 0) so groups already on screen —
+	 * which may come from the profile config rather than this pager — are never
+	 * repeated. Practical ceiling: the server caps `exclude` at 500 names.
+	 */
+	async function loadMoreGroupCards() {
+		if (loadingMoreGroupCards.value || !groupCardsHasMore.value) return
+
+		loadingMoreGroupCards.value = true
+		try {
+			const parent = groupBreadcrumb.value.length
+				? groupBreadcrumb.value[groupBreadcrumb.value.length - 1].name
+				: null
+			const shown = currentGroupChildren.value.map(g => g.item_group)
+			const page = await fetchItemGroupPage({ start: 0, parentGroup: parent, exclude: shown })
+			const seen = new Set(shown)
+			const fresh = page.groups.filter(g => !seen.has(g.item_group))
+			currentGroupChildren.value = [...currentGroupChildren.value, ...fresh]
+			groupCardsHasMore.value = fresh.length > 0 && page.hasMore
+			log.debug(`Loaded ${fresh.length} more group cards`)
+		} finally {
+			loadingMoreGroupCards.value = false
+		}
+	}
+
 	async function loadGroupChildren(parentGroup) {
 		loadingGroups.value = true
 		try {
@@ -2026,10 +2314,16 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			const children = await loadGroupChildren(groupName)
 			if (children.length > 0) {
 				groupBreadcrumb.value = [...groupBreadcrumb.value, { name: groupName, label: groupName }]
+				// Children come back in one unpaginated query — nothing more to page in
+				groupCardsHasMore.value = false
 				return
 			}
 		}
 
+		// Leaf group — show its items instead of another card level
+		browsingGroups.value = false
+		groupCardsHasMore.value = false
+		await pinItemGroup(group)
 		groupBreadcrumb.value = [...groupBreadcrumb.value, { name: groupName, label: groupName }]
 		currentGroupChildren.value = []
 		selectedItemGroup.value = groupName
@@ -2050,7 +2344,11 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		replaceAllItems([])
 
 		if (newBreadcrumb.length === 0) {
-			await loadGroupChildren(null)
+			if (browsingGroups.value) {
+				await browseAllGroups()
+			} else {
+				await loadGroupChildren(null)
+			}
 		} else {
 			const parentGroup = newBreadcrumb[newBreadcrumb.length - 1].name
 			await loadGroupChildren(parentGroup)
@@ -2062,7 +2360,11 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			groupBreadcrumb.value = []
 			selectedItemGroup.value = null
 			replaceAllItems([])
-			await loadGroupChildren(null)
+			if (browsingGroups.value) {
+				await browseAllGroups()
+			} else {
+				await loadGroupChildren(null)
+			}
 			return
 		}
 
@@ -2070,6 +2372,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		groupBreadcrumb.value = groupBreadcrumb.value.slice(0, index + 1)
 		selectedItemGroup.value = null
 		replaceAllItems([])
+		groupCardsHasMore.value = false
 		await loadGroupChildren(targetGroup.name)
 	}
 
@@ -2089,6 +2392,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			posProfileUpdateCleanup()
 			posProfileUpdateCleanup = null
 		}
+
+		resetGroupPickerState()
 
 		if (!profile) {
 			profileItemGroups.value = []
@@ -2256,6 +2561,36 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		navigateToGroup,
 		navigateBack,
 		navigateToBreadcrumb,
+
+		// ========================================================================
+		// ITEM GROUP PICKER (paginated "load more groups")
+		// ========================================================================
+		showGroupPicker,
+		groupPickerGroups,
+		groupPickerSearch,
+		groupPickerBreadcrumb,
+		groupPickerHasMore,
+		groupPickerTotal,
+		groupPickerLoading,
+		groupPickerLoadingMore,
+		pinnedItemGroups,
+		browsingGroups,
+		groupCardsHasMore,
+		loadingMoreGroupCards,
+		openItemGroupPicker,
+		closeItemGroupPicker,
+		reloadItemGroupPicker,
+		setItemGroupPickerSearch,
+		loadMoreItemGroups,
+		drillIntoPickerGroup,
+		pickerNavigateTo,
+		selectItemGroupFromPicker,
+		pinItemGroup,
+		unpinItemGroup,
+		browseAllGroups,
+		exitGroupBrowsing,
+		loadMoreGroupCards,
+		resetGroupPickerState,
 
 		// ========================================================================
 		// STOCK STORE ACCESS

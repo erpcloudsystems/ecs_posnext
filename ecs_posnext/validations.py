@@ -19,6 +19,33 @@ def validate_item(doc, method):
 		if not doc.get("custom_company"):
 			doc.custom_company = ""
 
+	sync_expense_account_from_custom_set_account(doc)
+
+
+def sync_expense_account_from_custom_set_account(doc):
+	"""
+	Keep Item Defaults > Expense Account in sync with the custom_set_account field.
+	Whenever custom_set_account is set/changed, push its value into expense_account
+	on the matching (or first available) Item Defaults row, creating a row if none exists.
+	"""
+	if not doc.has_value_changed("custom_set_account"):
+		return
+
+	company = frappe.defaults.get_global_default("company")
+	row = None
+	for item_default in doc.item_defaults:
+		if company and item_default.company == company:
+			row = item_default
+			break
+
+	if not row:
+		row = doc.item_defaults[0] if doc.item_defaults else doc.append("item_defaults", {})
+
+	if not row.company:
+		row.company = company
+
+	row.expense_account = doc.custom_set_account
+
 
 @frappe.whitelist()
 def item_query(doctype, txt, searchfield, start, page_len, filters):

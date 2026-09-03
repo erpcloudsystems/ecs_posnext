@@ -9,7 +9,7 @@ from erpnext.stock.doctype.batch.batch import get_batch_qty
 from erpnext.stock.get_item_details import get_item_details as erpnext_get_item_details
 from frappe import _
 from frappe.query_builder import DocType, Order, functions as fn
-from frappe.utils import flt, nowdate
+from frappe.utils import cint, flt, nowdate
 
 ITEM_RESULT_FIELDS = [
 	"name as item_code",
@@ -2382,3 +2382,143 @@ def get_child_item_groups(parent_group=None, pos_profile=None):
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Get Child Item Groups Error")
 		frappe.throw(_("Error fetching child item groups: {0}").format(str(e)))
+
+
+def _get_profile_allowed_groups(pos_profile):
+	"""Return the set of item groups a POS Profile allows (configured groups + descendants).
+
+	An empty set means the profile has no item group restriction.
+	"""
+	if not pos_profile:
+		return set()
+
+	cache_key = f"pos_profile_allowed_item_groups:{pos_profile}"
+	cached = frappe.cache().get_value(cache_key)
+	if cached is not None:
+		return set(cached)
+
+	POSItemGroup = DocType("POS Item Group")
+	configured = (
+		frappe.qb.from_(POSItemGroup)
+		.select(POSItemGroup.item_group)
+		.distinct()
+		.where(POSItemGroup.parent == pos_profile)
+		.run(pluck="item_group")
+	)
+
+	allowed = set()
+	for group_name in configured:
+		allowed.update(_get_item_group_with_descendants(group_name))
+
+	frappe.cache().set_value(cache_key, list(allowed), expires_in_sec=300)
+	return allowed
+
+
+@frappe.whitelist()
+def search_item_groups(
+	pos_profile=None,
+	search_term=None,
+	parent_group=None,
+	exclude=None,
+	start=0,
+	page_length=40,
+):
+	"""Paginated + searchable Item Group listing for the POS item selector.
+
+	Used by the "load more groups" UI so cashiers can reach item groups beyond the
+	ones pre-configured on the POS Profile.
+
+	Args:
+		pos_profile: Used only to flag which groups are inside the profile's scope.
+		search_term: Optional filter on group name (matches anywhere in the name).
+		parent_group: Restrict to direct children of this group (drill-down mode).
+		exclude: JSON list (or list) of group names already shown on screen.
+		start: Offset for pagination.
+		page_length: Number of groups per page.
+
+	Returns:
+		dict with keys: groups, has_more, next_start, total
+	"""
+	if not frappe.has_permission("Item Group", "read"):
+		frappe.throw(_("Not permitted to read Item Group"), frappe.PermissionError)
+
+	try:
+		start = cint(start)
+		page_length = max(1, min(cint(page_length) or 40, 200))
+
+		if isinstance(exclude, str):
+			exclude = json.loads(exclude) if exclude else []
+		exclude = [name for name in (exclude or []) if name][:500]
+
+		ItemGroup = DocType("Item Group")
+
+		def base_query():
+			query = frappe.qb.from_(ItemGroup)
+			if parent_group:
+				query = query.where(ItemGroup.parent_item_group == parent_group)
+			if search_term:
+				query = query.where(ItemGroup.name.like(f"%{search_term.strip()}%"))
+			if exclude:
+				query = query.where(ItemGroup.name.notin(exclude))
+			return query
+
+		total = (
+			base_query()
+			.select(fn.Count(ItemGroup.name))
+			.run()
+		)
+		total = cint(total[0][0]) if total else 0
+
+		# Fetch one extra row to detect whether another page exists
+		rows = (
+			base_query()
+			.select(
+				ItemGroup.name.as_("item_group"),
+				ItemGroup.is_group,
+				ItemGroup.image,
+				ItemGroup.parent_item_group,
+			)
+			.orderby(ItemGroup.name)
+			.limit(page_length + 1)
+			.offset(start)
+			.run(as_dict=True)
+		)
+
+		has_more = len(rows) > page_length
+		rows = rows[:page_length]
+
+		allowed_groups = _get_profile_allowed_groups(pos_profile)
+		for row in rows:
+			# No restriction configured on the profile means everything is in scope
+			row["in_profile"] = 1 if (not allowed_groups or row["item_group"] in allowed_groups) else 0
+
+		return {
+			"groups": rows,
+			"has_more": has_more,
+			"next_start": start + len(rows),
+			"total": total,
+		}
+
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), "Search Item Groups Error")
+		frappe.throw(_("Error searching item groups: {0}").format(str(e)))
+
+
+@frappe.whitelist()
+def get_item_group_descendants(item_group):
+	"""Return an item group plus all of its descendant groups.
+
+	Lets the POS expand a group picked outside the POS Profile config so offline
+	filtering and client-side caching cover its sub-groups too.
+	"""
+	if not item_group:
+		return []
+
+	if not frappe.has_permission("Item Group", "read"):
+		frappe.throw(_("Not permitted to read Item Group"), frappe.PermissionError)
+
+	try:
+		return _get_item_group_with_descendants(item_group)
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), "Get Item Group Descendants Error")
+		frappe.throw(_("Error fetching item group descendants: {0}").format(str(e)))

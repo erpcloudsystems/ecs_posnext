@@ -2007,7 +2007,9 @@ async function handleEmployeeCashSale({ employee, customer }) {
 		// Create the Material Issue FIRST. If it fails, this throws and the Sales
 		// Order below is never created - the whole sale stops here.
 		const stockResult = await cartStore.submitEmployeeIssue();
-		const order = await cartStore.createSalesOrder();
+		// Pass the employee explicitly - this flow drives the employee sale itself
+		// instead of going through the pendingEmployeeCashSale hand-off.
+		const order = await cartStore.createSalesOrder(null, { employee });
 		if (order) {
 			const orderName = order.name || order.message?.name || __("Unknown");
 			await cartStore.linkPosDocuments(orderName, stockResult?.name);
@@ -2037,9 +2039,16 @@ async function handlePaymentCompleted(paymentData) {
 		if (paymentData.room !== undefined && paymentData.room !== null) {
 			cartStore.setRoom(paymentData.room);
 		}
-		// Apply employee if provided
-		if (paymentData.employee) {
-			cartStore.setEmployee(paymentData.employee);
+		// The payment dialog echoes back whatever employee it was opened with. Only an
+		// employee-linked sale (Employee > Sales > Cash) may carry it onto the order; on
+		// a plain customer sale drop it, so an employee kept from an earlier order never
+		// ends up on this customer's Sales Order.
+		if (cartStore.pendingEmployeeCashSale) {
+			if (paymentData.employee) {
+				cartStore.setEmployee(paymentData.employee);
+			}
+		} else if (cartStore.selectedEmployee) {
+			cartStore.setEmployee(null);
 		}
 		const customerValue = cartStore.customer?.name || cartStore.customer;
 		if (!customerValue && !shiftStore.profileCustomer) {

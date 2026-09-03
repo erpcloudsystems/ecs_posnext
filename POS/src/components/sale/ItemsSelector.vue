@@ -19,7 +19,7 @@
 				</div>
 
 				<!-- Breadcrumb (visible when navigating groups) -->
-				<div v-if="navigationStep !== 'price_list' && groupBreadcrumb.length > 0" class="flex items-center gap-1 overflow-x-auto scrollbar-hide">
+				<div v-if="navigationStep !== 'price_list' && (groupBreadcrumb.length > 0 || browsingGroups)" class="flex items-center gap-1 overflow-x-auto scrollbar-hide">
 					<button @click="itemStore.navigateToBreadcrumb(-1)" class="text-[10px] sm:text-xs text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap transition-colors">
 						{{ __('Groups') }}
 					</button>
@@ -43,8 +43,8 @@
 
 				<!-- Back button (when inside groups or items) -->
 				<button
-					v-if="navigationStep !== 'price_list' && groupBreadcrumb.length > 0"
-					@click="itemStore.navigateBack()"
+					v-if="navigationStep !== 'price_list' && (groupBreadcrumb.length > 0 || browsingGroups)"
+					@click="handleGroupNavigateBack()"
 					class="ms-auto flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] sm:text-xs font-medium text-gray-600 hover:bg-gray-100 active:bg-gray-200 transition-colors touch-manipulation"
 				>
 					<svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -132,6 +132,35 @@
 						</svg>
 						{{ __('Sub-groups') }}
 					</span>
+					<span v-if="group.in_profile === 0" class="mt-1 text-[8px] sm:text-[9px] text-amber-600 font-medium">
+						{{ __('Outside POS Profile') }}
+					</span>
+				</button>
+			</div>
+
+			<!-- Load more groups + exit browsing -->
+			<div v-if="!loadingGroups" class="mt-3 flex flex-col items-center gap-2">
+				<button
+					v-if="groupCardsHasMore"
+					@click="itemStore.loadMoreGroupCards()"
+					:disabled="loadingMoreGroupCards"
+					class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-indigo-300 bg-white text-indigo-700 text-xs font-semibold hover:bg-indigo-50 active:bg-indigo-100 disabled:opacity-60 transition-colors touch-manipulation"
+				>
+					<div v-if="loadingMoreGroupCards" class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-indigo-600"></div>
+					<svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+					</svg>
+					{{ loadingMoreGroupCards ? __('Loading...') : __('Load more groups') }}
+				</button>
+				<p v-else-if="browsingGroups && currentGroupChildren.length > 0" class="text-[10px] text-gray-400">
+					{{ __('All groups loaded') }}
+				</p>
+				<button
+					v-if="browsingGroups"
+					@click="itemStore.exitGroupBrowsing()"
+					class="text-[10px] sm:text-xs text-gray-500 hover:text-gray-700 font-medium transition-colors"
+				>
+					{{ __('Back to items') }}
 				</button>
 			</div>
 		</div>
@@ -148,27 +177,84 @@
 		</div>
 
 		<!-- Item Group Tabs -->
-		<div v-if="itemGroups && itemGroups.length > 0" class="flex items-center gap-1 overflow-x-auto scrollbar-hide px-1.5 sm:px-3 py-1.5 bg-white border-b border-gray-200">
-			<button
-				@click="itemStore.setSelectedItemGroup(null)"
-				:class="[
-					'px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0',
-					selectedItemGroup === null
-						? 'bg-blue-600 text-white'
-						: 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-				]"
-			>{{ __('All') }}</button>
-			<button
-				v-for="group in itemGroups"
-				:key="group.item_group"
-				@click="itemStore.setSelectedItemGroup(group.item_group)"
-				:class="[
-					'px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0',
-					selectedItemGroup === group.item_group
-						? 'bg-blue-600 text-white'
-						: 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-				]"
-			>{{ __(group.item_group) }}</button>
+		<div class="flex items-center gap-1 px-1.5 sm:px-3 py-1.5 bg-white border-b border-gray-200">
+			<div class="flex items-center gap-1 overflow-x-auto scrollbar-hide flex-1 min-w-0">
+				<button
+					@click="itemStore.setSelectedItemGroup(null)"
+					:class="[
+						'px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0',
+						selectedItemGroup === null
+							? 'bg-blue-600 text-white'
+							: 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+					]"
+				>{{ __('All') }}</button>
+				<button
+					v-for="group in visibleGroupChips"
+					:key="group.item_group"
+					@click="itemStore.setSelectedItemGroup(group.item_group)"
+					:class="[
+						'px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0',
+						selectedItemGroup === group.item_group
+							? 'bg-blue-600 text-white'
+							: 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+					]"
+				>{{ __(group.item_group) }}</button>
+
+				<!-- Groups picked from the "more groups" picker -->
+				<span
+					v-for="group in pinnedItemGroups"
+					:key="`pinned-${group.item_group}`"
+					:class="[
+						'inline-flex items-center gap-1 ps-2.5 pe-1 py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0 border',
+						selectedItemGroup === group.item_group
+							? 'bg-indigo-600 text-white border-indigo-600'
+							: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+					]"
+				>
+					<button @click="itemStore.setSelectedItemGroup(group.item_group)">{{ __(group.item_group) }}</button>
+					<button
+						@click="itemStore.unpinItemGroup(group.item_group)"
+						class="p-0.5 rounded-full hover:bg-black/10 transition-colors"
+						:title="__('Remove {0}', [group.item_group])"
+						:aria-label="__('Remove {0}', [group.item_group])"
+					>
+						<svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+						</svg>
+					</button>
+				</span>
+
+				<button
+					v-if="hiddenGroupChipCount > 0"
+					@click="showAllGroupChips = true"
+					class="px-2 py-1 rounded-full bg-gray-50 text-gray-600 text-[10px] sm:text-xs font-medium whitespace-nowrap flex-shrink-0 border border-dashed border-gray-300 hover:bg-gray-100 transition-colors"
+					:title="__('Show all profile groups')"
+				>+{{ hiddenGroupChipCount }}</button>
+			</div>
+
+			<!-- Group discovery actions -->
+			<div class="flex items-center gap-1 flex-shrink-0 ps-1 border-s border-gray-200">
+				<button
+					@click="itemStore.openItemGroupPicker()"
+					class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[10px] sm:text-xs font-semibold hover:bg-indigo-100 active:bg-indigo-200 transition-colors touch-manipulation"
+					:title="__('Load more item groups')"
+				>
+					<svg class="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+					</svg>
+					<span class="hidden xs:inline">{{ __('More groups') }}</span>
+				</button>
+				<button
+					@click="itemStore.browseAllGroups()"
+					class="p-1.5 rounded-full text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors touch-manipulation"
+					:title="__('Browse groups as cards')"
+					:aria-label="__('Browse groups as cards')"
+				>
+					<svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
+					</svg>
+				</button>
+			</div>
 		</div>
 
 		<!-- Search Bar with Barcode Scanner and View Controls -->
@@ -811,6 +897,146 @@
 		</template>
 	</div>
 
+	<!-- ========== Item Group Picker (paginated group discovery) ========== -->
+	<Teleport to="body">
+		<div
+			v-if="showGroupPicker"
+			class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+			role="dialog"
+			aria-modal="true"
+			:aria-label="__('Item Groups')"
+		>
+			<div class="absolute inset-0 bg-black/40" @click="itemStore.closeItemGroupPicker()"></div>
+
+			<div class="relative w-full sm:max-w-lg max-h-[85vh] sm:max-h-[75vh] flex flex-col bg-white rounded-t-2xl sm:rounded-2xl shadow-xl overflow-hidden">
+				<!-- Header -->
+				<div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+					<div class="min-w-0">
+						<h3 class="text-sm font-semibold text-gray-900">{{ __('Item Groups') }}</h3>
+						<p class="text-[10px] text-gray-500">
+							{{ __('Showing {0} of {1}', [groupPickerGroups.length, groupPickerTotal]) }}
+						</p>
+					</div>
+					<button
+						@click="itemStore.closeItemGroupPicker()"
+						class="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+						:aria-label="__('Close')"
+					>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+						</svg>
+					</button>
+				</div>
+
+				<!-- Search + breadcrumb -->
+				<div class="px-4 py-2.5 border-b border-gray-100 space-y-2">
+					<div class="relative">
+						<div class="absolute inset-y-0 start-0 ps-2.5 flex items-center pointer-events-none">
+							<svg class="h-3.5 w-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+							</svg>
+						</div>
+						<input
+							:value="groupPickerSearch"
+							@input="itemStore.setItemGroupPickerSearch($event.target.value)"
+							type="text"
+							class="w-full ps-8 pe-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+							:placeholder="__('Search item groups')"
+						/>
+					</div>
+					<div v-if="groupPickerBreadcrumb.length > 0" class="flex items-center gap-1 overflow-x-auto scrollbar-hide">
+						<button @click="itemStore.pickerNavigateTo(-1)" class="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium whitespace-nowrap">
+							{{ __('All groups') }}
+						</button>
+						<template v-for="(crumb, idx) in groupPickerBreadcrumb" :key="crumb">
+							<svg class="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+							</svg>
+							<button
+								@click="itemStore.pickerNavigateTo(idx)"
+								:class="[
+									'text-[10px] font-medium whitespace-nowrap',
+									idx === groupPickerBreadcrumb.length - 1 ? 'text-gray-900' : 'text-indigo-600 hover:text-indigo-800'
+								]"
+							>{{ __(crumb) }}</button>
+						</template>
+					</div>
+				</div>
+
+				<!-- List -->
+				<div class="flex-1 overflow-y-auto">
+					<div v-if="groupPickerLoading" class="flex items-center justify-center py-10">
+						<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-500"></div>
+					</div>
+					<div v-else-if="groupPickerGroups.length === 0" class="px-4 py-10 text-center">
+						<svg class="mx-auto h-8 w-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+						</svg>
+						<p class="mt-2 text-xs text-gray-500">{{ __('No groups found') }}</p>
+					</div>
+					<ul v-else class="divide-y divide-gray-100">
+						<li v-for="group in groupPickerGroups" :key="group.item_group" class="flex items-stretch">
+							<button
+								@click="itemStore.selectItemGroupFromPicker(group)"
+								:class="[
+									'flex-1 flex items-center gap-2.5 px-4 py-2.5 text-start transition-colors touch-manipulation',
+									selectedItemGroup === group.item_group ? 'bg-indigo-50' : 'hover:bg-gray-50 active:bg-gray-100'
+								]"
+							>
+								<div class="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+									<img v-if="group.image" :src="group.image" :alt="group.item_group" class="w-full h-full object-cover" />
+									<svg v-else class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+									</svg>
+								</div>
+								<div class="min-w-0">
+									<p class="text-xs font-semibold text-gray-800 truncate">{{ __(group.item_group) }}</p>
+									<p class="flex items-center gap-1.5 text-[10px] leading-tight">
+										<span v-if="group.parent_item_group" class="text-gray-400 truncate">{{ __(group.parent_item_group) }}</span>
+										<span v-if="group.in_profile === 0" class="text-amber-600 font-medium whitespace-nowrap">{{ __('Outside POS Profile') }}</span>
+									</p>
+								</div>
+								<svg v-if="selectedItemGroup === group.item_group" class="w-4 h-4 text-indigo-600 ms-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+								</svg>
+							</button>
+							<button
+								v-if="group.is_group"
+								@click="itemStore.drillIntoPickerGroup(group)"
+								class="px-3 flex items-center text-gray-400 hover:text-indigo-600 hover:bg-gray-50 border-s border-gray-100 transition-colors touch-manipulation"
+								:title="__('Show sub-groups of {0}', [group.item_group])"
+								:aria-label="__('Show sub-groups of {0}', [group.item_group])"
+							>
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+								</svg>
+							</button>
+						</li>
+					</ul>
+				</div>
+
+				<!-- Footer: load more -->
+				<div class="px-4 py-3 border-t border-gray-200 bg-gray-50">
+					<button
+						v-if="groupPickerHasMore"
+						@click="itemStore.loadMoreItemGroups()"
+						:disabled="groupPickerLoadingMore"
+						class="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-60 transition-colors touch-manipulation"
+					>
+						<div v-if="groupPickerLoadingMore" class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white"></div>
+						<svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/>
+						</svg>
+						{{ groupPickerLoadingMore ? __('Loading...') : __('Load more groups') }}
+					</button>
+					<p v-else-if="!groupPickerLoading && groupPickerGroups.length > 0" class="text-center text-[10px] text-gray-400">
+						{{ __('All groups loaded') }}
+					</p>
+				</div>
+			</div>
+		</div>
+	</Teleport>
+
 	<!-- Warehouse Availability Dialog -->
 	<WarehouseAvailabilityDialog
 		v-if="warehouseDialogItem"
@@ -884,6 +1110,19 @@ const {
 	currentGroupChildren,
 	loadingGroups,
 	navigationStep,
+	// Item group picker state
+	showGroupPicker,
+	groupPickerGroups,
+	groupPickerSearch,
+	groupPickerBreadcrumb,
+	groupPickerHasMore,
+	groupPickerTotal,
+	groupPickerLoading,
+	groupPickerLoadingMore,
+	pinnedItemGroups,
+	browsingGroups,
+	groupCardsHasMore,
+	loadingMoreGroupCards,
 } = storeToRefs(itemStore)
 
 // Search input composable — owns search/scanner state, timers, concurrency
@@ -897,6 +1136,20 @@ const {
 	itemStore, onItemFound: selectItem,
 	showWarning, isAnyDialogOpen,
 })
+
+// Item group chips — cap the inline list, the rest is reachable via the picker
+const GROUP_CHIP_LIMIT = 12
+const showAllGroupChips = ref(false)
+
+const visibleGroupChips = computed(() => {
+	const groups = itemGroups.value || []
+	if (showAllGroupChips.value || groups.length <= GROUP_CHIP_LIMIT) return groups
+	return groups.slice(0, GROUP_CHIP_LIMIT)
+})
+
+const hiddenGroupChipCount = computed(
+	() => Math.max(0, (itemGroups.value?.length || 0) - visibleGroupChips.value.length)
+)
 
 // Local state
 const viewMode = ref("grid")
@@ -1273,6 +1526,15 @@ watch(viewMode, async () => {
 		scrollCleanupFns.value.push(cleanup)
 	}
 })
+
+// Group navigation: leave card browsing when there's no deeper level to pop
+function handleGroupNavigateBack() {
+	if (groupBreadcrumb.value.length === 0) {
+		itemStore.exitGroupBrowsing()
+		return
+	}
+	itemStore.navigateBack()
+}
 
 // View mode functions
 function setViewMode(mode) {

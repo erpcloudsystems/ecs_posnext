@@ -445,7 +445,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		}
 	}
 
-	async function submitInvoice(posSaleType = null) {
+	async function submitInvoice(posSaleType = null, { employee } = {}) {
 		if (saleType.value === "employee") {
 			return await submitEmployeeIssue(posSaleType)
 		}
@@ -463,13 +463,26 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			return
 		}
 
+		// The employee only belongs on the Sales Order when this genuinely is an
+		// employee-linked sale (Employee > Sales > Cash). On a plain customer sale it
+		// must never ride along: selectedEmployee can still be holding an employee from
+		// an earlier employee order or a restored draft, and it would silently land on
+		// this customer's order. Callers driving an employee sale themselves pass the
+		// employee explicitly.
+		const employeeForOrder =
+			employee !== undefined
+				? employee || null
+				: pendingEmployeeCashSale.value
+					? selectedEmployee.value
+					: null
+
 		// POS never creates a Sales Invoice directly anymore - always a Sales Order
 		// (paired with a Stock Entry by the caller) so stock still moves out correctly.
 		const result = await baseSubmitInvoice(
 			"Sales Order",
 			deliveryDate.value || new Date().toISOString().split("T")[0],
 			writeOffAmount.value,
-			selectedEmployee.value,
+			employeeForOrder,
 			posSaleType,
 		)
 		// Reset write-off amount after successful submission
@@ -479,13 +492,20 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		return result
 	}
 
-	async function createSalesOrder(posSaleType = null) {
-		return await submitInvoice(posSaleType)
+	async function createSalesOrder(posSaleType = null, options = {}) {
+		return await submitInvoice(posSaleType, options)
 	}
 
 
 
 	function setCustomer(selectedCustomer) {
+		// Picking a customer for a normal sale must never keep an employee attached -
+		// otherwise an employee left over from a previous employee order (or a restored
+		// draft) would be written onto this customer's Sales Order. The employee-linked
+		// flows set the customer first and the employee right after, so they are safe.
+		if (saleType.value === "customer" && !pendingEmployeeCashSale.value) {
+			selectedEmployee.value = null
+		}
 		customer.value = selectedCustomer
 		if (!selectedCustomer) {
 			setCustomerType("")
