@@ -278,8 +278,8 @@
 							v-model="printOrientation"
 							class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
 						>
-							<option value="Landscape">{{ __('Landscape') }}</option>
 							<option value="Portrait">{{ __('Portrait') }}</option>
+							<option value="Landscape">{{ __('Landscape') }}</option>
 						</select>
 					</div>
 
@@ -395,7 +395,7 @@ let lastRunSignature = null
 let autoRunTimer = null
 
 const showPrintSettings = ref(false)
-const printOrientation = ref("Landscape")
+const printOrientation = ref("Portrait")
 const printFormat = ref("")
 const printWithLetterhead = ref(false)
 const printIncludeFilters = ref(true)

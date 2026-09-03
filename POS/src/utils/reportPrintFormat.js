@@ -333,7 +333,7 @@ export function buildTemplateContext({
 export function renderReportPrintFormat({
 	template,
 	letterhead = "",
-	orientation = "Landscape",
+	orientation = "Portrait",
 	...context
 }) {
 	const body = renderTemplate(

@@ -209,7 +209,7 @@ def render_report_print(
 	report_name: str,
 	print_layout: str | None = None,
 	filters: str | dict | None = None,
-	orientation: str = "Landscape",
+	orientation: str = "Portrait",
 	with_letterhead: int = 0,
 	pos_profile: str | None = None,
 ) -> str:

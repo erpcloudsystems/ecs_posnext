@@ -223,7 +223,7 @@ function getFrame(name) {
  * Built from the loaded result rather than re-run on the server so what prints
  * is exactly what the cashier is looking at.
  */
-export function printReport({ title, subtitle, columns, rows, appliedFilters = {}, totalRowIndex = -1, orientation = "Landscape" }) {
+export function printReport({ title, subtitle, columns, rows, appliedFilters = {}, totalRowIndex = -1, orientation = "Portrait" }) {
 	const iframe = getFrame(PRINT_FRAME_NAME)
 	const html = buildPrintHTML({ title, subtitle, columns, rows, appliedFilters, totalRowIndex, orientation })
 
@@ -275,7 +275,7 @@ export function printHtmlString(html) {
 	else iframe.contentWindow.addEventListener("load", () => setTimeout(trigger, 50), { once: true })
 }
 
-function buildPrintHTML({ title, subtitle, columns, rows, appliedFilters, totalRowIndex, orientation = "Landscape" }) {
+function buildPrintHTML({ title, subtitle, columns, rows, appliedFilters, totalRowIndex, orientation = "Portrait" }) {
 	const cols = visibleColumns(columns)
 	const dir = document.documentElement.dir === "rtl" ? "rtl" : "ltr"
 	const lang = document.documentElement.lang || "en"
