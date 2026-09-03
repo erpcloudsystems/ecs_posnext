@@ -510,7 +510,6 @@ import { storeToRefs } from "pinia"
 import { computed, reactive, ref, watch } from "vue"
 import { call } from "@/utils/apiWrapper"
 import { isOffline } from "@/utils/offline/sync"
-import { printHtmlString } from "@/utils/reportOutput"
 import { renderReportPrintFormat } from "@/utils/reportPrintFormat"
 import { useFormatters } from "../composables/useFormatters"
 import { useShift } from "../composables/useShift"
@@ -760,6 +759,29 @@ function printClosingShift(name) {
   window.open(`/printview?${params.toString()}`, '_blank', 'width=800,height=600')
 }
 
+/**
+ * Show `html` in its own print window, the way /printview shows the Z-report.
+ *
+ * A report has no /printview URL of its own - that route prints a document, not
+ * a report - so the rendered page is written into the window here and prints
+ * itself on load. The cashier gets the same window and the same preview either
+ * way, which is the point: one closing, two receipts that behave alike.
+ */
+function openPrintWindow(html) {
+  const win = window.open("", "_blank", "width=800,height=600")
+  if (!win) {
+    console.error("Print window was blocked by the browser")
+    return
+  }
+
+  // Escaped so the SFC parser does not read it as the end of this script block
+  const autoPrint = "<script>window.onload=function(){window.print()}<\/script>"
+
+  win.document.open()
+  win.document.write(html.replace("</body>", `${autoPrint}</body>`))
+  win.document.close()
+}
+
 // The report printed alongside the Z-report, and the Print Format it is printed
 // with. Both are named the same thing; the format is the one linked to the
 // report, so the receipt is identical to the one Reports prints.
@@ -830,7 +852,7 @@ async function printItemSalesSummary(data) {
       return
     }
 
-    printHtmlString(
+    openPrintWindow(
       renderReportPrintFormat({
         template: layout.template,
         letterhead: layout.letterhead,
