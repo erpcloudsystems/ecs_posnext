@@ -510,9 +510,11 @@ import { storeToRefs } from "pinia"
 import { computed, reactive, ref, watch } from "vue"
 import { call } from "@/utils/apiWrapper"
 import { isOffline } from "@/utils/offline/sync"
+import { printHtmlString } from "@/utils/reportOutput"
 import { renderReportPrintFormat } from "@/utils/reportPrintFormat"
 import { useFormatters } from "../composables/useFormatters"
 import { useShift } from "../composables/useShift"
+import { useToast } from "../composables/useToast"
 import { usePOSSettingsStore } from "../stores/posSettings"
 import TranslatedHTML from "./common/TranslatedHTML.vue"
 
@@ -542,6 +544,7 @@ const {
   submitClosingShiftOffline,
 } = useShift()
 const { formatCurrency, formatQuantity, formatDateTime, formatTime } = useFormatters()
+const { showError, showInfo } = useToast()
 const posSettingsStore = usePOSSettingsStore()
 const { hideExpectedAmount } = storeToRefs(posSettingsStore)
 
@@ -766,12 +769,15 @@ function printClosingShift(name) {
  * a report - so the rendered page is written into the window here and prints
  * itself on load. The cashier gets the same window and the same preview either
  * way, which is the point: one closing, two receipts that behave alike.
+ *
+ * @returns false when the browser refused the window, so the caller can still
+ *          get the receipt out another way.
  */
 function openPrintWindow(html) {
   const win = window.open("", "_blank", "width=800,height=600")
   if (!win) {
     console.error("Print window was blocked by the browser")
-    return
+    return false
   }
 
   // Escaped so the SFC parser does not read it as the end of this script block
@@ -780,6 +786,7 @@ function openPrintWindow(html) {
   win.document.open()
   win.document.write(html.replace("</body>", `${autoPrint}</body>`))
   win.document.close()
+  return true
 }
 
 // The report printed alongside the Z-report, and the Print Format it is printed
@@ -852,20 +859,32 @@ async function printItemSalesSummary(data) {
       return
     }
 
-    openPrintWindow(
-      renderReportPrintFormat({
-        template: layout.template,
-        letterhead: layout.letterhead,
-        orientation: "Portrait",
-        reportName: ITEM_SALES_SUMMARY_REPORT,
-        title: __("POS Item Sales Summary"),
-        columns: report?.columns || [],
-        rows: report?.result || [],
-        filters,
-      }),
-    )
+    const html = renderReportPrintFormat({
+      template: layout.template,
+      letterhead: layout.letterhead,
+      orientation: "Portrait",
+      reportName: ITEM_SALES_SUMMARY_REPORT,
+      title: __("POS Item Sales Summary"),
+      columns: report?.columns || [],
+      rows: report?.result || [],
+      filters,
+    })
+
+    // The Z-report window has already spent the one pop-up a browser allows
+    // without a click directly behind it, so this one is the one that gets
+    // refused. Print it from a hidden frame rather than lose the receipt, and
+    // say so, because a window that never appears looks like nothing happened.
+    if (!openPrintWindow(html)) {
+      printHtmlString(html)
+      showInfo(
+        __(
+          "Pop-ups are blocked, so the item sales summary printed without its own window. Allow pop-ups for this site to get the print window.",
+        ),
+      )
+    }
   } catch (error) {
     console.error("Error printing item sales summary:", error)
+    showError(__("The item sales summary could not be printed"))
   }
 }
 
