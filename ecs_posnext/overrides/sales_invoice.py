@@ -27,11 +27,15 @@ def _get_post_change_gl_entries_setting():
 	Returns:
 		int: 1 if post_change_gl_entries is enabled, 0 otherwise (default: 0)
 	"""
-	# Resolved once per process. Which doctype holds the field is fixed by the
+	# Resolved once per request. Which doctype holds the field is fixed by the
 	# installed ERPNext version, and the setting itself is a rarely-touched
-	# singleton, so re-running the schema probe and the Singles query on every
-	# POS submit only cost round trips.
-	cached = frappe.local.__dict__.get("_ecs_posnext_post_change_gl_entries")
+	# singleton, so re-running the schema probe and the Singles query on each of
+	# the three validate passes a POS submit makes only cost round trips.
+	#
+	# `frappe.local` is a werkzeug Local, whose __getattr__ raises AttributeError
+	# for anything it is not holding - including dunders like __dict__. getattr
+	# with a default is the only safe way to probe it.
+	cached = getattr(frappe.local, "_ecs_posnext_post_change_gl_entries", None)
 	if cached is not None:
 		return cached
 
