@@ -144,6 +144,24 @@ def _opening_cash_amount(opening_shift_name):
 	return sum(flt(r.amount) for r in rows if _is_cash_mode(r.mode_of_payment))
 
 
+def _cod_returned_amount(invoice_name):
+	"""Amount reversed via submitted return(s) against a Call Center / COD invoice.
+
+	Return invoices carry a negative grand_total, so summing -grand_total gives the
+	positive amount handed back to the customer.
+	"""
+	return flt(
+		frappe.db.sql(
+			"""
+			select ifnull(sum(-grand_total), 0)
+			from `tabSales Invoice`
+			where return_against = %s and docstatus = 1 and is_return = 1
+			""",
+			invoice_name,
+		)[0][0]
+	)
+
+
 # ----------------------------------------------------------------------------
 # Cash figures for the blind close (reusing pos_closing_shift helpers)
 # ----------------------------------------------------------------------------
@@ -201,6 +219,19 @@ def compute_cash_figures(opening_shift_name):
 	call_center_cash_collected = 0.0
 	for py in get_payments_entries(opening_shift_name):
 		amount = get_base_value(py, "paid_amount", "base_paid_amount")
+		if _is_cash_mode(py.mode_of_payment):
+			# A COD order returned/credit-noted after the driver already collected cash
+			# never stays in the drawer — it went back to the customer. Without this,
+			# the collection still counts in full and manufactures a phantom shortage
+			# equal to the returned amount (mirrors the phantom-refund guard above).
+			refs = frappe.get_all(
+				"Payment Entry Reference",
+				filters={"parent": py.name, "reference_doctype": "Sales Invoice"},
+				fields=["reference_name", "allocated_amount"],
+			)
+			amount -= sum(
+				min(flt(r.allocated_amount), _cod_returned_amount(r.reference_name)) for r in refs
+			)
 		payments[py.mode_of_payment] = flt(payments.get(py.mode_of_payment, 0)) + amount
 		if _is_cash_mode(py.mode_of_payment):
 			call_center_cash_collected += amount

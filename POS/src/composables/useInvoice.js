@@ -1155,6 +1155,9 @@ export function useInvoice() {
 					...(cartStore.parentOrderNumber
 						? { parent_order_number: cartStore.parentOrderNumber }
 						: {}),
+					...(cartStore.parentInvoiceName
+						? { parent_invoice: cartStore.parentInvoiceName }
+						: {}),
 				}
 
 				if (targetDoctype === "Sales Order" && deliveryDate) {

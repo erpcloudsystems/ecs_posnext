@@ -43,8 +43,8 @@ def _day_invoice_scope(bd):
 		"Sales Invoice",
 		filters={"custom_pos_business_day": bd.name, "docstatus": 1},
 		fields=[
-			"name", "grand_total", "outstanding_amount", "is_return", "status",
-			"posa_pos_opening_shift", "custom_pos_business_day", "owner",
+			"name", "grand_total", "outstanding_amount", "is_return", "status", "pos_profile",
+			"posa_pos_opening_shift", "custom_pos_cashier_shift", "custom_pos_business_day", "owner",
 		],
 	)
 	drafts = []
@@ -174,9 +174,13 @@ def collect_closing_issues(bd):
 				)
 			)
 
-	# 16 — Next POS invoice linked to the day but with no opening shift
+	# 16 — Next POS invoice linked to the day but with no cashier shift. Routed orders
+	# (e.g. Call Center) are deliberately stamped with no cashier shift until someone
+	# actually collects/settles them, so they never trigger this check.
 	for inv in submitted:
-		if not inv.posa_pos_opening_shift:
+		if "call center" in (inv.pos_profile or "").lower():
+			continue
+		if not inv.custom_pos_cashier_shift:
 			issues.append(
 				_issue(
 					"Invoice Not Linked To Cashier Shift",

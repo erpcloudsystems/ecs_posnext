@@ -1274,7 +1274,8 @@ function getParentOrderNum(orderNum) {
 // Group supplements under their parent orders
 const groupedOrders = computed(() => {
 	const all = orders.value
-	const parentMap = {} // parentOrderNum → parent order
+	const byName = {} // docname → order
+	const byLabel = {} // parentOrderNum → parent order (legacy fallback only)
 	const result = []
 	const supplementSet = new Set()
 
@@ -1285,21 +1286,27 @@ const groupedOrders = computed(() => {
 		order._combined_outstanding = undefined
 	}
 
-	// First pass: identify parents
+	// First pass: index parents by docname, and by label for pre-link rows
 	for (const order of all) {
+		byName[order.name] = order
 		const num = order.custom_number_order
 		if (num && !isSupplementOrder(num)) {
-			parentMap[num] = order
+			byLabel[num] = order
 		}
 	}
 
-	// Second pass: attach supplements to parents
+	// Second pass: attach each supplement to its parent. custom_parent_invoice holds
+	// the parent's docname, which is unique and never recycled — the label in
+	// custom_number_order restarts every shift, so the same "M-36" belongs to a
+	// different order on a different day. Match on the link; rows created before
+	// the link existed carry no link and fall back to matching on the label.
 	for (const order of all) {
 		const num = order.custom_number_order
-		if (num && isSupplementOrder(num)) {
-			const parentNum = getParentOrderNum(num)
-			const parent = parentMap[parentNum]
-			if (parent) {
+		if (order.custom_parent_invoice || (num && isSupplementOrder(num))) {
+			const parent = order.custom_parent_invoice
+				? byName[order.custom_parent_invoice]
+				: byLabel[getParentOrderNum(num)]
+			if (parent && parent.name !== order.name) {
 				if (!parent.supplements) parent.supplements = []
 				parent.supplements.push(order)
 				// Add supplement totals to parent

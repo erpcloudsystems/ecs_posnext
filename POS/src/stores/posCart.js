@@ -142,6 +142,9 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	const resumedInvoiceName = ref(null)
 	const resumedInvoicePosProfile = ref(null)
 	const parentOrderNumber = ref(null)
+	// Docname (ACC-SINV-...) of the order the "+" was pressed on. Unique and never
+	// recycled, unlike parentOrderNumber, which is only the shift-scoped label.
+	const parentInvoiceName = ref(null)
 	const autoCheckoutOnResume = ref(false)
 	const targetDoctype = ref("Sales Invoice")
 	const orderType = ref(
@@ -292,6 +295,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		resumedInvoiceName.value = null
 		resumedInvoicePosProfile.value = null
 		parentOrderNumber.value = null
+		parentInvoiceName.value = null
 		autoCheckoutOnResume.value = false
 		targetDoctype.value = "Sales Invoice"
 		orderType.value = localStorage.getItem("pos_default_order_type") || "Pickup"
@@ -419,6 +423,9 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	async function beginSupplement(invoice) {
 		clearCart()
 		parentOrderNumber.value = invoice.custom_number_order || null
+		// The exact order being added to — this, not the label, is what the backend
+		// anchors the supplement on.
+		parentInvoiceName.value = invoice.name || null
 		// Restore customer so cashier doesn't have to re-select
 		if (invoice.customer) {
 			customer.value = {
@@ -2112,6 +2119,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		currentDraftId,
 		resumedInvoiceName,
 		parentOrderNumber,
+		parentInvoiceName,
 		autoCheckoutOnResume,
 		offerProcessingState, // Offer processing state for UI feedback
 

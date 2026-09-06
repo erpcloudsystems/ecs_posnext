@@ -24,3 +24,4 @@ ecs_posnext.patches.grant_branch_manager_closing_view_print
 ecs_posnext.patches.add_item_blind_count_default_field
 ecs_posnext.patches.add_item_requisition_flags
 ecs_posnext.patches.add_pos_profile_free_delivery
+ecs_posnext.patches.add_sales_invoice_parent_invoice

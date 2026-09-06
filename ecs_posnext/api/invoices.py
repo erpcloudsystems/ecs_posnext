@@ -1665,25 +1665,57 @@ def submit_invoice(invoice=None, data=None):
         _validate_stock_on_invoice(invoice_doc)
 
         # Generate custom order sequence number
+        parent_invoice = invoice.get("parent_invoice")
         parent_order_number = invoice.get("parent_order_number")
-        if parent_order_number:
-            # Supplement invoice: count existing suffixed invoices for this parent
-            count = frappe.db.sql(
-                """
-                SELECT COUNT(name)
-                FROM `tabSales Invoice`
-                WHERE custom_number_order LIKE %s
-                """,
-                (f"{parent_order_number}-%",)
-            )[0][0]
+
+        if parent_invoice or parent_order_number:
+            # Supplement invoice. The cashier pressed "+" on one specific order, so
+            # the parent is identified by its docname (ACC-SINV-...) — unique and
+            # never recycled. The display label in custom_number_order is NOT: it
+            # restarts every shift, so the same "M-36" belongs to a different order
+            # on a different day. Anchor on the docname and take the label from the
+            # parent itself; count siblings by the parent link so the suffix is per
+            # parent order, never a global text match.
+            if parent_invoice:
+                parent = frappe.db.get_value(
+                    "Sales Invoice",
+                    parent_invoice,
+                    ["name", "custom_number_order"],
+                    as_dict=True,
+                )
+                if not parent:
+                    frappe.throw(_("Order {0} not found").format(parent_invoice))
+
+                parent_order_number = parent.custom_number_order or parent_order_number
+                invoice_doc.custom_parent_invoice = parent.name
+
+                count = frappe.db.count(
+                    "Sales Invoice",
+                    {"custom_parent_invoice": parent.name, "docstatus": ["<", 2]},
+                )
+            else:
+                # Legacy client that only sends the label: fall back to matching it,
+                # scoped to the parent's own branch so at least concurrent branches
+                # don't collide. Kept only for older POS builds still in the field.
+                count = frappe.db.sql(
+                    """
+                    SELECT COUNT(sup.name)
+                    FROM `tabSales Invoice` sup
+                    WHERE sup.custom_number_order LIKE %s
+                      AND IFNULL(sup.branch, '') = IFNULL(%s, '')
+                      AND sup.docstatus < 2
+                    """,
+                    (f"{parent_order_number}-%", invoice_doc.get("branch"))
+                )[0][0]
+
             invoice_doc.custom_number_order = f"{parent_order_number}-{count + 1}"
 
         elif not invoice_doc.get("custom_number_order") and invoice_doc.get("custom_order_type"):
-            shift_start_str, _ = _get_user_shift_date_range()
-
             order_type = invoice_doc.get("custom_order_type")
             pos_profile = invoice_doc.get("pos_profile")
             branch = invoice_doc.get("branch")
+
+            shift_start_str, _ = _get_pos_profile_shift_date_range(pos_profile)
 
             # Talabat (aggregator) orders are numbered T-*, with their own sequence.
             # Everything else (Dine In / Pickup / Delivery ...) shares a single M-* sequence.
@@ -2132,6 +2164,72 @@ def _get_user_shift_date_range():
 			return f"{yesterday} {start_time_str}", f"{today_date} {end_time_str}"
 
 
+def _get_pos_profile_shift_date_range(pos_profile):
+	"""
+	Get datetime range for the logical shift window based on a given POS
+	Profile's own custom_shift_start_time / custom_shift_end_time.
+
+	Unlike _get_user_shift_date_range, this does not depend on which user has
+	a POS Opening Shift open — every invoice created against the same POS
+	Profile resolves to the same window at a given moment, so the M-*/T-*
+	counter stays in sync across users/terminals sharing that profile.
+
+	Returns (shift_start_datetime, shift_end_datetime) as 'YYYY-MM-DD HH:MM:SS'
+	strings. Falls back to full-day range if no profile or no shift times
+	configured.
+	"""
+	from frappe.utils import get_time, getdate, now_datetime
+	from datetime import timedelta
+
+	today = frappe.utils.today()
+	today_date = getdate(today)
+
+	if not pos_profile:
+		return f"{today} 00:00:00", f"{today} 23:59:59"
+
+	profile_data = frappe.db.get_value(
+		"POS Profile",
+		pos_profile,
+		["custom_shift_start_time", "custom_shift_end_time"],
+		as_dict=True,
+	)
+
+	start_time = profile_data.get("custom_shift_start_time") if profile_data else None
+	end_time = profile_data.get("custom_shift_end_time") if profile_data else None
+
+	if not start_time or not end_time:
+		return f"{today} 00:00:00", f"{today} 23:59:59"
+
+	start_t = get_time(start_time)
+	end_t = get_time(end_time)
+
+	now = now_datetime()
+	current_time = now.time()
+
+	start_time_str = start_t.strftime("%H:%M:%S")
+	end_time_str = end_t.strftime("%H:%M:%S")
+
+	if start_t <= end_t:
+		# Same-day shift (e.g. 13:00-18:00)
+		if current_time >= start_t:
+			shift_date = today_date
+		else:
+			shift_date = today_date - timedelta(days=1)
+
+		return f"{shift_date} {start_time_str}", f"{shift_date} {end_time_str}"
+	else:
+		# Overnight shift (e.g. 13:00-06:00)
+		if current_time >= start_t:
+			next_day = today_date + timedelta(days=1)
+			return f"{today_date} {start_time_str}", f"{next_day} {end_time_str}"
+		elif current_time <= end_t:
+			yesterday = today_date - timedelta(days=1)
+			return f"{yesterday} {start_time_str}", f"{today_date} {end_time_str}"
+		else:
+			yesterday = today_date - timedelta(days=1)
+			return f"{yesterday} {start_time_str}", f"{today_date} {end_time_str}"
+
+
 def _get_branch_open_shift(branch_name):
 	"""
 	Find the most recently opened 'Open' POS Opening Shift for a specific branch.
@@ -2423,6 +2521,7 @@ def get_all_orders(date_from=None, date_to=None, limit=500, search=None, respect
 				si.currency,
 				si.custom_order_type,
 				si.custom_number_order,
+				si.custom_parent_invoice,
 				si.custom_receipt_number,
 				si.custom_third_party_referance_number,
 				si.custom_unique_talbat_number,
@@ -2476,6 +2575,7 @@ def get_all_orders(date_from=None, date_to=None, limit=500, search=None, respect
 				si.currency,
 				si.custom_order_type,
 				si.custom_number_order,
+				si.custom_parent_invoice,
 				si.custom_receipt_number,
 				si.custom_third_party_referance_number,
 				si.custom_unique_talbat_number,
@@ -2729,6 +2829,7 @@ def get_need_my_action_orders():
 			si.currency,
 			si.custom_order_type,
 			si.custom_number_order,
+			si.custom_parent_invoice,
 			si.custom_receipt_number,
 			si.custom_third_party_referance_number,
 			si.custom_unique_talbat_number,
