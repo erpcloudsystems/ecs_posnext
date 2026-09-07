@@ -1534,13 +1534,19 @@ async function payOrder(order) {
 	uniqueNumber.value = order.custom_unique_talbat_number || ""
 	referenceNumber.value = order.custom_third_party_referance_number || ""
 
-	// Make sure the cashier's POS Profile is resolved before building the
-	// payment method list, otherwise we fall back to a generic "Cash".
+	// Make sure the cashier's POS Profile is resolved before building the payment
+	// method list — without it there are no valid per-branch modes to offer.
 	if (!(posProfile.value?.name || posProfile.value)) {
 		await loadPosProfile()
 	}
 
-	await setupPaymentMethods()
+	if (!(await setupPaymentMethods())) {
+		window.frappe?.show_alert?.({
+			message: __("Could not load this branch's payment methods. Reload the page and try again."),
+			indicator: "red",
+		})
+		return
+	}
 	showPaymentDialog.value = true
 }
 
@@ -1555,7 +1561,7 @@ async function setupPaymentMethods() {
 			custom_required_receipt: m.custom_required_receipt,
 			amount: 0,
 		}))
-		return
+		return true
 	}
 
 	// This page does not run the POS bootstrap, so fetch the real payment
@@ -1575,15 +1581,19 @@ async function setupPaymentMethods() {
 					custom_required_receipt: m.custom_required_receipt,
 					amount: 0,
 				}))
-				return
+				return true
 			}
 		} catch (error) {
 			console.error("Failed to load payment methods for", profileName, error)
 		}
 	}
 
-	// Last-resort fallback only if the profile could not be resolved.
-	paymentMethods.value = [{ mode_of_payment: "Cash", amount: 0 }]
+	// Profile could not be resolved. Do NOT guess a mode: a generic "Cash" points at
+	// the company default account (Cash - M), so the branch's money silently lands in
+	// an account no drawer count ever reconciles. Refuse to collect instead — a reload
+	// costs seconds, a mis-routed collection costs a GL correction nobody notices.
+	paymentMethods.value = []
+	return false
 }
 
 function closePaymentDialog() {

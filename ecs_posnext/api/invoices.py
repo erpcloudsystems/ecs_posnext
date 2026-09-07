@@ -1412,6 +1412,14 @@ def _reconcile_return_against_original(return_doc):
     original_name = return_doc.get("return_against")
     if not original_name:
         return None
+    # A return created with update_outstanding_for_self = 0 (what submit_invoice sets
+    # for every POS return, see below) books its Debtors entry AGAINST THE ORIGINAL —
+    # ERPNext has already knocked it off, and the credit note holds no balance of its
+    # own. Settling it again credits the original twice and leaves the credit note with
+    # a POSITIVE outstanding, as if the customer owed money on a refund. Only a return
+    # that settles against ITSELF is still open and needs this knock-off.
+    if not return_doc.get("update_outstanding_for_self"):
+        return None
     orig = frappe.db.get_value(
         "Sales Invoice", original_name,
         ["outstanding_amount", "debit_to", "customer", "company"], as_dict=True,
@@ -3295,6 +3303,71 @@ def search_invoice_by_number(search_term, pos_profile=None):
 
 
 @frappe.whitelist()
+def get_original_collection_breakdown(invoice_name):
+    """How an original invoice was ACTUALLY collected, split by mode of payment.
+
+    A refund goes back the way the money came in, so the return dialog needs the real
+    inflow — and it arrives through two different channels:
+
+      * `Sales Invoice Payment` rows — ordinary POS sales, and
+      * submitted "Receive" Payment Entries — Call Center / COD collections, which
+        never write a payment row on the invoice at all.
+
+    Reading only the payment rows (as the dialog used to) makes every COD order look
+    like an unpaid credit sale: the refund is seeded at 0, the cashier hands real cash
+    back, and nothing records it leaving the drawer. That is how 43 returns worth
+    ~18,844 EGP became unexplained cashier shortages.
+
+    Returns {total_collected, payments: [{mode_of_payment, amount, source}]}.
+    """
+    if not invoice_name:
+        return {"total_collected": 0, "payments": []}
+
+    by_mode = {}
+
+    for row in frappe.db.sql(
+        """
+        SELECT mode_of_payment, SUM(amount) amount
+        FROM `tabSales Invoice Payment`
+        WHERE parent = %s AND amount <> 0
+        GROUP BY mode_of_payment
+        """,
+        invoice_name,
+        as_dict=True,
+    ):
+        by_mode[row.mode_of_payment] = {
+            "mode_of_payment": row.mode_of_payment,
+            "amount": flt(row.amount),
+            "source": "invoice",
+        }
+
+    for row in frappe.db.sql(
+        """
+        SELECT pe.mode_of_payment, SUM(pref.allocated_amount) amount
+        FROM `tabPayment Entry Reference` pref
+        INNER JOIN `tabPayment Entry` pe ON pe.name = pref.parent
+        WHERE pref.reference_doctype = 'Sales Invoice'
+          AND pref.reference_name = %s
+          AND pe.docstatus = 1 AND pe.payment_type = 'Receive'
+        GROUP BY pe.mode_of_payment
+        """,
+        invoice_name,
+        as_dict=True,
+    ):
+        entry = by_mode.setdefault(
+            row.mode_of_payment,
+            {"mode_of_payment": row.mode_of_payment, "amount": 0, "source": "payment_entry"},
+        )
+        entry["amount"] = flt(entry["amount"]) + flt(row.amount)
+
+    payments = [p for p in by_mode.values() if flt(p["amount"]) > 0]
+    return {
+        "total_collected": flt(sum(flt(p["amount"]) for p in payments)),
+        "payments": payments,
+    }
+
+
+@frappe.whitelist()
 def check_invoice_return_validity(invoice_name):
     """Check if an invoice is within the return validity period.
 
@@ -3628,6 +3701,12 @@ def prepare_return_invoice(invoice_name, pos_opening_shift=None):
         "net_total": invoice_info.net_total,
         "total_taxes_and_charges": invoice_info.total_taxes_and_charges,
     }
+
+    # How the original was really collected, per mode. `payments` above holds only the
+    # invoice's own rows, which a COD / Call Center order never has — its money came in
+    # through Payment Entries. The dialog seeds the refund from this, so a paid COD order
+    # is no longer mistaken for an unpaid credit sale and refunded at zero.
+    return_dict["_original_collection"] = get_original_collection_breakdown(invoice_name)
 
     item_tax_map = _build_item_tax_map(return_dict.get("taxes", []))
 

@@ -340,3 +340,135 @@ def auto_close_call_center_shifts(business_day=None):
 		except Exception:
 			frappe.log_error(frappe.get_traceback(), f"Auto-close Call Center shift {name} failed")
 	return closed
+
+
+# ----------------------------------------------------------------------------
+# Returns landing on an ALREADY-CLOSED shift
+# ----------------------------------------------------------------------------
+def flag_stale_closing_on_return(doc, method=None):
+	"""Flag a return whose money was collected in a shift that is already closed.
+
+	compute_cash_figures() already nets returns out of the drawer expectation (see the
+	phantom-refund guard and _cod_returned_amount above) — but it only runs WHEN THE
+	SHIFT IS COUNTED. A return submitted after that closing was submitted changes the
+	numbers it was built on, and nothing recomputes it: the collection stays in that
+	shift's expected cash forever.
+
+	That is how 45 collections worth ~13,942 EGP came to sit on credit-noted invoices
+	across all four branches, and why several shifts closed with a shortage almost
+	exactly equal to a reversed collection (Smouha 23-Jul: 700 collected, shift closed
+	at -692.25).
+
+	Returns are operationally urgent, so this does NOT block them. It makes them
+	visible instead: the person doing the return sees which closing just went stale,
+	and finance gets a POS Audit Log row naming the closing, the amount and the mode.
+	"""
+	if not doc.get("is_return") or not doc.get("return_against"):
+		return
+
+	from ecs_posnext.api.business_day import log_pos_event
+
+	original = doc.return_against
+	# (shift, amount, mode_of_payment, source) for every collection on the original
+	collections = []
+
+	# 1) Money taken as separate Payment Entries (COD / Call Center collections).
+	for row in frappe.db.sql(
+		"""
+		SELECT pe.name, pe.mode_of_payment, pe.reference_no, per.allocated_amount
+		FROM `tabPayment Entry` pe
+		INNER JOIN `tabPayment Entry Reference` per ON per.parent = pe.name
+		WHERE pe.docstatus = 1
+		  AND per.reference_doctype = 'Sales Invoice'
+		  AND per.reference_name = %s
+		""",
+		original,
+		as_dict=True,
+	):
+		collections.append((row.reference_no, flt(row.allocated_amount), row.mode_of_payment, row.name))
+
+	# 2) Money taken on the invoice itself (ordinary POS payment rows).
+	inv_shift = frappe.db.get_value("Sales Invoice", original, "posa_pos_opening_shift")
+	if inv_shift:
+		for row in frappe.db.sql(
+			"""
+			SELECT mode_of_payment, amount
+			FROM `tabSales Invoice Payment`
+			WHERE parent = %s AND amount > 0
+			""",
+			original,
+			as_dict=True,
+		):
+			collections.append((inv_shift, flt(row.amount), row.mode_of_payment, original))
+
+	stale = []
+	for shift, amount, mode, source in collections:
+		if not shift or amount <= 0:
+			continue
+		closing = _submitted_closing_for_opening_shift(shift)
+		if not closing:
+			# Shift still open — it will be counted with this return already netted out.
+			continue
+		stale.append(
+			{
+				"closing": closing.name,
+				"amount": amount,
+				"mode": mode,
+				"is_cash": _is_cash_mode(mode),
+				"source": source,
+				"business_day": closing.pos_business_day,
+				"pos_profile": closing.pos_profile,
+			}
+		)
+
+	if not stale:
+		return
+
+	for s in stale:
+		log_pos_event(
+			action="Return",
+			reference_doctype="POS Cashier Shift Closing",
+			reference_name=s["closing"],
+			pos_profile=s["pos_profile"],
+			pos_business_day=s["business_day"],
+			old_value=s["amount"],
+			reason=(
+				f"Return {doc.name} reverses {s['amount']} ({s['mode']}) collected on "
+				f"{original} via {s['source']}, but closing {s['closing']} was already "
+				f"submitted. Its expected "
+				f"{'cash' if s['is_cash'] else 'credit'} is overstated by {s['amount']} "
+				f"and will NOT be recomputed — reconcile manually."
+			),
+		)
+
+	lines = "".join(
+		"<li>{0}: <b>{1}</b> ({2}) — closing <b>{3}</b></li>".format(
+			_("Cash") if s["is_cash"] else _("Credit"), s["amount"], s["mode"], s["closing"]
+		)
+		for s in stale
+	)
+	frappe.msgprint(
+		_(
+			"This return reverses money collected in a shift that is <b>already closed</b>."
+			" Those closings were counted before this return existed, so their expected"
+			" totals are now overstated and will not recompute:<ul>{0}</ul>"
+			"Logged for finance — reconcile manually."
+		).format(lines),
+		title=_("Closed Shift Affected"),
+		indicator="orange",
+	)
+
+
+def _submitted_closing_for_opening_shift(opening_shift):
+	"""The submitted cashier-shift closing covering an opening shift, if any."""
+	cashier_shift = frappe.db.get_value(
+		"POS Cashier Shift", {"pos_opening_shift": opening_shift}, "name"
+	)
+	if not cashier_shift:
+		return None
+	return frappe.db.get_value(
+		"POS Cashier Shift Closing",
+		{"pos_cashier_shift": cashier_shift, "docstatus": 1},
+		["name", "pos_business_day", "pos_profile"],
+		as_dict=True,
+	)

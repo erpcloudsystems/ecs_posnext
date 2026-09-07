@@ -493,6 +493,66 @@ def get_unallocated_payments(customer, company, currency, mode_of_payment=None):
     )
     return unallocated_payment
 
+def _validate_mode_belongs_to_branch(mode_of_payment, branch, pos_profile_name=None):
+    """Refuse a collection whose Mode of Payment does not belong to the branch.
+
+    Modes are per-branch ("Cash Miami" -> Miami - M, "Cash Smouha" -> Smouha - M).
+    A generic mode like "Cash" points at the company default account (Cash - M),
+    so accepting one silently books branch money into a company-wide account that
+    no drawer count ever reconciles. This has happened: 23 collections totalling
+    ~7,821 EGP landed in "Cash - M" because the client sent "Cash".
+
+    Fail loudly instead — a blocked collection costs the cashier a page reload,
+    a mis-routed one costs a GL correction nobody notices for months.
+    """
+    if not mode_of_payment:
+        frappe.throw(_("Mode of Payment is required to collect a payment."))
+
+    if not branch:
+        # No branch on the invoice — nothing to validate against.
+        return
+
+    # Valid modes = those of the POS Profiles serving this branch, PLUS those of the
+    # profile actually taking the payment. The second half matters for Call Center /
+    # aggregator profiles, which carry no branch of their own but legitimately collect
+    # on their own modes (Credit Card Talabat, insta pay, ...) against branch invoices.
+    profiles = _branch_pos_profiles(branch)
+    if pos_profile_name:
+        profiles.append(pos_profile_name)
+
+    allowed = {
+        r.mode_of_payment
+        for r in frappe.get_all(
+            "POS Payment Method",
+            filters={"parent": ["in", profiles]},
+            fields=["mode_of_payment"],
+        )
+    }
+
+    if not allowed:
+        # No profile serves this branch (or none has payment methods configured).
+        # Validating against an empty set would block every collection, so skip.
+        return
+
+    if mode_of_payment not in allowed:
+        frappe.throw(
+            _(
+                "Mode of Payment '{0}' does not belong to branch {1}. "
+                "Allowed for this branch: {2}. "
+                "Reload the POS so the correct payment methods load, then collect again."
+            ).format(mode_of_payment, branch, ", ".join(sorted(allowed))),
+            title=_("Wrong Payment Method for Branch"),
+        )
+
+
+def _branch_pos_profiles(branch):
+    """POS Profiles serving a branch — the source of its valid payment methods."""
+    return [
+        p.name
+        for p in frappe.get_all("POS Profile", filters={"branch": branch}, fields=["name"])
+    ] or ["___NONE___"]
+
+
 @frappe.whitelist()
 def create_pos_payment_entry(payload):
     data = json.loads(payload)
@@ -549,6 +609,9 @@ def create_pos_payment_entry(payload):
         amount = flt(payment_method.get("amount") or 0)
         if not amount:
             continue
+        _validate_mode_belongs_to_branch(
+            payment_method.get("mode_of_payment"), invoice_branch, pos_profile_name
+        )
         bank = get_bank_cash_account(invoice_doc.company, payment_method.get("mode_of_payment"))
         company_currency = frappe.get_value("Company", invoice_doc.company, "default_currency")
         conversion_rate = get_exchange_rate(invoice_doc.currency, company_currency, frappe.utils.today(), "for_selling")

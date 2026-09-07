@@ -816,6 +816,9 @@ const returnItems = ref([])
 const returnReason = ref("")
 const paymentMethods = ref([])
 const refundPayments = ref([])
+// How the original was ACTUALLY collected, per mode — includes Call Center / COD
+// Payment Entries, which never appear in the invoice's own payment rows.
+const originalCollection = ref({ total_collected: 0, payments: [] })
 const invoiceList = ref([])
 const invoiceListFilter = ref("")
 const itemSearchFilter = ref("")
@@ -927,6 +930,11 @@ const fetchInvoiceResource = createResource({
 
 			// The API returns original invoice data in _original_invoice for reference
 			const origInvoice = data._original_invoice || {}
+			// Real inflow per mode (invoice rows + COD / Call Center Payment Entries).
+			originalCollection.value = data._original_collection || {
+				total_collected: 0,
+				payments: [],
+			}
 
 			// Filter items that still have quantity available for return.
 			// The API calculates remaining_qty by subtracting previously returned quantities.
@@ -977,18 +985,21 @@ const fetchInvoiceResource = createResource({
 					0,
 				) || 0
 			originalPaidAmount.value =
-				origInvoice.paid_amount || totalPaidFromPayments || 0
+				Number(originalCollection.value.total_collected || 0) ||
+				origInvoice.paid_amount ||
+				totalPaidFromPayments ||
+				0
 			originalOutstandingAmount.value = origInvoice.outstanding_amount || 0
 
 			// Detect credit sale (Pay on Account): no payments recorded OR full amount outstanding.
 			// Credit sales don't require cash refund - they reverse the accounts receivable.
-			const hasNoPayments =
-				!origInvoice.payments || origInvoice.payments.length === 0
-			const isFullyUnpaid =
-				Math.abs(origInvoice.outstanding_amount - origInvoice.grand_total) <
-				0.01
-			isOriginalCreditSale.value =
-				hasNoPayments || (totalPaidFromPayments < 0.01 && isFullyUnpaid)
+			// A credit sale is one that collected NOTHING. Absence of payment rows is
+			// not that test: COD / Call Center orders collect through Payment Entries
+			// and carry no rows, yet the customer is owed a real refund.
+			const totalCollected = Number(
+				originalCollection.value?.total_collected || 0,
+			)
+			isOriginalCreditSale.value = totalCollected < 0.01
 
 			// Detect partial payment: some amount paid but still has outstanding balance.
 			// Partial payments require proportional refund calculation.
@@ -1546,9 +1557,12 @@ function initializePaymentsFromInvoice() {
 		return
 	}
 
-	const invoicePayments = originalInvoice.value?.payments
-	if (invoicePayments?.length) {
-		refundPayments.value = invoicePayments.map((payment) => ({
+	// Refund goes back the way the money came in. Seed from the real collection —
+	// a COD order has no invoice payment rows, only Payment Entries, and reading
+	// only the rows seeds the refund at 0 while real cash leaves the drawer.
+	const collected = originalCollection.value?.payments
+	if (collected?.length) {
+		refundPayments.value = collected.map((payment) => ({
 			mode_of_payment: payment.mode_of_payment,
 			amount: isPartiallyPaid.value ? 0 : Math.abs(payment.amount),
 		}))
@@ -1796,6 +1810,7 @@ function resetForm() {
 	isOriginalCreditSale.value = false
 	isPartiallyPaid.value = false
 	originalPaidAmount.value = 0
+	originalCollection.value = { total_collected: 0, payments: [] }
 	originalOutstandingAmount.value = 0
 
 	// Reset customer credit option
