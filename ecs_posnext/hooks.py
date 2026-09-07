@@ -101,7 +101,11 @@ fixtures = [
 					"POS Profile-posa_cash_mode_of_payment",
 					"POS Profile-posa_allow_delete",
 					"POS Profile-posa_block_sale_beyond_available_qty",
-					"Mode of Payment-is_wallet_payment"
+					"Mode of Payment-is_wallet_payment",
+					"Selling Settings-posa_working_day_section",
+					"Selling Settings-posa_working_day_start_time",
+					"Selling Settings-posa_working_day_column_break",
+					"Selling Settings-posa_working_day_end_time"
 				]
 			]
 		]

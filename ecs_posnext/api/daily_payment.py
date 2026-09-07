@@ -1,5 +1,11 @@
 import frappe
 from frappe import _
+from frappe.utils import getdate
+
+from ecs_posnext.working_day import (
+	get_working_day_window,
+	in_window as in_working_day_window,
+)
 
 
 @frappe.whitelist()
@@ -161,7 +167,18 @@ def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_sh
 	if pos_opening_shift:
 		filters.append(["posa_pos_opening_shift", "=", pos_opening_shift])
 
-	if from_date:
+	# The dates name working days, not calendar days: a branch trading 10:00 to
+	# 06:00 posts the tail of its day on the following calendar date. Resolve the
+	# range into an absolute datetime window and filter on that, so a shift
+	# spanning midnight is counted whole. The coarse posting_date filter below
+	# still narrows the query; the window then trims the two edge dates by time.
+	from_datetime, to_datetime = (None, None)
+	if from_date or to_date:
+		from_datetime, to_datetime = get_working_day_window(from_date or to_date, to_date or from_date)
+
+	if from_datetime and to_datetime:
+		filters.append(["posting_date", "between", [getdate(from_datetime), getdate(to_datetime)]])
+	elif from_date:
 		if to_date:
 			filters.append(["posting_date", "between", [from_date, to_date]])
 		else:
@@ -176,10 +193,16 @@ def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_sh
 	invoices = frappe.get_list(
 		"Sales Invoice",
 		filters=filters,
-		fields=["name"],
+		fields=["name", "posting_date", "posting_time"],
 		limit=0,
 		ignore_permissions=True,
 	)
+
+	if from_datetime and to_datetime:
+		invoices = [
+			d for d in invoices
+			if in_working_day_window(d.posting_date, d.posting_time, from_datetime, to_datetime)
+		]
 
 	invoice_names = [d.name for d in invoices]
 	total = len(invoice_names)

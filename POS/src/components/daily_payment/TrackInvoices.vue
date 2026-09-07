@@ -19,6 +19,10 @@
 							<div>
 								<h2 class="text-xl font-bold text-gray-900">{{ __('Track Invoices') }}</h2>
 								<p v-if="branch" class="text-sm text-gray-600 mt-0.5">{{ __('Branch: {0}', [branch]) }}</p>
+								<p v-if="workingDayRange" class="text-xs text-gray-500 mt-0.5" dir="ltr">
+									🕒 {{ workingDayRange }}
+									<span v-if="workingDay?.crosses_midnight">({{ __('next day') }})</span>
+								</p>
 							</div>
 						</div>
 						<button @click="handleClose" class="p-2 hover:bg-white/50 rounded-lg transition-colors">
@@ -145,7 +149,7 @@
 
 <script setup>
 import { call } from "frappe-ui"
-import { ref, watch } from "vue"
+import { computed, ref, watch } from "vue"
 import { useToast } from "@/composables/useToast"
 import { logger } from "@/utils/logger"
 
@@ -178,15 +182,51 @@ const today = new Date().toISOString().split("T")[0]
 const fromDate = ref(props.posOpeningShiftDate || today)
 const toDate = ref(props.posOpeningShiftDate || today)
 
+// Working day config from Selling Settings. A branch trading 10:00 -> 06:00 is
+// still on the previous calendar day at 02:00, so the dates here name working
+// days rather than calendar days.
+const workingDay = ref(null)
+
 const counts = ref({ cash: 0, visa: 0, total: 0 })
+
+function defaultDate() {
+	return workingDay.value?.working_day || props.posOpeningShiftDate || today
+}
+
+function formatMoment(datetimeStr) {
+	// "2026-09-06 10:00:00" -> "06-09-2026 10:00"
+	const [date, time] = String(datetimeStr || "").split(" ")
+	if (!date) return ""
+
+	const [y, m, d] = date.split("-")
+	return `${d}-${m}-${y} ${String(time || "").split(":").slice(0, 2).join(":")}`.trim()
+}
+
+const workingDayRange = computed(() => {
+	const ctx = workingDay.value
+	if (!ctx?.enabled) return ""
+
+	return `${formatMoment(ctx.opens_at)} → ${formatMoment(ctx.closes_at)}`
+})
+
+async function loadWorkingDay() {
+	try {
+		workingDay.value = await call("ecs_posnext.working_day.get_working_day_context")
+	} catch (error) {
+		// Not configured or unreachable: fall back to calendar-day defaults.
+		log.error("Error loading working day:", error)
+		workingDay.value = null
+	}
+}
 
 watch(
 	() => props.modelValue,
-	(val) => {
+	async (val) => {
 		show.value = val
 		if (val) {
-			fromDate.value = props.posOpeningShiftDate || today
-			toDate.value = props.posOpeningShiftDate || today
+			await loadWorkingDay()
+			fromDate.value = defaultDate()
+			toDate.value = defaultDate()
 			loadCounts()
 		}
 	},

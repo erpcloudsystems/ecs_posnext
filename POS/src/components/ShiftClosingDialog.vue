@@ -734,10 +734,14 @@ async function submitClosing() {
         printClosingShift(result.name)
       }
 
-      // ...and the item-level summary for the same shift day. Not awaited: the
-      // shift is closed either way, so the dialog should not sit open waiting
-      // for a report to render.
-      printItemSalesSummary(closingData.value)
+      // ...then the item-level summary for the same shift day, and the
+      // technicians' commission receipt for the working day. Chained rather
+      // than fired together so the two print windows do not race each other,
+      // and not awaited: the shift is closed either way, so the dialog should
+      // not sit open waiting for a report to render.
+      printItemSalesSummary(closingData.value).then(() =>
+        printExtraSalaryReport(closingData.value),
+      )
     }
 
     // Shift is closed: dismiss the dialog right away, no success report
@@ -885,6 +889,85 @@ async function printItemSalesSummary(data) {
   } catch (error) {
     console.error("Error printing item sales summary:", error)
     showError(__("The item sales summary could not be printed"))
+  }
+}
+
+// The technicians' commission receipt printed after the item summary, and the
+// Print Format it is printed with - the one linked to the report, so the receipt
+// is identical to the one Reports prints.
+const EXTRA_SALARY_REPORT = "Extra Salary Report"
+const EXTRA_SALARY_FORMAT = "تقفيل الفنيين"
+
+/**
+ * Print the working day's Extra Salary (technician commission) report, after
+ * the item sales summary.
+ *
+ * The working day is resolved on the server from the shift's start: a branch
+ * trading 10:00 -> 06:00 is still on the previous calendar date at 02:00, and
+ * the times that decide it live in Selling Settings, so the client must not
+ * recompute them from an hour of its own.
+ *
+ * Never throws: by the time this runs the shift is closed, and a report that
+ * fails to print must not read to the cashier as a closing that failed.
+ */
+async function printExtraSalaryReport(data) {
+  const posProfile = data?.pos_profile || null
+
+  try {
+    const context = await call("ecs_posnext.working_day.get_working_day_context", {
+      at: data?.period_start_date || null,
+    })
+
+    const workingDay = context?.working_day
+    if (!workingDay) {
+      console.error("Cannot print extra salary report: no working day for", data?.period_start_date)
+      return
+    }
+
+    // all_items off: with it on the report also lists invoices that produced no
+    // commission at all, which on this receipt reads as a technician having sold
+    // something - an invoice with no Sales Team prints its grand total under
+    // "غير محدد" with a zero commission. The closing receipt is about commission
+    // earned, so only invoices that actually generated an Extra Salary belong.
+    const filters = { from_date: workingDay, to_date: workingDay, all_items: 0 }
+
+    const [report, layout] = await Promise.all([
+      call("ecs_posnext.api.reports.run_pos_report", {
+        report_name: EXTRA_SALARY_REPORT,
+        filters: JSON.stringify(filters),
+        pos_profile: posProfile,
+      }),
+      call("ecs_posnext.api.reports.get_print_template", {
+        report_name: EXTRA_SALARY_REPORT,
+        print_layout: EXTRA_SALARY_FORMAT,
+        pos_profile: posProfile,
+      }),
+    ])
+
+    if (!layout?.template) {
+      console.error("Extra salary print format is empty")
+      return
+    }
+
+    const html = renderReportPrintFormat({
+      template: layout.template,
+      letterhead: layout.letterhead,
+      orientation: "Portrait",
+      reportName: EXTRA_SALARY_REPORT,
+      title: __("Extra Salary Report"),
+      columns: report?.columns || [],
+      rows: report?.result || [],
+      filters,
+    })
+
+    // Third window of the closing, so this is the one a pop-up blocker is most
+    // likely to refuse. Print from a hidden frame rather than lose the receipt.
+    if (!openPrintWindow(html)) {
+      printHtmlString(html)
+    }
+  } catch (error) {
+    console.error("Error printing extra salary report:", error)
+    showError(__("The technicians' commission report could not be printed"))
   }
 }
 
