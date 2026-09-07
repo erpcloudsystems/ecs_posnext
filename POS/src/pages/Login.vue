@@ -1,5 +1,10 @@
 <template>
-  <div class="min-h-screen flex flex-col items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+  <div class="min-h-screen flex flex-col items-center justify-center bg-page py-12 px-4 sm:px-6 lg:px-8">
+    <!-- The header is not mounted yet on this page, so the theme would
+         otherwise be unreachable until after sign-in. -->
+    <div class="fixed top-3 end-3">
+      <ThemeToggle />
+    </div>
     <div class="max-w-md w-full space-y-8">
       <div class="text-center">
         <h2 class="mt-6 text-3xl font-extrabold text-gray-900">
@@ -103,6 +108,7 @@ import { FeatherIcon } from "frappe-ui"
 import { onMounted, reactive, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 import ShiftOpeningDialog from "../components/ShiftOpeningDialog.vue"
+import ThemeToggle from "../components/common/ThemeToggle.vue"
 import { useShift } from "../composables/useShift"
 import { session } from "../data/session"
 import { ensureCSRFToken } from "../utils/csrf"

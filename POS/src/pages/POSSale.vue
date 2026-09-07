@@ -1,6 +1,6 @@
 <template>
 	<div
-		class="flex flex-col bg-gray-50 overflow-x-hidden"
+		class="flex flex-col bg-page overflow-x-hidden"
 		style="height: 100vh; max-height: 100vh"
 	>
 		<!-- Loading State -->
@@ -379,7 +379,38 @@
 								@show-history="uiStore.showHistoryDialog = true"
 								@show-return="uiStore.showReturnDialog = true"
 								@close-shift="handleCloseShift()"
-							/>
+							>
+								<!-- One Page mode: the Complete Payment options (discounts,
+								     mode of payment, pay / complete actions) render inside the
+								     cart panel instead of opening the payment dialog -->
+								<template v-if="uiStore.onePage" #payment>
+									<PaymentDialog
+										inline
+										:grand-total="cartStore.grandTotal"
+										:subtotal="cartStore.subtotal"
+										:discount-eligible-subtotal="cartStore.discountEligibleSubtotal"
+										:pos-profile="shiftStore.profileName"
+										:currency="shiftStore.profileCurrency"
+										:is-offline="offlineStore.isOffline"
+										:allow-partial-payment="posSettingsStore.allowPartialPayment"
+										:allow-credit-sale="posSettingsStore.allowCreditSale"
+										:allow-customer-credit-payment="posSettingsStore.allowCustomerCreditPayment"
+										:allow-write-off="posSettingsStore.allowWriteOffChange"
+										:write-off-limit="shiftStore.writeOffLimit"
+										:customer="cartStore.customer"
+										:company="shiftStore.profileCompany"
+										:additional-discount="cartStore.additionalDiscount"
+										:items="cartStore.invoiceItems"
+										:tax-amount="cartStore.totalTax"
+										:discount-amount="cartStore.totalDiscount"
+										:target-doctype="cartStore.targetDoctype"
+										:is-submitting="cartStore.isSubmitting"
+										:profile-customer="shiftStore.profileCustomer"
+										@payment-completed="handlePaymentCompleted"
+										@update-additional-discount="handleAdditionalDiscountUpdate"
+									/>
+								</template>
+							</InvoiceCart>
 						</div>
 					</keep-alive>
 
@@ -462,8 +493,9 @@
 				</div>
 			</div>
 
-			<!-- Payment Dialog -->
+			<!-- Payment Dialog (skipped in One Page mode — see the cart panel) -->
 		<PaymentDialog
+			v-if="!uiStore.onePage"
 			v-model="uiStore.showPaymentDialog"
 			:grand-total="cartStore.grandTotal"
 			:subtotal="cartStore.subtotal"
@@ -1887,6 +1919,10 @@ async function handleDeleteFailedInvoice() {
 async function handleErrorRetry() {
 	uiStore.clearError();
 	if (uiStore.errorRetryAction === "payment") {
+		// One Page mode has no dialog to reopen: the payment section is still in
+		// the cart panel with the entered payments intact, so dismissing the error
+		// is all the retry needs to do.
+		if (uiStore.onePage) return;
 		setTimeout(() => {
 			uiStore.showPaymentDialog = true;
 		}, 300);

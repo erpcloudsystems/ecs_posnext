@@ -65,19 +65,31 @@
 	<div class="flex flex-col h-full bg-white">
 		<!-- Header with Customer -->
 		<div class="px-2.5 py-2 border-b border-gray-200 bg-gray-50">
-			<!-- Multiple Sales Persons Toggle -->
-			<label
-				class="flex items-center gap-2 mb-2 cursor-pointer select-none"
-			>
-				<input
-					type="checkbox"
-					v-model="multipleSalesPersons"
-					class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
-				/>
-				<span class="text-xs font-medium text-gray-700">
-					{{ __("Multiple Sales Persons") }}
-				</span>
-			</label>
+			<!-- Cart Mode Toggles: Multiple Sales Persons + One Page -->
+			<div class="flex items-center flex-wrap gap-x-4 gap-y-1 mb-2">
+				<!-- Multiple Sales Persons Toggle -->
+				<label class="flex items-center gap-2 cursor-pointer select-none">
+					<input
+						type="checkbox"
+						v-model="multipleSalesPersons"
+						class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+					/>
+					<span class="text-xs font-medium text-gray-700">
+						{{ __("Multiple Sales Persons") }}
+					</span>
+				</label>
+				<!-- One Page Toggle: payment options move into this panel -->
+				<label class="flex items-center gap-2 cursor-pointer select-none">
+					<input
+						type="checkbox"
+						v-model="onePage"
+						class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+					/>
+					<span class="text-xs font-medium text-gray-700">
+						{{ __("One Page") }}
+					</span>
+				</label>
+			</div>
 			<!-- Inline Customer Search/Selection -->
 			<div ref="customerSearchContainer" class="relative">
 				<div v-if="customer">
@@ -1123,8 +1135,32 @@
 
 		<!-- Totals Summary -->
 		<div class="p-1.5 sm:p-2 bg-white border-t border-gray-200">
+			<!-- One Page: the five stacked total rows collapse to one dense line so
+			     the payment section below costs the item list as little as possible -->
+			<div
+				v-if="onePage && items.length > 0"
+				class="flex items-center justify-between flex-wrap gap-x-2 text-[11px] text-gray-600 mb-1"
+			>
+				<span class="whitespace-nowrap">
+					{{ __("Qty") }}
+					<span class="font-bold text-gray-900">{{ formatQuantity(totalQuantity) }}</span>
+				</span>
+				<span class="whitespace-nowrap">
+					{{ __("Subtotal") }}
+					<span class="font-bold text-gray-900">{{ formatCurrency(displaySubtotal) }}</span>
+				</span>
+				<span v-if="taxAmount > 0" class="whitespace-nowrap">
+					{{ __("Tax") }}
+					<span class="font-bold text-gray-900">{{ formatCurrency(taxAmount) }}</span>
+				</span>
+				<span v-if="discountAmount > 0" class="whitespace-nowrap text-red-600">
+					{{ __("Discount") }}
+					<span class="font-bold">-{{ formatCurrency(discountAmount) }}</span>
+				</span>
+			</div>
+
 			<!-- Summary Details -->
-			<div v-if="items.length > 0" class="mb-1.5">
+			<div v-if="!onePage && items.length > 0" class="mb-1.5">
 				<div class="flex items-center justify-between text-xs text-gray-600 mb-0.5">
 					<span class="font-medium">{{ __("Total Quantity") }}</span>
 					<span class="font-bold text-gray-900 text-center min-w-[60px]">{{
@@ -1140,7 +1176,7 @@
 			</div>
 
 			<!-- Summary Details (continued) -->
-			<div v-if="items.length > 0" class="mb-1.5">
+			<div v-if="!onePage && items.length > 0" class="mb-1.5">
 				<!-- Discount Display - Highlighted -->
 				<div
 					v-if="discountAmount > 0"
@@ -1189,24 +1225,42 @@
 			</div>
 
 			<!-- Grand Total -->
-			<div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-2.5 mb-1.5">
+			<div
+				:class="[
+					'bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg',
+					onePage ? 'px-2 py-1.5 mb-1' : 'p-2.5 mb-1.5'
+				]"
+			>
 				<div class="flex items-center justify-between">
 					<span class="text-sm font-extrabold text-gray-900">{{
 						__("Grand Total")
 					}}</span>
 					<span
-						class="text-lg sm:text-xl font-extrabold text-blue-600 text-center min-w-[60px]"
+						:class="[
+							'font-extrabold text-blue-600 text-center min-w-[60px]',
+							onePage ? 'text-lg' : 'text-lg sm:text-xl'
+						]"
 					>
 						{{ formatCurrency(displayGrandTotal) }}
 					</span>
 				</div>
 			</div>
 
+			<!-- One Page: Complete Payment options rendered inside the cart panel
+			     (discounts, mode of payment, pay / complete actions) -->
+			<!-- Kept mounted (v-show) while the cart is empty so payment methods,
+			     sales persons and customer credit are fetched once per shift -->
+			<div v-if="onePage" v-show="items.length > 0" class="mb-1.5">
+				<slot name="payment" />
+			</div>
+
 			<!-- Action Buttons -->
 			<div class="flex gap-1.5">
 				<!-- Checkout Button (Primary - 50% width) -->
+				<!-- Hidden in One Page mode: payment is completed in the panel above -->
 				<button
 					type="button"
+					v-if="!onePage"
 					@click="handleProceedToPayment"
 					:disabled="items.length === 0"
 					:class="[
@@ -1426,6 +1480,13 @@ const multipleSalesPersons = computed({
 			uiStore.setMobileTab("cart");
 		}
 	},
+});
+
+// "One Page" checkbox — payment options render inside this panel instead of
+// opening the payment dialog. Backed by the shared UI store, default on.
+const onePage = computed({
+	get: () => uiStore.onePage,
+	set: (val) => uiStore.setOnePage(val),
 });
 
 // Cart items ordered so each sales person's items are contiguous (mode on),

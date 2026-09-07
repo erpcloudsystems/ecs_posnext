@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import getdate
+from frappe.utils import flt, getdate
 
 from ecs_posnext.working_day import (
 	get_working_day_window,
@@ -147,7 +147,13 @@ def get_daily_payments(employee=None, from_date=None, to_date=None, branch=None,
 
 @frappe.whitelist()
 def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_shift=None):
-	"""Return invoice counts grouped by payment method for Cash and Visa (non-Cash)."""
+	"""Return invoice counts grouped by payment method for Cash and Visa (non-Cash).
+
+	``visa_amount`` sums the non-Cash payment rows themselves rather than the
+	grand totals of the invoices counted as Visa: an invoice split between cash
+	and card is counted on both cards, so totalling its grand total here would
+	overstate what actually went through the card machine.
+	"""
 	if not frappe.has_permission("Sales Invoice", "read"):
 		frappe.throw(_("Not permitted to view Sales Invoice"), frappe.PermissionError)
 
@@ -208,11 +214,11 @@ def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_sh
 	total = len(invoice_names)
 
 	if not invoice_names:
-		return {"cash": 0, "visa": 0, "total": 0}
+		return {"cash": 0, "visa": 0, "total": 0, "visa_amount": 0.0}
 
 	rows = frappe.db.sql(
 		"""
-		SELECT sip.parent, sip.mode_of_payment, mop.type AS mop_type
+		SELECT sip.parent, sip.mode_of_payment, sip.amount, mop.type AS mop_type
 		FROM `tabSales Invoice Payment` sip
 		LEFT JOIN `tabMode of Payment` mop ON mop.name = sip.mode_of_payment
 		WHERE sip.parent IN %(names)s
@@ -224,12 +230,14 @@ def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_sh
 
 	cash_invoices = set()
 	visa_invoices = set()
+	visa_amount = 0.0
 
 	for row in rows:
 		if (row.mop_type or "").strip().lower() == "cash":
 			cash_invoices.add(row.parent)
 		else:
 			visa_invoices.add(row.parent)
+			visa_amount += flt(row.amount)
 
 	for name in invoice_names:
 		if name not in cash_invoices and name not in visa_invoices:
@@ -239,6 +247,7 @@ def get_invoice_counts(branch=None, from_date=None, to_date=None, pos_opening_sh
 		"cash": len(cash_invoices),
 		"visa": len(visa_invoices),
 		"total": total,
+		"visa_amount": visa_amount,
 	}
 
 

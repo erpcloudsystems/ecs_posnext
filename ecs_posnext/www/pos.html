@@ -24,11 +24,35 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet"
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Cairo:wght@500;700&display=swap" />
-  <script type="module" crossorigin src="/assets/ecs_posnext/pos/assets/index-_N65Q4EH.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/ecs_posnext/pos/assets/index-DmJ7EFY1.css">
+  <script type="module" crossorigin src="/assets/ecs_posnext/pos/assets/index-ohyh_IC_.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/ecs_posnext/pos/assets/index-CrD5pC3a.css">
 <link rel="manifest" href="/assets/ecs_posnext/pos/manifest.webmanifest"></head>
 
 <body>
+  <!--
+    Applies the saved theme before the first paint. Vue's own theme init runs
+    only after the bundle has parsed, which on a cold POS terminal is long
+    enough to flash a full white screen at a cashier working in a dark room.
+  -->
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("ecs_posnext_theme")
+        var dark =
+          stored === "dark" ||
+          (stored !== "light" &&
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches)
+        if (dark) {
+          document.documentElement.setAttribute("data-theme", "dark")
+          var meta = document.querySelector('meta[name="theme-color"]')
+          if (meta) meta.setAttribute("content", "#0F0F0F")
+        }
+      } catch (e) {
+        /* storage blocked - fall through to light */
+      }
+    })()
+  </script>
   <div id="app"></div>
 
           <script>

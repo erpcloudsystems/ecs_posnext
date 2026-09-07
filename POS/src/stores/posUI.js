@@ -44,6 +44,11 @@ export const usePOSUIStore = defineStore("posUI", () => {
 	// Customer dialog state
 	const initialCustomerName = ref("")
 
+	// "One Page" checkbox (cart panel) — when on, the Complete Payment options
+	// (discounts, mode of payment, pay/complete actions) render inside the cart
+	// panel instead of opening the payment dialog. Defaults to on.
+	const onePage = ref(true)
+
 	// Mobile responsiveness
 	const mobileActiveTab = ref("items") // 'items' or 'cart'
 	const windowWidth = ref(
@@ -64,6 +69,13 @@ export const usePOSUIStore = defineStore("posUI", () => {
 
 	function setMobileTab(tab) {
 		mobileActiveTab.value = tab
+	}
+
+	function setOnePage(value) {
+		onePage.value = !!value
+		// Leaving one-page mode must not strand an open inline payment section,
+		// and entering it must not leave the dialog stacked on top of it.
+		showPaymentDialog.value = false
 	}
 
 	function showError(
@@ -154,6 +166,7 @@ export const usePOSUIStore = defineStore("posUI", () => {
 		lastInvoiceTotal,
 		lastPaidAmount,
 		initialCustomerName,
+		onePage,
 		mobileActiveTab,
 		windowWidth,
 
@@ -164,6 +177,7 @@ export const usePOSUIStore = defineStore("posUI", () => {
 		setLoading,
 		setWindowWidth,
 		setMobileTab,
+		setOnePage,
 		showError,
 		clearError,
 		showSuccess,

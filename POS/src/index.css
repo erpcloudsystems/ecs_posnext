@@ -1,6 +1,7 @@
 @import "./assets/Inter/inter.css";
 @import "frappe-ui/style.css";
 @import "@abdulrysr/saudi-riyal-new-symbol-font/style.css";
+@import "./theme.css";
 
 /* CSS Custom Properties for consistent z-index layering */
 :root {
@@ -12,6 +13,52 @@
 /* Apply Saudi Riyal symbol font to body for currency support */
 body {
 	font-family: "SaudiRiyalSymbol", "Inter", sans-serif;
+	background-color: rgb(var(--pos-page));
+	color: rgb(var(--pos-fg-gray-900));
+}
+
+/*
+ * Tells the browser to render its own chrome - scrollbars, date/time pickers,
+ * spin buttons, autofill - to match the theme. Without this the native pickers
+ * in the invoice filters stay blinding white in dark mode.
+ */
+:root {
+	color-scheme: light;
+}
+
+[data-theme="dark"] {
+	color-scheme: dark;
+}
+
+/*
+ * @tailwindcss/forms hardcodes a white ring offset on focused inputs, which
+ * draws a white halo around every field in dark mode. The plugin's rules are
+ * more specific than the utility layer, so this has to be reset explicitly.
+ */
+[data-theme="dark"] {
+	--tw-ring-offset-color: rgb(var(--pos-surface));
+}
+
+[data-theme="dark"] input:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus,
+[data-theme="dark"] .form-input:focus,
+[data-theme="dark"] .form-select:focus,
+[data-theme="dark"] .form-textarea:focus,
+[data-theme="dark"] .form-multiselect:focus,
+[data-theme="dark"] .form-checkbox:focus,
+[data-theme="dark"] .form-radio:focus {
+	--tw-ring-offset-color: rgb(var(--pos-surface));
+}
+
+/*
+ * frappe-ui dims every img in dark mode, which is right for screenshots and
+ * logos but wrong for the country flags in the language switcher and for
+ * customer/item photos, where it just looks like a rendering fault.
+ */
+[data-theme="dark"] img.pos-no-dim,
+[data-theme="dark"] .pos-no-dim img {
+	filter: none;
 }
 
 /* Ensure all text elements inherit the font stack with Saudi Riyal support */

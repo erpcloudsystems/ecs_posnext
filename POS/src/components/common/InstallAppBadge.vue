@@ -27,16 +27,16 @@
 
 					<!-- Text Content -->
 					<div class="flex-1 min-w-0 me-2">
-						<h3 id="install-banner-title" class="text-xs font-semibold mb-0.5 leading-tight" style="color: #111827;">
+						<h3 id="install-banner-title" class="text-xs font-semibold mb-0.5 leading-tight" style="color: var(--pos-x-ink-strong);">
 							{{ __('Install POSNext') }}
 						</h3>
-						<p class="text-[10px] leading-tight mb-1" style="color: #4B5563;">
+						<p class="text-[10px] leading-tight mb-1" style="color: var(--pos-x-ink-soft);">
 							{{ __('Faster access and offline support') }}
 						</p>
 						<button
 							@click="handleSnooze"
 							class="text-[10px] underline hover:no-underline transition-all"
-							style="color: #6B7280;"
+							style="color: var(--pos-x-ink-muted);"
 						>
 							{{ __('Snooze for 7 days') }}
 						</button>
@@ -54,7 +54,7 @@
 						<button
 							@click="handleDismiss"
 							class="p-1.5 hover:bg-gray-100 rounded transition-colors touch-manipulation flex-shrink-0"
-							style="color: #6B7280;"
+							style="color: var(--pos-x-ink-muted);"
 							:aria-label="__('Close')"
 							:title="__('Close (shows again next session)')"
 						>

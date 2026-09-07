@@ -1,11 +1,18 @@
 <template>
-	<Dialog v-model="show" :options="{ title: isSalesOrder ? __('Complete Sales Order') : __('Complete Payment'), size: dynamicDialogSize }">
+	<!-- One Page mode renders this same payment body inside the cart panel, so the
+	     modal shell is swapped for a plain pass-through wrapper -->
+	<component
+		:is="inline ? InlinePaymentShell : Dialog"
+		v-model="show"
+		:options="{ title: isSalesOrder ? __('Complete Sales Order') : __('Complete Payment'), size: dynamicDialogSize }"
+	>
 		<template #body-content>
 			<!-- Two Column Layout - auto-sized on mobile, constrained on desktop -->
 			<div
 				:class="[
-					'grid grid-cols-1 lg:grid-cols-5 items-stretch',
-					dynamicGap,
+					'grid items-stretch',
+					inline ? 'grid-cols-1 gap-1.5' : 'grid-cols-1 lg:grid-cols-5',
+					inline ? '' : dynamicGap,
 					isMobileView ? '' : 'overflow-hidden'
 				]"
 				:style="isMobileView ? {} : { maxHeight: dialogContentMaxHeight }"
@@ -13,7 +20,8 @@
 				<!-- Left Column (2/5): Invoice Summary -->
 				<div
 					:class="[
-						'lg:col-span-2 flex flex-col min-h-0',
+						'flex flex-col min-h-0',
+						inline ? '' : 'lg:col-span-2',
 						isSmallMobile ? 'gap-1' : 'gap-1.5',
 						isMobileView ? 'overflow-visible' : 'overflow-hidden'
 					]"
@@ -37,7 +45,8 @@
 
 					<!-- Outstanding Balance Row (full width, two columns) -->
 					<div v-if="customerCreditEnabled && totalAvailableCredit !== 0" :class="[
-						'rounded-lg border p-2 flex items-center justify-between',
+						'rounded-lg border flex items-center justify-between',
+						inline ? 'px-2 py-1' : 'p-2',
 						totalAvailableCredit < 0
 							? 'bg-red-50 border-red-200'
 							: 'bg-emerald-50 border-emerald-200'
@@ -50,17 +59,26 @@
 						</span>
 						<!-- Show remaining credit (after used amount is deducted) for positive balance -->
 						<span :class="[
-							'text-base font-bold',
+							'font-bold',
+							inline ? 'text-sm' : 'text-base',
 							totalAvailableCredit < 0 ? 'text-red-600' : 'text-emerald-600'
 						]">
 							{{ totalAvailableCredit < 0 ? formatCurrency(Math.abs(totalAvailableCredit)) : formatCurrency(remainingAvailableCredit) }}
 						</span>
 					</div>
 
-					<!-- Invoice Summary -->
-					<div class="bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col flex-1 min-h-0">
+					<!-- Invoice Summary (One Page mode drops the header, item list and the
+					     amount rows the cart panel already shows right above) -->
+					<div
+						:class="[
+							'overflow-hidden flex flex-col',
+							inline
+								? ''
+								: 'bg-white rounded-lg border border-gray-200 flex-1 min-h-0'
+						]"
+					>
 						<!-- Header -->
-						<div :class="['px-3 border-b border-gray-200 bg-gray-50', isCompactMode ? 'py-1.5' : 'py-2']">
+						<div v-if="!inline" :class="['px-3 border-b border-gray-200 bg-gray-50', isCompactMode ? 'py-1.5' : 'py-2']">
 							<div class="flex items-center justify-between">
 								<h3 :class="['text-gray-900 font-semibold text-start', dynamicTextSize.header]">{{ __('Invoice Summary') }}</h3>
 								<span class="text-gray-500 text-xs text-end">{{ items.length === 1 ? __('1 item') : __('{0} items', [items.length]) }}</span>
@@ -71,7 +89,7 @@
 						</div>
 
 						<!-- Items List (scrollable, takes available space) -->
-						<div v-if="items.length > 0" class="flex-1 overflow-y-auto divide-y divide-gray-100 min-h-0">
+						<div v-if="!inline && items.length > 0" class="flex-1 overflow-y-auto divide-y divide-gray-100 min-h-0">
 							<div
 								v-for="(item, index) in items"
 								:key="index"
@@ -90,21 +108,40 @@
 								</div>
 							</div>
 						</div>
-						<div v-else class="flex-1 px-3 py-4 text-center text-gray-400 text-sm flex items-center justify-center">
+						<div v-else-if="!inline" class="flex-1 px-3 py-4 text-center text-gray-400 text-sm flex items-center justify-center">
 							{{ __('No items') }}
 						</div>
 
 						<!-- Amounts Breakdown -->
-						<div class="border-t border-gray-200 bg-gray-50 px-3 py-2 space-y-1">
-							<!-- Additional Discount Row -->
-							<div v-if="settingsStore.allowAdditionalDiscount" class="pb-1.5 mb-1 border-b border-dashed border-orange-200">
+						<div
+							v-if="!inline || settingsStore.allowAdditionalDiscount"
+							:class="[
+								'space-y-1',
+								inline ? '' : 'border-t border-gray-200 bg-gray-50 px-3 py-2'
+							]"
+						>
+							<!-- Additional Discount Row (One Page puts the label and the
+							     selector on one line to give the cart back the height) -->
+							<div
+								v-if="settingsStore.allowAdditionalDiscount"
+								:class="
+									inline
+										? 'flex items-center gap-1.5'
+										: 'pb-1.5 mb-1 border-b border-dashed border-orange-200'
+								"
+							>
 								<!-- Label with calculated amount -->
-								<div class="flex items-center justify-between gap-2 mb-1.5">
+								<div
+									:class="[
+										'flex items-center justify-between gap-2',
+										inline ? 'flex-1 min-w-0' : 'mb-1.5'
+									]"
+								>
 									<div class="flex items-center gap-1.5 min-w-0">
 										<svg class="w-3.5 h-3.5 text-orange-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
 										</svg>
-										<span class="text-xs font-medium text-orange-700">{{ __('Additional Discount') }}</span>
+										<span class="text-xs font-medium text-orange-700 truncate">{{ __('Additional Discount') }}</span>
 									</div>
 									<span v-if="localAdditionalDiscount > 0" class="text-xs font-bold text-red-600">
 										-{{ formatCurrency(calculatedAdditionalDiscount) }}
@@ -114,28 +151,31 @@
 								<select
 									v-model.number="localAdditionalDiscount"
 									@change="handleAdditionalDiscountChange"
-									class="w-full h-9 px-3 text-sm font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer"
+									:class="[
+										'font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer',
+										inline ? 'w-[76px] h-8 px-2 text-xs flex-shrink-0' : 'w-full h-9 px-3 text-sm'
+									]"
 								>
 									<option v-for="pct in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]" :key="pct" :value="pct">{{ pct }}%</option>
 								</select>
 							</div>
 							<!-- Subtotal -->
-							<div class="flex items-center justify-between text-sm">
+							<div v-if="!inline" class="flex items-center justify-between text-sm">
 								<span class="text-gray-600 text-start">{{ __('Subtotal') }}</span>
 								<span class="font-medium text-gray-900 text-end">{{ formatCurrency(subtotal) }}</span>
 							</div>
 							<!-- Tax -->
-							<div v-if="taxAmount > 0" class="flex items-center justify-between text-sm">
+							<div v-if="!inline && taxAmount > 0" class="flex items-center justify-between text-sm">
 								<span class="text-gray-600 text-start">{{ __('Tax') }}</span>
 								<span class="font-medium text-gray-900 text-end">{{ formatCurrency(taxAmount) }}</span>
 							</div>
 							<!-- Discount (shows the calculated additional discount amount) -->
-							<div v-if="discountAmount > 0" class="flex items-center justify-between text-sm">
+							<div v-if="!inline && discountAmount > 0" class="flex items-center justify-between text-sm">
 								<span class="text-gray-600 text-start">{{ __('Discount') }}</span>
 								<span class="font-medium text-red-600 text-end">-{{ formatCurrency(discountAmount) }}</span>
 							</div>
 							<!-- Grand Total -->
-							<div class="flex items-center justify-between pt-2 mt-1 border-t border-gray-300">
+							<div v-if="!inline" class="flex items-center justify-between pt-2 mt-1 border-t border-gray-300">
 								<span :class="['font-bold text-gray-900 text-start', isCompactMode ? 'text-sm' : 'text-base']">{{ __('Grand Total') }}</span>
 								<span :class="['font-bold text-gray-900 text-end', dynamicTextSize.grandTotal]">{{ formatCurrency(grandTotal) }}</span>
 							</div>
@@ -145,55 +185,98 @@
 						<div class="border-t border-gray-200">
 							<div class="grid grid-cols-2 divide-x divide-gray-200">
 								<!-- Paid (Left Half) -->
-								<div :class="['bg-blue-50 text-center', isCompactMode ? 'p-2' : 'p-3']">
-									<div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{{ __('Paid') }}</div>
-									<div :class="['font-bold text-blue-600', dynamicTextSize.amount]">{{ formatCurrency(totalPaid) }}</div>
+								<div :class="[
+										'bg-blue-50',
+										inline ? 'flex items-center justify-center gap-1.5 px-2 py-1' : 'text-center',
+										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
+									]">
+									<div :class="['font-medium uppercase tracking-wide', 'text-gray-500', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Paid') }}</div>
+									<div :class="['font-bold', 'text-blue-600', inline ? 'text-sm' : dynamicTextSize.amount]">{{ formatCurrency(totalPaid) }}</div>
 								</div>
 								<!-- Remaining / Change (Right Half) -->
-								<div v-if="remainingAmount > 0 && !applyWriteOff" :class="['bg-orange-50 text-center', isCompactMode ? 'p-2' : 'p-3']">
-									<div class="text-xs font-medium text-orange-600 uppercase tracking-wide mb-1">{{ __('Remaining') }}</div>
-									<div :class="['font-bold text-orange-600', dynamicTextSize.amount]">{{ formatCurrency(remainingAmount) }}</div>
+								<div v-if="remainingAmount > 0 && !applyWriteOff" :class="[
+										'bg-orange-50',
+										inline ? 'flex items-center justify-center gap-1.5 px-2 py-1' : 'text-center',
+										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
+									]">
+									<div :class="['font-medium uppercase tracking-wide', 'text-orange-600', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Remaining') }}</div>
+									<div :class="['font-bold', 'text-orange-600', inline ? 'text-sm' : dynamicTextSize.amount]">{{ formatCurrency(remainingAmount) }}</div>
 								</div>
 								<!-- Write-off Applied -->
-								<div v-else-if="applyWriteOff && canWriteOff" :class="['bg-purple-50 text-center', isCompactMode ? 'p-2' : 'p-3']">
-									<div class="text-xs font-medium text-purple-600 uppercase tracking-wide mb-1">{{ __('Write Off') }}</div>
-									<div :class="['font-bold text-purple-600', dynamicTextSize.amount]">{{ formatCurrency(writeOffAmount) }}</div>
+								<div v-else-if="applyWriteOff && canWriteOff" :class="[
+										'bg-purple-50',
+										inline ? 'flex items-center justify-center gap-1.5 px-2 py-1' : 'text-center',
+										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
+									]">
+									<div :class="['font-medium uppercase tracking-wide', 'text-purple-600', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Write Off') }}</div>
+									<div :class="['font-bold', 'text-purple-600', inline ? 'text-sm' : dynamicTextSize.amount]">{{ formatCurrency(writeOffAmount) }}</div>
 								</div>
-								<div v-else-if="changeAmount > 0 && allowsOverpayment" :class="['bg-green-50 text-center', isCompactMode ? 'p-2' : 'p-3']">
-									<div class="text-xs font-medium text-green-600 uppercase tracking-wide mb-1">{{ __('Change Due') }}</div>
-									<div :class="['font-bold text-green-600', dynamicTextSize.amount]">{{ formatCurrency(changeAmount) }}</div>
+								<div v-else-if="changeAmount > 0 && allowsOverpayment" :class="[
+										'bg-green-50',
+										inline ? 'flex items-center justify-center gap-1.5 px-2 py-1' : 'text-center',
+										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
+									]">
+									<div :class="['font-medium uppercase tracking-wide', 'text-green-600', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Change Due') }}</div>
+									<div :class="['font-bold', 'text-green-600', inline ? 'text-sm' : dynamicTextSize.amount]">{{ formatCurrency(changeAmount) }}</div>
 								</div>
 								<!-- Exact Amount Warning (when overpayment not allowed) -->
-								<div v-else-if="changeAmount > 0 && !allowsOverpayment" :class="['bg-red-50 text-center', isCompactMode ? 'p-2' : 'p-3']">
-									<div class="text-xs font-medium text-red-600 uppercase tracking-wide mb-1">{{ __('Overpayment') }}</div>
-									<div :class="['font-bold text-red-600', dynamicTextSize.amount]">{{ formatCurrency(changeAmount) }}</div>
+								<div v-else-if="changeAmount > 0 && !allowsOverpayment" :class="[
+										'bg-red-50',
+										inline ? 'flex items-center justify-center gap-1.5 px-2 py-1' : 'text-center',
+										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
+									]">
+									<div :class="['font-medium uppercase tracking-wide', 'text-red-600', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Overpayment') }}</div>
+									<div :class="['font-bold', 'text-red-600', inline ? 'text-sm' : dynamicTextSize.amount]">{{ formatCurrency(changeAmount) }}</div>
 								</div>
-								<div v-else :class="['bg-green-50 flex flex-col items-center justify-center', isCompactMode ? 'p-2' : 'p-3']">
-									<svg class="w-5 h-5 text-green-600 mb-1" fill="currentColor" viewBox="0 0 20 20">
+								<div
+									v-else
+									:class="[
+										'bg-green-50 flex items-center justify-center',
+										inline ? 'gap-1 px-2 py-1' : 'flex-col',
+										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
+									]"
+								>
+									<svg
+										:class="['text-green-600', inline ? 'w-4 h-4' : 'w-5 h-5 mb-1']"
+										fill="currentColor"
+										viewBox="0 0 20 20"
+									>
 										<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
 									</svg>
-									<span :class="['font-bold text-green-600', dynamicTextSize.body]">{{ __('Fully Paid') }}</span>
+									<span :class="['font-bold text-green-600', inline ? 'text-xs' : dynamicTextSize.body]">{{ __('Fully Paid') }}</span>
 								</div>
 							</div>
 						</div>
 
 						<!-- Write-Off Toggle -->
-						<div v-if="canWriteOff" class="border-t border-gray-200 px-4 py-3 bg-white">
-							<div class="flex items-center justify-between mb-1.5">
-								<span class="text-xs font-medium text-gray-500 uppercase tracking-wider">{{ __('Write Off') }}</span>
-								<span class="text-xs text-gray-400">{{ __('Max') }}: {{ formatCurrency(writeOffLimit) }}</span>
+						<div
+							v-if="canWriteOff"
+							:class="[
+								'border-t border-gray-200 bg-white',
+								inline ? 'px-1 py-1.5' : 'px-4 py-3'
+							]"
+						>
+							<div :class="['flex items-center justify-between', inline ? 'mb-1' : 'mb-1.5']">
+								<span :class="['font-medium text-gray-500 uppercase tracking-wider', inline ? 'text-[10px]' : 'text-xs']">{{ __('Write Off') }}</span>
+								<span :class="['text-gray-400', inline ? 'text-[10px]' : 'text-xs']">{{ __('Max') }}: {{ formatCurrency(writeOffLimit) }}</span>
 							</div>
 							<div
-								class="relative h-12 rounded-lg overflow-hidden select-none cursor-pointer border"
-								:class="applyWriteOff ? 'bg-teal-500 border-teal-500' : 'bg-gray-100 border-gray-200'"
+								:class="[
+									'relative rounded-lg overflow-hidden select-none cursor-pointer border',
+									inline ? 'h-9' : 'h-12',
+									applyWriteOff ? 'bg-teal-500 border-teal-500' : 'bg-gray-100 border-gray-200'
+								]"
 								@click="applyWriteOff = !applyWriteOff"
 								style="transition: all 0.25s ease"
 							>
 								<!-- Center Text -->
 								<div class="absolute inset-0 flex items-center justify-center z-10">
 									<span
-										class="text-base font-semibold tracking-wide"
-										:class="applyWriteOff ? 'text-white' : 'text-gray-700'"
+										:class="[
+											'font-semibold tracking-wide',
+											inline ? 'text-sm' : 'text-base',
+											applyWriteOff ? 'text-white' : 'text-gray-700'
+										]"
 									>
 										{{ formatCurrency(remainingAmount) }}
 									</span>
@@ -201,9 +284,14 @@
 
 								<!-- Toggle Handle -->
 								<div
-									class="absolute top-1.5 bottom-1.5 w-11 rounded-md flex items-center justify-center z-20 bg-white border border-gray-200"
+									:class="[
+										'absolute rounded-md flex items-center justify-center z-20 bg-white border border-gray-200',
+										inline ? 'top-1 bottom-1 w-9' : 'top-1.5 bottom-1.5 w-11'
+									]"
 									:style="{
-										left: applyWriteOff ? 'calc(100% - 3rem)' : '0.375rem',
+										left: applyWriteOff
+											? inline ? 'calc(100% - 2.5rem)' : 'calc(100% - 3rem)'
+											: '0.375rem',
 										transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
 										boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
 									}"
@@ -225,13 +313,28 @@
 				<div
 					ref="rightColumnRef"
 					:class="[
-						'lg:col-span-3 bg-gray-50 rounded-lg border border-gray-200 flex flex-col',
-						isSmallMobile ? 'p-1.5' : 'p-2 lg:p-3'
+						'flex flex-col',
+						inline
+							? ''
+							: 'bg-gray-50 rounded-lg border border-gray-200 lg:col-span-3',
+						inline ? '' : isSmallMobile ? 'p-1.5' : 'p-2 lg:p-3'
 					]"
 					:style="isMobileView ? {} : { minHeight: rightColumnMinHeight }"
 				>
+					<!-- One Page mode: the cart header owns customer selection, so only the
+					     "customer required" reminder is repeated here -->
+					<div
+						v-if="inline && customerRequired && !effectiveCustomer"
+						class="rounded-lg p-2 mb-1.5 bg-red-50 border border-red-300 flex items-center gap-1.5"
+					>
+						<svg class="w-3.5 h-3.5 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+							<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+						</svg>
+						<span class="text-xs font-medium text-red-700">{{ __('Select a customer above to complete payment') }}</span>
+					</div>
+
 					<!-- Customer Inline Search -->
-					<div :class="[
+					<div v-if="!inline" :class="[
 						'rounded-lg p-2 mb-1.5 lg:mb-2',
 						customerRequired && !effectiveCustomer && !customerNameQuery.trim() ? 'bg-red-50 border-2 border-red-300' : 'bg-blue-50 border border-blue-200'
 					]">
@@ -317,9 +420,11 @@
 						</div>
 					</div>
 
-					<!-- Multiple Sales Persons (per-item) — derived commission split, read-only -->
+					<!-- Multiple Sales Persons (per-item) — derived commission split, read-only.
+					     Hidden in One Page mode: the Sales Persons panel beside the cart
+					     already lists each person's amount and share. -->
 					<div
-						v-if="salesPersonStore.enabled"
+						v-if="salesPersonStore.enabled && !inline"
 						class="rounded-lg p-2 mb-1.5 lg:mb-2 bg-purple-50 border border-purple-200"
 					>
 						<div class="flex items-center justify-between mb-1.5">
@@ -569,14 +674,13 @@
 							<button
 								v-for="method in filteredPaymentMethods"
 								:key="method.mode_of_payment"
-								@pointerdown="onPaymentMethodDown(method, $event)"
-								@pointerup="onPaymentMethodUp(method)"
-								@pointerleave="onPaymentMethodCancel"
-								@pointercancel="onPaymentMethodCancel"
+								@click="quickAddPayment(method)"
 								:disabled="isWalletPaymentMethod(method.mode_of_payment) && availableWalletBalance <= 0 && getMethodTotal(method.mode_of_payment) === 0"
 								:class="[
-									'inline-flex items-center rounded-lg border-2 transition-all font-medium select-none touch-none',
-									isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
+									'inline-flex items-center rounded-lg border-2 transition-all font-medium select-none touch-manipulation',
+									inline
+										? 'gap-1 px-2 h-9 text-xs'
+										: isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
 									lastSelectedMethod?.mode_of_payment === method.mode_of_payment
 										? isWalletPaymentMethod(method.mode_of_payment)
 											? 'border-amber-500 bg-amber-50 text-amber-700'
@@ -588,7 +692,7 @@
 											: 'border-gray-200 bg-white hover:border-blue-400 hover:bg-blue-50 text-gray-700'
 								]"
 							>
-								<span :class="isSmallMobile ? 'text-xs' : 'text-sm lg:text-lg'">{{ isWalletPaymentMethod(method.mode_of_payment) ? '🎁' : getPaymentIcon(method.type) }}</span>
+								<span :class="inline ? 'text-sm' : isSmallMobile ? 'text-xs' : 'text-sm lg:text-lg'">{{ isWalletPaymentMethod(method.mode_of_payment) ? '🎁' : getPaymentIcon(method.type) }}</span>
 								<span class="truncate max-w-[80px] lg:max-w-none">{{ __(method.mode_of_payment) }}</span>
 								<!-- Wallet Balance Badge -->
 								<span v-if="isWalletPaymentMethod(method.mode_of_payment) && walletInfo.wallet_enabled"
@@ -608,14 +712,16 @@
 								:disabled="remainingAmount === 0 || remainingAvailableCredit === 0"
 								:class="[
 									'inline-flex items-center rounded-lg border-2 transition-all font-medium',
-									isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
+									inline
+										? 'gap-1 px-2 h-9 text-xs'
+										: isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
 									remainingAmount === 0 || remainingAvailableCredit === 0 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
 									getMethodTotal('Customer Credit') > 0
 										? 'border-emerald-500 bg-emerald-50 text-emerald-700'
 										: 'border-emerald-300 bg-emerald-50 hover:border-emerald-500 hover:bg-emerald-100 text-emerald-700'
 								]"
 							>
-								<span :class="isSmallMobile ? 'text-xs' : 'text-sm lg:text-lg'">💳</span>
+								<span :class="inline ? 'text-sm' : isSmallMobile ? 'text-xs' : 'text-sm lg:text-lg'">💳</span>
 								<span class="truncate">{{ __('Credit Balance') }}</span>
 								<span v-if="getMethodTotal('Customer Credit') > 0"
 									:class="['font-bold text-emerald-600 bg-emerald-100 rounded', isSmallMobile ? 'text-[8px] px-0.5 py-0.5' : 'text-xs px-1 py-0.5']">
@@ -643,53 +749,13 @@
 					</div>
 
 
-					<!-- Mobile Payment Section - Dynamic & Responsive -->
-					<div class="lg:hidden flex flex-col" :class="isSmallMobile ? 'gap-1' : 'gap-1.5'">
-						<!-- Mobile Custom Input -->
-						<div v-if="lastSelectedMethod && remainingAmount > 0" :class="['space-y-1 flex-shrink-0', isSmallMobile ? 'mb-1' : 'mb-1.5']">
-							<!-- Custom Amount Row (disabled for non-cash when exact amount mode is active) -->
-							<div :class="['flex', isSmallMobile ? 'gap-0.5' : 'gap-1']">
-								<div class="relative flex-1">
-									<span :class="[
-										'absolute start-2 top-1/2 -translate-y-1/2',
-										isSmallMobile ? 'text-[10px]' : 'text-xs',
-										isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod) ? 'text-gray-300' : 'text-gray-400'
-									]">{{ currencySymbol }}</span>
-									<input
-										v-model="mobileCustomAmount"
-										type="number"
-										inputmode="decimal"
-										:placeholder="isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod) ? __('Exact amount only') : __('Custom')"
-										min="0"
-										step="0.01"
-										:disabled="isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod)"
-										:class="[
-											'w-full border rounded focus:outline-none font-semibold',
-											isSmallMobile ? 'h-7 ps-5 pe-1.5 text-xs' : 'h-8 ps-6 pe-2 text-sm',
-											isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod)
-												? 'bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed'
-												: 'bg-white border-gray-200 focus:ring-1 focus:ring-blue-500'
-										]"
-									/>
-								</div>
-								<button
-									@click="addMobileCustomPayment"
-									:disabled="(isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod)) || !mobileCustomAmount || mobileCustomAmount <= 0"
-									:class="[
-										'font-semibold rounded transition-all flex-shrink-0',
-										isSmallMobile ? 'h-7 px-2 text-[10px]' : 'h-8 px-3 text-xs',
-										(isExactAmountModeActive && !isCashPaymentMethod(lastSelectedMethod)) || !mobileCustomAmount || mobileCustomAmount <= 0
-											? 'bg-gray-100 text-gray-400'
-											: 'bg-blue-500 text-white active:bg-blue-600'
-									]"
-								>
-									{{ __('Add') }}
-								</button>
-							</div>
-						</div>
-
+					<!-- Compact Payment Section (mobile + One Page) - Dynamic & Responsive -->
+					<div
+						class="flex flex-col"
+						:class="[inline ? '' : 'lg:hidden', isSmallMobile ? 'gap-1' : 'gap-1.5']"
+					>
 						<!-- Mobile: Select payment method prompt -->
-						<div v-else-if="!lastSelectedMethod && remainingAmount > 0"
+						<div v-if="!lastSelectedMethod && remainingAmount > 0"
 							:class="['bg-blue-50 rounded text-center', isSmallMobile ? 'p-1.5 mb-1' : 'p-2 mb-1.5']">
 							<p :class="isSmallMobile ? 'text-[10px]' : 'text-xs'" class="text-blue-600">{{ __('Select a payment method') }}</p>
 						</div>
@@ -754,9 +820,9 @@
 								<span>{{ __('Pay') }} {{ formatCurrency(remainingAmount) }}</span>
 							</button>
 
-							<!-- Complete Payment Button -->
+							<!-- Complete / Partial Payment Button -->
 							<button
-								v-if="(remainingAmount === 0 || (applyWriteOff && canWriteOff)) && totalPaid > 0"
+								v-if="totalPaid > 0 && (remainingAmount === 0 || (applyWriteOff && canWriteOff) || allowPartialPayment)"
 								@click="completePayment"
 								:disabled="isSubmitting || !canComplete || isCreatingCustomer"
 								:class="[
@@ -774,14 +840,15 @@
 								<svg v-else :class="mobileButtonSize.icon" fill="currentColor" viewBox="0 0 20 20">
 									<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
 								</svg>
-								<span>{{ isSubmitting ? __('Processing...') : __('Complete Payment') }}</span>
+								<span>{{ isSubmitting ? __('Processing...') : paymentButtonText }}</span>
 							</button>
 						</div>
 					</div>
-					<!-- End Mobile Payment Section -->
+					<!-- End Compact Payment Section -->
 
-					<!-- Action Buttons (Desktop only) -->
-					<div :class="['hidden lg:flex items-center gap-2', isCompactMode ? 'mt-2' : 'mt-4']">
+					<!-- Action Buttons (Desktop dialog only — One Page uses the compact
+					     buttons above, which fit the cart panel width) -->
+					<div v-if="!inline" :class="['hidden lg:flex items-center gap-2', isCompactMode ? 'mt-2' : 'mt-4']">
 						<!-- Pay on Account Button (if credit sales enabled) -->
 						<button
 							v-if="allowCreditSale"
@@ -832,7 +899,7 @@
 			</div>
 			<!-- End Two Column Layout -->
 		</template>
-	</Dialog>
+	</component>
 </template>
 
 <script setup>
@@ -850,11 +917,17 @@ import { enqueueOperation } from "@/utils/offline/operations"
 import { offlineWorker } from "@/utils/offline/workerClient"
 import { logger } from "@/utils/logger"
 import { Dialog, createResource, call } from "frappe-ui"
-import { computed, ref, watch, nextTick } from "vue"
+import { computed, h, onMounted, ref, watch, nextTick } from "vue"
 import { useToast } from "@/composables/useToast"
-import { useLongPress } from "@/composables/useLongPress"
 import { usePaymentNumpad } from "@/composables/usePaymentNumpad"
 import { useResponsivePayment } from "@/composables/useResponsivePayment"
+
+// Pass-through shell used by One Page mode: renders the dialog's #body-content
+// slot as a plain block, with no modal chrome, backdrop or title bar.
+const InlinePaymentShell = (_props, { slots }) =>
+	h("div", { class: "w-full" }, slots["body-content"]?.())
+InlinePaymentShell.props = ["modelValue", "options"]
+InlinePaymentShell.emits = ["update:modelValue"]
 
 const log = logger.create("PaymentDialog")
 const settingsStore = usePOSSettingsStore()
@@ -870,6 +943,13 @@ const derivedSalesAllocations = computed(() =>
 
 const props = defineProps({
 	modelValue: Boolean,
+	// One Page mode: render inline (inside the cart panel) instead of as a modal.
+	// The section stays mounted, so it initialises on mount and resets whenever
+	// the cart is emptied rather than on dialog open/close.
+	inline: {
+		type: Boolean,
+		default: false,
+	},
 	grandTotal: {
 		type: Number,
 		default: 0,
@@ -1019,17 +1099,31 @@ const rightColumnMinHeight = ref("auto")
 // Use responsive payment composable for viewport tracking and dynamic sizing
 const {
 	dynamicDialogSize,
-	isMobileView,
+	isMobileView: viewportIsMobile,
 	dialogContentMaxHeight,
 	dynamicLeftColumnHeight,
-	isCompactMode,
-	isSmallMobile,
+	isCompactMode: viewportIsCompact,
+	isSmallMobile: viewportIsSmall,
 	dynamicGap,
 	dynamicTextSize,
 	dynamicButtonHeight,
-	mobileButtonSize,
+	mobileButtonSize: viewportMobileButtonSize,
 	dynamicNumpadSize,
 } = useResponsivePayment()
+
+// One Page mode renders inside the cart panel (~420px wide, sharing its height
+// with the item list), so the body uses the tightest layout available whatever
+// the viewport says — every row it saves goes back to the cart items.
+const isMobileView = computed(() => props.inline || viewportIsMobile.value)
+const isCompactMode = computed(() => props.inline || viewportIsCompact.value)
+const isSmallMobile = computed(() => props.inline || viewportIsSmall.value)
+
+// Pay / Complete buttons stay touch-sized inline, just shorter than the dialog's
+const mobileButtonSize = computed(() =>
+	props.inline
+		? { height: "h-10", text: "text-xs", icon: "w-4 h-4", gap: "gap-1.5" }
+		: viewportMobileButtonSize.value,
+)
 
 // Calculate and sync column heights when dialog opens
 function syncColumnHeights() {
@@ -1081,17 +1175,6 @@ const {
 	isEnabled: computed(() => props.modelValue), // Only enabled when dialog is open
 	onEnter: handleNumpadEnter,
 })
-
-// Mobile custom amount state
-const mobileCustomAmount = ref("")
-
-function addMobileCustomPayment() {
-	const amount = Number.parseFloat(mobileCustomAmount.value)
-	if (amount > 0 && lastSelectedMethod.value) {
-		addCustomPayment(lastSelectedMethod.value, amount)
-		mobileCustomAmount.value = ""
-	}
-}
 
 function numpadAddPayment() {
 	if (numpadValue.value > 0 && lastSelectedMethod.value) {
@@ -1905,78 +1988,136 @@ watch(
 	{ immediate: true },
 )
 
+// Reset to a clean payment state. Runs when the dialog opens and, in One Page
+// mode, on mount and after every sale (the parent clears the cart).
+function initPaymentState() {
+	// Reset state (but NOT customerBalance - it's pre-fetched)
+	paymentEntries.value = []
+	customAmount.value = ""
+	numpadClear()
+	lastSelectedMethod.value = null
+	customerCredit.value = []
+	// Note: Don't reset customerBalance here - it's pre-fetched when customer changes
+	selectedSalesPersons.value = []
+	salesPersonSearch.value = ""
+	applyWriteOff.value = false // Reset write-off state
+	// Initialize customer inline search fields from current cart customer
+	selectedCustomer.value = null
+	isCreatingCustomer.value = false
+	customerNameResults.value = []
+	customerMobileResults.value = []
+	// Load customer cache (offline-first, same as InvoiceCart)
+	if (props.posProfile) {
+		customerSearchStore.loadAllCustomers(props.posProfile)
+	}
+	if (props.customer) {
+		const custObj = typeof props.customer === "object"
+			? props.customer
+			: { name: props.customer, customer_name: props.customer }
+		customerNameQuery.value = custObj.customer_name || custObj.name || ""
+		customerMobileQuery.value = custObj.mobile_no || ""
+		selectedCustomer.value = custObj
+	} else {
+		customerNameQuery.value = ""
+		customerMobileQuery.value = ""
+	}
+	// Set default delivery date to today for Sales Orders
+	deliveryDate.value = isSalesOrder.value ? today : ""
+	// Mirror the additional discount already applied to the cart
+	localAdditionalDiscount.value = props.additionalDiscount || 0
+
+	// Debug logging
+	log.debug("[PaymentDialog] Payment state initialised with props:", {
+		allowCreditSale: props.allowCreditSale,
+		allowCustomerCreditPayment: props.allowCustomerCreditPayment,
+		allowWriteOff: props.allowWriteOff,
+		writeOffLimit: props.writeOffLimit,
+		customer: props.customer,
+		company: props.company,
+		posProfile: props.posProfile,
+	})
+
+	// Set default payment method if already loaded
+	if (paymentMethods.value.length > 0 && !lastSelectedMethod.value) {
+		const defaultMethod = paymentMethods.value.find((m) => m.default)
+		lastSelectedMethod.value = defaultMethod || paymentMethods.value[0]
+	}
+
+	// Customer credit and balance is pre-fetched when customer changes (see watcher above)
+	// Just log for debugging
+	const creditEnabled = props.allowCreditSale || props.allowCustomerCreditPayment
+	if (creditEnabled) {
+		log.debug("[PaymentDialog] Customer credit/balance should be pre-loaded, current balance:", customerBalance.value)
+	}
+
+	if (settingsStore.enableSalesPersons && props.posProfile && salesPersons.value.length === 0) {
+		loadingSalesPersons.value = true
+		salesPersonsResource.fetch()
+	}
+
+	// Load wallet info if customer is selected
+	if (props.customer && props.company) {
+		log.debug("[PaymentDialog] Loading wallet info...")
+		loadingWallet.value = true
+		walletInfoResource.fetch()
+	} else {
+		// Reset wallet info only if no customer
+		walletInfo.value = {
+			wallet_enabled: false,
+			wallet_exists: false,
+			wallet_balance: 0,
+			wallet_name: null,
+		}
+	}
+}
+
 watch(show, (newVal) => {
 	if (newVal) {
-		// Reset state when dialog opens (but NOT customerBalance - it's pre-fetched)
-		paymentEntries.value = []
-		customAmount.value = ""
-		numpadClear()
-		mobileCustomAmount.value = ""
-		lastSelectedMethod.value = null
-		customerCredit.value = []
-		// Note: Don't reset customerBalance here - it's pre-fetched when customer changes
-		selectedSalesPersons.value = []
-		salesPersonSearch.value = ""
-		applyWriteOff.value = false // Reset write-off state
-		// Initialize customer inline search fields from current cart customer
-		selectedCustomer.value = null
-		isCreatingCustomer.value = false
-		customerNameResults.value = []
-		customerMobileResults.value = []
-		// Load customer cache (offline-first, same as InvoiceCart)
-		if (props.posProfile) {
-			customerSearchStore.loadAllCustomers(props.posProfile)
+		initPaymentState()
+	}
+})
+
+// One Page mode stays mounted alongside the cart, so it initialises once here
+// instead of on every open.
+onMounted(() => {
+	if (props.inline) {
+		initPaymentState()
+	}
+})
+
+// One Page mode: an emptied cart means the sale went through (or was cleared),
+// so drop the payments collected for it. A failed submit keeps the cart — and
+// therefore the entered payments — so the cashier can retry.
+watch(
+	() => props.items.length,
+	(count, previousCount) => {
+		if (props.inline && count === 0 && previousCount > 0) {
+			initPaymentState()
 		}
-		if (props.customer) {
-			const custObj = typeof props.customer === "object"
-				? props.customer
-				: { name: props.customer, customer_name: props.customer }
+	},
+)
+
+// One Page mode: the cart header owns customer selection, so follow it here
+watch(
+	() => props.customer,
+	(cust) => {
+		if (!props.inline) return
+		if (cust) {
+			const custObj =
+				typeof cust === "object"
+					? cust
+					: { name: cust, customer_name: cust }
 			customerNameQuery.value = custObj.customer_name || custObj.name || ""
 			customerMobileQuery.value = custObj.mobile_no || ""
 			selectedCustomer.value = custObj
+			if (props.company) {
+				loadingWallet.value = true
+				walletInfoResource.fetch()
+			}
 		} else {
 			customerNameQuery.value = ""
 			customerMobileQuery.value = ""
-		}
-		// Set default delivery date to today for Sales Orders
-		deliveryDate.value = isSalesOrder.value ? today : ""
-
-		// Debug logging
-		log.debug("[PaymentDialog] Dialog opened with props:", {
-			allowCreditSale: props.allowCreditSale,
-			allowCustomerCreditPayment: props.allowCustomerCreditPayment,
-			allowWriteOff: props.allowWriteOff,
-			writeOffLimit: props.writeOffLimit,
-			customer: props.customer,
-			company: props.company,
-			posProfile: props.posProfile,
-		})
-
-		// Set default payment method if already loaded
-		if (paymentMethods.value.length > 0 && !lastSelectedMethod.value) {
-			const defaultMethod = paymentMethods.value.find((m) => m.default)
-			lastSelectedMethod.value = defaultMethod || paymentMethods.value[0]
-		}
-
-		// Customer credit and balance is pre-fetched when customer changes (see watcher above)
-		// Just log for debugging
-		const creditEnabled = props.allowCreditSale || props.allowCustomerCreditPayment
-		if (creditEnabled) {
-			log.debug("[PaymentDialog] Customer credit/balance should be pre-loaded, current balance:", customerBalance.value)
-		}
-
-		if (settingsStore.enableSalesPersons && props.posProfile && salesPersons.value.length === 0) {
-			loadingSalesPersons.value = true
-			salesPersonsResource.fetch()
-		}
-
-		// Load wallet info if customer is selected
-		if (props.customer && props.company) {
-			log.debug("[PaymentDialog] Loading wallet info...")
-			loadingWallet.value = true
-			walletInfoResource.fetch()
-		} else {
-			// Reset wallet info only if no customer
+			selectedCustomer.value = null
 			walletInfo.value = {
 				wallet_enabled: false,
 				wallet_exists: false,
@@ -1984,8 +2125,8 @@ watch(show, (newVal) => {
 				wallet_name: null,
 			}
 		}
-	}
-})
+	},
+)
 
 watch(
 	() => [settingsStore.enableSalesPersons, props.posProfile],
@@ -2060,7 +2201,6 @@ function selectPaymentMethod(method) {
 		const isCash = isCashPaymentMethod(method)
 		const exactAmt = isCash ? Math.ceil(remainingAmount.value) : roundCurrency(remainingAmount.value)
 		setNumpadValue(exactAmt)
-		mobileCustomAmount.value = exactAmt.toFixed(2)
 	}
 }
 
@@ -2096,8 +2236,6 @@ function switchToNextPaymentMethod(partialAmount) {
 		const newRemaining = roundCurrency(remainingAmount.value)
 		if (newRemaining > 0) {
 			setNumpadValue(newRemaining)
-			// Also set mobile custom amount
-			mobileCustomAmount.value = newRemaining.toFixed(2)
 		}
 		showInfo(
 			__("Points applied: {0}. Please pay remaining {1} with {2}", [
@@ -2114,7 +2252,8 @@ function addPayment(method) {
 	quickAddPayment(method)
 }
 
-// Quick add payment (long press action)
+// Adds the whole remaining amount for a method. Bound to a single tap on
+// the method button - it used to require a long press.
 function quickAddPayment(method) {
 	if (remainingAmount.value <= 0) {
 		// Nothing left to add — treat it as a method switch (no-op if not applicable)
@@ -2161,7 +2300,7 @@ function quickAddPayment(method) {
 			return
 		}
 
-		// For quick add (long press), always use exact remaining amount
+		// Quick add always commits the exact remaining amount
 		amt = maxAllowed
 	}
 
@@ -2176,7 +2315,7 @@ function quickAddPayment(method) {
 			showInfo(__("Invoice fully paid. No additional payment needed."))
 			return
 		}
-		// For quick add (long press), use exact remaining to complete payment
+		// Quick add uses the exact remaining to complete the payment
 		amt = maxAllowed
 	}
 
@@ -2186,7 +2325,7 @@ function quickAddPayment(method) {
 		type: method.type || __("Cash"),
 		is_wallet_payment: isWalletPaymentMethod(method.mode_of_payment),
 	})
-	log.debug("[PaymentDialog] Long press payment added:", method.mode_of_payment)
+	log.debug("[PaymentDialog] Quick payment added:", method.mode_of_payment)
 
 	// If this was a partial wallet payment, switch to another payment method
 	if (isPartialWalletPayment) {
@@ -2194,30 +2333,6 @@ function quickAddPayment(method) {
 			switchToNextPaymentMethod(amt)
 		})
 	}
-}
-
-// Initialize long press composable with callbacks
-const {
-	onPointerDown: handlePointerDown,
-	onPointerUp: handlePointerUp,
-	onPointerCancel: handlePointerCancel,
-} = useLongPress({
-	duration: 500,
-	onTap: selectPaymentMethod,
-	onLongPress: quickAddPayment,
-})
-
-// Wrapper handlers to pass method to composable
-function onPaymentMethodDown(method, event) {
-	handlePointerDown(event, method)
-}
-
-function onPaymentMethodUp(method) {
-	handlePointerUp(method)
-}
-
-function onPaymentMethodCancel() {
-	handlePointerCancel()
 }
 
 // Add custom amount for a method
@@ -2474,7 +2589,11 @@ async function completePayment() {
 
 	emit("payment-completed", paymentData)
 
-	show.value = false
+	// Inline (One Page) mode has no dialog to close; the section resets itself
+	// once the parent clears the cart.
+	if (!props.inline) {
+		show.value = false
+	}
 }
 
 function formatCurrency(amount) {
@@ -2514,15 +2633,4 @@ function handleAdditionalDiscountChange() {
 	const discountAmount = roundCurrency((discountBase.value * discountValue) / 100)
 	emit("update-additional-discount", discountAmount)
 }
-
-// Watch for dialog open to sync additional discount from parent
-watch(
-	() => props.modelValue,
-	(isOpen) => {
-		if (isOpen) {
-			// Only sync when dialog opens, not continuously
-			localAdditionalDiscount.value = props.additionalDiscount || 0
-		}
-	},
-)
 </script>

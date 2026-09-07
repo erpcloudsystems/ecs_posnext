@@ -24,7 +24,7 @@
 						<div class="flex items-center gap-1 sm:gap-2">
 							<h1 class="text-xs sm:text-base font-bold text-gray-900 truncate flex-shrink">{{ 'POS Next' }}</h1>
 							<span class="hidden sm:inline-flex relative items-center px-1 sm:px-2 py-0.5 text-[8px] sm:text-[10px] font-bold bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-md shadow-sm hover:shadow-md transition-shadow flex-shrink-0">
-								<span class="absolute inset-0 bg-white/20 rounded-md animate-pulse"></span>
+								<span class="absolute inset-0 bg-[#ffffff]/20 rounded-md animate-pulse"></span>
 								<span class="relative">v{{ appVersion }}</span>
 							</span>
 						</div>
@@ -240,6 +240,9 @@
 						:aria-label="isRefreshing ? __('Refreshing...') : __('Refresh items and customers')"
 					/>
 
+					<!-- Theme Toggle -->
+					<ThemeToggle />
+
 					<div class="w-px h-4 sm:h-6 bg-gray-200 hidden md:block"></div>
 
 					<!-- Language Switcher - Hidden on mobile, shown in UserMenu instead -->
@@ -274,6 +277,7 @@
 <script setup>
 import ActionButton from "@/components/common/ActionButton.vue"
 import StatusBadge from "@/components/common/StatusBadge.vue"
+import ThemeToggle from "@/components/common/ThemeToggle.vue"
 import UserMenu from "@/components/common/UserMenu.vue"
 import LanguageSwitcher from "@/components/common/LanguageSwitcher.vue"
 import { DEFAULT_LOCALE } from "@/utils/currency"

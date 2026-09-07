@@ -281,15 +281,15 @@ onBeforeUnmount(() => {
 }
 
 .overflow-y-auto::-webkit-scrollbar-track {
-	background: #f1f1f1;
+	background: var(--pos-x-scroll-track);
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb {
-	background: #cbd5e0;
+	background: var(--pos-x-scroll-thumb-alt);
 	border-radius: 3px;
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-	background: #a0aec0;
+	background: var(--pos-x-scroll-thumb-alt-hover);
 }
 </style>

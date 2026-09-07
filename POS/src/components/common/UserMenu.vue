@@ -39,6 +39,10 @@
 			<!-- Additional Actions -->
 			<slot name="additional-actions"></slot>
 
+			<!-- Theme Toggle -->
+			<hr class="my-2 border-gray-100">
+			<ThemeToggle variant="menu" />
+
 			<!-- Language Switcher - Mobile Only -->
 			<div class="md:hidden">
 				<hr class="my-2 border-gray-100">
@@ -54,7 +58,7 @@
 						<img
 							:src="supportedLocales[locale]?.flagUrlSvg"
 							:alt="supportedLocales[locale]?.name"
-							class="w-5 h-3.5 object-cover rounded-sm shadow-sm"
+							class="w-5 h-3.5 object-cover rounded-sm shadow-sm pos-no-dim"
 						/>
 						<svg
 							class="w-4 h-4 text-gray-400 transition-transform"
@@ -85,7 +89,7 @@
 						<img
 							:src="config.flagUrlSvg"
 							:alt="config.name"
-							class="w-5 h-3.5 object-cover rounded-sm shadow-sm ms-6"
+							class="w-5 h-3.5 object-cover rounded-sm shadow-sm ms-6 pos-no-dim"
 						/>
 						<span class="flex-1">{{ config.nativeName }}</span>
 						<svg
@@ -125,6 +129,7 @@
 <script setup>
 import { computed, h, onMounted, onUnmounted, ref, watch } from "vue"
 import { useLocale } from "@/composables/useLocale"
+import ThemeToggle from "@/components/common/ThemeToggle.vue"
 
 // Avatar Sub-component
 const Avatar = (props) => {

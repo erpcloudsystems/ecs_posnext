@@ -83,22 +83,19 @@
 						{{ stats[person.name].count }}
 					</span>
 
-					<!-- Avatar -->
+					<!-- Nickname — no avatar above it, so the name gets the whole tile
+					     and reads at a larger size. Selected tiles pad the sides to stay
+					     clear of the corner remove/count badges. -->
 					<div
 						:class="[
-							'w-10 h-10 rounded-full flex items-center justify-center mb-1 text-xs font-bold flex-shrink-0',
-							isSelected(person.name)
-								? 'bg-gradient-to-br from-purple-500 to-purple-600 text-white'
-								: 'bg-gray-100 text-gray-500',
+							'w-full min-h-[42px] flex items-center justify-center',
+							isSelected(person.name) ? 'px-4' : 'px-0.5',
 						]"
 					>
-						{{ initials(getNickname(person)) }}
+						<span class="text-[13px] font-bold text-gray-900 leading-tight line-clamp-3">
+							{{ getNickname(person) }}
+						</span>
 					</div>
-
-					<!-- Nickname -->
-					<span class="text-[11px] font-semibold text-gray-900 leading-tight line-clamp-2 w-full">
-						{{ getNickname(person) }}
-					</span>
 
 					<!-- Active label -->
 					<span
@@ -185,13 +182,6 @@ function getNickname(person) {
 		person.name ||
 		"?"
 	)
-}
-
-function initials(name) {
-	if (!name) return "?"
-	const parts = String(name).trim().split(/\s+/)
-	if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-	return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
 function formatCurrency(value) {

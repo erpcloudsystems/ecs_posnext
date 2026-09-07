@@ -57,6 +57,7 @@ declare module 'vue' {
     ShiftClosingDialog: typeof import('./src/components/ShiftClosingDialog.vue')['default']
     ShiftOpeningDialog: typeof import('./src/components/ShiftOpeningDialog.vue')['default']
     StatusBadge: typeof import('./src/components/common/StatusBadge.vue')['default']
+    ThemeToggle: typeof import('./src/components/common/ThemeToggle.vue')['default']
     Toast: typeof import('./src/components/common/Toast.vue')['default']
     TrackInvoices: typeof import('./src/components/daily_payment/TrackInvoices.vue')['default']
     TranslatedHTML: typeof import('./src/components/common/TranslatedHTML.vue')['default']

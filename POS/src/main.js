@@ -13,6 +13,7 @@ import { createPinia } from "pinia"
 import { createApp } from "vue"
 
 import App from "./App.vue"
+import { useTheme } from "./composables/useTheme"
 import { session, sessionUser } from "./data/session"
 import { userResource } from "./data/user"
 import router from "./router"
@@ -107,6 +108,11 @@ async function syncCSRFTokenToWorker() {
 async function initializeApp() {
 	const app = createApp(App)
 	const pinia = createPinia()
+
+	// Adopt the saved (or OS-preferred) theme and start following OS changes.
+	// index.html already set the attribute to avoid a flash; this takes
+	// ownership of it so the toggle and the media-query listener work.
+	useTheme().initTheme()
 
 	// Register offline operation sync handlers (shift/attendance/daily-payment/...)
 	registerOfflineOpHandlers()

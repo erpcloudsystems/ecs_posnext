@@ -30,11 +30,11 @@ const brandSignature = computed(() => `BrainWise-${componentId}`)
 
 const footerStyle = computed(() => ({
 	padding: config.value._s?.p || '12px 20px',
-	backgroundColor: config.value._s?.bg || '#f8f9fa',
-	borderTop: config.value._s?.bt || '1px solid #e0e0e0',
+	backgroundColor: config.value._s?.bg || 'var(--pos-x-footer-fill)',
+	borderTop: config.value._s?.bt || '1px solid var(--pos-x-footer-line)',
 	textAlign: config.value._s?.ta || 'center',
 	fontSize: config.value._s?.fs || '13px',
-	color: config.value._s?.c || '#6b7280',
+	color: config.value._s?.c || 'var(--pos-x-ink-muted)',
 	zIndex: config.value._s?.z || 100,
 	userSelect: 'none',
 	WebkitUserSelect: 'none',
@@ -185,16 +185,16 @@ const ensureStylePresence = () => {
 				gap: 6px;
 			}
 			.pos-footer-component .footer-text {
-				color: #6b7280;
+				color: var(--pos-x-ink-muted);
 			}
 			.pos-footer-component .footer-link {
-				color: #3b82f6;
+				color: var(--pos-x-link);
 				text-decoration: none;
 				font-weight: 600;
 				transition: color 0.2s;
 			}
 			.pos-footer-component .footer-link:hover {
-				color: #2563eb;
+				color: var(--pos-x-link-hover);
 				text-decoration: underline;
 			}
 		`

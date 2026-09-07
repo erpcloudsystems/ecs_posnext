@@ -1830,17 +1830,17 @@ function highlightSearchMatch(text, searchTerm) {
 }
 
 .overflow-y-auto::-webkit-scrollbar-track {
-	background: #f1f1f1;
+	background: var(--pos-x-scroll-track);
 	border-radius: 4px;
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb {
-	background: #cbd5e1;
+	background: var(--pos-x-scroll-thumb);
 	border-radius: 4px;
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-	background: #94a3b8;
+	background: var(--pos-x-scroll-thumb-hover);
 }
 
 /* Smooth transitions */
@@ -1887,7 +1887,7 @@ input[type="number"]::-webkit-outer-spin-button {
 
 /* Search highlight styling */
 :deep(.search-highlight) {
-	background-color: #fef08a;
+	background-color: var(--pos-x-highlight-fill);
 	padding: 0 2px;
 	border-radius: 2px;
 	font-weight: 600;

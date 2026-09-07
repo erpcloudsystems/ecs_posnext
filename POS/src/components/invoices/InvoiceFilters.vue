@@ -366,7 +366,7 @@ function deleteSavedFilter(name) {
 	inset-inline-start: 1rem;
 	width: 1.25rem;
 	height: 1.25rem;
-	color: #9ca3af;
+	color: var(--pos-x-ink-faint);
 	pointer-events: none;
 }
 
@@ -374,18 +374,18 @@ function deleteSavedFilter(name) {
 	width: 100%;
 	padding-block: 0.875rem;
 	padding-inline: 3rem;
-	border: 2px solid #e5e7eb;
+	border: 2px solid var(--pos-x-line);
 	border-radius: 12px;
 	font-size: 0.9375rem;
-	color: #111827;
-	background: white;
+	color: var(--pos-x-ink-strong);
+	background: var(--pos-x-fill);
 	transition: all 0.2s;
 }
 
 .search-input:focus {
 	outline: none;
-	border-color: #6366f1;
-	box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+	border-color: var(--pos-x-accent-line);
+	box-shadow: 0 0 0 3px var(--pos-x-accent-glow);
 }
 
 .clear-search {
@@ -394,15 +394,15 @@ function deleteSavedFilter(name) {
 	padding: 0.375rem;
 	background: transparent;
 	border: none;
-	color: #9ca3af;
+	color: var(--pos-x-ink-faint);
 	border-radius: 6px;
 	cursor: pointer;
 	transition: all 0.15s;
 }
 
 .clear-search:hover {
-	background: #f3f4f6;
-	color: #374151;
+	background: var(--pos-x-fill-muted);
+	color: var(--pos-x-ink);
 }
 
 /* Quick Filters */
@@ -417,26 +417,26 @@ function deleteSavedFilter(name) {
 	align-items: center;
 	gap: 0.375rem;
 	padding: 0.5rem 0.875rem;
-	background: white;
-	border: 1.5px solid #e5e7eb;
+	background: var(--pos-x-fill);
+	border: 1.5px solid var(--pos-x-line);
 	border-radius: 20px;
 	font-size: 0.8125rem;
 	font-weight: 500;
-	color: #374151;
+	color: var(--pos-x-ink);
 	cursor: pointer;
 	transition: all 0.15s;
 	white-space: nowrap;
 }
 
 .filter-chip:hover {
-	border-color: #6366f1;
-	background: #f5f3ff;
-	color: #6366f1;
+	border-color: var(--pos-x-accent-line);
+	background: var(--pos-x-accent-soft-alt);
+	color: var(--pos-x-accent-ink);
 }
 
 .filter-chip.active {
-	background: #6366f1;
-	border-color: #6366f1;
+	background: var(--pos-x-accent-fill);
+	border-color: var(--pos-x-accent-line);
 	color: white;
 }
 
@@ -468,8 +468,8 @@ function deleteSavedFilter(name) {
 	align-items: center;
 	justify-content: space-between;
 	padding: 0.75rem 1rem;
-	background: #f0fdf4;
-	border: 1px solid #bbf7d0;
+	background: var(--pos-x-success-fill);
+	border: 1px solid var(--pos-x-success-line);
 	border-radius: 10px;
 	margin-top: 0.75rem;
 	gap: 1rem;
@@ -485,7 +485,7 @@ function deleteSavedFilter(name) {
 
 .summary-text {
 	font-size: 0.8125rem;
-	color: #166534;
+	color: var(--pos-x-success-ink);
 }
 
 .summary-text strong {
@@ -502,44 +502,44 @@ function deleteSavedFilter(name) {
 	display: inline-flex;
 	align-items: center;
 	padding: 0.25rem 0.625rem;
-	background: white;
-	border: 1px solid #86efac;
+	background: var(--pos-x-fill);
+	border: 1px solid var(--pos-x-success-line-soft);
 	border-radius: 12px;
 	font-size: 0.75rem;
-	color: #15803d;
+	color: var(--pos-x-success-ink-alt);
 	cursor: pointer;
 	transition: all 0.15s;
 }
 
 .active-pill:hover {
-	background: #dcfce7;
-	border-color: #4ade80;
+	background: var(--pos-x-success-fill-hover);
+	border-color: var(--pos-x-success-line-hover);
 }
 
 .clear-all {
 	padding: 0.5rem 0.875rem;
-	background: white;
-	border: 1px solid #fca5a5;
+	background: var(--pos-x-fill);
+	border: 1px solid var(--pos-x-danger-line);
 	border-radius: 8px;
 	font-size: 0.8125rem;
 	font-weight: 500;
-	color: #dc2626;
+	color: var(--pos-x-danger-ink);
 	cursor: pointer;
 	transition: all 0.15s;
 	white-space: nowrap;
 }
 
 .clear-all:hover {
-	background: #fee2e2;
-	border-color: #f87171;
+	background: var(--pos-x-danger-fill);
+	border-color: var(--pos-x-danger-line-hover);
 }
 
 /* Advanced Panel */
 .advanced-panel {
 	margin-top: 1rem;
 	padding: 1.25rem;
-	background: #fafbfc;
-	border: 1px solid #e5e7eb;
+	background: var(--pos-x-fill-subtle);
+	border: 1px solid var(--pos-x-line);
 	border-radius: 12px;
 	display: flex;
 	flex-direction: column;
@@ -564,31 +564,31 @@ function deleteSavedFilter(name) {
 	gap: 0.375rem;
 	font-size: 0.8125rem;
 	font-weight: 500;
-	color: #374151;
+	color: var(--pos-x-ink);
 }
 
 .label-icon {
 	width: 0.875rem;
 	height: 0.875rem;
-	color: #6b7280;
+	color: var(--pos-x-ink-muted);
 }
 
 .field-input,
 .field-select {
 	padding: 0.625rem 0.75rem;
-	border: 1px solid #d1d5db;
+	border: 1px solid var(--pos-x-line-strong);
 	border-radius: 8px;
 	font-size: 0.875rem;
-	color: #111827;
-	background: white;
+	color: var(--pos-x-ink-strong);
+	background: var(--pos-x-fill);
 	transition: all 0.15s;
 }
 
 .field-input:focus,
 .field-select:focus {
 	outline: none;
-	border-color: #6366f1;
-	box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+	border-color: var(--pos-x-accent-line);
+	box-shadow: 0 0 0 3px var(--pos-x-accent-glow);
 }
 
 /* Save Row */
@@ -596,23 +596,23 @@ function deleteSavedFilter(name) {
 	display: flex;
 	gap: 0.75rem;
 	padding-top: 0.75rem;
-	border-top: 1px solid #e5e7eb;
+	border-top: 1px solid var(--pos-x-line);
 }
 
 .save-input {
 	flex: 1;
 	padding: 0.625rem 0.875rem;
-	border: 1px solid #d1d5db;
+	border: 1px solid var(--pos-x-line-strong);
 	border-radius: 8px;
 	font-size: 0.875rem;
-	color: #111827;
-	background: white;
+	color: var(--pos-x-ink-strong);
+	background: var(--pos-x-fill);
 }
 
 .save-input:focus {
 	outline: none;
-	border-color: #6366f1;
-	box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+	border-color: var(--pos-x-accent-line);
+	box-shadow: 0 0 0 3px var(--pos-x-accent-glow);
 }
 
 .save-btn {
@@ -620,7 +620,7 @@ function deleteSavedFilter(name) {
 	align-items: center;
 	gap: 0.375rem;
 	padding: 0.625rem 1rem;
-	background: #6366f1;
+	background: var(--pos-x-accent-fill);
 	border: none;
 	border-radius: 8px;
 	font-size: 0.875rem;
@@ -631,7 +631,7 @@ function deleteSavedFilter(name) {
 }
 
 .save-btn:hover:not(:disabled) {
-	background: #4f46e5;
+	background: var(--pos-x-accent-fill-strong);
 }
 
 .save-btn:disabled {
@@ -642,13 +642,13 @@ function deleteSavedFilter(name) {
 /* Saved Filters */
 .saved-filters {
 	padding-top: 0.75rem;
-	border-top: 1px solid #e5e7eb;
+	border-top: 1px solid var(--pos-x-line);
 }
 
 .saved-header {
 	font-size: 0.75rem;
 	font-weight: 600;
-	color: #6b7280;
+	color: var(--pos-x-ink-muted);
 	text-transform: uppercase;
 	letter-spacing: 0.025em;
 	margin-bottom: 0.5rem;
@@ -665,20 +665,20 @@ function deleteSavedFilter(name) {
 	align-items: center;
 	gap: 0.375rem;
 	padding: 0.5rem 0.75rem;
-	background: white;
-	border: 1px solid #d1d5db;
+	background: var(--pos-x-fill);
+	border: 1px solid var(--pos-x-line-strong);
 	border-radius: 8px;
 	font-size: 0.8125rem;
-	color: #374151;
+	color: var(--pos-x-ink);
 	cursor: pointer;
 	transition: all 0.15s;
 	position: relative;
 }
 
 .saved-item:hover {
-	border-color: #6366f1;
-	background: #f5f3ff;
-	color: #6366f1;
+	border-color: var(--pos-x-accent-line);
+	background: var(--pos-x-accent-soft-alt);
+	color: var(--pos-x-accent-ink);
 }
 
 .delete-saved {
@@ -695,7 +695,7 @@ function deleteSavedFilter(name) {
 .delete-saved:hover {
 	opacity: 1;
 	background: rgba(220, 38, 38, 0.1);
-	color: #dc2626;
+	color: var(--pos-x-danger-ink);
 }
 
 /* Transitions */

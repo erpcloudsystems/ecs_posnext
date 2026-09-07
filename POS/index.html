@@ -27,6 +27,30 @@
 </head>
 
 <body>
+  <!--
+    Applies the saved theme before the first paint. Vue's own theme init runs
+    only after the bundle has parsed, which on a cold POS terminal is long
+    enough to flash a full white screen at a cashier working in a dark room.
+  -->
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("ecs_posnext_theme")
+        var dark =
+          stored === "dark" ||
+          (stored !== "light" &&
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches)
+        if (dark) {
+          document.documentElement.setAttribute("data-theme", "dark")
+          var meta = document.querySelector('meta[name="theme-color"]')
+          if (meta) meta.setAttribute("content", "#0F0F0F")
+        }
+      } catch (e) {
+        /* storage blocked - fall through to light */
+      }
+    })()
+  </script>
   <div id="app"></div>
   <script type="module" src="/src/main.js"></script>
 </body>

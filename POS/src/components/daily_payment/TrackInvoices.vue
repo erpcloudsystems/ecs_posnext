@@ -115,6 +115,10 @@
 								<div class="flex-1">
 									<div class="text-sm font-medium text-gray-500">{{ __('Visa Invoices') }}</div>
 									<div class="text-4xl font-black text-purple-700 mt-0.5">{{ counts.visa }}</div>
+									<div class="text-lg font-bold text-purple-600 mt-1" dir="ltr">
+										{{ formatCurrency(counts.visa_amount) }}
+									</div>
+									<div class="text-xs font-medium text-gray-400">{{ __('Total Visa Amount') }}</div>
 								</div>
 								<div class="text-xs text-gray-400 font-medium">
 									{{ counts.total > 0 ? Math.round(counts.visa / counts.total * 100) : 0 }}%
@@ -123,7 +127,7 @@
 
 							<!-- Total -->
 							<div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-sm p-5 flex items-center gap-5">
-								<div class="p-3 bg-white/20 rounded-xl flex-shrink-0">
+								<div class="p-3 bg-[#ffffff]/20 rounded-xl flex-shrink-0">
 									<svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
 									</svg>
@@ -151,6 +155,7 @@
 import { call } from "frappe-ui"
 import { computed, ref, watch } from "vue"
 import { useToast } from "@/composables/useToast"
+import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "@/utils/currency"
 import { logger } from "@/utils/logger"
 
 const log = logger.create("TrackInvoices")
@@ -170,7 +175,15 @@ const props = defineProps({
 		type: String,
 		default: null,
 	},
+	currency: {
+		type: String,
+		default: DEFAULT_CURRENCY,
+	},
 })
+
+function formatCurrency(amount) {
+	return formatCurrencyUtil(Number.parseFloat(amount || 0), props.currency)
+}
 
 const emit = defineEmits(["update:modelValue"])
 
@@ -187,7 +200,7 @@ const toDate = ref(props.posOpeningShiftDate || today)
 // days rather than calendar days.
 const workingDay = ref(null)
 
-const counts = ref({ cash: 0, visa: 0, total: 0 })
+const counts = ref({ cash: 0, visa: 0, total: 0, visa_amount: 0 })
 
 function defaultDate() {
 	return workingDay.value?.working_day || props.posOpeningShiftDate || today
@@ -249,7 +262,7 @@ async function loadCounts() {
 			to_date: toDate.value || null,
 			pos_opening_shift: props.posOpeningShift || null,
 		})
-		counts.value = result || { cash: 0, visa: 0, total: 0 }
+		counts.value = result || { cash: 0, visa: 0, total: 0, visa_amount: 0 }
 		const now = new Date()
 		lastLoaded.value = now.toLocaleTimeString()
 	} catch (error) {
