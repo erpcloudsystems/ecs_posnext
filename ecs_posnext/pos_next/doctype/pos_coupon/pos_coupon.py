@@ -196,6 +196,32 @@ def _mark_complaint_coupon_redeemed(pos_coupon_name):
         frappe.log_error(frappe.get_traceback(), "Complaint Coupon Redemption Tracking Failed")
 
 
+def record_coupon_redemption(coupon_code, invoice_doc):
+    """Create a permanent record linking a redeemed coupon to the order it was used on.
+
+    This is the data source for the Coupon Redemption Report and the customer's
+    coupon usage count — POS Coupon itself only keeps a running counter, not history.
+    """
+    try:
+        coupon = frappe.get_doc("POS Coupon", {"coupon_code": coupon_code.upper()})
+        frappe.get_doc({
+            "doctype": "POS Coupon Redemption",
+            "coupon": coupon.name,
+            "customer": invoice_doc.customer,
+            "invoice_doctype": invoice_doc.doctype,
+            "invoice_name": invoice_doc.name,
+            "discount_type": coupon.discount_type,
+            "discount_percentage": coupon.discount_percentage,
+            "discount_amount": flt(invoice_doc.get("discount_amount") or 0),
+            "redeemed_on": frappe.utils.now(),
+        }).insert(ignore_permissions=True)
+    except Exception as e:
+        frappe.log_error(
+            title="Coupon Redemption Recording Failed",
+            message=f"Failed to record redemption for coupon {coupon_code}, invoice {invoice_doc.get('name')}: {str(e)}"
+        )
+
+
 def decrement_coupon_usage(coupon_code):
     """Decrement the usage counter for a coupon (for cancelled invoices)"""
     try:

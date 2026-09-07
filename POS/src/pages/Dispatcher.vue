@@ -366,11 +366,19 @@
 											<span class="text-gray-400 text-xs truncate">{{ a.customer_name || a.customer }}</span>
 										</div>
 										<div v-if="a.delivery_address" class="text-xs text-gray-600 truncate">📍 {{ a.delivery_address }}</div>
-										<div class="text-xs mt-0.5">
+										<div class="text-xs mt-0.5 flex items-center gap-1.5">
 											<span class="text-xs px-1.5 py-0.5 rounded font-medium"
 												:class="a.kds_ready ? 'bg-green-900 text-green-400' : 'bg-amber-900 text-amber-400'">
 												{{ a.kds_ready ? '✓ Kitchen' : '⏳ ' + a.kds_status }}
 											</span>
+											<button v-if="a.has_pending_addition" @click.stop="acknowledgeAddition(a)"
+												:title="__('Click to acknowledge')"
+												class="text-xs px-1.5 py-0.5 rounded font-bold bg-sky-600 hover:bg-sky-500 text-white animate-pulse">
+												➕ {{ __('Item Added') }}
+											</button>
+										</div>
+										<div v-if="a.has_pending_addition && a.pending_addition_summary" class="text-xs text-sky-400 truncate mt-0.5">
+											{{ a.pending_addition_summary }}
 										</div>
 									</div>
 									<div class="text-right shrink-0">
@@ -845,6 +853,13 @@ async function orderStatus(a, status, successMsg) {
 function orderGoDeliver(a) { return orderStatus(a, "Out for Delivery", __("Out for Delivery")) }
 function orderReturn(a) { return orderStatus(a, "Returned", __("Order returned")) }
 function orderTalabatReceived(a) { return orderStatus(a, "Delivered", __("تم تأكيد استلام العميل")) }
+
+async function acknowledgeAddition(a) {
+	try {
+		await call("ecs_posnext.ecs_posnext.api.dispatcher.acknowledge_delivery_addition", { assignment: a.name })
+		await loadActiveAssignments()
+	} catch (e) { showError(errMsg(e)) }
+}
 
 function orderCollect(a) {
 	const isCod = a.payment_mode === "Cash (COD)"

@@ -109,6 +109,64 @@ def get_open_shift():
 	}
 
 
+# ---------------------------------------------------------------------------
+# Order additions (supplement invoices) — flag the existing assignment instead of
+# surfacing a second, disconnected delivery card.
+# ---------------------------------------------------------------------------
+
+def flag_delivery_addition(parent_invoice, new_rows=None):
+	"""Called (from kds.py) when a supplement invoice's items were merged into the
+	original order's KDS ticket. If the original order already has a live Delivery
+	Assignment (Assigned / Picked Up / Out for Delivery), flag it so the dispatcher
+	sees 'Item Added' on the card they're already tracking, instead of a brand-new,
+	seemingly-unrelated order. Returns the assignment name if flagged, else None."""
+	assignment = frappe.db.get_value(
+		"Delivery Assignment",
+		{
+			"order_reference": parent_invoice,
+			"order_doctype": "Sales Invoice",
+			"status": ["in", ["Assigned", "Picked Up", "Out for Delivery"]],
+			"docstatus": ["!=", 2],
+		},
+		"name",
+	)
+	if not assignment:
+		return None
+
+	summary = ", ".join(
+		f"{row.get('item_name')} x{row.get('qty')}" for row in (new_rows or []) if row.get("item_name")
+	)
+	frappe.db.set_value(
+		"Delivery Assignment", assignment,
+		{
+			"has_pending_addition": 1,
+			"last_addition_time": now_datetime(),
+			"pending_addition_summary": summary,
+		},
+	)
+	frappe.publish_realtime(
+		"dispatch_desk_refresh",
+		{"source": "dispatcher", "assignment": assignment, "action": "addition_flagged"},
+		after_commit=True,
+	)
+	return assignment
+
+
+@frappe.whitelist()
+def acknowledge_delivery_addition(assignment):
+	"""Dispatcher checks/acknowledges an item addition on an assignment they're already
+	tracking — clears the alarm badge."""
+	row = frappe.db.get_value("Delivery Assignment", assignment, "has_pending_addition")
+	if row:
+		frappe.db.set_value("Delivery Assignment", assignment, "has_pending_addition", 0)
+		frappe.publish_realtime(
+			"dispatch_desk_refresh",
+			{"source": "dispatcher", "assignment": assignment, "action": "addition_acknowledged"},
+			after_commit=True,
+		)
+	return {"has_pending_addition": 0}
+
+
 @frappe.whitelist()
 def get_unassigned_orders(from_date=None, business_day=None):
 	"""
@@ -180,10 +238,20 @@ def get_unassigned_orders(from_date=None, business_day=None):
 				"contact_mobile", "shipping_address_name", "customer_address", "territory",
 				"custom_number_order", "custom_order_type", "payment_terms_template",
 				"custom_payment_type", "custom_unique_talbat_number", "custom_third_party_referance_number",
-				"posting_date", "posting_time"],
+				"custom_parent_order", "posting_date", "posting_time"],
 		order_by="posting_date desc, posting_time desc",
 		limit=200,
 	)
+
+	# A supplement invoice (items added to an already-placed order) whose parent is
+	# already assigned/out for delivery must NOT show up as a second, disconnected
+	# order — the addition was already flagged on that assignment (flag_delivery_addition).
+	if assigned_refs:
+		assigned_refs_set = set(assigned_refs)
+		invoices = [
+			inv for inv in invoices
+			if not (inv.get("custom_parent_order") and inv["custom_parent_order"] in assigned_refs_set)
+		]
 
 	# Precise business-day lower bound: drop orders posted before the window's exact
 	# start time (the SQL filter above is date-only, so trim the boundary day here).
@@ -345,7 +413,8 @@ def get_live_orders(branch=None):
 	kds_rows = frappe.db.sql(
 		"""
 		SELECT sales_invoice, status AS kds_status,
-		       order_time AS kds_order_time, target_minutes, expected_ready_time
+		       order_time AS kds_order_time, target_minutes, expected_ready_time,
+		       has_pending_addition, last_addition_time
 		FROM `tabKDS Order`
 		WHERE sales_invoice IN %(names)s AND status != 'Cancelled'
 		""",
@@ -376,7 +445,8 @@ def get_live_orders(branch=None):
 		SELECT da.order_reference, da.name AS assignment_name, da.driver,
 		       da.status AS da_status, da.payment_mode,
 		       da.amount_to_collect, da.amount_collected,
-		       da.delivery_address, da.assigned_time
+		       da.delivery_address, da.assigned_time,
+		       da.has_pending_addition, da.last_addition_time, da.pending_addition_summary
 		FROM `tabDelivery Assignment` da
 		INNER JOIN (
 		    SELECT order_reference, MAX(creation) AS max_creation
@@ -470,6 +540,8 @@ def get_live_orders(branch=None):
 		inv["items"]             = items_map.get(inv["name"], [])
 		inv["owner_name"]        = owner_name_map.get(inv["owner"], inv["owner"])
 		inv["posting_datetime"]  = posting_dt
+		inv["has_pending_addition"] = bool((kds and kds.get("has_pending_addition")) or (da and da.get("has_pending_addition")))
+		inv["pending_addition_summary"] = (da.get("pending_addition_summary") if da else None)
 		live.append(inv)
 
 	# Step 4 — sort: late orders first, then newest first
@@ -569,6 +641,7 @@ def get_active_assignments(shift=None):
 			"name", "driver", "delivery_channel", "order_reference", "customer", "delivery_address",
 			"contact_phone", "payment_mode", "amount_to_collect", "amount_collected", "status",
 			"creation as assigned_at", "out_for_delivery_time",
+			"has_pending_addition", "last_addition_time", "pending_addition_summary",
 		],
 		order_by="driver asc, creation asc",
 	)

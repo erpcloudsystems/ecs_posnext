@@ -89,6 +89,7 @@
               <template v-if="group.type === 'item'">
                 <div class="flex items-start justify-between gap-2">
                   <div class="flex-1">
+                    <span v-if="group.item.is_addition" class="mr-2 text-xs text-white bg-sky-500 px-2 py-0.5 rounded font-black">NEW</span>
                     <span class="text-xl font-semibold">{{ group.item.item_name }}</span>
                     <span v-if="group.item.is_special" class="ml-2 text-xs text-red-300 bg-red-900 px-2 py-0.5 rounded font-bold">SPECIAL</span>
                   </div>
@@ -123,6 +124,7 @@
                   <div v-for="(child, ci) in group.children" :key="child.name || ci">
                     <div class="flex items-start justify-between gap-2">
                       <div class="flex-1">
+                        <span v-if="child.is_addition" class="mr-2 text-xs text-white bg-sky-500 px-2 py-0.5 rounded font-black">NEW</span>
                         <span class="text-xl font-semibold">{{ child.item_name }}</span>
                         <span v-if="child.is_special" class="ml-2 text-xs text-red-300 bg-red-900 px-2 py-0.5 rounded font-bold">SPECIAL</span>
                       </div>

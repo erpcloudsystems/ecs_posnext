@@ -423,7 +423,7 @@
 											</button>
 											<!-- ===== Call Center: convert between Pickup and Delivery ===== -->
 											<!-- Convert to Delivery (Pickup orders only) -->
-											<button v-if="isCallCenter && order.custom_order_type === 'Pickup' && order.docstatus === 1" @click.stop="convertOrderType(order, 'Delivery')" class="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors" :title="__('Convert to Delivery')">
+											<button v-if="isCallCenter && order.custom_order_type === 'Pickup' && order.docstatus === 1" @click.stop="openConvertToDeliveryDialog(order)" class="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors" :title="__('Convert to Delivery')">
 												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8l1.5 9.5A2 2 0 008.5 19h7a2 2 0 001.99-1.5L19 8" />
 												</svg>
@@ -860,6 +860,42 @@
 					</div>
 				</div>
 			</div>
+
+			<!-- Convert to Delivery: zone picker -->
+			<div v-if="showConvertToDeliveryDialog" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="closeConvertToDeliveryDialog">
+				<div class="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+					<div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+						<h3 class="text-lg font-semibold text-gray-900">
+							{{ __("Convert to Delivery") }}
+						</h3>
+						<button @click="closeConvertToDeliveryDialog" class="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+							</svg>
+						</button>
+					</div>
+					<div class="p-6 space-y-4">
+						<div class="text-sm text-gray-600">
+							{{ __("Order") }}: <span class="font-medium text-gray-900">{{ convertDialogInvoiceName }}</span>
+						</div>
+						<div>
+							<label class="block text-xs font-medium text-gray-600 mb-1">{{ __("Delivery Zone") }}</label>
+							<select v-model="convertDialogSelectedTerritory" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white">
+								<option value="">{{ __("-- Select Zone --") }}</option>
+								<option v-for="t in deliveryTerritories" :key="t.name" :value="t.name">{{ t.label || t.name }}</option>
+							</select>
+						</div>
+					</div>
+					<div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
+						<button @click="closeConvertToDeliveryDialog" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+							{{ __("Cancel") }}
+						</button>
+						<button @click="confirmConvertToDelivery" :disabled="convertingOrderType || !convertDialogSelectedTerritory" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+							{{ convertingOrderType ? __("Saving...") : __("Convert") }}
+						</button>
+					</div>
+				</div>
+			</div>
 		</teleport>
 
 		<!-- Add/Edit Second Mobile Dialog -->
@@ -1183,6 +1219,13 @@ const showDriverDialog = ref(false)
 const driverDialogInvoiceName = ref("")
 const driverDialogSelected = ref("")
 const driverAssigning = ref(false)
+
+// Convert to Delivery — zone (territory) picker dialog state
+const deliveryTerritories = ref([])
+const showConvertToDeliveryDialog = ref(false)
+const convertDialogInvoiceName = ref("")
+const convertDialogSelectedTerritory = ref("")
+const convertingOrderType = ref(false)
 
 // Return to Need My Action dialog (Call Center)
 const showReturnDialog = ref(false)
@@ -2044,6 +2087,7 @@ onMounted(async () => {
 	fetchOrders()
 	loadPosProfile()
 	loadActiveDrivers()
+	loadDeliveryTerritories()
 	unsubscribeOrders = onOrderChanged(scheduleRealtimeRefresh)
 	const socket = initSocket()
 	if (socket) {
@@ -2162,6 +2206,51 @@ async function convertOrderType(order, newType) {
 	} catch (error) {
 		console.error("Failed to convert order type:", error)
 		window.frappe?.show_alert?.({ message: __("Failed to update order type"), indicator: "red" })
+	}
+}
+
+// ===== CONVERT TO DELIVERY: zone picker =====
+async function loadDeliveryTerritories() {
+	try {
+		const result = await call("ecs_posnext.api.customers.get_delivery_territories", {})
+		deliveryTerritories.value = result || []
+	} catch (error) {
+		console.error("Failed to load delivery territories:", error)
+		deliveryTerritories.value = []
+	}
+}
+
+function openConvertToDeliveryDialog(order) {
+	convertDialogInvoiceName.value = order.custom_number_order || order.name
+	convertDialogSelectedTerritory.value = ""
+	showConvertToDeliveryDialog.value = true
+	showConvertToDeliveryDialog._invoiceName = order.name
+}
+
+function closeConvertToDeliveryDialog() {
+	showConvertToDeliveryDialog.value = false
+	convertDialogInvoiceName.value = ""
+	convertDialogSelectedTerritory.value = ""
+	convertingOrderType.value = false
+}
+
+async function confirmConvertToDelivery() {
+	if (convertingOrderType.value || !convertDialogSelectedTerritory.value) return
+	convertingOrderType.value = true
+	try {
+		await call("ecs_posnext.api.invoices.convert_order_type", {
+			invoice_name: showConvertToDeliveryDialog._invoiceName,
+			order_type: "Delivery",
+			territory: convertDialogSelectedTerritory.value,
+		})
+		window.frappe?.show_alert?.({ message: __("Order converted to Delivery"), indicator: "green" })
+		closeConvertToDeliveryDialog()
+		fetchOrders()
+	} catch (error) {
+		console.error("Failed to convert order to Delivery:", error)
+		window.frappe?.show_alert?.({ message: error?.message || __("Failed to convert order to Delivery"), indicator: "red" })
+	} finally {
+		convertingOrderType.value = false
 	}
 }
 

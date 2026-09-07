@@ -322,7 +322,8 @@
 								:hide-close-shift="posSettingsStore.hideCloseShift"
 								@update-quantity="cartStore.updateItemQuantity"
 								@remove-item="
-									(itemCode, uom) => cartStore.removeItem(itemCode, uom)
+									(itemCode, uom, rowId) =>
+										cartStore.removeItem(itemCode, uom, rowId)
 								"
 								@select-customer="handleCustomerSelected"
 								@create-customer="handleCreateCustomer"

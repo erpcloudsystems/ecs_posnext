@@ -579,6 +579,16 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			deliveryCharge.value = null
 		}
 		customer.value = selectedCustomer
+
+		// Auto-apply the customer's configured discount (Customer.posa_discount) to the cart
+		if (prev !== next) {
+			const customerDiscount = Number(selectedCustomer?.posa_discount) || 0
+			if (customerDiscount > 0) {
+				applyDiscount({ percentage: customerDiscount, name: "Customer Discount" })
+			} else {
+				removeDiscount()
+			}
+		}
 	}
 
 	function setPendingItem(item, qty = 1, mode = "uom") {

@@ -147,8 +147,8 @@
             v-for="order in visibleOrders"
             :key="order.name"
             class="rounded-2xl overflow-hidden flex flex-col border"
-            :class="order.status === 'Returned' ? 'bg-red-950 border-red-500 ring-2 ring-red-500 animate-pulse' : 'bg-neutral-950'"
-            :style="order.status === 'Returned' ? {} : { borderColor: statusColor(order) + '55' }"
+            :class="order.status === 'Returned' ? 'bg-red-950 border-red-500 ring-2 ring-red-500 animate-pulse' : order.has_pending_addition ? 'bg-sky-950 border-sky-500 ring-2 ring-sky-500' : 'bg-neutral-950'"
+            :style="(order.status === 'Returned' || order.has_pending_addition) ? {} : { borderColor: statusColor(order) + '55' }"
           >
             <!-- RETURNED banner -->
             <div v-if="order.status === 'Returned'" class="bg-red-600 text-white px-3.5 py-2 flex items-center justify-between gap-2">
@@ -159,6 +159,12 @@
             </div>
             <div v-if="order.status === 'Returned' && order.return_reason && order.return_reason !== 'No Remarks'" class="bg-red-900/60 text-red-100 px-3.5 py-1.5 text-sm font-semibold text-right" dir="rtl">
               📝 {{ order.return_reason }}
+            </div>
+
+            <!-- ITEMS ADDED banner — items appended to this order after it hit the kitchen -->
+            <div v-if="order.has_pending_addition" class="bg-sky-600 text-white px-3.5 py-2 flex items-center justify-between gap-2 animate-pulse">
+              <span class="text-base font-black tracking-wide">➕ ITEMS ADDED</span>
+              <button @click="dismissAddition(order)" class="px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-bold shrink-0">✓ Checked</button>
             </div>
 
             <!-- Card header — background tinted by the timer state (green / amber / red) -->
@@ -224,7 +230,9 @@
                     >
                       <svg v-if="row.ready" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3.5"><polyline points="20 6 9 17 4 12"/></svg>
                     </span>
-                    <span class="text-neutral-200 flex-1 min-w-0 text-right leading-tight break-words whitespace-normal" dir="rtl" :class="{ 'line-through text-neutral-600': row.removed }">{{ row.name }}</span>
+                    <span class="text-neutral-200 flex-1 min-w-0 text-right leading-tight break-words whitespace-normal" dir="rtl" :class="{ 'line-through text-neutral-600': row.removed }">
+                      <span v-if="row.isAddition" class="inline-block bg-sky-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded mr-1 align-middle">NEW</span>{{ row.name }}
+                    </span>
                     <span class="font-mono font-bold text-xs shrink-0" :class="row.ready ? 'text-emerald-400' : 'text-neutral-500'">{{ row.done }}/{{ row.total }}</span>
                   </div>
                   <!-- per-item (component) note -->
@@ -544,12 +552,12 @@ function componentRows(group) {
     return group.children.map((c) => {
       const total = fmtQty(c.qty)
       const ready = isReady(c)
-      return { name: c.item_name, total, done: ready ? total : 0, ready, note: c.special_notes || "" }
+      return { name: c.item_name, total, done: ready ? total : 0, ready, note: c.special_notes || "", isAddition: !!c.is_addition }
     })
   }
   const total = fmtQty(group.qty)
   const ready = isReady(group)
-  return [{ name: group.item_name, total, done: ready ? total : 0, ready, note: "" }]
+  return [{ name: group.item_name, total, done: ready ? total : 0, ready, note: "", isAddition: !!group.is_addition }]
 }
 function canMarkDone(order) {
   const items = order.items || []
@@ -644,6 +652,7 @@ function startLive() {
   socket.connect()
   socket.on("kds_update", (data) => {
     if (data?.action === "new_order") playNewOrderSound()
+    if (data?.action === "order_supplemented") playNewOrderSound()
     if (data?.action === "order_cancelled" || data?.action === "order_returned" || data?.action === "order_needs_action") showReversalAlert(data)
     loadOrders()
   })
@@ -680,6 +689,12 @@ async function dismissReturned(order) {
   stopReturnAlarm()
   try {
     await call("ecs_posnext.ecs_posnext.api.kds.dismiss_returned_order", { kds_order: order.name })
+  } catch (_) {}
+  loadOrders()
+}
+async function dismissAddition(order) {
+  try {
+    await call("ecs_posnext.ecs_posnext.api.kds.acknowledge_kds_addition", { kds_order: order.name })
   } catch (_) {}
   loadOrders()
 }

@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict, field
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate, nowdate
+from frappe.utils import flt, getdate, now_datetime
 
 
 # ============================================================================
@@ -72,6 +72,8 @@ class Offer:
 	discount_percentage: float
 	valid_from: Optional[str]
 	valid_upto: Optional[str]
+	custom_valid_from_datetime: Optional[str]
+	custom_valid_upto_datetime: Optional[str]
 	source: str
 	promotional_scheme: Optional[str]
 	promotional_scheme_id: Optional[str]
@@ -364,6 +366,8 @@ class OfferBuilder:
 			discount_percentage=flt(slab.get("discount_percentage", 0)) if is_price_discount else 0,
 			valid_from=rule.get("valid_from"),
 			valid_upto=rule.get("valid_upto"),
+			custom_valid_from_datetime=rule.get("custom_valid_from_datetime"),
+			custom_valid_upto_datetime=rule.get("custom_valid_upto_datetime"),
 			source=OfferSource.PROMOTIONAL_SCHEME,
 			promotional_scheme=rule.get("promotional_scheme"),
 			promotional_scheme_id=rule.get("promotional_scheme_id"),
@@ -423,6 +427,8 @@ class OfferBuilder:
 			discount_percentage=flt(rule.get("discount_percentage", 0)),
 			valid_from=rule.get("valid_from"),
 			valid_upto=rule.get("valid_upto"),
+			custom_valid_from_datetime=rule.get("custom_valid_from_datetime"),
+			custom_valid_upto_datetime=rule.get("custom_valid_upto_datetime"),
 			source=OfferSource.PRICING_RULE,
 			promotional_scheme=None,
 			promotional_scheme_id=None,
@@ -451,16 +457,16 @@ def get_offers(pos_profile: str) -> List[Dict]:
 	"""
 	try:
 		profile = frappe.get_doc("POS Profile", pos_profile)
-		date = nowdate()
+		now = now_datetime()
 
 		offers = []
 
 		# Get offers from promotional schemes
-		scheme_offers = _get_promotional_scheme_offers(profile.company, date)
+		scheme_offers = _get_promotional_scheme_offers(profile.company, now)
 		offers.extend(scheme_offers)
 
 		# Get standalone pricing rule offers
-		standalone_offers = _get_standalone_pricing_rule_offers(profile.company, date)
+		standalone_offers = _get_standalone_pricing_rule_offers(profile.company, now)
 		offers.extend(standalone_offers)
 
 		return [offer.to_dict() for offer in offers]
@@ -470,7 +476,7 @@ def get_offers(pos_profile: str) -> List[Dict]:
 		return []
 
 
-def _get_promotional_scheme_offers(company: str, date: str) -> List[Offer]:
+def _get_promotional_scheme_offers(company: str, now) -> List[Offer]:
 	"""Fetch offers from promotional schemes"""
 
 	# Fetch pricing rules linked to promotional schemes
@@ -478,17 +484,18 @@ def _get_promotional_scheme_offers(company: str, date: str) -> List[Offer]:
 		SELECT
 			name, title, apply_on, selling, promotional_scheme,
 			promotional_scheme_id, coupon_code_based,
-			price_or_product_discount, priority, valid_from, valid_upto, for_price_list
+			price_or_product_discount, priority, valid_from, valid_upto,
+			custom_valid_from_datetime, custom_valid_upto_datetime, for_price_list
 		FROM `tabPricing Rule`
 		WHERE
 			disable = 0
 			AND selling = 1
 			AND promotional_scheme IS NOT NULL
 			AND company = %(company)s
-			AND (valid_from IS NULL OR valid_from <= %(date)s)
-			AND (valid_upto IS NULL OR valid_upto >= %(date)s)
+			AND (custom_valid_from_datetime IS NULL OR custom_valid_from_datetime <= %(now)s)
+			AND (custom_valid_upto_datetime IS NULL OR custom_valid_upto_datetime >= %(now)s)
 		ORDER BY priority DESC, name
-	""", {"company": company, "date": date}, as_dict=1)
+	""", {"company": company, "now": now}, as_dict=1)
 
 	if not pricing_rules:
 		return []
@@ -526,7 +533,7 @@ def _get_promotional_scheme_offers(company: str, date: str) -> List[Offer]:
 	return offers
 
 
-def _get_standalone_pricing_rule_offers(company: str, date: str) -> List[Offer]:
+def _get_standalone_pricing_rule_offers(company: str, now) -> List[Offer]:
 	"""Fetch offers from standalone pricing rules"""
 
 	# Fetch standalone pricing rules (not linked to schemes)
@@ -536,18 +543,19 @@ def _get_standalone_pricing_rule_offers(company: str, date: str) -> List[Offer]:
 			coupon_code_based, price_or_product_discount,
 			rate_or_discount, rate, discount_amount, discount_percentage,
 			min_qty, max_qty, min_amt, max_amt,
-			priority, valid_from, valid_upto, for_price_list
+			priority, valid_from, valid_upto,
+			custom_valid_from_datetime, custom_valid_upto_datetime, for_price_list
 		FROM `tabPricing Rule`
 		WHERE
 			disable = 0
 			AND selling = 1
 			AND promotional_scheme IS NULL
 			AND company = %(company)s
-			AND (valid_from IS NULL OR valid_from <= %(date)s)
-			AND (valid_upto IS NULL OR valid_upto >= %(date)s)
+			AND (custom_valid_from_datetime IS NULL OR custom_valid_from_datetime <= %(now)s)
+			AND (custom_valid_upto_datetime IS NULL OR custom_valid_upto_datetime >= %(now)s)
 			AND price_or_product_discount = %(discount_type)s
 		ORDER BY priority DESC, name
-	""", {"company": company, "date": date, "discount_type": DiscountType.PRICE}, as_dict=1)
+	""", {"company": company, "now": now, "discount_type": DiscountType.PRICE}, as_dict=1)
 
 	if not pricing_rules:
 		return []

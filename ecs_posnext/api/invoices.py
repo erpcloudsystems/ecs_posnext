@@ -1718,6 +1718,16 @@ def submit_invoice(invoice=None, data=None):
 
             invoice_doc.custom_number_order = f"{parent_order_number}-{count + 1}"
 
+            # Resolve the ORIGINAL order by its human order number and link back to it
+            # (custom_number_order's "-N" suffix is cosmetic only — KDS/Dispatcher need
+            # a real relational link to reflect the addition on the main order).
+            if invoice_doc.meta.has_field("custom_parent_order"):
+                parent_invoice_name = frappe.db.get_value(
+                    "Sales Invoice", {"custom_number_order": parent_order_number, "docstatus": 1}, "name",
+                )
+                if parent_invoice_name:
+                    invoice_doc.custom_parent_order = parent_invoice_name
+
         elif not invoice_doc.get("custom_number_order") and invoice_doc.get("custom_order_type"):
             order_type = invoice_doc.get("custom_order_type")
             pos_profile = invoice_doc.get("pos_profile")
@@ -1813,6 +1823,19 @@ def submit_invoice(invoice=None, data=None):
         if not is_call_center_invoice or force_submit or call_center_can_submit or is_talabat or is_return_invoice:
             invoice_doc.submit()
         invoice_submitted = True
+
+        # Record the redemption (Customer, Order, discount value, date) now that the
+        # invoice has a name and is actually submitted — used by the coupon redemption
+        # report and the customer's coupon usage count.
+        if coupon_code and invoice_doc.docstatus == 1 and frappe.db.table_exists("POS Coupon"):
+            try:
+                from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import record_coupon_redemption
+                record_coupon_redemption(coupon_code, invoice_doc)
+            except Exception as e:
+                frappe.log_error(
+                    title="Failed to record coupon redemption",
+                    message=f"Coupon: {coupon_code}, Invoice: {invoice_doc.name}, Error: {str(e)}"
+                )
 
         # Handle wallet transaction reversal for returns
         if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
@@ -2751,25 +2774,155 @@ def assign_driver_to_invoice(invoice_name, driver):
 	return {"message": _("Driver {0} assigned to {1}").format(driver_name, invoice_name)}
 
 
+def _remove_delivery_charge_row(invoice_doc):
+	"""Strip the Delivery Charges tax row (if any) and return it for GL bookkeeping."""
+	existing_charge_name = invoice_doc.get("posa_delivery_charges")
+	removed_row = None
+	if existing_charge_name:
+		for row in invoice_doc.taxes:
+			if row.description == existing_charge_name:
+				removed_row = row
+				break
+		invoice_doc.taxes = [t for t in invoice_doc.taxes if t.description != existing_charge_name]
+	return removed_row
+
+
+def _post_delivery_charge_gl_adjustment(invoice_doc, delta, removed_row, new_charge):
+	"""Book a balancing GL adjustment for the delivery-charge delta on an already
+	submitted invoice, without touching the GL entries created at submit time.
+
+	Mirrors the pattern used by WalletTransaction.build_gl_entries: self.get_gl_dict()
+	for company/posting_date/voucher fields, then erpnext's make_gl_entries().
+	"""
+	from erpnext.accounts.general_ledger import make_gl_entries
+
+	if delta > 0:
+		shipping_account = new_charge and new_charge.get("shipping_account")
+		cost_center = new_charge and new_charge.get("cost_center")
+	else:
+		shipping_account = removed_row and removed_row.account_head
+		cost_center = removed_row and removed_row.cost_center
+
+	if not shipping_account:
+		# Nothing to safely book against; the invoice fields are still correct,
+		# only the GL side is skipped.
+		return
+
+	amount = abs(flt(delta))
+	remarks = _("Delivery charge adjustment: order type changed to {0}").format(invoice_doc.custom_order_type)
+	debtors_row = {
+		"account": invoice_doc.debit_to,
+		"party_type": "Customer",
+		"party": invoice_doc.customer,
+		"against": shipping_account,
+		"against_voucher_type": "Sales Invoice",
+		"against_voucher": invoice_doc.name,
+		"cost_center": invoice_doc.get("cost_center") or cost_center,
+		"remarks": remarks,
+	}
+	shipping_row = {
+		"account": shipping_account,
+		"against": invoice_doc.customer,
+		"cost_center": cost_center,
+		"remarks": remarks,
+	}
+
+	if delta > 0:
+		debtors_row.update({"debit": amount, "debit_in_account_currency": amount})
+		shipping_row.update({"credit": amount, "credit_in_account_currency": amount})
+	else:
+		debtors_row.update({"credit": amount, "credit_in_account_currency": amount})
+		shipping_row.update({"debit": amount, "debit_in_account_currency": amount})
+
+	gl_entries = [invoice_doc.get_gl_dict(debtors_row), invoice_doc.get_gl_dict(shipping_row)]
+	make_gl_entries(
+		gl_entries,
+		cancel=False,
+		update_outstanding="Yes",
+		merge_entries=frappe.db.get_single_value("Accounts Settings", "merge_similar_account_heads"),
+	)
+
+
 @frappe.whitelist()
-def convert_order_type(invoice_name, order_type):
+def convert_order_type(invoice_name, order_type, territory=None):
+	"""Convert an order between Pickup/Delivery/Dine In from the All Orders page.
+
+	Unlike a plain field rename, this must keep the Delivery Charges tax row,
+	posa_delivery_charges*, territory and grand_total/outstanding_amount in sync
+	with the new type — switching into Delivery adds the zone's charge, switching
+	out of it removes whatever charge is currently on the invoice. Orders here are
+	always submitted (the All Orders buttons only show for docstatus == 1), so the
+	update bypasses validate()/on_submit (same approach already used by
+	assign_driver_to_invoice) and, since that also skips GL regeneration, posts a
+	small balancing GL adjustment for the resulting total delta.
+	"""
+	from ecs_posnext.api.customers import get_delivery_charge_for_territory
+
 	allowed = ("Delivery", "Pickup", "Dine In")
 	if order_type not in allowed:
 		frappe.throw(_("Invalid order type: {0}").format(order_type))
-	if not frappe.db.exists("Sales Invoice", invoice_name):
-		frappe.throw(_("Invoice {0} not found").format(invoice_name))
-	frappe.db.set_value("Sales Invoice", invoice_name, "custom_order_type", order_type)
+
+	invoice_doc = frappe.get_doc("Sales Invoice", invoice_name)
+	if invoice_doc.docstatus == 2:
+		frappe.throw(_("Cannot change the order type of a cancelled invoice."))
+
+	old_grand_total = flt(invoice_doc.grand_total)
+	removed_row = _remove_delivery_charge_row(invoice_doc)
+
+	new_charge = None
+	if order_type == "Delivery":
+		if not territory:
+			frappe.throw(_("Please select a delivery zone to convert this order to Delivery."))
+		new_charge = get_delivery_charge_for_territory(territory, invoice_doc.pos_profile)
+		if not new_charge:
+			frappe.throw(_("No delivery charge is configured for zone {0}.").format(territory))
+
+		invoice_doc.territory = territory
+		invoice_doc.posa_delivery_charges = new_charge["name"]
+		invoice_doc.posa_delivery_charges_rate = new_charge["rate"]
+		if flt(new_charge["rate"]):
+			invoice_doc.append("taxes", {
+				"charge_type": "Actual",
+				"description": new_charge["name"],
+				"tax_amount": new_charge["rate"],
+				"cost_center": new_charge["cost_center"],
+				"account_head": new_charge["shipping_account"],
+				"add_deduct_tax": "Add",
+				"included_in_print_rate": 0,
+			})
+	else:
+		invoice_doc.posa_delivery_charges = None
+		invoice_doc.posa_delivery_charges_rate = 0
+
+	invoice_doc.custom_order_type = order_type
+	invoice_doc.calculate_taxes_and_totals()
+	delta = flt(invoice_doc.grand_total) - old_grand_total
+
+	if invoice_doc.docstatus == 1:
+		invoice_doc.flags.ignore_validate_update_after_submit = True
+		invoice_doc.flags.ignore_permissions = True
+		invoice_doc.db_update()
+		invoice_doc.update_children()
+		if delta:
+			_post_delivery_charge_gl_adjustment(invoice_doc, delta, removed_row, new_charge)
+	else:
+		invoice_doc.flags.ignore_permissions = True
+		invoice_doc.save()
+
 	frappe.db.commit()
 	try:
-		pos_profile = frappe.db.get_value("Sales Invoice", invoice_name, "pos_profile") or ""
 		frappe.publish_realtime(
 			event="pos_order_changed",
-			message={"invoice_name": invoice_name, "action": "update", "pos_profile": pos_profile},
+			message={
+				"invoice_name": invoice_name,
+				"action": "update",
+				"pos_profile": invoice_doc.pos_profile or "",
+			},
 			after_commit=True,
 		)
 	except Exception:
 		pass
-	return {"status": "success"}
+	return {"status": "success", "grand_total": invoice_doc.grand_total, "outstanding_amount": invoice_doc.outstanding_amount}
 
 
 @frappe.whitelist()

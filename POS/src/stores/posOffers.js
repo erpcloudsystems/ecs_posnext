@@ -181,6 +181,24 @@ export const usePOSOffersStore = defineStore("posOffers", () => {
 			}
 		}
 
+		// Time-based validity (Pricing Rule custom_valid_from_datetime /
+		// custom_valid_upto_datetime). Checked against the client clock so a
+		// cached/offline offer list stops being offered the instant it expires,
+		// without waiting for the next server round-trip.
+		const now = new Date()
+		if (offer?.custom_valid_from_datetime && now < new Date(offer.custom_valid_from_datetime)) {
+			return {
+				eligible: false,
+				reason: __("This offer is not active yet"),
+			}
+		}
+		if (offer?.custom_valid_upto_datetime && now > new Date(offer.custom_valid_upto_datetime)) {
+			return {
+				eligible: false,
+				reason: __("This offer has expired"),
+			}
+		}
+
 		// Check item eligibility based on apply_on FIRST
 		// This determines which items are eligible for the offer
 		let eligibleItemQty = itemCount // Default to total cart qty for Transaction offers

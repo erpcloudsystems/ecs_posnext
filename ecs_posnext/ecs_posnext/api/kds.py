@@ -197,6 +197,24 @@ def dismiss_returned_order(kds_order):
     return {"status": "Cancelled"}
 
 
+@frappe.whitelist()
+def acknowledge_kds_addition(kds_order):
+    """A cook acknowledges the items that were added to an already-ticketed order —
+    clears the alarm badge on the ticket (the appended rows themselves stay on the
+    ticket, still marked `is_addition`, so it's clear what was added after the fact)."""
+    row = frappe.db.get_value("KDS Order", kds_order, ["has_pending_addition", "branch"], as_dict=True)
+    if not row:
+        frappe.throw(_("KDS Order {0} not found.").format(kds_order))
+    if row.has_pending_addition:
+        frappe.db.set_value("KDS Order", kds_order, "has_pending_addition", 0)
+        frappe.publish_realtime(
+            "kds_update",
+            {"action": "addition_acknowledged", "order": kds_order, "branch": row.branch},
+            after_commit=True,
+        )
+    return {"has_pending_addition": 0}
+
+
 def on_sales_invoice_submit(doc, method=None):
     # A Return / Credit Note reverses a sale — there is nothing for the kitchen to
     # prepare, so it must never raise a KDS ticket (an un-completable ticket would
@@ -217,6 +235,23 @@ def on_sales_invoice_submit(doc, method=None):
         return
     if frappe.db.exists("KDS Order", {"sales_invoice": doc.name}):
         return
+
+    parent_invoice = doc.get("custom_parent_order")
+    if parent_invoice:
+        # This is a supplement invoice (items added to an already-placed order) — merge
+        # its items into the ORIGINAL order's ticket instead of raising an independent
+        # one, so the addition is visible on the main order for KDS and Dispatcher.
+        try:
+            merged = _merge_addition_into_kds_order(doc, parent_invoice)
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "KDS Order Addition Merge Failed")
+            merged = False
+        if merged:
+            return
+        # Parent has no mergeable ticket (e.g. already completed/cancelled off the board,
+        # or the kitchen was never involved) — fall through and raise a normal ticket so
+        # the addition is never silently lost.
+
     try:
         _create_kds_order(doc)
     except Exception:
@@ -256,18 +291,12 @@ def on_sales_invoice_cancel(doc, method=None):
         )
 
 
-def _create_kds_order(doc):
-    settings = _get_settings_for_branch(doc.get("branch"))
-    order_type = doc.get("custom_order_type") or ""
-    target_min = _get_target_minutes(settings, order_type)
-    now = now_datetime()
-
-    today_count = frappe.db.count(
-        "KDS Order",
-        {"order_time": [">=", frappe.utils.today()]},
-    )
-    order_no = str(today_count + 1).zfill(3)
-
+def _build_kds_items_rows(doc, is_addition=False):
+    """Build KDS Order Item rows from a Sales Invoice's items (expanding combo
+    components). `is_addition` flags every row as having been added after the order
+    was already sent to the kitchen — used when merging a supplement invoice's items
+    into the original order's ticket."""
+    added_at = now_datetime() if is_addition else None
     items_rows = []
     for item in doc.items:
         main_station = _get_item_kds_station(item.item_code)
@@ -316,6 +345,8 @@ def _create_kds_order(doc):
             "is_component": 0,
             "combo_item_name": "",
             "combo_group_id": group_id,
+            "is_addition": 1 if is_addition else 0,
+            "added_at": added_at,
         })
 
         # Expand each component into its own KDS Order Item at its own station
@@ -339,7 +370,26 @@ def _create_kds_order(doc):
                 "is_component": 1,
                 "combo_item_name": item.item_name,
                 "combo_group_id": group_id,
+                "is_addition": 1 if is_addition else 0,
+                "added_at": added_at,
             })
+
+    return items_rows
+
+
+def _create_kds_order(doc):
+    settings = _get_settings_for_branch(doc.get("branch"))
+    order_type = doc.get("custom_order_type") or ""
+    target_min = _get_target_minutes(settings, order_type)
+    now = now_datetime()
+
+    today_count = frappe.db.count(
+        "KDS Order",
+        {"order_time": [">=", frappe.utils.today()]},
+    )
+    order_no = str(today_count + 1).zfill(3)
+
+    items_rows = _build_kds_items_rows(doc)
 
     kds_order = frappe.get_doc({
         "doctype": "KDS Order",
@@ -366,6 +416,58 @@ def _create_kds_order(doc):
         },
         after_commit=True,
     )
+
+
+def _merge_addition_into_kds_order(doc, parent_invoice):
+    """Merge a supplement invoice's items into the ORIGINAL order's still-active KDS
+    ticket, flagging them as an addition. Returns True if merged, False if the parent
+    has no mergeable ticket (caller should then raise a normal, independent ticket)."""
+    parent_kds = frappe.db.get_value(
+        "KDS Order", {"sales_invoice": parent_invoice, "status": ["!=", "Cancelled"]},
+        ["name", "branch", "status"], as_dict=True,
+    )
+    if not parent_kds:
+        return False
+
+    new_rows = _build_kds_items_rows(doc, is_addition=True)
+    if not new_rows:
+        return True  # nothing to prepare (e.g. only non-stock/service lines) — no-op merge
+
+    parent_doc = frappe.get_doc("KDS Order", parent_kds.name)
+    for row in new_rows:
+        parent_doc.append("items", row)
+
+    # A finished ticket needs to go back in front of the kitchen for the new items;
+    # an in-progress one just picks up the extra rows.
+    if parent_doc.status in ("Completed", "Ready"):
+        parent_doc.status = "Preparing"
+    parent_doc.has_pending_addition = 1
+    parent_doc.last_addition_time = now_datetime()
+    parent_doc.save(ignore_permissions=True)
+
+    frappe.publish_realtime(
+        "kds_update",
+        {
+            "action": "order_supplemented",
+            "order": parent_doc.name,
+            "invoice": parent_invoice,
+            "branch": parent_doc.branch,
+        },
+        after_commit=True,
+    )
+    frappe.publish_realtime(
+        "dispatch_desk_refresh",
+        {"source": "kds", "invoice": parent_invoice, "action": "order_supplemented"},
+        after_commit=True,
+    )
+
+    try:
+        from ecs_posnext.ecs_posnext.api.dispatcher import flag_delivery_addition
+        flag_delivery_addition(parent_invoice, new_rows)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "Dispatch Addition Flag Failed")
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -443,6 +545,7 @@ def get_active_orders(branch=None):
             "name", "order_no", "custom_number_order", "sales_invoice", "branch",
             "order_time", "target_minutes", "expected_ready_time", "status", "order_type",
             "returned_source", "return_reason", "returned_at",
+            "has_pending_addition", "last_addition_time",
         ],
         order_by="order_time asc",
         limit=200,
@@ -456,7 +559,8 @@ def get_active_orders(branch=None):
             fields=["name", "item_code", "item_name", "kds_station", "qty",
                     "is_special", "special_notes", "station_status",
                     "selected_components", "ingredients", "removed_ingredients",
-                    "is_component", "combo_item_name", "combo_group_id"],
+                    "is_component", "combo_item_name", "combo_group_id",
+                    "is_addition", "added_at"],
             order_by="idx asc",
         )
 
@@ -519,6 +623,7 @@ def get_station_orders(station, branch=None):
             "name", "order_no", "custom_number_order", "sales_invoice", "branch",
             "order_time", "target_minutes", "expected_ready_time", "status",
             "returned_source", "return_reason", "returned_at",
+            "has_pending_addition", "last_addition_time",
         ],
         order_by="order_time asc",
         limit=200,
@@ -532,7 +637,8 @@ def get_station_orders(station, branch=None):
             fields=["name", "item_code", "item_name", "kds_station", "qty",
                     "is_special", "special_notes", "station_status",
                     "selected_components", "ingredients", "removed_ingredients",
-                    "is_component", "combo_item_name", "combo_group_id"],
+                    "is_component", "combo_item_name", "combo_group_id",
+                    "is_addition", "added_at"],
             order_by="idx asc",
         )
 

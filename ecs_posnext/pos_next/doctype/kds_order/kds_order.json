@@ -21,6 +21,8 @@
   "returned_source",
   "return_reason",
   "returned_at",
+  "has_pending_addition",
+  "last_addition_time",
   "section_items",
   "items"
  ],
@@ -132,6 +134,20 @@
    "fieldname": "returned_at",
    "fieldtype": "Datetime",
    "label": "Returned At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "has_pending_addition",
+   "fieldtype": "Check",
+   "label": "Has Pending Addition",
+   "read_only": 1,
+   "in_list_view": 1,
+   "description": "Set when items were added to this order after it was already sent to the kitchen. Cleared when a cook acknowledges the addition."
+  },
+  {
+   "fieldname": "last_addition_time",
+   "fieldtype": "Datetime",
+   "label": "Last Addition Time",
    "read_only": 1
   },
   {

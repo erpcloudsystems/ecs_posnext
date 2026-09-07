@@ -12,7 +12,7 @@
 				<div class="min-w-0">
 					<p class="text-sm font-bold text-gray-900 truncate">{{ profile?.customer_name || customerDisplayName }}</p>
 					<p class="text-[10px] text-gray-500">
-						{{ profile?.mobile_no || customerMobile }} · {{ __("Orders") }}: {{ profile?.total_orders || 0 }}
+						{{ profile?.mobile_no || customerMobile }} · {{ __("Orders") }}: {{ profile?.total_orders || 0 }} · {{ __("Coupons Used") }}: {{ profile?.coupon_usage_count || 0 }}
 					</p>
 					<p v-if="profile?.last_order?.branch" class="text-[10px] text-blue-600 font-medium">
 						{{ __("Last Visit") }}: {{ profile.last_order.branch }} · {{ profile.last_order.date }}

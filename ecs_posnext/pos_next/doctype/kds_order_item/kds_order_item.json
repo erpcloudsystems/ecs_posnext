@@ -17,7 +17,9 @@
   "special_notes",
   "selected_components",
   "ingredients",
-  "removed_ingredients"
+  "removed_ingredients",
+  "is_addition",
+  "added_at"
  ],
  "fields": [
   {
@@ -98,6 +100,20 @@
    "fieldname": "removed_ingredients",
    "fieldtype": "Small Text",
    "label": "Removed Ingredients"
+  },
+  {
+   "fieldname": "is_addition",
+   "fieldtype": "Check",
+   "label": "Is Addition",
+   "read_only": 1,
+   "in_list_view": 1,
+   "description": "Set when this item was added to the order after it was already sent to the kitchen."
+  },
+  {
+   "fieldname": "added_at",
+   "fieldtype": "Datetime",
+   "label": "Added At",
+   "read_only": 1
   }
  ],
  "istable": 1,

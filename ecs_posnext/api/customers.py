@@ -60,7 +60,7 @@ def get_customers(search_term="", pos_profile=None, limit=20, modified_since=Non
             "Customer",
             filters=filters,
             or_filters=or_filters,
-            fields=["name", "customer_name", "mobile_no", "custom_other_mobile_no", "email_id", "disabled"],
+            fields=["name", "customer_name", "mobile_no", "custom_other_mobile_no", "email_id", "disabled", "posa_discount"],
             limit=customer_limit,
             order_by="customer_name asc",
         )
@@ -355,6 +355,47 @@ def get_delivery_charge_for_territory(territory, pos_profile=None):
 
 
 @frappe.whitelist()
+def get_delivery_territories(pos_profile=None):
+    """
+    List territories that have a delivery zone (Delivery Charges) configured,
+    for use in a zone picker (e.g. converting an order to Delivery).
+
+    Args:
+        pos_profile (str, optional): POS Profile name to filter by company
+
+    Returns:
+        list of dict: [{name, label}]
+    """
+    territories = frappe.get_all(
+        "Territory",
+        filters={"delivery_charges": ["is", "set"]},
+        fields=["name", "delivery_charges"],
+        order_by="name asc",
+    )
+    if not territories:
+        return []
+
+    company = frappe.db.get_value("POS Profile", pos_profile, "company") if pos_profile else None
+    charge_names = list({t.delivery_charges for t in territories})
+    charges = frappe.get_all(
+        "Delivery Charges",
+        filters={"name": ["in", charge_names]},
+        fields=["name", "label", "company", "disabled"],
+    )
+    charges_by_name = {c.name: c for c in charges}
+
+    result = []
+    for t in territories:
+        charge = charges_by_name.get(t.delivery_charges)
+        if not charge or charge.disabled:
+            continue
+        if company and charge.company != company:
+            continue
+        result.append({"name": t.name, "label": charge.label or t.name})
+    return result
+
+
+@frappe.whitelist()
 def get_customer_profile(customer, pos_profile=None, branch=None):
     """
     Get comprehensive customer profile for POS display.
@@ -385,6 +426,14 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
         WHERE customer = %s AND docstatus = 1
     """, customer, as_dict=True)
     actual_total_orders = int(total_count_result[0].cnt if total_count_result else 0)
+
+    # Total coupons redeemed by this customer (since their POS Coupon Redemption history began)
+    coupon_usage_count = 0
+    try:
+        if frappe.db.exists("DocType", "POS Coupon Redemption"):
+            coupon_usage_count = int(frappe.db.count("POS Coupon Redemption", {"customer": customer}))
+    except Exception:
+        pass
 
     # Branch-specific stats (when branch provided)
     branch_total_orders = 0
@@ -574,6 +623,7 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
         "favorite_branch": cust.get("custom_favorite_branch") or "",
         "last_branch": cust.get("custom_last_branch") or "",
         "total_orders": actual_total_orders,
+        "coupon_usage_count": coupon_usage_count,
         "last_order_at": str(cust.get("custom_last_order_at") or ""),
         "last_order": last_order,
         "branch_total_orders": branch_total_orders,
@@ -585,6 +635,7 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
         "compensation_coupons": compensation_coupons,
         "mobile_no": cust.get("mobile_no") or "",
         "loyalty_program": cust.get("loyalty_program") or "",
+        "posa_discount": cust.get("posa_discount") or 0,
     }
 
 

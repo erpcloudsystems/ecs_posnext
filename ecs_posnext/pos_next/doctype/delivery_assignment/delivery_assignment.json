@@ -22,6 +22,9 @@
   "column_break_order",
   "delivery_address",
   "contact_phone",
+  "has_pending_addition",
+  "last_addition_time",
+  "pending_addition_summary",
   "section_payment",
   "payment_mode",
   "amount_to_collect",
@@ -145,6 +148,29 @@
    "fieldtype": "Data",
    "label": "Contact Phone",
    "read_only": 1
+  },
+  {
+   "fieldname": "has_pending_addition",
+   "fieldtype": "Check",
+   "label": "Has Pending Addition",
+   "read_only": 1,
+   "in_list_view": 1,
+   "allow_on_submit": 1,
+   "description": "Set when items were added to this order after it was already assigned/dispatched. Cleared when the dispatcher acknowledges the addition."
+  },
+  {
+   "fieldname": "last_addition_time",
+   "fieldtype": "Datetime",
+   "label": "Last Addition Time",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "pending_addition_summary",
+   "fieldtype": "Small Text",
+   "label": "Pending Addition Summary",
+   "read_only": 1,
+   "allow_on_submit": 1
   },
   {
    "fieldname": "section_payment",

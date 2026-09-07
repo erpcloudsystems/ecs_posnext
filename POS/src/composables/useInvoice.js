@@ -320,15 +320,25 @@ export function useInvoice() {
 	// Actions
 	function addItem(item, quantity = 1) {
 		const itemUom = item.uom || item.stock_uom
-		const existingItem = invoiceItems.value.find(
-			(i) =>
-				i.item_code === item.item_code &&
-				i.uom === itemUom &&
-				!i.posa_row_id &&
-				!item.posa_row_id &&
-				!i.components &&
-				!item.components,
-		)
+		const isBundleItem = !!(item.is_bundle || item.enabled_item_bundle)
+		const isVariantItem = !!item.has_variants
+
+		// Bundles and variant/template items can carry different combo
+		// components or attributes on each add, so every add stays its own row.
+		// Plain items always merge into the matching row and just bump quantity —
+		// they should never be split across multiple rows for the same item_code/uom.
+		const existingItem =
+			!isBundleItem && !isVariantItem
+				? invoiceItems.value.find(
+						(i) =>
+							i.item_code === item.item_code &&
+							i.uom === itemUom &&
+							!i.is_bundle &&
+							!i.has_variants &&
+							!i.components &&
+							!item.components,
+					)
+				: null
 
 		if (existingItem) {
 			// Store old values before update for incremental cache adjustment
@@ -399,6 +409,7 @@ export function useInvoice() {
 				// Exclude from additional discount
 				custom_not_included: item.custom_not_included || 0,
 				is_bundle: item.is_bundle || item.enabled_item_bundle || 0,
+				has_variants: item.has_variants || 0,
 				posa_row_id:
 					item.posa_row_id ||
 					`row-${Date.now()}-${Math.random().toString(36).substr(2, 7)}`,
@@ -440,10 +451,16 @@ export function useInvoice() {
 	 * @param {string|null} uom - Optional UOM to match when same item exists with different UOMs.
 	 *                            If provided, only removes the item with matching item_code AND uom.
 	 *                            If null, removes the first item matching item_code.
+	 * @param {string|null} rowId - Optional posa_row_id identifying the exact cart row to remove.
+	 *                              When provided, this takes precedence over item_code/uom matching
+	 *                              so that removing one of several identical rows (same item_code and
+	 *                              uom but different customizations) only removes that specific row.
 	 */
-	function removeItem(itemCode, uom = null) {
+	function removeItem(itemCode, uom = null, rowId = null) {
 		let itemToRemove
-		if (uom) {
+		if (rowId) {
+			itemToRemove = invoiceItems.value.find((i) => i.posa_row_id === rowId)
+		} else if (uom) {
 			itemToRemove = invoiceItems.value.find(
 				(i) => i.item_code === itemCode && i.uom === uom,
 			)
@@ -470,7 +487,11 @@ export function useInvoice() {
 			}
 		}
 
-		if (uom) {
+		if (rowId) {
+			invoiceItems.value = invoiceItems.value.filter(
+				(i) => i.posa_row_id !== rowId,
+			)
+		} else if (uom) {
 			invoiceItems.value = invoiceItems.value.filter(
 				(i) => !(i.item_code === itemCode && i.uom === uom),
 			)
@@ -488,10 +509,16 @@ export function useInvoice() {
 	 * @param {string|null} uom - Optional UOM to match when same item exists with different UOMs.
 	 *                            If provided, only updates the item with matching item_code AND uom.
 	 *                            If null, updates the first item matching item_code.
+	 * @param {string|null} rowId - Optional posa_row_id identifying the exact cart row to update.
+	 *                              When provided, this takes precedence over item_code/uom matching
+	 *                              so that updating one of several identical rows (same item_code and
+	 *                              uom but different customizations) only updates that specific row.
 	 */
-	function updateItemQuantity(itemCode, quantity, uom = null) {
+	function updateItemQuantity(itemCode, quantity, uom = null, rowId = null) {
 		let item
-		if (uom) {
+		if (rowId) {
+			item = invoiceItems.value.find((i) => i.posa_row_id === rowId)
+		} else if (uom) {
 			item = invoiceItems.value.find(
 				(i) => i.item_code === itemCode && i.uom === uom,
 			)
