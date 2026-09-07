@@ -511,7 +511,7 @@ import { computed, reactive, ref, watch } from "vue"
 import { call } from "@/utils/apiWrapper"
 import { isOffline } from "@/utils/offline/sync"
 import { printHtmlString } from "@/utils/reportOutput"
-import { renderReportPrintFormat } from "@/utils/reportPrintFormat"
+import { RECEIPT_PAGE, renderReportPrintFormat } from "@/utils/reportPrintFormat"
 import { useFormatters } from "../composables/useFormatters"
 import { useShift } from "../composables/useShift"
 import { useToast } from "../composables/useToast"
@@ -864,6 +864,7 @@ async function printItemSalesSummary(data) {
     }
 
     const html = renderReportPrintFormat({
+      ...RECEIPT_PAGE,
       template: layout.template,
       letterhead: layout.letterhead,
       orientation: "Portrait",
@@ -950,6 +951,7 @@ async function printExtraSalaryReport(data) {
     }
 
     const html = renderReportPrintFormat({
+      ...RECEIPT_PAGE,
       template: layout.template,
       letterhead: layout.letterhead,
       orientation: "Portrait",

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
 	buildTemplateContext,
+	RECEIPT_PAGE,
 	renderReportPrintFormat,
 } from "@/utils/reportPrintFormat"
 import { renderTemplate } from "@/utils/microtemplate"
@@ -82,6 +83,19 @@ describe("renderReportPrintFormat", () => {
 		expect(html).toContain("Mahmoud = 1,234.50")
 		expect(html).toContain("Sara = 300")
 		expect(html).toContain('<div class="total">1,534.50</div>')
+	})
+
+	it("wraps the body in .print-format, the wrapper formats are written against", () => {
+		// an 80mm format pins its width with `.print-format { width: 76mm }`; with
+		// no wrapper that rule matches nothing and the receipt lays out full width
+		expect(render()).toContain('<div class="print-format">')
+	})
+
+	it("prints a receipt on the roll rather than on a sheet scaled down to it", () => {
+		const html = render(RECEIPT_PAGE)
+
+		expect(html).toContain("@page { size: 80mm auto; margin: 0; }")
+		expect(html).not.toContain("A4")
 	})
 
 	it("leaves no template tags behind", () => {

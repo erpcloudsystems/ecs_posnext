@@ -265,6 +265,13 @@ function escapeHTML(text) {
 }
 
 /**
+ * The `@page` for an 80mm thermal roll. Both POS receipt formats size themselves
+ * to 80mm (`.pos-receipt { width: 80mm }`, `.print-format { width: 76mm }`), so
+ * the page has to be the roll and not a sheet the printer then shrinks.
+ */
+export const RECEIPT_PAGE = { pageSize: "80mm auto", pageMargin: "0" }
+
+/**
  * The scope a report print template is evaluated in.
  *
  * `with(context)` means anything the template names has to be here or on
@@ -324,8 +331,18 @@ export function buildTemplateContext({
 /**
  * A complete printable page for `template`, rendered against the report data.
  *
- * The A4 `@page` rule is written before the template's own styles so a receipt
- * format that declares `@page { size: 80mm auto }` still wins.
+ * `pageSize` / `pageMargin` set the `@page` rule, defaulting to A4 in the given
+ * orientation. Pass the roll size for a receipt (`RECEIPT_PAGE`): laying a
+ * receipt out on an A4 page and letting the printer shrink the sheet to the roll
+ * scales the text down to about a third of its size. The rule is written before
+ * the template's own styles, so a format that declares its own `@page` wins.
+ *
+ * The rendered body goes inside `<div class="print-format">`, the wrapper the
+ * desk's /printview puts around every Print Format. Formats are written against
+ * it - an 80mm receipt pins its width with `.print-format { width: 76mm }` - so
+ * without the wrapper those rules match nothing, the receipt lays out at full
+ * A4 width and the printer scales the whole page down to fit the roll, which is
+ * what makes the print come out tiny.
  *
  * @throws when the template fails to compile or render - the caller decides
  *         whether to fall back to the plain table layout.
@@ -334,6 +351,8 @@ export function renderReportPrintFormat({
 	template,
 	letterhead = "",
 	orientation = "Portrait",
+	pageSize = null,
+	pageMargin = "10mm",
 	...context
 }) {
 	const body = renderTemplate(
@@ -344,8 +363,9 @@ export function renderReportPrintFormat({
 		}),
 	)
 
-	const pageSize =
-		orientation.toLowerCase() === "landscape" ? "landscape" : "portrait"
+	const size =
+		pageSize ||
+		`A4 ${orientation.toLowerCase() === "landscape" ? "landscape" : "portrait"}`
 	const root = typeof document !== "undefined" ? document.documentElement : null
 	const dir = root?.dir === "rtl" ? "rtl" : "ltr"
 	const lang = root?.lang || "en"
@@ -356,11 +376,13 @@ export function renderReportPrintFormat({
 <html dir="${dir}" lang="${lang}">
 <head>
 <meta charset="utf-8">
-<style>@page { size: A4 ${pageSize}; margin: 10mm; }</style>
+<style>@page { size: ${size}; margin: ${pageMargin}; }</style>
 </head>
 <body>
+<div class="print-format">
 ${letterhead || ""}
 ${body}
+</div>
 </body>
 </html>`
 }
