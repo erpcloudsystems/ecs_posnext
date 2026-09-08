@@ -958,6 +958,11 @@ def update_invoice(data):
         # Populate missing fields (company, currency, accounts, etc.)
         invoice_doc.set_missing_values()
 
+        # Point the additional discount at the base the POS computed it from.
+        # Must run after set_missing_values() (which resets apply_discount_on
+        # from the POS Profile) and before the totals are calculated.
+        _align_additional_discount_base(invoice_doc)
+
         # Calculate totals and apply discounts (with rounding disabled)
         invoice_doc.calculate_taxes_and_totals()
         if invoice_doc.grand_total is None:
@@ -1372,6 +1377,57 @@ def _with_deadlock_retry(fn, max_attempts=3):
             if attempt == max_attempts - 1:
                 raise
             time.sleep(0.5 * (attempt + 1))
+
+
+def _has_inclusive_tax(invoice_doc):
+    """True when any tax row is already included in the item rate."""
+    return any(
+        cint(tax.get("included_in_print_rate"))
+        for tax in (invoice_doc.get("taxes") or [])
+    )
+
+
+def _align_additional_discount_base(invoice_doc):
+    """Point apply_discount_on at the base the POS computed discount_amount from.
+
+    The POS takes the additional discount as a percentage of the cart subtotal
+    it shows the cashier and sends only the resulting flat amount. That subtotal
+    is tax-inclusive when the tax template is inclusive
+    (included_in_print_rate), tax-exclusive otherwise -- while ERPNext subtracts
+    discount_amount from whatever apply_discount_on names, which is "Net Total"
+    on most POS Profiles and is re-copied from the profile by
+    set_missing_values() right before this runs. So on an inclusive-tax profile
+    a 90-100% discount had a gross amount taken off the (smaller) net total,
+    driving grand_total negative and failing validation with
+    "Grand Total (Company Currency) must be >= 0" on save.
+
+    The amount is also clamped to that base, so an additional discount stacked
+    on top of item-level discounts lands the invoice at zero instead of below
+    it (the payment dialog already floors the payable total at zero, so this
+    matches what the cashier collected).
+
+    Returns are left alone: their totals are legitimately negative.
+    """
+    discount_amount = flt(invoice_doc.get("discount_amount"))
+    if discount_amount <= 0 or invoice_doc.get("is_return"):
+        return
+
+    on_grand_total = _has_inclusive_tax(invoice_doc)
+    invoice_doc.apply_discount_on = "Grand Total" if on_grand_total else "Net Total"
+
+    # Measure that base with the discount removed, then cap the discount to it.
+    # additional_discount_percentage is cleared for good: the flat amount from
+    # the POS is authoritative, and leaving a stale percentage behind would let
+    # calculate_taxes_and_totals() recompute discount_amount from it.
+    invoice_doc.discount_amount = 0
+    invoice_doc.additional_discount_percentage = 0
+    invoice_doc.calculate_taxes_and_totals()
+    base = flt(invoice_doc.grand_total if on_grand_total else invoice_doc.net_total)
+
+    invoice_doc.discount_amount = flt(
+        min(discount_amount, max(base, 0)),
+        invoice_doc.precision("discount_amount"),
+    )
 
 
 def _save_with_grand_total_correction(invoice_doc, max_attempts=5, tolerance=0.5):

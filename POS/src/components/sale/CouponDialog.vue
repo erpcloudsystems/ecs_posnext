@@ -104,7 +104,25 @@
 							<span class="text-xs text-gray-600">{{ __('Coupon Code') }}</span>
 							<span class="text-sm font-bold text-gray-900">{{ appliedDiscount.code }}</span>
 						</div>
-						<div class="flex justify-between items-center">
+						<!-- Loyalty coupons give no discount - they raise the earn rate,
+						     so showing "-0.00" here would just look broken. -->
+						<template v-if="appliedDiscount.scope === 'loyalty'">
+							<div v-if="appliedDiscount.cashbackPercentage > 0"
+								class="flex justify-between items-center">
+								<span class="text-xs text-gray-600">{{ __('Cashback') }}</span>
+								<span class="text-lg font-bold text-green-600">
+									+{{ appliedDiscount.cashbackPercentage }}%
+								</span>
+							</div>
+							<div v-if="appliedDiscount.pointsPercentage > 0"
+								class="flex justify-between items-center">
+								<span class="text-xs text-gray-600">{{ __('Loyalty Points') }}</span>
+								<span class="text-lg font-bold text-green-600">
+									+{{ appliedDiscount.pointsPercentage }}%
+								</span>
+							</div>
+						</template>
+						<div v-else class="flex justify-between items-center">
 							<span class="text-xs text-gray-600">{{ __('Discount Amount') }}</span>
 							<span class="text-lg font-bold text-green-600">
 								-{{ formatCurrency(appliedDiscount.amount) }}
@@ -148,7 +166,10 @@
 </template>
 
 <script setup>
-import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "@/utils/currency"
+import {
+	DEFAULT_CURRENCY,
+	formatCurrency as formatCurrencyUtil,
+} from "@/utils/currency"
 import { Button, Dialog, Input, createResource } from "frappe-ui"
 import { ref, watch } from "vue"
 import { useInvoice } from "@/composables/useInvoice"
@@ -275,11 +296,15 @@ async function applyCoupon() {
 		const result = couponResource.data?.message || couponResource.data
 
 		// Handle if result is the actual response object
-		const validationData = typeof result === 'object' && result.valid !== undefined ? result : couponResource.data
+		const validationData =
+			typeof result === "object" && result.valid !== undefined
+				? result
+				: couponResource.data
 
 		if (!validationData || !validationData.valid) {
 			errorMessage.value =
-				validationData?.message || __("The coupon code you entered is not valid")
+				validationData?.message ||
+				__("The coupon code you entered is not valid")
 			showError(errorMessage.value)
 			return
 		}
@@ -293,29 +318,81 @@ async function applyCoupon() {
 				? coupon.balance_amount
 				: coupon.discount_amount
 		const discountObj = {
-			percentage: coupon.discount_type === "Percentage" ? coupon.discount_percentage : 0,
+			percentage:
+				coupon.discount_type === "Percentage" ? coupon.discount_percentage : 0,
 			amount: coupon.discount_type === "Amount" ? giftCardAmount : 0,
+		}
+
+		if (coupon.discount_type === "Cashback and Point Loyalty") {
+			// This coupon gives no cart discount at all - it raises the earn rate on
+			// top of the customer's tier, exactly like a "Cashback"/"Points" POS Offer.
+			// loyalty_engine picks the percentages up from custom_bonus_*_percentage
+			// on submit and stages them as Pending Loyalty Rewards. Because the reward
+			// is computed on the whole invoice, an item-code restriction can't be
+			// honored here, so the coupon always applies cart-wide.
+			const cashbackPercentage = Number(coupon.cashback_percentage) || 0
+			const pointsPercentage = Number(coupon.loyalty_points_percentage) || 0
+
+			if (cashbackPercentage <= 0 && pointsPercentage <= 0) {
+				errorMessage.value = __(
+					"This coupon has no cashback or points percentage configured",
+				)
+				showWarning(errorMessage.value)
+				return
+			}
+
+			if (coupon.min_amount && props.subtotal < coupon.min_amount) {
+				errorMessage.value = __("This coupon requires a minimum purchase of ", [
+					formatCurrency(coupon.min_amount),
+				])
+				showWarning(errorMessage.value)
+				return
+			}
+
+			appliedDiscount.value = {
+				name: coupon.coupon_name || coupon.coupon_code,
+				code: couponCode.value.toUpperCase(),
+				amount: 0,
+				percentage: 0,
+				type: coupon.discount_type,
+				coupon: coupon,
+				scope: "loyalty",
+				cashbackPercentage,
+				pointsPercentage,
+			}
+
+			emit("discount-applied", appliedDiscount.value)
+			errorMessage.value = ""
+			return
 		}
 
 		if (restriction?.apply_on === "Item Code") {
 			// Coupon linked to a POS Offer with "Apply Rule On Item Code" - only
 			// discount matching cart lines instead of the whole cart.
-			const matches = (props.items || []).filter((item) => restriction.item_codes.includes(item.item_code))
+			const matches = (props.items || []).filter((item) =>
+				restriction.item_codes.includes(item.item_code),
+			)
 			if (!matches.length) {
-				errorMessage.value = __("This coupon does not apply to any item in your cart")
+				errorMessage.value = __(
+					"This coupon does not apply to any item in your cart",
+				)
 				showWarning(errorMessage.value)
 				return
 			}
 
 			const matchSubtotal = matches.reduce((sum, item) => {
-				const rate = item.is_rate_manually_edited === 1 ? item.rate : item.price_list_rate || item.rate
+				const rate =
+					item.is_rate_manually_edited === 1
+						? item.rate
+						: item.price_list_rate || item.rate
 				return sum + item.quantity * rate
 			}, 0)
 
 			if (coupon.min_amount && matchSubtotal < coupon.min_amount) {
-				errorMessage.value = __("This coupon requires a minimum purchase of {0} on eligible items", [
-					formatCurrency(coupon.min_amount),
-				])
+				errorMessage.value = __(
+					"This coupon requires a minimum purchase of {0} on eligible items",
+					[formatCurrency(coupon.min_amount)],
+				)
 				showWarning(errorMessage.value)
 				return
 			}
@@ -334,12 +411,15 @@ async function applyCoupon() {
 				coupon: coupon,
 				scope: "items",
 				itemCodes: matches.map((item) => item.item_code),
-				itemDiscountPercentage: matchSubtotal > 0 ? (discountAmount / matchSubtotal) * 100 : 0,
+				itemDiscountPercentage:
+					matchSubtotal > 0 ? (discountAmount / matchSubtotal) * 100 : 0,
 			}
 		} else {
 			// Check minimum amount (on subtotal before tax)
 			if (coupon.min_amount && props.subtotal < coupon.min_amount) {
-				errorMessage.value = __('This coupon requires a minimum purchase of ', [formatCurrency(coupon.min_amount)])
+				errorMessage.value = __("This coupon requires a minimum purchase of ", [
+					formatCurrency(coupon.min_amount),
+				])
 				showWarning(errorMessage.value)
 				return
 			}
@@ -358,7 +438,10 @@ async function applyCoupon() {
 			appliedDiscount.value = {
 				name: coupon.coupon_name || coupon.coupon_code,
 				code: couponCode.value.toUpperCase(),
-				percentage: coupon.discount_type === "Percentage" ? (coupon.discount_percentage || 0) : 0,
+				percentage:
+					coupon.discount_type === "Percentage"
+						? coupon.discount_percentage || 0
+						: 0,
 				amount: discountAmount,
 				type: coupon.discount_type,
 				coupon: coupon,
@@ -369,7 +452,9 @@ async function applyCoupon() {
 
 		emit("discount-applied", appliedDiscount.value)
 
-		showSuccess(__('{0} applied successfully', [couponCode.value.toUpperCase()]))
+		showSuccess(
+			__("{0} applied successfully", [couponCode.value.toUpperCase()]),
+		)
 
 		errorMessage.value = ""
 	} catch (error) {

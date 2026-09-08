@@ -28,6 +28,8 @@
   "discount_type",
   "discount_percentage",
   "discount_amount",
+  "cashback_percentage",
+  "loyalty_points_percentage",
   "column_break_discount",
   "min_amount",
   "max_amount",
@@ -153,7 +155,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Discount Type",
-   "options": "Percentage\nAmount",
+   "options": "Percentage\nAmount\nCashback and Point Loyalty",
    "reqd": 1
   },
   {
@@ -169,6 +171,20 @@
    "fieldtype": "Currency",
    "label": "Discount Amount",
    "options": "Company:company:default_currency",
+   "precision": "2"
+  },
+  {
+   "depends_on": "eval:doc.discount_type=='Cashback and Point Loyalty'",
+   "fieldname": "cashback_percentage",
+   "fieldtype": "Float",
+   "label": "Cashback Percentage",
+   "precision": "2"
+  },
+  {
+   "depends_on": "eval:doc.discount_type=='Cashback and Point Loyalty'",
+   "fieldname": "loyalty_points_percentage",
+   "fieldtype": "Float",
+   "label": "Loyalty Points Percentage",
    "precision": "2"
   },
   {

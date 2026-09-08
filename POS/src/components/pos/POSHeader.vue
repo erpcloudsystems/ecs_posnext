@@ -97,11 +97,11 @@
 					</button>
 
 					<!-- Attendance -->
-					<button
-						@click="$emit('attendance-click')"
-						class="p-1.5 sm:p-2 hover:bg-gray-100 active:bg-gray-200 rounded-lg transition-colors relative group touch-manipulation"
-						:title="__('POS Attendance: {0} ({1})', [attendanceCount, __('Click to update')])"
+					<div
+						class="p-1.5 sm:p-2 rounded-lg relative"
+						:title="__('POS Attendance: {0}', [attendanceCount])"
 						:aria-label="__('POS Attendance')"
+						role="status"
 					>
 						<svg
 							class="w-4 h-4 sm:w-5 sm:h-5 text-blue-600"
@@ -116,7 +116,7 @@
 						>
 							{{ attendanceCount }}
 						</span>
-					</button>
+					</div>
 
 					<!-- Cache Status Indicator -->
 					<div class="relative">
@@ -315,7 +315,6 @@ const emit = defineEmits([
 	"menu-opened",
 	"menu-closed",
 	"clear-cache",
-	"attendance-click",
 ])
 
 function handleClearCacheClick() {

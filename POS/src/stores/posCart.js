@@ -98,6 +98,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		loyaltyCashbackToUse,
 		bonusPointsPercentage,
 		bonusCashbackPercentage,
+		couponCode,
 		cardApprovalCodes,
 		isTabbyPayment,
 		bundleSelections,
@@ -417,6 +418,28 @@ export const usePOSCartStore = defineStore("posCart", () => {
 
 	// Discount & Offer Management
 	function applyDiscountToCart(discount) {
+		if (discount?.scope === "loyalty") {
+			// "Cashback and Point Loyalty" coupon: no cart discount, it only raises
+			// the earn rate. Added on top of any POS Offer bonus the same way
+			// posOfferEngine stacks them, and read by loyalty_engine on submit.
+			bonusCashbackPercentage.value =
+				(Number(bonusCashbackPercentage.value) || 0) +
+				discount.cashbackPercentage
+			bonusPointsPercentage.value =
+				(Number(bonusPointsPercentage.value) || 0) + discount.pointsPercentage
+			// applyDiscount() normally does this; it is what puts coupon_code on the
+			// invoice so the backend validates it and increments its usage counter.
+			couponCode.value = discount.code || discount.name
+			appliedCoupon.value = discount
+			showSuccess(
+				__("{0} applied: {1}% cashback, {2}% points", [
+					discount.name,
+					discount.cashbackPercentage,
+					discount.pointsPercentage,
+				]),
+			)
+			return
+		}
 		if (discount?.scope === "items") {
 			// Coupon linked to a POS Offer with "Apply Rule On Item Code" - discount
 			// only the matching lines (same convention as posOfferEngine's Item
@@ -432,7 +455,22 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	function removeDiscountFromCart() {
 		suppressOfferReapply.value = true
 		appliedOffers.value = []
-		if (appliedCoupon.value?.scope === "items") {
+		if (appliedCoupon.value?.scope === "loyalty") {
+			// Give back only what this coupon added, so any POS Offer bonus stacked
+			// on top of it survives. Never let the running total go negative.
+			bonusCashbackPercentage.value = Math.max(
+				0,
+				(Number(bonusCashbackPercentage.value) || 0) -
+					appliedCoupon.value.cashbackPercentage,
+			)
+			bonusPointsPercentage.value = Math.max(
+				0,
+				(Number(bonusPointsPercentage.value) || 0) -
+					appliedCoupon.value.pointsPercentage,
+			)
+			// removeDiscount() would have done this on the other branches.
+			couponCode.value = null
+		} else if (appliedCoupon.value?.scope === "items") {
 			clearItemCodeDiscount(appliedCoupon.value.itemCodes)
 		} else {
 			removeDiscount()

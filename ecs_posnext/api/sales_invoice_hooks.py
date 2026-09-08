@@ -8,7 +8,7 @@ Event handlers for Sales Invoice document events
 
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, flt, today
 
 
 def before_insert(doc, method=None):
@@ -237,6 +237,108 @@ def restore_coupon_usage_on_cancel(doc, method=None):
 			title="Coupon Usage Restore Failed",
 			message=f"Invoice: {doc.name}, Coupon: {coupon_code}, Error: {str(e)}"
 		)
+
+
+def create_gift_card_coupons(doc, method=None):
+	"""
+	Auto-create a Gift Card POS Coupon for each Gift Card item sold on this invoice.
+
+	One coupon is created per invoice line whose Item belongs to the "Gift Card"
+	Item Group, valued at the line's full amount (rate x qty) and assigned to the
+	invoice's customer, so the customer can redeem it on a future purchase.
+
+	Args:
+		doc: Sales Invoice document
+		method: Hook method name (unused)
+	"""
+	if not frappe.db.table_exists("POS Coupon"):
+		return
+
+	if not doc.customer:
+		return
+
+	for item in doc.get("items", []):
+		item_group = frappe.db.get_value("Item", item.item_code, "item_group")
+		if item_group != "Gift Card":
+			continue
+
+		amount = flt(item.amount)
+		if amount <= 0:
+			continue
+
+		try:
+			coupon = frappe.new_doc("POS Coupon")
+			coupon.coupon_name = f"{item.item_name} Gift Card ({doc.name}/{item.idx})"
+			coupon.coupon_type = "Gift Card"
+			coupon.customer = doc.customer
+			coupon.company = doc.company
+			coupon.discount_type = "Amount"
+			coupon.discount_amount = amount
+			coupon.apply_on = "Grand Total"
+			coupon.valid_from = today()
+			coupon.insert(ignore_permissions=True)
+			send_gift_card_coupon_sms(coupon, doc.customer)
+		except Exception as e:
+			frappe.log_error(
+				title="Gift Card Coupon Creation Failed",
+				message=f"Invoice: {doc.name}, Item: {item.item_code}, Error: {str(e)}\n{frappe.get_traceback()}"
+			)
+
+
+def send_gift_card_coupon_sms(coupon, customer):
+	"""
+	Text the newly issued Gift Card's redeem code to the customer.
+	Failure to send doesn't affect coupon creation or invoice submission.
+
+	Args:
+		coupon: newly inserted POS Coupon document (type Gift Card)
+		customer: Customer this coupon was issued to
+	"""
+	mobile = frappe.db.get_value("Customer", customer, "mobile_no")
+	if not mobile:
+		return
+
+	try:
+		from ecs_vim.sms.send_sms import send_sms
+
+		send_sms(
+			_("Your Gift Card code is {0}, worth {1}. Present it on your next visit to redeem it.").format(
+				coupon.coupon_code, frappe.format_value(coupon.balance_amount, {"fieldtype": "Currency"})
+			),
+			mobile,
+		)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "Gift Card Coupon SMS Send Error")
+
+
+def disable_gift_card_coupons_on_cancel(doc, method=None):
+	"""
+	Disable any Gift Card POS Coupons that were auto-created from this invoice when
+	it gets cancelled, so a reversed sale can no longer be redeemed. Coupons that
+	were already partly or fully used are disabled too, but flagged with a warning
+	since their redemption can't be undone here.
+
+	Args:
+		doc: Sales Invoice document
+		method: Hook method name (unused)
+	"""
+	if not frappe.db.table_exists("POS Coupon"):
+		return
+
+	coupons = frappe.get_all(
+		"POS Coupon",
+		filters={"coupon_name": ["like", f"%({doc.name}/%"]},
+		fields=["name", "used", "balance_amount", "discount_amount"]
+	)
+
+	for row in coupons:
+		if row.used or flt(row.balance_amount) != flt(row.discount_amount):
+			frappe.msgprint(
+				_("Gift Card coupon {0} from this invoice was already used and has only been disabled, not removed.").format(row.name),
+				alert=True,
+				indicator="orange"
+			)
+		frappe.db.set_value("POS Coupon", row.name, "disabled", 1)
 
 
 def cancel_payment_entries_on_cancel(doc, method=None):

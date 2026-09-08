@@ -41,5 +41,17 @@ frappe.ui.form.on("POS Coupon", {
 				frappe.set_route("Form", "POS Offer", frm.doc.pos_offer);
 			});
 		}
+		if (!frm.doc.__islocal) {
+			frm.add_custom_button(__("Usage"), function () {
+				frappe.set_route("query-report", "POS Coupon Usage", {
+					company: frm.doc.company,
+					coupon_code: frm.doc.coupon_code,
+					// The report defaults to the last month; a coupon's own history
+					// should show in full regardless of when it was redeemed.
+					from_date: frm.doc.valid_from || frappe.datetime.add_months(frm.doc.creation, -1),
+					to_date: frappe.datetime.get_today(),
+				});
+			});
+		}
 	},
 });

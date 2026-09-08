@@ -45,6 +45,13 @@ class POSCoupon(Document):
                 frappe.throw(_("Discount Amount is required"))
             if flt(self.discount_amount) <= 0:
                 frappe.throw(_("Discount Amount must be greater than 0"))
+        elif self.discount_type == "Cashback and Point Loyalty":
+            if not self.cashback_percentage and not self.loyalty_points_percentage:
+                frappe.throw(_("Cashback Percentage or Loyalty Points Percentage is required"))
+            if self.cashback_percentage and (flt(self.cashback_percentage) < 0 or flt(self.cashback_percentage) > 100):
+                frappe.throw(_("Cashback Percentage must be between 0 and 100"))
+            if self.loyalty_points_percentage and (flt(self.loyalty_points_percentage) < 0 or flt(self.loyalty_points_percentage) > 100):
+                frappe.throw(_("Loyalty Points Percentage must be between 0 and 100"))
 
         # Gift Card balance: starts out equal to the card's face value (Discount
         # Amount) and is only ever reduced by redemptions from here on, so only

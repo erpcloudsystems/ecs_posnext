@@ -303,6 +303,13 @@
 			</div>
 		</template>
 	</Dialog>
+
+	<!-- Attendance entry, asked before a redeem is sent -->
+	<AttendanceDialog
+		v-model="showAttendancePrompt"
+		:count="shiftStore.attendanceCount"
+		@save="handleSaveAttendance"
+	/>
 </template>
 
 <script setup>
@@ -312,6 +319,8 @@ import { call } from "@/utils/apiWrapper"
 import { useToast } from "@/composables/useToast"
 import { parseError } from "@/utils/errorHandler"
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import { usePOSShiftStore } from "@/stores/posShift"
+import AttendanceDialog from "@/components/sale/AttendanceDialog.vue"
 import { printInvoiceByName, printWithSilentFallback } from "@/utils/printInvoice"
 
 const props = defineProps({
@@ -329,6 +338,7 @@ const emit = defineEmits(["update:modelValue"])
 
 const { showSuccess, showError } = useToast()
 const posSettingsStore = usePOSSettingsStore()
+const shiftStore = usePOSShiftStore()
 
 const query = ref("")
 const lastQuery = ref("")
@@ -451,8 +461,51 @@ function printTicket(name) {
 	window.open(url, "_blank")
 }
 
+// ---- Attendance prompt ----------------------------------------------------
+// Redeeming a ticket means people are entering, so the cashier records the
+// number of entries first. Cancelling the prompt aborts the redeem.
+const showAttendancePrompt = ref(false)
+const attendancePromptResolve = ref(null)
+
+function promptAttendance() {
+	return new Promise((resolve) => {
+		attendancePromptResolve.value = resolve
+		showAttendancePrompt.value = true
+	})
+}
+
+// Cancel / Esc / backdrop → treat as cancelled.
+watch(showAttendancePrompt, (open) => {
+	if (!open && attendancePromptResolve.value) {
+		const resolve = attendancePromptResolve.value
+		attendancePromptResolve.value = null
+		resolve(null)
+	}
+})
+
+// The entered number is only recorded once the action it belongs to succeeds.
+function handleSaveAttendance(numberOfEntries) {
+	const resolve = attendancePromptResolve.value
+	attendancePromptResolve.value = null
+	showAttendancePrompt.value = false
+	if (resolve) resolve(numberOfEntries)
+}
+
+async function commitAttendance(numberOfEntries) {
+	if (!numberOfEntries) return
+	try {
+		await shiftStore.saveAttendanceCount(numberOfEntries)
+	} catch (e) {
+		console.error("Save attendance failed", e)
+		showError(parseError(e).message || __("Failed to save attendance"))
+	}
+}
+
 async function doRedeem(t, print) {
 	if (t._busy) return
+	const entries = await promptAttendance()
+	// Cashier cancelled → nothing is redeemed.
+	if (entries === null) return
 	t._busy = true
 	try {
 		await call("ecs_posnext.api.tickets.redeem_ticket", {
@@ -464,6 +517,8 @@ async function doRedeem(t, print) {
 			attend_event: t._attend_event ? 1 : 0,
 			booklet: t._booklet ? 1 : 0,
 		})
+		// Redeem went through → now record the entries.
+		await commitAttendance(entries)
 		showSuccess(__("Redeemed {0} use(s) from {1}", [t._redeemQty, t.name]))
 		if (print) printTicket(t.name)
 		await refresh()

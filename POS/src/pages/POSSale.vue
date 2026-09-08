@@ -32,7 +32,6 @@
 				@refresh-click="handleRefresh"
 				@clear-cache="handleClearCache"
 				@logout="uiStore.showLogoutDialog = true"
-				@attendance-click="uiStore.showAttendanceDialog = true"
 			>
 				<template #menu-items>
 					<button
@@ -2011,6 +2010,18 @@ async function handleErrorRetry() {
 
 async function handlePaymentCompleted(paymentData) {
 	try {
+		// Ticket sales must record attendance first (invoices only, not orders).
+		let attendanceEntries = 0;
+		if (cartStore.targetDoctype === "Sales Invoice" && cartHasTicketUom()) {
+			const entries = await promptAttendance();
+			if (entries === null) {
+				// Cashier cancelled → abort, leave the cart and payment untouched.
+				uiStore.showPaymentDialog = true;
+				return;
+			}
+			attendanceEntries = entries;
+		}
+
 		// Apply customer from payment dialog inline fields if provided
 		if (paymentData.customer) {
 			cartStore.setCustomer(paymentData.customer);
@@ -2087,6 +2098,7 @@ async function handlePaymentCompleted(paymentData) {
 				draftsStore.deleteDraft(draftIdToDelete);
 			}
 
+			await commitAttendance(attendanceEntries);
 			showSuccess(__("Invoice saved offline. Will sync when online"));
 		} else {
 			// Get item codes from cart before clearing
@@ -2118,6 +2130,7 @@ async function handlePaymentCompleted(paymentData) {
 					if (draftIdToDelete) {
 						draftsStore.deleteDraft(draftIdToDelete);
 					}
+					await commitAttendance(attendanceEntries);
 					showSuccess(__("Tabby payment link created"));
 					return;
 				}
@@ -2136,11 +2149,15 @@ async function handlePaymentCompleted(paymentData) {
 					if (draftIdToDelete) {
 						draftsStore.deleteDraft(draftIdToDelete);
 					}
+					await commitAttendance(attendanceEntries);
 					showWarning(
 						__("Saved as draft — insufficient stock. Finalize it from Pending Stock once restocked.")
 					);
 					return;
 				}
+
+				// Invoice went through → now record the entries.
+				await commitAttendance(attendanceEntries);
 
 				const invoiceName = result.name || result.message?.name || __("Unknown");
 				const invoiceTotal = result.grand_total || result.total || 0;
@@ -2479,15 +2496,54 @@ function handleClearCache() {
 	showClearCacheDialog.value = true;
 }
 
-async function handleSaveAttendance(numberOfEntries) {
+// ---- Attendance prompt ----------------------------------------------------
+// The header badge is read-only; the dialog is only opened by actions that
+// need an entry count (invoices containing a Ticket-UOM item). It resolves
+// with the entered number, or null when the cashier cancels.
+const attendancePromptResolve = ref(null);
+
+function promptAttendance() {
+	return new Promise((resolve) => {
+		attendancePromptResolve.value = resolve;
+		uiStore.showAttendanceDialog = true;
+	});
+}
+
+// Closing the dialog any other way (Cancel / Esc / backdrop) counts as cancel.
+watch(
+	() => uiStore.showAttendanceDialog,
+	(open) => {
+		if (!open && attendancePromptResolve.value) {
+			const resolve = attendancePromptResolve.value;
+			attendancePromptResolve.value = null;
+			resolve(null);
+		}
+	}
+);
+
+// The entered number is only recorded once the invoice it belongs to succeeds.
+function handleSaveAttendance(numberOfEntries) {
+	const resolve = attendancePromptResolve.value;
+	attendancePromptResolve.value = null;
+	uiStore.showAttendanceDialog = false;
+	if (resolve) resolve(numberOfEntries);
+}
+
+async function commitAttendance(numberOfEntries) {
+	if (!numberOfEntries) return;
 	try {
 		await shiftStore.saveAttendanceCount(numberOfEntries);
-		uiStore.showAttendanceDialog = false;
-		showSuccess(__("Attendance updated"));
 	} catch (error) {
 		log.error("Error saving attendance:", error);
-		showError(error.message || __("Failed to save attendance"));
+		showWarning(__("Invoice created, but attendance could not be updated"));
 	}
+}
+
+// True when the cart holds at least one item sold in the "Ticket" UOM.
+function cartHasTicketUom() {
+	return cartStore.invoiceItems.some(
+		(item) => String(item.uom || item.stock_uom || "").trim().toLowerCase() === "ticket"
+	);
 }
 
 async function confirmClearCache() {
