@@ -86,9 +86,9 @@ const resolveOpeningShiftName = async (localName, opId) => {
 		}
 	}
 
-	// Not yet resolvable — throw so the close_shift op stays queued and retries
-	// after the open_shift op syncs, rather than creating a closing for a
-	// non-existent opening.
+	// Not yet resolvable — throw so the dependent op (close_shift, daily_payment)
+	// stays queued and retries after the open_shift op syncs, rather than
+	// referencing an opening shift that does not exist on the server.
 	throw new Error(`SYNC_IN_PROGRESS: opening shift ${localName} not yet synced`)
 }
 
@@ -229,9 +229,26 @@ export const registerOfflineOpHandlers = () => {
 	})
 
 	// --- daily_payment ----------------------------------------------------
+	// A payment recorded during an offline-opened shift carries that shift's
+	// temporary name. `pos_opening_shift` is a Link on Daily Payment, so the
+	// placeholder fails link validation and the whole submit is rolled back -
+	// taking the deduction's Extra Salary with it. Resolve it to the real name
+	// first (the open_shift op is older, so it has already flushed in this pass);
+	// if it cannot be resolved yet, resolveOpeningShiftName throws and the payment
+	// stays queued rather than being created detached from its shift, which the
+	// closing shift totals by that same field.
 	registerOpHandler("daily_payment", {
 		method: "ecs_posnext.api.daily_payment.create_daily_payment",
-		buildParams: (data) => ({ ...data }),
+		buildParams: async (data) => {
+			const { opening_op_id, ...payload } = data
+			if (payload.pos_opening_shift) {
+				payload.pos_opening_shift = await resolveOpeningShiftName(
+					payload.pos_opening_shift,
+					opening_op_id,
+				)
+			}
+			return payload
+		},
 	})
 
 	// --- customer ---------------------------------------------------------

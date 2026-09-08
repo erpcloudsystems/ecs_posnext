@@ -1,0 +1,47 @@
+{
+ "add_total_row": 1,
+ "add_translate_data": 0,
+ "columns": [],
+ "creation": "2026-09-03 12:10:02.664178",
+ "disable_prepared_report_automation": 0,
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "doctype_to_sync": [],
+ "filters": [
+  {
+   "fieldname": "shift_date",
+   "fieldtype": "Date",
+   "label": "Shift Date",
+   "mandatory": 1,
+   "wildcard_filter": 0
+  }
+ ],
+ "idx": 0,
+ "is_standard": "Yes",
+ "letter_head": null,
+ "modified": "2026-09-08 15:04:09.605860",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Closing Shift (Branch)",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "query": "SELECT\n    x.shift_date AS \"\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u0634\u064a\u0641\u062a:Date:110\",\n\n    x.pos_profile AS \"Branch:Link/POS Profile:180\",\n\n    SUM(x.grand_total) AS \"\u0627\u0644\u0625\u064a\u0631\u0627\u062f\u0627\u062a:Float:140\",\n\n    MAX(CASE WHEN x.rn = 1 THEN x.visa_amount END)\n        AS \"\u0628\u0646\u0643 CIB \u0641\u064a\u0632\u0627:Float:140\",\n\n    SUM(x.total_daily_payments) AS \"\u0627\u0644\u0645\u0635\u0627\u0631\u064a\u0641:Float:140\",\n\n    SUM(x.total_tip) AS \"Tip:Float:120\",\n\n    SUM(x.actual_amount) AS \"\u0627\u0644\u062e\u0632\u0646\u0629:Float:140\",\n\n    /* \u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0641\u064a\u0632\u0627 \u0628\u0639\u062f \u062e\u0635\u0645 \u0645\u0628\u0644\u063a \u0627\u0644\u0627\u0641\u062a\u062a\u0627\u062d */\n    SUM(x.visa_closing) AS \"\u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0641\u064a\u0632\u0627:Float:120\",\n\n    /* \u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0643\u0627\u0634 \u0628\u0639\u062f \u062e\u0635\u0645 \u0645\u0628\u0644\u063a \u0627\u0644\u0627\u0641\u062a\u062a\u0627\u062d */\n    SUM(x.cash_closing) AS \"\u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0643\u0627\u0634:Float:120\",\n\n    /* \u0641\u0631\u0642 \u0627\u0644\u0641\u064a\u0632\u0627 */\n    SUM(x.visa_closing)\n        - MAX(CASE WHEN x.rn = 1 THEN x.visa_amount END)\n        AS \"\u0641\u0631\u0642 \u0627\u0644\u0641\u064a\u0632\u0627:Float:120\",\n\n    /* \u0641\u0631\u0642 \u0627\u0644\u0643\u0627\u0634 */\n    SUM(x.cash_closing) - SUM(x.actual_amount)\n        AS \"\u0641\u0631\u0642 \u0627\u0644\u0643\u0627\u0634:Float:120\"\n\nFROM\n(\n    SELECT\n\n        /* =========================================\n           \u062a\u062d\u062f\u064a\u062f \u064a\u0648\u0645 \u0627\u0644\u0634\u064a\u0641\u062a\n           \u0645\u0646 9 \u0635\u0628\u0627\u062d\u064b\u0627 \u0648\u062d\u062a\u0649 4 \u0635\u0628\u0627\u062d\u064b\u0627 \u0627\u0644\u064a\u0648\u0645 \u0627\u0644\u062a\u0627\u0644\u064a\n           ========================================= */\n        CASE\n            WHEN TIME(cs.period_start_date) >= '09:00:00'\n                THEN DATE(cs.period_start_date)\n            ELSE DATE_SUB(\n                DATE(cs.period_start_date),\n                INTERVAL 1 DAY\n            )\n        END AS shift_date,\n\n        cs.pos_profile,\n\n        /* \u0627\u0644\u0625\u064a\u0631\u0627\u062f\u0627\u062a */\n        COALESCE(cs.grand_total, 0) AS grand_total,\n\n        /* \u0627\u0644\u0645\u0635\u0627\u0631\u064a\u0641 */\n        COALESCE(\n            cs.total_daily_payments,\n            0\n        ) AS total_daily_payments,\n\n        /* Tip */\n        COALESCE(\n            cs.total_tip,\n            0\n        ) AS total_tip,\n\n        /* \u0627\u0644\u062e\u0632\u0646\u0629 */\n        COALESCE(\n            cs.actual_amount,\n            0\n        ) AS actual_amount,\n\n\n        /* =========================================\n           \u0628\u0646\u0643 CIB \u0641\u064a\u0632\u0627\n           \u0627\u0644\u0645\u0628\u0644\u063a \u0627\u0644\u0645\u062a\u0648\u0642\u0639 (Expected Amount)\n           \u0645\u0646 \u062c\u062f\u0648\u0644 \u0637\u0631\u0642 \u0627\u0644\u062f\u0641\u0639 payment_reconciliation\n           \u0648\u0647\u0648 \u0627\u0644\u0645\u0628\u0644\u063a \u0627\u0644\u0638\u0627\u0647\u0631 \u0641\u064a \u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u0634\u064a\u0641\u062a\n\n           \u0645\u0644\u0627\u062d\u0638\u0629:\n           \u062c\u062f\u0648\u0644 POS Payment Entry Reference \u0641\u0627\u0636\u064a \u062a\u0645\u0627\u0645\u064b\u0627\n           \u0641\u062a\u0645 \u062a\u062d\u0648\u064a\u0644 \u0627\u0644\u0645\u0635\u062f\u0631 \u0625\u0644\u0649 POS Closing Shift Detail\n           ========================================= */\n        COALESCE(\n            (\n                SELECT SUM(\n                    COALESCE(pr.expected_amount, 0)\n                )\n                FROM `tabPOS Closing Shift Detail` pr\n                WHERE pr.parent = cs.name\n                  AND pr.mode_of_payment = '\u0628\u0646\u0643 CIB \u0641\u064a\u0632\u0627'\n            ),\n            0\n        ) AS visa_amount,\n\n\n        /* =========================================\n           \u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0641\u064a\u0632\u0627\n\n           Closing Amount\n           \u0646\u0627\u0642\u0635\n           Opening Amount\n\n           \u0639\u0644\u0634\u0627\u0646 \u0645\u0628\u0644\u063a \u0627\u0644\u0627\u0641\u062a\u062a\u0627\u062d \u0645\u0627\u064a\u062a\u062d\u0633\u0628\u0634 \u0645\u0631\u062a\u064a\u0646\n           ========================================= */\n        COALESCE(\n            (\n                SELECT SUM(\n                    COALESCE(pr.closing_amount, 0)\n                    -\n                    COALESCE(pr.opening_amount, 0)\n                )\n                FROM `tabPOS Closing Shift Detail` pr\n                WHERE pr.parent = cs.name\n                  AND pr.mode_of_payment = '\u0628\u0646\u0643 CIB \u0641\u064a\u0632\u0627'\n            ),\n            0\n        ) AS visa_closing,\n\n\n        /* =========================================\n           \u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0643\u0627\u0634\n\n           \u0643\u0644 \u0637\u0631\u0642 \u0627\u0644\u062f\u0641\u0639 \u0645\u0627\u0639\u062f\u0627 \u0628\u0646\u0643 CIB \u0641\u064a\u0632\u0627\n\n           Closing Amount\n           \u0646\u0627\u0642\u0635\n           Opening Amount\n           ========================================= */\n        COALESCE(\n            (\n                SELECT SUM(\n                    COALESCE(pr.closing_amount, 0)\n                    -\n                    COALESCE(pr.opening_amount, 0)\n                )\n                FROM `tabPOS Closing Shift Detail` pr\n                WHERE pr.parent = cs.name\n                  AND pr.mode_of_payment != '\u0628\u0646\u0643 CIB \u0641\u064a\u0632\u0627'\n            ),\n            0\n        ) AS cash_closing,\n\n\n        /* =========================================\n           \u062a\u0631\u062a\u064a\u0628 \u0634\u064a\u0641\u062a\u0627\u062a \u0646\u0641\u0633 \u0627\u0644\u064a\u0648\u0645 \u0648\u0646\u0641\u0633 \u0627\u0644\u0641\u0631\u0639\n           rn = 1 \u064a\u0639\u0646\u064a \u0627\u0644\u0634\u064a\u0641\u062a \u0627\u0644\u0623\u062d\u062f\u062b\n           \u0644\u0623\u0646 Expected Amount \u062a\u0631\u0627\u0643\u0645\u064a\n           \u0648\u064a\u062d\u0645\u0644 \u0631\u0635\u064a\u062f \u0627\u0644\u0634\u064a\u0641\u062a \u0627\u0644\u0633\u0627\u0628\u0642\n           ========================================= */\n        ROW_NUMBER() OVER (\n            PARTITION BY\n                CASE\n                    WHEN TIME(cs.period_start_date) >= '09:00:00'\n                        THEN DATE(cs.period_start_date)\n                    ELSE DATE_SUB(\n                        DATE(cs.period_start_date),\n                        INTERVAL 1 DAY\n                    )\n                END,\n                cs.pos_profile\n            ORDER BY\n                cs.period_end_date DESC,\n                cs.name DESC\n        ) AS rn\n\n\n    FROM `tabPOS Closing Shift` cs\n\n    WHERE\n        cs.docstatus = 1\n\n        /* =========================================\n           \u0641\u0644\u062a\u0631\u0629 \u064a\u0648\u0645 \u0627\u0644\u0634\u064a\u0641\u062a \u2014 \u062a\u0627\u0631\u064a\u062e \u0648\u0627\u062d\u062f\n           \u064a\u0648\u0645 \u0627\u0644\u0634\u064a\u0641\u062a \u0645\u0646 9 \u0635\u0628\u0627\u062d\u064b\u0627 \u0648\u062d\u062a\u0649 4 \u0635\u0628\u0627\u062d\u064b\u0627 \u0627\u0644\u064a\u0648\u0645 \u0627\u0644\u062a\u0627\u0644\u064a\n           ========================================= */\n        AND\n        CASE\n            WHEN TIME(cs.period_start_date) >= '09:00:00'\n                THEN DATE(cs.period_start_date)\n            ELSE DATE_SUB(\n                DATE(cs.period_start_date),\n                INTERVAL 1 DAY\n            )\n        END = %(shift_date)s\n\n) x\n\nGROUP BY\n    x.shift_date,\n    x.pos_profile\n\nORDER BY\n    x.shift_date,\n    x.pos_profile\n",
+ "ref_doctype": "POS Closing Shift",
+ "report_name": "POS Closing Shift (Branch)",
+ "report_script": "",
+ "report_type": "Query Report",
+ "roles": [
+  {
+   "role": "POSNext Cashier"
+  },
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Accounts User"
+  }
+ ],
+ "snapshot_report": 0,
+ "timeout": 0
+}

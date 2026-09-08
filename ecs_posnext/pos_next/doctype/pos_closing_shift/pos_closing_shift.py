@@ -768,6 +768,32 @@ def _auto_detect_cash_accounts(pos_profile, company):
     return branch_account, manager_account
 
 
+def _get_mode_of_payment_for_account(account, company):
+    """
+    Reverse-lookup the Mode of Payment that is mapped to the given account
+    for the company (via the Mode of Payment Account child table).
+    Prefers a Cash type mode of payment when more than one is mapped.
+    """
+    if not account:
+        return None
+
+    rows = frappe.db.sql(
+        """
+        SELECT mpa.parent AS mode_of_payment, mop.type AS type
+        FROM `tabMode of Payment Account` mpa
+        INNER JOIN `tabMode of Payment` mop ON mop.name = mpa.parent
+        WHERE mpa.default_account = %s
+          AND mpa.company = %s
+          AND mop.enabled = 1
+        ORDER BY CASE WHEN mop.type = 'Cash' THEN 0 ELSE 1 END, mpa.parent
+        """,
+        (account, company),
+        as_dict=True,
+    )
+
+    return rows[0].mode_of_payment if rows else None
+
+
 def _create_cash_transfer_payment_entry(closing_shift_doc):
     """
     Create an Internal Transfer Payment Entry for the total cash amount
@@ -832,12 +858,22 @@ def _create_cash_transfer_payment_entry(closing_shift_doc):
 
         company_currency = frappe.get_cached_value("Company", company, "default_currency")
 
+        # Resolve the Mode of Payment on both sides of the transfer from the
+        # accounts, so the Payment Entry shows "Mode of Payment From" /
+        # "Mode of Payment To" the same way a manual entry would.
+        mode_of_payment_from = _get_mode_of_payment_for_account(branch_cash_account, company)
+        mode_of_payment_to = _get_mode_of_payment_for_account(manager_cash_account, company)
+
         # Create Payment Entry - Internal Transfer
         pe = frappe.new_doc("Payment Entry")
         pe.payment_type = "Internal Transfer"
         pe.company = company
         pe.custom_pos = 1
         pe.posting_date = frappe.utils.today()
+        if mode_of_payment_from:
+            pe.mode_of_payment = mode_of_payment_from
+        if mode_of_payment_to and pe.meta.has_field("custom_mode_of_payment_to"):
+            pe.custom_mode_of_payment_to = mode_of_payment_to
         pe.paid_from = branch_cash_account
         pe.paid_to = manager_cash_account
         pe.paid_amount = cash_amount

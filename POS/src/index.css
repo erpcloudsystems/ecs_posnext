@@ -52,6 +52,128 @@ body {
 }
 
 /*
+ * Dark mode fields: a light well with black text.
+ *
+ * @tailwindcss/forms hardcodes `background-color: #fff` on every text field, so
+ * a field carrying no bg utility stays white in dark mode while the colour it
+ * inherits from <body> flips to near-white - the value becomes invisible. The
+ * handful of fields that do carry `bg-gray-*` are pulled back to light as well,
+ * so every field reads the same way instead of some being light wells and some
+ * dark ones.
+ *
+ * These rules sit after `@tailwind utilities` (emitted by the frappe-ui import
+ * at the top of this file) and outrank the single-class colour utilities on
+ * specificity, so they need no !important.
+ *
+ * The type allow-list mirrors the one @tailwindcss/forms itself styles, which
+ * keeps two kinds of control out of it deliberately:
+ *  - checkboxes and radios, whose checked fill is `currentColor` (from
+ *    text-blue-600 and friends) - recolouring those paints the tick black;
+ *  - button-like inputs, which are not fields at all.
+ * `.bg-transparent` is excluded too: those are the chrome-less inputs inside
+ * the quantity steppers, which are meant to take the surface behind them.
+ */
+[data-theme="dark"] {
+	--pos-field-fill: 255 255 255;
+	--pos-field-fill-muted: 243 244 246;
+	--pos-field-ink: 0 0 0;
+	--pos-field-ink-faint: 107 114 128;
+}
+
+[data-theme="dark"]
+	input:is(
+		[type="text"],
+		[type="email"],
+		[type="url"],
+		[type="password"],
+		[type="number"],
+		[type="date"],
+		[type="datetime-local"],
+		[type="month"],
+		[type="search"],
+		[type="tel"],
+		[type="time"],
+		[type="week"],
+		:not([type])
+	):not(.bg-transparent),
+[data-theme="dark"] select:not(.bg-transparent),
+[data-theme="dark"] textarea:not(.bg-transparent),
+[data-theme="dark"] .form-input,
+[data-theme="dark"] .form-select,
+[data-theme="dark"] .form-multiselect,
+[data-theme="dark"] .form-textarea {
+	background-color: rgb(var(--pos-field-fill));
+	color: rgb(var(--pos-field-ink));
+	/*
+	 * The field is light again, so the browser has to draw its own chrome - the
+	 * date picker indicator, the select arrow, the number spin buttons, autofill
+	 * - in its light variant. Inheriting the page's `color-scheme: dark` leaves
+	 * those light on a light field, i.e. invisible.
+	 */
+	color-scheme: light;
+}
+
+/* Native dropdown list, which is a separate surface from the closed select. */
+[data-theme="dark"] select:not(.bg-transparent) option {
+	background-color: rgb(var(--pos-field-fill));
+	color: rgb(var(--pos-field-ink));
+}
+
+/*
+ * Read-only and disabled fields keep a muted well so they still read as
+ * non-editable, the way `bg-gray-50` marks them in light mode. The text stays
+ * black - being non-editable is no reason to be harder to read.
+ */
+[data-theme="dark"]
+	input:is(
+		[type="text"],
+		[type="email"],
+		[type="url"],
+		[type="password"],
+		[type="number"],
+		[type="date"],
+		[type="datetime-local"],
+		[type="month"],
+		[type="search"],
+		[type="tel"],
+		[type="time"],
+		[type="week"],
+		:not([type])
+	):is([readonly], :disabled):not(.bg-transparent),
+[data-theme="dark"] select:is([readonly], :disabled):not(.bg-transparent),
+[data-theme="dark"] textarea:is([readonly], :disabled):not(.bg-transparent) {
+	background-color: rgb(var(--pos-field-fill-muted));
+}
+
+/*
+ * Placeholders follow the same inversion: `placeholderColor` is themed off the
+ * text scale in tailwind.config.js, so a placeholder utility that is grey in
+ * light mode turns near-white in dark mode and disappears on a light field.
+ */
+[data-theme="dark"]
+	input:is(
+		[type="text"],
+		[type="email"],
+		[type="url"],
+		[type="password"],
+		[type="number"],
+		[type="date"],
+		[type="datetime-local"],
+		[type="month"],
+		[type="search"],
+		[type="tel"],
+		[type="time"],
+		[type="week"],
+		:not([type])
+	):not(.bg-transparent)::placeholder,
+[data-theme="dark"] textarea:not(.bg-transparent)::placeholder,
+[data-theme="dark"] .form-input::placeholder,
+[data-theme="dark"] .form-textarea::placeholder {
+	color: rgb(var(--pos-field-ink-faint));
+	opacity: 1;
+}
+
+/*
  * frappe-ui dims every img in dark mode, which is right for screenshots and
  * logos but wrong for the country flags in the language switcher and for
  * customer/item photos, where it just looks like a rendering fault.

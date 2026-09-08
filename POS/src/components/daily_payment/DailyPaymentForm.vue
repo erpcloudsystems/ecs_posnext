@@ -380,6 +380,7 @@
 import { call } from "frappe-ui"
 import { computed, defineComponent, h, nextTick, reactive, ref, watch } from "vue"
 import { useToast } from "@/composables/useToast"
+import { shiftState } from "@/composables/useShift"
 import { logger } from "@/utils/logger"
 import { db, getSetting } from "@/utils/offline/db"
 import { enqueueOperation } from "@/utils/offline/operations"
@@ -613,7 +614,14 @@ async function handleSave() {
 		}
 
 		if (isOffline()) {
-			await enqueueOperation("daily_payment", payload)
+			// A shift opened offline only has a placeholder name here. Queue the
+			// open_shift op id with it so the sync handler can swap in the real
+			// name; without it the Daily Payment fails link validation on sync and
+			// the deduction's Extra Salary is never created.
+			await enqueueOperation("daily_payment", {
+				...payload,
+				opening_op_id: shiftState.value.pos_opening_shift?._op_id || null,
+			})
 			showSuccess(__("Daily Payment queued — will sync when back online"))
 			emit("saved")
 			handleClose()
