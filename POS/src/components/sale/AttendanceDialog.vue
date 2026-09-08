@@ -24,7 +24,7 @@
 					variant="solid"
 					@click="handleSave"
 					:loading="loading"
-					:disabled="numberOfEntries === '' || numberOfEntries === null"
+					:disabled="!hasEntry"
 				>
 					{{ __("Save") }}
 				</Button>
@@ -62,18 +62,26 @@ const show = computed({
 	set: (val) => emit("update:modelValue", val),
 })
 
-const numberOfEntries = ref(0)
+const numberOfEntries = ref("")
+
+// The field starts empty on purpose so the cashier has to type a number - even
+// a 0 - instead of silently accepting a pre-filled default.
+const hasEntry = computed(() => String(numberOfEntries.value ?? "").trim() !== "")
 
 watch(
 	() => props.modelValue,
 	(isOpen) => {
 		if (isOpen) {
-			numberOfEntries.value = 0
+			numberOfEntries.value = ""
 		}
 	}
 )
 
 async function handleSave() {
+	if (!hasEntry.value) {
+		showError(__("Please enter the number of entries to add"))
+		return
+	}
 	const value = Number(numberOfEntries.value)
 	if (Number.isNaN(value) || value < 0) {
 		showError(__("Please enter a valid number of entries"))
