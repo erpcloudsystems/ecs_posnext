@@ -64,6 +64,8 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		allow_negative_stock: 0,
 		// Sales Persons
 		enable_sales_persons: "Disabled",
+		// People Counting
+		exclude_people_counting: 0,
 	})
 
 	const isLoading = ref(false)
@@ -229,6 +231,12 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		settings.value.enable_sales_persons === "Multiple"
 	)
 
+	// Computed - People Counting
+	// When on, the POS Attendance prompt is skipped entirely.
+	const excludePeopleCounting = computed(() =>
+		Boolean(settings.value.exclude_people_counting),
+	)
+
 	// Resource
 	const settingsResource = createResource({
 		url: "ecs_posnext.pos_next.doctype.pos_settings.pos_settings.get_pos_settings",
@@ -327,6 +335,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 			input_qty: 0,
 			allow_negative_stock: 0,
 			enable_sales_persons: "Disabled",
+			exclude_people_counting: 0,
 		}
 		isLoaded.value = false
 	}
@@ -457,6 +466,9 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		salesPersonsMode,
 		isSingleSalesPerson,
 		isMultipleSalesPersons,
+
+		// Computed - People Counting
+		excludePeopleCounting,
 
 		// Actions
 		loadSettings,

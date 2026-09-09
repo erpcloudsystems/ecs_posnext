@@ -468,6 +468,11 @@ const showAttendancePrompt = ref(false)
 const attendancePromptResolve = ref(null)
 
 function promptAttendance() {
+	// Profiles that opt out of people counting never see the dialog; the redeem
+	// continues as if zero entries were recorded.
+	if (posSettingsStore.excludePeopleCounting) {
+		return Promise.resolve(0)
+	}
 	return new Promise((resolve) => {
 		attendancePromptResolve.value = resolve
 		showAttendancePrompt.value = true

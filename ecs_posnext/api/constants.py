@@ -36,6 +36,7 @@ POS_SETTINGS_FIELDS = [
 	"allow_sales_order",
 	"allow_select_sales_order",
 	"create_only_sales_order",
+	"exclude_people_counting",
 ]
 
 # Item Types (Item.custom_item_type) considered "third party" for order history filtering
@@ -69,4 +70,5 @@ DEFAULT_POS_SETTINGS = {
 	"allow_sales_order": 0,
 	"allow_select_sales_order": 0,
 	"create_only_sales_order": 0,
+	"exclude_people_counting": 0,
 }
