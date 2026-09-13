@@ -187,7 +187,7 @@
 								<!-- Paid (Left Half) -->
 								<div :class="[
 										'bg-blue-50',
-										inline ? 'flex items-center justify-center gap-1.5 px-2 py-1' : 'text-center',
+										inline ? 'flex items-center justify-center gap-1.5 px-2 py-0.5' : 'text-center',
 										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
 									]">
 									<div :class="['font-medium uppercase tracking-wide', 'text-gray-500', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Paid') }}</div>
@@ -196,7 +196,7 @@
 								<!-- Remaining / Change (Right Half) -->
 								<div v-if="remainingAmount > 0 && !applyWriteOff" :class="[
 										'bg-orange-50',
-										inline ? 'flex items-center justify-center gap-1.5 px-2 py-1' : 'text-center',
+										inline ? 'flex items-center justify-center gap-1.5 px-2 py-0.5' : 'text-center',
 										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
 									]">
 									<div :class="['font-medium uppercase tracking-wide', 'text-orange-600', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Remaining') }}</div>
@@ -205,7 +205,7 @@
 								<!-- Write-off Applied -->
 								<div v-else-if="applyWriteOff && canWriteOff" :class="[
 										'bg-purple-50',
-										inline ? 'flex items-center justify-center gap-1.5 px-2 py-1' : 'text-center',
+										inline ? 'flex items-center justify-center gap-1.5 px-2 py-0.5' : 'text-center',
 										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
 									]">
 									<div :class="['font-medium uppercase tracking-wide', 'text-purple-600', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Write Off') }}</div>
@@ -213,7 +213,7 @@
 								</div>
 								<div v-else-if="changeAmount > 0 && allowsOverpayment" :class="[
 										'bg-green-50',
-										inline ? 'flex items-center justify-center gap-1.5 px-2 py-1' : 'text-center',
+										inline ? 'flex items-center justify-center gap-1.5 px-2 py-0.5' : 'text-center',
 										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
 									]">
 									<div :class="['font-medium uppercase tracking-wide', 'text-green-600', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Change Due') }}</div>
@@ -222,7 +222,7 @@
 								<!-- Exact Amount Warning (when overpayment not allowed) -->
 								<div v-else-if="changeAmount > 0 && !allowsOverpayment" :class="[
 										'bg-red-50',
-										inline ? 'flex items-center justify-center gap-1.5 px-2 py-1' : 'text-center',
+										inline ? 'flex items-center justify-center gap-1.5 px-2 py-0.5' : 'text-center',
 										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
 									]">
 									<div :class="['font-medium uppercase tracking-wide', 'text-red-600', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Overpayment') }}</div>
@@ -232,7 +232,7 @@
 									v-else
 									:class="[
 										'bg-green-50 flex items-center justify-center',
-										inline ? 'gap-1 px-2 py-1' : 'flex-col',
+										inline ? 'gap-1 px-2 py-0.5' : 'flex-col',
 										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
 									]"
 								>
@@ -671,63 +671,93 @@
 							<span :class="['text-gray-500', isSmallMobile ? 'text-xs' : 'text-sm']">{{ __('Loading...') }}</span>
 						</div>
 						<div v-else-if="filteredPaymentMethods.length > 0" :class="['flex flex-wrap', isSmallMobile ? 'gap-1' : 'gap-1.5 lg:gap-2']">
-							<button
+							<div
 								v-for="method in filteredPaymentMethods"
 								:key="method.mode_of_payment"
-								@click="quickAddPayment(method)"
-								:disabled="isWalletPaymentMethod(method.mode_of_payment) && availableWalletBalance <= 0 && getMethodTotal(method.mode_of_payment) === 0"
-								:class="[
-									'inline-flex items-center rounded-lg border-2 transition-all font-medium select-none touch-manipulation',
-									inline
-										? 'gap-1 px-2 h-9 text-xs'
-										: isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
-									lastSelectedMethod?.mode_of_payment === method.mode_of_payment
-										? isWalletPaymentMethod(method.mode_of_payment)
-											? 'border-amber-500 bg-amber-50 text-amber-700'
-											: 'border-blue-500 bg-blue-50 text-blue-700'
-										: isWalletPaymentMethod(method.mode_of_payment)
-											? availableWalletBalance > 0
-												? 'border-amber-300 bg-amber-50 hover:border-amber-500 hover:bg-amber-100 text-amber-700'
-												: 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
-											: 'border-gray-200 bg-white hover:border-blue-400 hover:bg-blue-50 text-gray-700'
-								]"
+								class="relative inline-flex"
 							>
-								<span :class="inline ? 'text-sm' : isSmallMobile ? 'text-xs' : 'text-sm lg:text-lg'">{{ isWalletPaymentMethod(method.mode_of_payment) ? '🎁' : getPaymentIcon(method.type) }}</span>
-								<span class="truncate max-w-[80px] lg:max-w-none">{{ __(method.mode_of_payment) }}</span>
-								<!-- Wallet Balance Badge -->
-								<span v-if="isWalletPaymentMethod(method.mode_of_payment) && walletInfo.wallet_enabled"
-									:class="['font-bold rounded', isSmallMobile ? 'text-[8px] px-1 py-0.5' : 'text-[10px] px-1.5 py-0.5', availableWalletBalance > 0 ? 'text-amber-700 bg-amber-100' : 'text-gray-500 bg-gray-200']">
-									{{ formatCurrency(availableWalletBalance) }}
-								</span>
-								<!-- Payment Amount Badge -->
-								<span v-if="getMethodTotal(method.mode_of_payment) > 0"
-									:class="['font-bold rounded', isSmallMobile ? 'text-[8px] px-0.5 py-0.5' : 'text-xs px-1 py-0.5', isWalletPaymentMethod(method.mode_of_payment) ? 'text-amber-600 bg-amber-200' : 'text-blue-600 bg-blue-100']">
-									{{ formatCurrency(getMethodTotal(method.mode_of_payment)) }}
-								</span>
-							</button>
+								<button
+									@click="quickAddPayment(method)"
+									:disabled="isWalletPaymentMethod(method.mode_of_payment) && availableWalletBalance <= 0 && getMethodTotal(method.mode_of_payment) === 0"
+									:class="[
+										'inline-flex items-center rounded-lg border-2 transition-all font-medium select-none touch-manipulation',
+										inline
+											? 'gap-1 px-2 h-9 text-xs'
+											: isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
+										lastSelectedMethod?.mode_of_payment === method.mode_of_payment
+											? isWalletPaymentMethod(method.mode_of_payment)
+												? 'border-amber-500 bg-amber-50 text-amber-700'
+												: 'border-blue-500 bg-blue-50 text-blue-700'
+											: isWalletPaymentMethod(method.mode_of_payment)
+												? availableWalletBalance > 0
+													? 'border-amber-300 bg-amber-50 hover:border-amber-500 hover:bg-amber-100 text-amber-700'
+													: 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+												: 'border-gray-200 bg-white hover:border-blue-400 hover:bg-blue-50 text-gray-700'
+									]"
+								>
+									<span :class="inline ? 'text-sm' : isSmallMobile ? 'text-xs' : 'text-sm lg:text-lg'">{{ isWalletPaymentMethod(method.mode_of_payment) ? '🎁' : getPaymentIcon(method.type) }}</span>
+									<span class="truncate max-w-[80px] lg:max-w-none">{{ __(method.mode_of_payment) }}</span>
+									<!-- Wallet Balance Badge -->
+									<span v-if="isWalletPaymentMethod(method.mode_of_payment) && walletInfo.wallet_enabled"
+										:class="['font-bold rounded', isSmallMobile ? 'text-[8px] px-1 py-0.5' : 'text-[10px] px-1.5 py-0.5', availableWalletBalance > 0 ? 'text-amber-700 bg-amber-100' : 'text-gray-500 bg-gray-200']">
+										{{ formatCurrency(availableWalletBalance) }}
+									</span>
+									<!-- Payment Amount Badge -->
+									<span v-if="getMethodTotal(method.mode_of_payment) > 0"
+										:class="['font-bold rounded', isSmallMobile ? 'text-[8px] px-0.5 py-0.5' : 'text-xs px-1 py-0.5', isWalletPaymentMethod(method.mode_of_payment) ? 'text-amber-600 bg-amber-200' : 'text-blue-600 bg-blue-100']">
+										{{ formatCurrency(getMethodTotal(method.mode_of_payment)) }}
+									</span>
+								</button>
+								<!-- Remove Payment Button -->
+								<button
+									v-if="getMethodTotal(method.mode_of_payment) > 0"
+									@click.stop="removePaymentMethod(method.mode_of_payment)"
+									:title="__('Remove payment')"
+									class="absolute -top-1.5 -end-1.5 w-4 h-4 rounded-full bg-gray-500 hover:bg-red-600 text-white flex items-center justify-center shadow z-10"
+								>
+									<svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+										<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+									</svg>
+								</button>
+							</div>
 							<!-- Credit Balance as Payment Method -->
-							<button
+							<div
 								v-if="customerCreditEnabled && (remainingAvailableCredit > 0 || getMethodTotal('Customer Credit') > 0)"
-								@click="applyCustomerCredit"
-								:disabled="remainingAmount === 0 || remainingAvailableCredit === 0"
-								:class="[
-									'inline-flex items-center rounded-lg border-2 transition-all font-medium',
-									inline
-										? 'gap-1 px-2 h-9 text-xs'
-										: isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
-									remainingAmount === 0 || remainingAvailableCredit === 0 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
-									getMethodTotal('Customer Credit') > 0
-										? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-										: 'border-emerald-300 bg-emerald-50 hover:border-emerald-500 hover:bg-emerald-100 text-emerald-700'
-								]"
+								class="relative inline-flex"
 							>
-								<span :class="inline ? 'text-sm' : isSmallMobile ? 'text-xs' : 'text-sm lg:text-lg'">💳</span>
-								<span class="truncate">{{ __('Credit Balance') }}</span>
-								<span v-if="getMethodTotal('Customer Credit') > 0"
-									:class="['font-bold text-emerald-600 bg-emerald-100 rounded', isSmallMobile ? 'text-[8px] px-0.5 py-0.5' : 'text-xs px-1 py-0.5']">
-									{{ formatCurrency(getMethodTotal('Customer Credit')) }}
-								</span>
-							</button>
+								<button
+									@click="applyCustomerCredit"
+									:disabled="remainingAmount === 0 || remainingAvailableCredit === 0"
+									:class="[
+										'inline-flex items-center rounded-lg border-2 transition-all font-medium',
+										inline
+											? 'gap-1 px-2 h-9 text-xs'
+											: isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
+										remainingAmount === 0 || remainingAvailableCredit === 0 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+										getMethodTotal('Customer Credit') > 0
+											? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+											: 'border-emerald-300 bg-emerald-50 hover:border-emerald-500 hover:bg-emerald-100 text-emerald-700'
+									]"
+								>
+									<span :class="inline ? 'text-sm' : isSmallMobile ? 'text-xs' : 'text-sm lg:text-lg'">💳</span>
+									<span class="truncate">{{ __('Credit Balance') }}</span>
+									<span v-if="getMethodTotal('Customer Credit') > 0"
+										:class="['font-bold text-emerald-600 bg-emerald-100 rounded', isSmallMobile ? 'text-[8px] px-0.5 py-0.5' : 'text-xs px-1 py-0.5']">
+										{{ formatCurrency(getMethodTotal('Customer Credit')) }}
+									</span>
+								</button>
+								<!-- Remove Payment Button -->
+								<button
+									v-if="getMethodTotal('Customer Credit') > 0"
+									@click.stop="removePaymentMethod('Customer Credit')"
+									:title="__('Remove payment')"
+									class="absolute -top-1.5 -end-1.5 w-4 h-4 rounded-full bg-gray-500 hover:bg-red-600 text-white flex items-center justify-center shadow z-10"
+								>
+									<svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+										<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+									</svg>
+								</button>
+							</div>
 						</div>
 						<div v-else :class="['text-gray-500', isSmallMobile ? 'text-xs' : 'text-sm']">{{ __('No payment methods available') }}</div>
 
@@ -2023,8 +2053,12 @@ function initPaymentState() {
 	}
 	// Set default delivery date to today for Sales Orders
 	deliveryDate.value = isSalesOrder.value ? today : ""
-	// Mirror the additional discount already applied to the cart
-	localAdditionalDiscount.value = props.additionalDiscount || 0
+	// Mirror the additional discount already applied to the cart. It's stored
+	// on the cart as a flat currency amount, but this dialog's selector works
+	// in percentage terms, so convert it back before assigning.
+	localAdditionalDiscount.value = discountBase.value > 0
+		? Math.min(100, Math.round(((props.additionalDiscount || 0) / discountBase.value) * 10000) / 100)
+		: 0
 
 	// Debug logging
 	log.debug("[PaymentDialog] Payment state initialised with props:", {
@@ -2605,6 +2639,17 @@ function getMethodTotal(methodName) {
 	return paymentEntries.value
 		.filter((entry) => entry.mode_of_payment === methodName)
 		.reduce((sum, entry) => sum + (entry.amount || 0), 0)
+}
+
+// Remove all payment entries for a given method (X button on a payment chip)
+function removePaymentMethod(methodName) {
+	paymentEntries.value = paymentEntries.value.filter(
+		(entry) => entry.mode_of_payment !== methodName,
+	)
+	if (lastSelectedMethod.value?.mode_of_payment === methodName) {
+		lastSelectedMethod.value = null
+	}
+	log.debug("[PaymentDialog] Removed payment method:", methodName)
 }
 
 // Additional discount handlers

@@ -510,6 +510,7 @@ import { storeToRefs } from "pinia"
 import { computed, reactive, ref, watch } from "vue"
 import { call } from "@/utils/apiWrapper"
 import { isOffline } from "@/utils/offline/sync"
+import { openClosingShiftPrintView } from "@/utils/printClosingShift"
 import { printHtmlString } from "@/utils/reportOutput"
 import { RECEIPT_PAGE, renderReportPrintFormat } from "@/utils/reportPrintFormat"
 import { useFormatters } from "../composables/useFormatters"
@@ -731,7 +732,7 @@ async function submitClosing() {
 
       // Print closing shift
       if (result && result.name) {
-        printClosingShift(result.name)
+        openClosingShiftPrintView(result.name)
       }
 
       // ...then the item-level summary for the same shift day, and the
@@ -751,19 +752,6 @@ async function submitClosing() {
     console.error("Error submitting closing shift:", error)
     errorMessage.value = 'Failed to close shift. Please verify all amounts and try again.'
   }
-}
-
-function printClosingShift(name) {
-  const params = new URLSearchParams({
-    doctype: 'POS Closing Shift',
-    name: name,
-    format: 'POS Closing Shift',
-    no_letterhead: 1,
-    _lang: 'en',
-    trigger_print: 1,
-    _t: Date.now(),
-  })
-  window.open(`/printview?${params.toString()}`, '_blank', 'width=800,height=600')
 }
 
 /**

@@ -144,6 +144,29 @@
 						</svg>
 						<span>{{ __("Return Invoice") }}</span>
 					</button>
+					<button
+						@click="openDrawer()"
+						:disabled="drawerOpening"
+						class="w-full text-start px-4 py-2.5 text-sm text-gray-700 hover:bg-teal-50 flex items-center gap-3 transition-colors disabled:opacity-50"
+					>
+						<svg
+							class="w-5 h-5 text-teal-600"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+						>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
+							/>
+						</svg>
+						<span>{{ __("Open Cash Drawer") }}</span>
+						<kbd
+							class="ms-auto text-xs font-sans text-gray-500 bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5"
+						>F7</kbd>
+					</button>
 				</template>
 				<template #additional-actions>
 					<button
@@ -335,9 +358,9 @@
 							v-if="uiStore.isDesktop || uiStore.mobileActiveTab === 'cart'"
 							:class="[
 								'flex flex-col bg-gray-50 overflow-hidden',
-								uiStore.isDesktop ? 'w-96 xl:w-[420px] flex-shrink-0' : 'flex-1',
+								uiStore.isDesktop ? 'w-[440px] xl:w-[480px] flex-shrink-0' : 'flex-1',
 							]"
-							style="min-width: 300px; contain: layout style paint"
+							style="min-width: 340px; contain: layout style paint"
 						>
 							<InvoiceCart
 								:items="cartStore.invoiceItems"
@@ -482,14 +505,26 @@
 					<p class="mt-2 text-sm text-gray-500">
 						{{ __("Please open a shift to start making sales") }}
 					</p>
-					<Button
-						variant="solid"
-						theme="blue"
-						@click="uiStore.showOpenShiftDialog = true"
-						class="mt-6"
-					>
-						{{ __("Open Shift") }}
-					</Button>
+					<div class="mt-6 flex flex-col items-center gap-3">
+						<Button
+							variant="solid"
+							theme="blue"
+							@click="uiStore.showOpenShiftDialog = true"
+						>
+							{{ __("Open Shift") }}
+						</Button>
+
+						<!-- Reprint of the last closing, for when its print window
+						     was blocked or the receipt never came out -->
+						<Button
+							variant="subtle"
+							theme="gray"
+							:loading="printingLastClosing"
+							@click="handlePrintLastClosing"
+						>
+							{{ __("Print Last Closing Shift") }}
+						</Button>
+					</div>
 				</div>
 			</div>
 
@@ -1047,6 +1082,7 @@ import TrackInvoices from "@/components/daily_payment/TrackInvoices.vue";
 import EmployeeAttendance from "@/components/daily_payment/EmployeeAttendance.vue";
 import POSReports from "@/components/reports/POSReports.vue";
 import InvoiceDetailDialog from "@/components/invoices/InvoiceDetailDialog.vue";
+import { useCashDrawer } from "@/composables/useCashDrawer";
 import { useRealtimeStock } from "@/composables/useRealtimeStock";
 import { usePOSEvents } from "@/composables/usePOSEvents";
 import { session } from "@/data/session";
@@ -1055,6 +1091,7 @@ import { parseError } from "@/utils/errorHandler";
 import { offlineWorker } from "@/utils/offline/workerClient";
 import { cacheInvoiceHistory, getCachedInvoiceHistory } from "@/utils/offline/sync";
 import { autoPrintInvoice, printInvoice, printInvoiceByName, printWithSilentFallback } from "@/utils/printInvoice";
+import { printLastClosingShift } from "@/utils/printClosingShift";
 import { qzConnected, connect as qzConnect, disconnect as qzDisconnect, resolvePrinter } from "@/utils/qzTray";
 
 import { Button, Dialog, createResource } from "frappe-ui";
@@ -1104,6 +1141,9 @@ const {
 // Initialize toast
 const { showSuccess, showError, showWarning } = useToast();
 
+// Cash drawer (opens with no sale attached)
+const { opening: drawerOpening, openDrawer } = useCashDrawer();
+
 // Initialize logger
 const log = logger.create("POSSale");
 
@@ -1117,6 +1157,7 @@ const pendingPaymentAfterCustomer = ref(false);
 const logoutAfterClose = ref(false);
 const editCustomer = ref(null); // Customer being edited (null for create mode)
 const showClearCacheDialog = ref(false);
+const printingLastClosing = ref(false);
 const clearCacheOverlayRef = ref(null);
 
 // Debounce timer for offer reapplication
@@ -1523,6 +1564,36 @@ watch(
 );
 
 // ============================================================================
+// KEYBOARD SHORTCUTS
+// ============================================================================
+
+/**
+ * F7 kicks the cash drawer open.
+ *
+ * Bound on the window rather than on a component, because the cashier reaches
+ * for it mid-sale, with a dialog open, or with the focus sitting in the barcode
+ * field — wherever they happen to be when the customer needs change.
+ *
+ * preventDefault matters: F7 toggles caret browsing in Firefox, which would
+ * leave a blinking cursor roaming the till.
+ */
+function handleGlobalShortcuts(event) {
+	if (event.key !== "F7") return;
+	if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+
+	event.preventDefault();
+	openDrawer();
+}
+
+onMounted(() => {
+	window.addEventListener("keydown", handleGlobalShortcuts);
+});
+
+onUnmounted(() => {
+	window.removeEventListener("keydown", handleGlobalShortcuts);
+});
+
+// ============================================================================
 // PERIODIC STOCK SYNC - Setup when items are loaded
 // ============================================================================
 
@@ -1754,6 +1825,42 @@ function handleShiftClosed() {
 	// after a close made cashiers open a shift they never sold on; those empty
 	// shifts stay Open and then block the next real one. The "No open shift"
 	// screen offers an explicit Open Shift button instead.
+}
+
+/**
+ * Reprint the till's last closing shift from the no-shift screen.
+ *
+ * The Z-report prints itself when a shift is closed, but that window can be
+ * blocked by the browser, or the roll can jam - and by then the shift is gone
+ * from the screen. This gets the receipt back without a trip to the Desk.
+ *
+ * There is no open shift here, so the server picks the closing from the POS
+ * Profiles this user is assigned to.
+ */
+async function handlePrintLastClosing() {
+	if (offlineStore.isOffline) {
+		showError(__("Reprinting the last closing shift needs a connection"));
+		return;
+	}
+
+	printingLastClosing.value = true;
+	try {
+		const result = await printLastClosingShift(shiftStore.profileName || null);
+
+		if (result.ok) return;
+
+		if (result.reason === "none") {
+			showWarning(__("No closed shift was found to print"));
+		} else if (result.reason === "blocked") {
+			showError(
+				__("Pop-ups are blocked, so the closing could not be printed. Allow pop-ups for this site and try again.")
+			);
+		} else {
+			showError(__("The last closing shift could not be printed"));
+		}
+	} finally {
+		printingLastClosing.value = false;
+	}
 }
 
 function handleItemSelected(item, autoAdd = false) {

@@ -314,3 +314,53 @@ def submit_closing_shift(closing_shift, op_id=None):
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Submit Closing Shift Error")
 		frappe.throw(_("Error submitting closing shift: {0}").format(str(e)))
+
+
+@frappe.whitelist()
+def get_last_closing_shift(pos_profile=None):
+	"""Return the latest submitted POS Closing Shift this cashier may reprint.
+
+	Backs the "Print Last Closing" button on the no-shift screen: a Z-report
+	whose print window was blocked, mis-fed or thrown away can be reprinted
+	without sending the cashier into the Desk.
+
+	Scoped to the POS Profiles the user is assigned to, preferring their own
+	closing; a shift closed by a colleague on the same till is still reachable
+	so a handover does not lose the receipt. Returns ``None`` when there is
+	nothing to reprint.
+	"""
+	allowed_profiles = frappe.db.get_all(
+		"POS Profile User",
+		filters={"user": frappe.session.user},
+		pluck="parent",
+	)
+	if not allowed_profiles:
+		return None
+
+	# A caller-supplied profile only ever narrows the search - never widens it
+	# to a till the user is not assigned to
+	profiles = [pos_profile] if pos_profile in allowed_profiles else allowed_profiles
+
+	base_filters = {"docstatus": 1, "pos_profile": ["in", profiles]}
+	fields = [
+		"name",
+		"pos_profile",
+		"user",
+		"period_start_date",
+		"period_end_date",
+		"posting_date",
+		"grand_total",
+	]
+
+	for extra in ({"user": frappe.session.user}, {}):
+		closings = frappe.db.get_all(
+			"POS Closing Shift",
+			filters={**base_filters, **extra},
+			fields=fields,
+			order_by="period_end_date desc, creation desc",
+			limit=1,
+		)
+		if closings:
+			return closings[0]
+
+	return None

@@ -438,7 +438,46 @@
 										</div>
 									</div>
 
-									<!-- Cash Transfer on Shift Close -->
+									<!-- Cash Drawer -->
+					<div class="p-4 bg-white border border-gray-200 rounded-xl">
+						<div class="flex items-center gap-2 mb-4">
+							<svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
+							</svg>
+							<h4 class="text-sm font-semibold text-gray-900">{{ __('Cash Drawer') }}</h4>
+						</div>
+						<div class="flex flex-col gap-3">
+							<div class="flex items-end gap-2">
+								<div class="flex-1">
+									<SelectField
+										v-model="drawerPin"
+										:label="__('Drawer Connector Pin')"
+										:options="drawerPinOptions"
+										:description="__('Which pin of the printer\'s drawer port carries the kick pulse. Leave on pin 2 unless the drawer does not open.')"
+									/>
+								</div>
+								<button
+									@click="openDrawer()"
+									:disabled="drawerOpening"
+									class="px-3 py-2 mb-0.5 text-xs font-medium bg-teal-100 hover:bg-teal-200 text-teal-700 rounded transition-colors disabled:opacity-50"
+								>
+									{{ __('Test') }}
+								</button>
+							</div>
+							<div class="p-3 bg-teal-50 border border-teal-200 rounded-lg">
+								<div class="flex items-start gap-2">
+									<svg class="w-4 h-4 text-teal-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+									</svg>
+									<p class="text-xs text-teal-800 leading-relaxed">
+										{{ __('Press F7 anywhere in the POS, or use Open Cash Drawer in the user menu, to open the drawer without making an invoice. The pulse goes through the receipt printer, so QZ Tray must be running on this computer.') }}
+									</p>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Cash Transfer on Shift Close -->
 									<div class="p-4 bg-white border border-gray-200 rounded-xl">
 										<div class="flex items-center gap-2 mb-4">
 											<svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -501,7 +540,11 @@ import {
 	getPaperWidth,
 	savePaperWidth,
 	PAPER_WIDTH_OPTIONS,
+	getDrawerPin,
+	saveDrawerPin,
+	DRAWER_PIN_OPTIONS,
 } from "@/utils/qzTray"
+import { useCashDrawer } from "@/composables/useCashDrawer"
 
 const log = logger.create('POSSettings')
 const { detectSettingsChanges, updateSettingsSnapshot, emitStockSyncConfigured } = usePOSEvents()
@@ -571,6 +614,14 @@ const paperWidthOptions = PAPER_WIDTH_OPTIONS.map((mm) => ({
 	label: `${mm} mm`,
 	value: mm,
 }))
+
+// Cash drawer — also per till, for the same reason as the roll width.
+const drawerPin = ref(getDrawerPin())
+const drawerPinOptions = DRAWER_PIN_OPTIONS.map((pin) => ({
+	label: __("Pin {0}", [pin]),
+	value: pin,
+}))
+const { opening: drawerOpening, openDrawer } = useCashDrawer()
 
 // Warehouse options
 const warehouseOptions = computed(() => {
@@ -849,6 +900,10 @@ watch(selectedPrinter, (name) => {
 // Save paper width when changed
 watch(paperWidth, (mm) => {
 	if (mm) savePaperWidth(Number(mm))
+})
+
+watch(drawerPin, (pin) => {
+	if (pin) saveDrawerPin(Number(pin))
 })
 
 // Auto-connect and discover printers when silent_print is toggled on

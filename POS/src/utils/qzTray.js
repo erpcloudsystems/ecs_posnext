@@ -679,3 +679,85 @@ export async function printPDF(base64, printerName, options = {}) {
 // `format: "html"` pixel printing was removed on purpose: QZ Tray renders that
 // HTML with its own engine, which does no complex-script shaping, so Arabic came
 // out with unjoined letters in the wrong order. Receipts go through printPDF.
+
+// ============================================================================
+// Cash Drawer
+// ============================================================================
+
+const DRAWER_PIN_STORAGE_KEY = "pos_qz_drawer_pin"
+
+/**
+ * Which pin of the printer's drawer port carries the kick pulse. Almost every
+ * till is wired to pin 2; pin 5 is the second connector, used by a few printer
+ * models and by tills that hang two drawers off one printer.
+ */
+export const DRAWER_PIN_OPTIONS = [2, 5]
+export const DEFAULT_DRAWER_PIN = 2
+
+/** Per-till, like the paper width: the wiring belongs to the hardware, not the profile. */
+export function getDrawerPin() {
+	try {
+		const saved = Number.parseInt(
+			localStorage.getItem(DRAWER_PIN_STORAGE_KEY),
+			10,
+		)
+		if (DRAWER_PIN_OPTIONS.includes(saved)) return saved
+	} catch {
+		// fall through to the default
+	}
+	return DEFAULT_DRAWER_PIN
+}
+
+export function saveDrawerPin(pin) {
+	try {
+		localStorage.setItem(
+			DRAWER_PIN_STORAGE_KEY,
+			String(pin || DEFAULT_DRAWER_PIN),
+		)
+	} catch (e) {
+		log.warn("Failed to save cash drawer pin to localStorage:", e)
+	}
+}
+
+/**
+ * ESC/POS "generate pulse": ESC p m t1 t2, where m picks the connector pin and
+ * t1/t2 are the on/off times in 2ms units (0x19 = 50ms on, 0xFA = 500ms off).
+ * That is the widest pulse the command can express, which is what the stiffer
+ * drawer solenoids need to throw the latch.
+ *
+ * Sent as hex rather than a plain string on purpose: the pulse widths are bytes
+ * above 0x7F, and any text encoding on the way to the printer would mangle them.
+ */
+function drawerKickCommand(pin) {
+	return `1B 70 ${pin === 5 ? "01" : "00"} 19 FA`
+}
+
+/**
+ * Kick open the cash drawer wired to the receipt printer.
+ *
+ * The drawer has no connection of its own — it is a solenoid on the printer's
+ * RJ11 port — so this is a print job carrying nothing but the pulse command,
+ * and it needs QZ Tray exactly as printing a receipt does.
+ *
+ * @param {string} [printerName] - Target printer. Auto-detected when omitted.
+ * @returns {Promise<void>} Rejects with a reason worth showing the cashier.
+ */
+export async function openCashDrawer(printerName) {
+	const printer = await requirePrinter(printerName)
+	const config = qz.configs.create(printer)
+
+	try {
+		await qz.print(config, [
+			{
+				type: "raw",
+				format: "command",
+				flavor: "hex",
+				data: drawerKickCommand(getDrawerPin()),
+			},
+		])
+		log.info(`Cash drawer pulse sent to "${printer}"`)
+	} catch (err) {
+		log.error(`Cash drawer pulse failed on "${printer}":`, err?.message || err)
+		throw err
+	}
+}

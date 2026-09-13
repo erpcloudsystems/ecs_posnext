@@ -9,7 +9,7 @@
   - Cart items list with quantity controls, UOM selection, and pricing
   - Offers and coupon application buttons
   - Order totals (subtotal, discount, tax, grand total)
-  - Checkout and Hold order actions
+  - Checkout action
   - Quick action buttons when cart is empty
 
   ============================================================================
@@ -44,7 +44,6 @@
 
   5. ACTION BUTTONS
      - Checkout - Proceed to payment
-     - Hold - Save as draft order
 
   ============================================================================
   FEATURES
@@ -1134,12 +1133,17 @@
 		</div>
 
 		<!-- Totals Summary -->
-		<div class="p-1.5 sm:p-2 bg-white border-t border-gray-200">
+		<div
+			:class="[
+				'bg-white border-t border-gray-200',
+				onePage ? 'p-1.5' : 'p-1.5 sm:p-2',
+			]"
+		>
 			<!-- One Page: the five stacked total rows collapse to one dense line so
 			     the payment section below costs the item list as little as possible -->
 			<div
 				v-if="onePage && items.length > 0"
-				class="flex items-center justify-between flex-wrap gap-x-2 text-[11px] text-gray-600 mb-1"
+				class="flex items-center justify-between flex-wrap gap-x-2 text-[11px] text-gray-600 mb-0.5"
 			>
 				<span class="whitespace-nowrap">
 					{{ __("Qty") }}
@@ -1228,17 +1232,17 @@
 			<div
 				:class="[
 					'bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg',
-					onePage ? 'px-2 py-1.5 mb-1' : 'p-2.5 mb-1.5'
+					onePage ? 'px-2 py-1 mb-0.5' : 'p-2.5 mb-1.5'
 				]"
 			>
 				<div class="flex items-center justify-between">
-					<span class="text-sm font-extrabold text-gray-900">{{
+					<span :class="['font-extrabold text-gray-900', onePage ? 'text-xs' : 'text-sm']">{{
 						__("Grand Total")
 					}}</span>
 					<span
 						:class="[
 							'font-extrabold text-blue-600 text-center min-w-[60px]',
-							onePage ? 'text-lg' : 'text-lg sm:text-xl'
+							onePage ? 'text-base' : 'text-lg sm:text-xl'
 						]"
 					>
 						{{ formatCurrency(displayGrandTotal) }}
@@ -1250,17 +1254,16 @@
 			     (discounts, mode of payment, pay / complete actions) -->
 			<!-- Kept mounted (v-show) while the cart is empty so payment methods,
 			     sales persons and customer credit are fetched once per shift -->
-			<div v-if="onePage" v-show="items.length > 0" class="mb-1.5">
+			<div v-if="onePage" v-show="items.length > 0" class="mb-1">
 				<slot name="payment" />
 			</div>
 
 			<!-- Action Buttons -->
-			<div class="flex gap-1.5">
-				<!-- Checkout Button (Primary - 50% width) -->
-				<!-- Hidden in One Page mode: payment is completed in the panel above -->
+			<!-- Hidden in One Page mode: payment is completed in the panel above -->
+			<div v-if="!onePage" class="flex gap-1.5">
+				<!-- Checkout Button (Full width) -->
 				<button
 					type="button"
-					v-if="!onePage"
 					@click="handleProceedToPayment"
 					:disabled="items.length === 0"
 					:class="[
@@ -1285,30 +1288,6 @@
 						/>
 					</svg>
 					<span>{{ __("Checkout") }}</span>
-				</button>
-
-				<!-- Hold Order Button (Secondary - 50% width) -->
-				<button
-					type="button"
-					v-if="items.length > 0"
-					@click="$emit('save-draft')"
-					class="flex-1 py-2.5 px-2 rounded-lg font-semibold text-xs text-orange-700 bg-orange-50 hover:bg-orange-100 active:bg-orange-200 transition-all touch-manipulation active:scale-[0.98] flex items-center justify-center"
-					:aria-label="__('Hold order as draft')"
-				>
-					<svg
-						class="w-4 h-4 me-1.5"
-						fill="none"
-						stroke="currentColor"
-						viewBox="0 0 24 24"
-						stroke-width="2"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-						/>
-					</svg>
-					<span>{{ __("Hold", null, "order") }}</span>
 				</button>
 			</div>
 		</div>

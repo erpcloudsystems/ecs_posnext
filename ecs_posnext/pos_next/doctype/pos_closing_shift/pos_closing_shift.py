@@ -2,7 +2,9 @@
 # For license information, please see license.txt
 
 import json
+import re
 from collections import defaultdict
+from difflib import SequenceMatcher
 
 import frappe
 from erpnext.accounts.doctype.pos_invoice_merge_log.pos_invoice_merge_log import (
@@ -730,40 +732,127 @@ def submit_closing_shift(closing_shift):
     return closing_shift_doc.name
 
 
+BRANCH_ACCOUNT_PREFIX = "خزينة فرع"
+MANAGER_ACCOUNT_PREFIX = "خزينة مدير فرع"
+MANAGER_ACCOUNT_MARKER = "مدير"
+
+# Below this similarity a fuzzy candidate is not trusted, and a candidate must
+# beat the runner-up by at least the margin so an ambiguous match is rejected.
+ACCOUNT_MATCH_THRESHOLD = 0.75
+ACCOUNT_MATCH_MARGIN = 0.05
+
+
+def _normalize_arabic(text):
+    """
+    Normalize an Arabic string so spelling variants of the same branch name
+    compare equal: أ/إ/آ/ٱ -> ا, ى -> ي, ة -> ه, ؤ -> و, ئ -> ي, dropping
+    diacritics and tatweel and reducing punctuation/brackets to single spaces.
+    """
+    if not text:
+        return ""
+
+    text = str(text)
+    text = re.sub("[ً-ْـ]", "", text)
+    text = re.sub("[آأإٱ]", "ا", text)
+    text = text.replace("ى", "ي").replace("ة", "ه")
+    text = text.replace("ؤ", "و").replace("ئ", "ي")
+    text = re.sub(r"[^\w\s]+", " ", text, flags=re.UNICODE)
+
+    return " ".join(text.split()).lower()
+
+
+def _strip_company_abbr(account_name, company_abbr):
+    """Drop the trailing " - ABBR" that ERPNext appends to every account name."""
+    suffix = f" - {company_abbr}"
+    if company_abbr and account_name.endswith(suffix):
+        return account_name[: -len(suffix)]
+
+    return account_name
+
+
+def _match_cash_account(accounts, prefix, pos_profile, is_manager):
+    """
+    Pick the account matching "<prefix> <pos_profile>" out of ``accounts``.
+
+    Matching is done on normalized text so the Arabic spelling differences
+    between POS Profile names and account names (ي/ى, ه/ة, أ/ا, extra words
+    such as "مول", plain typos) no longer break the detection. Branch and
+    manager accounts are kept apart by the "مدير" token so a branch lookup can
+    never land on a manager safe or vice versa.
+    """
+    profile_norm = _normalize_arabic(pos_profile)
+    prefix_norm = _normalize_arabic(prefix)
+    manager_norm = _normalize_arabic(MANAGER_ACCOUNT_MARKER)
+
+    if not profile_norm:
+        return None
+
+    candidates = []
+    for account in accounts:
+        norm = account["normalized"]
+        if (manager_norm in norm.split()) != is_manager:
+            continue
+
+        name_part = norm[len(prefix_norm) :].strip() if norm.startswith(prefix_norm) else norm
+        candidates.append((account["name"], norm, name_part))
+
+    # 1. Exact match on the full normalized pattern.
+    target = _normalize_arabic(f"{prefix} {pos_profile}")
+    for name, norm, _name_part in candidates:
+        if norm == target:
+            return name
+
+    # 2. Either name contains the other (handles accounts carrying extra words).
+    contained = [
+        name
+        for name, _norm, name_part in candidates
+        if name_part and (profile_norm in name_part or name_part in profile_norm)
+    ]
+    if len(contained) == 1:
+        return contained[0]
+    if contained:
+        return None
+
+    # 3. Fuzzy match, accepted only when it is both strong and unambiguous.
+    scored = sorted(
+        (
+            (SequenceMatcher(None, name_part, profile_norm).ratio(), name)
+            for name, _norm, name_part in candidates
+            if name_part
+        ),
+        reverse=True,
+    )
+    if not scored or scored[0][0] < ACCOUNT_MATCH_THRESHOLD:
+        return None
+    if len(scored) > 1 and scored[0][0] - scored[1][0] < ACCOUNT_MATCH_MARGIN:
+        return None
+
+    return scored[0][1]
+
+
 def _auto_detect_cash_accounts(pos_profile, company):
     """
     Auto-detect branch cash accounts by matching POS Profile name against
     account names using the pattern:
       Branch Cash Account        : خزينة فرع [profile_name] - ABBR
       Branch Manager Cash Account: خزينة مدير فرع [profile_name] - ABBR
-    Falls back to any account containing the profile name if exact match not found.
+    Matching tolerates Arabic spelling variants and small typos. Accounts set
+    explicitly on POS Settings always win over anything detected here.
     """
     company_abbr = frappe.get_cached_value("Company", company, "abbr") or ""
 
-    # Build candidate patterns (exact first, then fuzzy)
-    branch_candidates = [
-        f"خزينة فرع {pos_profile} - {company_abbr}",
-        f"خزينة فرع {pos_profile}",
-    ]
-    manager_candidates = [
-        f"خزينة مدير فرع {pos_profile} - {company_abbr}",
-        f"خزينة مدير فرع {pos_profile}",
+    rows = frappe.get_all(
+        "Account",
+        filters={"company": company, "account_type": "Cash", "is_group": 0, "disabled": 0},
+        pluck="name",
+    )
+    accounts = [
+        {"name": name, "normalized": _normalize_arabic(_strip_company_abbr(name, company_abbr))}
+        for name in rows
     ]
 
-    def find_account(candidates, fallback_like):
-        for name in candidates:
-            if frappe.db.exists("Account", {"name": name, "company": company, "account_type": "Cash"}):
-                return name
-        # Fuzzy fallback: LIKE search
-        result = frappe.db.get_value(
-            "Account",
-            {"name": ["like", f"%{fallback_like}%"], "company": company, "account_type": "Cash"},
-            "name",
-        )
-        return result
-
-    branch_account = find_account(branch_candidates, f"خزينة فرع {pos_profile}")
-    manager_account = find_account(manager_candidates, f"خزينة مدير فرع {pos_profile}")
+    branch_account = _match_cash_account(accounts, BRANCH_ACCOUNT_PREFIX, pos_profile, False)
+    manager_account = _match_cash_account(accounts, MANAGER_ACCOUNT_PREFIX, pos_profile, True)
 
     return branch_account, manager_account
 
@@ -817,6 +906,17 @@ def _create_cash_transfer_payment_entry(closing_shift_doc):
         if not pos_settings or not pos_settings.enable_auto_cash_transfer:
             return
 
+        existing = frappe.db.exists(
+            "Payment Entry",
+            {
+                "payment_type": "Internal Transfer",
+                "reference_no": closing_shift_doc.name,
+                "docstatus": ["<", 2],
+            },
+        )
+        if existing:
+            return
+
         company = closing_shift_doc.company
 
         # Use manually configured accounts if set, otherwise auto-detect
@@ -832,6 +932,17 @@ def _create_cash_transfer_payment_entry(closing_shift_doc):
                 f"Could not find cash accounts for POS Profile '{pos_profile}'. "
                 f"Detected: branch='{branch_cash_account}', manager='{manager_cash_account}'",
                 "POS Cash Transfer",
+            )
+            frappe.msgprint(
+                _(
+                    "Shift closed, but the cash transfer was skipped: no {0} found for POS Profile"
+                    " {1}. Set it on POS Settings for this profile."
+                ).format(
+                    _("Branch Cash Account") if not branch_cash_account else _("Branch Manager Cash Account"),
+                    pos_profile,
+                ),
+                indicator="orange",
+                alert=True,
             )
             return
 
