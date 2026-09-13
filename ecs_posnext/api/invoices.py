@@ -2167,6 +2167,116 @@ def get_invoice_print_pdf(
 
 
 @frappe.whitelist()
+def get_receipt_pdf(
+	invoice_name,
+	print_format=None,
+	letterhead=None,
+	no_letterhead=1,
+	page_width=None,
+	side_margin=None,
+):
+	"""
+	Single-call receipt PDF: render, inline images, and generate PDF in one
+	server round trip.
+
+	Replaces the two-call pattern where the POS would:
+	  1. call get_invoice_print_html (inline_assets=1) to get HTML for measurement
+	  2. call get_invoice_print_pdf with the measured height
+
+	Instead, the server uses a generous fixed page height (the thermal printer
+	auto-cuts at the content boundary anyway) and returns the PDF directly.
+	This eliminates ~4-6 seconds of latency from the receipt printing pipeline.
+
+	Args:
+		invoice_name: Sales Invoice name
+		print_format: Print format to use (defaults to POS Next Receipt)
+		letterhead: Letterhead to use
+		no_letterhead: Whether to suppress letterhead
+		page_width: Paper roll width in mm (e.g. 80 or 58). A4 when omitted.
+		side_margin: Left/right margin in mm (default 2)
+
+	Returns:
+		dict with `filename`, base64 `content`, and `page_width`/`page_height`
+	"""
+	import base64
+
+	from frappe.utils import flt, get_url
+	from frappe.utils.pdf import get_pdf
+
+	# Render HTML with images already inlined — one pass, no second call needed.
+	rendered = _render_print_html(
+		invoice_name,
+		print_format=print_format,
+		letterhead=letterhead,
+		no_letterhead=no_letterhead,
+		inline_assets=1,
+	)
+
+	width = flt(page_width)
+	if width:
+		width = min(max(width, 40.0), 210.0)
+		margin = flt(side_margin) if side_margin is not None else 2.0
+		margin = min(max(margin, 0.0), width / 4)
+
+		# Use a generous page height and let the printer auto-cutter handle it.
+		# This avoids the expensive client-side measurement step. Thermal printers
+		# with auto-cut ignore trailing whitespace, and continuous-roll printers
+		# simply don't feed past the content. 600mm covers even very long receipts
+		# without a second page break.
+		height = 600.0
+
+		options = {
+			"page-width": "{0}mm".format(width),
+			"page-height": "{0}mm".format(height),
+			"margin-top": "0mm",
+			"margin-bottom": "0mm",
+			"margin-left": "{0}mm".format(margin),
+			"margin-right": "{0}mm".format(margin),
+			"load-error-handling": "ignore",
+			"load-media-error-handling": "ignore",
+		}
+		page_style = """
+<style>.print-format {{
+	margin-top: 0mm; margin-bottom: 0mm;
+	margin-left: {margin}mm; margin-right: {margin}mm;
+	page-width: {width}mm; page-height: {height}mm;
+}}</style>""".format(margin=margin, width=width, height=height)
+	else:
+		height = None
+		page_style = ""
+		options = {
+			"margin-top": "5mm",
+			"margin-bottom": "5mm",
+			"margin-left": "5mm",
+			"margin-right": "5mm",
+		}
+
+	html = """<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><base href="{base}/"><style>{style}</style>{page_style}</head>
+<body>{body}</body>
+</html>""".format(
+		base=get_url().rstrip("/"),
+		style=rendered["style"],
+		page_style=page_style,
+		body=rendered["html"],
+	)
+
+	cache_dir = _wkhtmltopdf_cache_dir()
+	if cache_dir:
+		options["cache-dir"] = cache_dir
+
+	pdf = get_pdf(html, options=options)
+
+	return {
+		"filename": "{0}.pdf".format(invoice_name),
+		"content": base64.b64encode(pdf).decode(),
+		"page_width": width or None,
+		"page_height": height,
+	}
+
+
+@frappe.whitelist()
 def get_invoices(pos_profile, limit=100):
 	"""
 	Get list of invoices for a POS Profile.

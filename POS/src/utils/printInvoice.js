@@ -84,6 +84,39 @@ async function fetchPrintPDF(
 }
 
 /**
+ * Fetch a receipt-ready PDF from the server in a single call.
+ *
+ * This combines HTML rendering, image inlining, and PDF generation server-side,
+ * eliminating the old 3-step round trip (fetchPrintHTML → measureHeight → fetchPrintPDF)
+ * that added ~4-6 seconds of latency to every receipt.
+ *
+ * The server uses a generous page height (600mm) and relies on the thermal
+ * printer's auto-cutter to stop at the content boundary.
+ */
+async function fetchReceiptPDF(
+	invoiceName,
+	{
+		printFormat,
+		letterhead = null,
+		noLetterhead = 1,
+		pageWidth = null,
+	} = {},
+) {
+	const result = await call("ecs_posnext.api.invoices.get_receipt_pdf", {
+		invoice_name: invoiceName,
+		print_format: printFormat || DEFAULT_PRINT_FORMAT,
+		letterhead,
+		no_letterhead: noLetterhead,
+		page_width: pageWidth,
+		side_margin: pageWidth ? RECEIPT_SIDE_MARGIN_MM : null,
+	})
+
+	const payload = result?.message || result
+	if (!payload?.content) throw new Error("Server returned no PDF content")
+	return payload
+}
+
+/**
  * Measure how tall the receipt renders, in mm, so the PDF page can be cut to
  * the content instead of feeding a fixed page length of roll.
  *
@@ -364,52 +397,23 @@ export async function silentPrintInvoice(
 	const format = printFormat || DEFAULT_PRINT_FORMAT
 	const letterhead = options.letterhead || null
 	const pageWidth = options.width || getPaperWidth()
-	const contentWidth = Math.max(pageWidth - 2 * RECEIPT_SIDE_MARGIN_MM, 20)
 
-	// Measure against the same HTML the PDF will be built from, so the page
-	// length matches this receipt rather than a worst-case guess.
-	let pageHeight = RECEIPT_FALLBACK_HEIGHT_MM
-	try {
-		const { html, style } = await fetchPrintHTML(invoiceName, {
-			printFormat: format,
-			letterhead,
-			noLetterhead: letterhead ? 0 : 1,
-			// Ask for the images already inlined as data URIs. The measurement
-			// iframe below waits for every image to load, and pulling the logo and
-			// QR over the till's network just to work out a page height was the
-			// slowest and least predictable part of printing a receipt.
-			inlineAssets: 1,
-		})
-		const measured = await measureReceiptHeightMM(
-			`<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><style>${style}</style></head>
-<body>${html}</body>
-</html>`,
-			contentWidth,
-		)
-		if (measured > 0) pageHeight = Math.ceil(measured + RECEIPT_TAIL_MM)
-	} catch (err) {
-		log.warn(
-			"Receipt height measurement failed, using fallback page length:",
-			err,
-		)
-	}
-
-	const pdf = await fetchPrintPDF(invoiceName, {
+	// Single server call: render HTML, inline images, and generate PDF all at
+	// once. This replaces the old 3-step chain (fetchPrintHTML → measure in
+	// iframe → fetchPrintPDF) that added ~4-6s of latency.
+	const pdf = await fetchReceiptPDF(invoiceName, {
 		printFormat: format,
 		letterhead,
 		noLetterhead: letterhead ? 0 : 1,
 		pageWidth,
-		pageHeight,
 	})
 
 	await qzPrintPDF(pdf.content, printerName, {
 		width: pdf.page_width || pageWidth,
-		height: pdf.page_height || pageHeight,
+		height: pdf.page_height || pageWidth,
 	})
 	log.info(
-		`Silent print sent for ${invoiceName} (${pageWidth}×${pageHeight}mm)`,
+		`Silent print sent for ${invoiceName} (${pageWidth}mm)`,
 	)
 	return true
 }
