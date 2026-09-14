@@ -40,9 +40,14 @@ export function useCashDrawer() {
 		} catch (err) {
 			const reason = err?.message || ""
 			log.error("Could not open the cash drawer:", reason || err)
+			// The reasons worth showing come from qzTray in English ("QZ Tray is not
+			// available", "No printer found on this machine") and are in the catalogue,
+			// so they are translated here rather than left in the middle of an Arabic
+			// sentence. Anything else falls through untranslated, which still beats a
+			// message that does not say what went wrong.
 			showError(
 				reason
-					? __("Could not open the cash drawer: {0}", [reason])
+					? __("Could not open the cash drawer: {0}", [__(reason)])
 					: __("Could not open the cash drawer"),
 			)
 			return false

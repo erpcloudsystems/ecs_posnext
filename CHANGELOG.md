@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Correct the Mode of Payment of a POS Invoice**
+  - Invoice History rows now carry an **Update** action that switches a sale between cash and card (and back) after it was rung up — the case where the cashier hits the wrong tender button
+  - A POS invoice settles itself on submit, so the payment row cannot be edited in place: the cash/bank GL entry, the Payment Entry and the CIB Visa commission Journal Entry were all posted against the old mode. The correction cancels the invoice, which lets every `on_cancel` hook reverse the documents it created, then submits an **amendment** (`amended_from`) identical in every other respect with a single payment row for the new mode, so the same code that posted the original chain posts the corrected one. Cash → Visa gains the 1.5% commission entry; Visa → Cash loses it
+  - The amendment keeps the original posting date, time and opening shift, so the correction stays in the period and the till it belongs to
+  - Refuses anything the cancel-and-reissue cannot safely carry: drafts, returns, invoices that already have a credit note or an amendment, partly paid and credit sales, loyalty redemptions, wallet payments, and consolidated invoices. Cashiers are limited to invoices of their own open shift; the Administrator is not
+  - If a Payment Entry or commission Journal Entry survives the cancellation — both hooks swallow their own errors so a failure there cannot block a cancel — the whole correction is rolled back rather than posting the money twice
+  - The amendment carries a comment naming the user, the invoice it replaces and the modes it moved between
+  - New endpoints `invoices.get_payment_mode_update_options` and `invoices.update_invoice_payment_mode`
+- **Open Cash Drawer without an Invoice**
+  - **F7** anywhere in the POS kicks the cash drawer open — for giving change, dropping a float or settling a Daily Payment, none of which should need a sale rung up first. Also available as **Open Cash Drawer** in the header user menu
+  - The pulse is an ESC/POS `ESC p m t1 t2` command sent through the receipt printer, since the drawer is a solenoid on the printer's RJ11 port and has no connection of its own. QZ Tray must be running on the till, exactly as for silent printing; when it is not, the cashier is told why
+  - Sent as hex rather than plain text: the pulse widths are bytes above 0x7F and a text encoding on the way to the printer would mangle them. Down-converted by `qz-tray.js` for the Windows 7 tills still on QZ Tray 2.0
+  - New **Cash Drawer** block in POS Settings with a **Drawer Connector Pin** choice (pin 2, the default, or pin 5) and a **Test** button. Stored per till like the paper roll width, since the wiring belongs to the hardware in front of the cashier rather than to the POS Profile
+  - Re-opens within a second of the last one are ignored — the drawer is still travelling, and a second toast only confuses
 - **Half Day Correction for Marked Attendance**
   - The **Marked Attendance** list in the POS Employee Attendance dialog is no longer read-only: each row now offers a Half Day correction for the two cases that come up mid-shift
   - **Left Early** on a `Present` row and **Arrived Late** on an `Absent` row both change the day to `Half Day`; rows already on `Half Day`, `On Leave` or `Work From Home` offer no action

@@ -13,12 +13,6 @@ const DEFAULT_PRINT_FORMAT = "POS Next Receipt"
 /** Left/right margin on the roll — thermal heads cannot print to the edge. */
 const RECEIPT_SIDE_MARGIN_MM = 2
 
-/** Padding added under the measured content so the last line is never clipped. */
-const RECEIPT_TAIL_MM = 6
-
-/** Page length used when the receipt height could not be measured. */
-const RECEIPT_FALLBACK_HEIGHT_MM = 297
-
 // ============================================================================
 // Shared helpers
 // ============================================================================
@@ -90,8 +84,9 @@ async function fetchPrintPDF(
  * eliminating the old 3-step round trip (fetchPrintHTML → measureHeight → fetchPrintPDF)
  * that added ~4-6 seconds of latency to every receipt.
  *
- * The server uses a generous page height (600mm) and relies on the thermal
- * printer's auto-cutter to stop at the content boundary.
+ * The server also works out the page length from the receipt's own row count and
+ * verifies it against the rendered page count, so the page is cut to this
+ * receipt rather than to a fixed roll length.
  */
 async function fetchReceiptPDF(
 	invoiceName,
@@ -114,82 +109,6 @@ async function fetchReceiptPDF(
 	const payload = result?.message || result
 	if (!payload?.content) throw new Error("Server returned no PDF content")
 	return payload
-}
-
-/**
- * Measure how tall the receipt renders, in mm, so the PDF page can be cut to
- * the content instead of feeding a fixed page length of roll.
- *
- * Measured in a hidden iframe at the exact printable width, with images and
- * fonts resolved first — a letterhead logo that has not loaded yet would make
- * the receipt come out short. Chrome lays text out slightly looser than
- * wkhtmltopdf does, so this reads a little tall; that is the safe direction,
- * since underestimating spills the footer onto a second page (and a second cut).
- *
- * @returns {Promise<number>} height in mm, or 0 if it could not be measured
- */
-function measureReceiptHeightMM(fullHTML, contentWidthMM) {
-	return new Promise((resolve) => {
-		if (typeof document === "undefined") {
-			resolve(0)
-			return
-		}
-
-		const iframe = document.createElement("iframe")
-		iframe.setAttribute("aria-hidden", "true")
-		iframe.setAttribute("tabindex", "-1")
-		iframe.style.cssText = `position:fixed;left:-10000px;top:0;width:${contentWidthMM}mm;height:10px;border:0;visibility:hidden;pointer-events:none;`
-
-		let settled = false
-		const finish = (mm) => {
-			if (settled) return
-			settled = true
-			clearTimeout(watchdog)
-			iframe.remove()
-			resolve(mm)
-		}
-
-		// Never hold up a sale for measurement — fall back to a fixed page length.
-		const watchdog = setTimeout(() => finish(0), 5000)
-
-		iframe.onload = async () => {
-			try {
-				const frameDoc = iframe.contentDocument
-				const frameWindow = iframe.contentWindow
-				if (!frameDoc || !frameWindow) {
-					finish(0)
-					return
-				}
-
-				const pending = [...frameDoc.images]
-					.filter((img) => !img.complete)
-					.map(
-						(img) =>
-							new Promise((done) => {
-								img.addEventListener("load", done, { once: true })
-								img.addEventListener("error", done, { once: true })
-							}),
-					)
-				if (frameDoc.fonts?.ready) pending.push(frameDoc.fonts.ready)
-				await Promise.all(pending)
-
-				const px = Math.max(
-					frameDoc.documentElement?.scrollHeight || 0,
-					frameDoc.body?.scrollHeight || 0,
-				)
-				// CSS px are 1/96in by definition, which is also how wkhtmltopdf
-				// maps them onto the page.
-				finish(px > 0 ? (px * 25.4) / 96 : 0)
-			} catch (err) {
-				log.warn("Could not measure receipt height:", err)
-				finish(0)
-			}
-		}
-
-		iframe.onerror = () => finish(0)
-		iframe.srcdoc = fullHTML
-		document.body.appendChild(iframe)
-	})
 }
 
 /**
@@ -377,9 +296,9 @@ export async function printInvoiceByName(
  * letters unjoined and in the wrong order. QZ now only rasterizes a finished
  * page, so the silent receipt matches what the browser print path produces.
  *
- * The page is the roll width configured for this till (80mm by default) and is
- * cut to the measured height of the receipt, so nothing is scaled and no blank
- * tail is fed before the cut.
+ * The page is the roll width configured for this till (80mm by default) and the
+ * server cuts it to this receipt's own height, so nothing is scaled and QZ is
+ * not asked to rasterize a page several times longer than the receipt.
  *
  * @param {string} invoiceName
  * @param {string|null} [printFormat]
@@ -398,9 +317,9 @@ export async function silentPrintInvoice(
 	const letterhead = options.letterhead || null
 	const pageWidth = options.width || getPaperWidth()
 
-	// Single server call: render HTML, inline images, and generate PDF all at
-	// once. This replaces the old 3-step chain (fetchPrintHTML → measure in
-	// iframe → fetchPrintPDF) that added ~4-6s of latency.
+	// Single server call: render HTML, inline images, work out the page length and
+	// generate the PDF all at once. This replaces the old 3-step chain
+	// (fetchPrintHTML → measure in iframe → fetchPrintPDF) that added ~4-6s.
 	const pdf = await fetchReceiptPDF(invoiceName, {
 		printFormat: format,
 		letterhead,
@@ -408,10 +327,21 @@ export async function silentPrintInvoice(
 		pageWidth,
 	})
 
-	await qzPrintPDF(pdf.content, printerName, {
-		width: pdf.page_width || pageWidth,
-		height: pdf.page_height || pageWidth,
-	})
+	try {
+		await qzPrintPDF(pdf.content, printerName, {
+			width: pdf.page_width || pageWidth,
+			// No fallback height: with none set, qzPrintPDF leaves the job unsized and
+			// QZ uses the PDF's own page box. The old `|| pageWidth` passed the roll
+			// *width* as a height, which is not a length any receipt has.
+			height: pdf.page_height || null,
+		})
+	} catch (err) {
+		// The receipt is already rendered and paid for. Hand it to the caller so a
+		// till whose printer turned out to be unreachable can save these bytes
+		// instead of asking the server to render the whole invoice a second time.
+		err.receiptPDF = pdf
+		throw err
+	}
 	log.info(
 		`Silent print sent for ${invoiceName} (${pageWidth}mm)`,
 	)
@@ -478,22 +408,31 @@ export async function printWithSilentFallback(
  * @param {string} invoiceName
  * @param {string|null} [printFormat]
  * @param {string|null} [letterhead]
+ * @param {Object|null} [prefetched] - a PDF payload already fetched for this
+ *   invoice, reused instead of rendering it again
  * @returns {Promise<string>} the downloaded filename
  */
 export async function downloadInvoicePDF(
 	invoiceName,
 	printFormat = null,
 	letterhead = null,
+	prefetched = null,
 ) {
 	if (!invoiceName) throw new Error("Invalid invoice name")
 
-	// No page_width: this copy is A4, since it gets opened and printed on
-	// whatever ordinary printer the branch has, not on the missing roll printer.
-	const payload = await fetchPrintPDF(invoiceName, {
-		printFormat,
-		letterhead,
-		noLetterhead: letterhead ? 0 : 1,
-	})
+	// Reuse a receipt the silent path already rendered. It is roll-width rather
+	// than A4, which is the shape a receipt should be anyway, and it saves a
+	// second wkhtmltopdf run on a till that has just discovered it has no printer.
+	// No page_width on the fetch below: a copy rendered from scratch here is A4,
+	// since it gets opened and printed on whatever ordinary printer the branch
+	// has, not on the missing roll printer.
+	const payload =
+		prefetched ||
+		(await fetchPrintPDF(invoiceName, {
+			printFormat,
+			letterhead,
+			noLetterhead: letterhead ? 0 : 1,
+		}))
 
 	const content = payload.content
 	const filename = payload.filename || `${invoiceName}.pdf`
@@ -566,6 +505,7 @@ export async function autoPrintInvoice(
 	)
 
 	let reason
+	let renderedPDF = null
 	try {
 		// Printer detection needs nothing from the invoice, so the sale screen
 		// starts it before submitting and hands us the promise — the QZ connect
@@ -582,6 +522,10 @@ export async function autoPrintInvoice(
 		return { method: "silent", success: true, printer }
 	} catch (err) {
 		reason = err?.message || String(err)
+		// Set only when the receipt was rendered and the printer hand-off is what
+		// failed — the download below then saves those bytes rather than paying
+		// for a second render of the same invoice.
+		renderedPDF = err?.receiptPDF || null
 		log.warn("Silent print unavailable, saving receipt instead:", reason)
 	}
 
@@ -590,6 +534,7 @@ export async function autoPrintInvoice(
 			invoiceName,
 			settings.printFormat,
 			settings.letterhead,
+			renderedPDF,
 		)
 		return { method: "download", success: true, filename, reason }
 	} catch (err) {

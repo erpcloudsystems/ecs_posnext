@@ -179,7 +179,7 @@
 											<option value="">{{ __('Select Status') }}</option>
 											<option value="Present">{{ __('Present') }}</option>
 											<option value="Absent">{{ __('Absent') }}</option>
-											<option value="Half Day">{{ __('Half Day') }}</option>
+											<!-- <option value="Half Day">{{ __('Half Day') }}</option> -->
 										</select>
 									</div>
 									<button

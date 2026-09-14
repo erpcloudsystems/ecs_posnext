@@ -96,7 +96,15 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 		// With a shift open the till is about to start selling, so get QZ Tray's
 		// handshake out of the way now rather than on the first receipt. Deliberately
 		// not awaited: printing still works without it, this only moves the cost.
-		if (hasOpenShift.value && autoPrintEnabled.value) {
+		//
+		// Not gated on autoPrintEnabled any more. That flag is only half the reason a
+		// sale prints — POS Settings' silent print is the other half, and it is loaded
+		// after this runs, so gating on either one here would skip the tills that most
+		// need the warm socket. prewarm() never throws, honours the failure cooldown
+		// and gives up after CONNECT_TIMEOUT_MS, so on a till with no QZ Tray this
+		// costs one bounded background attempt and leaves the cooldown primed — which
+		// is exactly what makes the first sale's fallback instant.
+		if (hasOpenShift.value) {
 			qzPrewarm()
 		}
 

@@ -111,6 +111,16 @@
 										</svg>
 									</button>
 									<button
+										v-if="canUpdatePaymentMode(invoice)"
+										@click="openPaymentModeModal(invoice)"
+										class="p-1.5 hover:bg-purple-50 rounded transition-colors"
+										:title="__('Update Mode of Payment')"
+									>
+										<svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h4m-7 4h16a2 2 0 002-2V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+										</svg>
+									</button>
+									<button
 										v-if="canCreateReturn(invoice)"
 										@click="openReturnModal(invoice)"
 										class="p-1.5 hover:bg-orange-50 rounded transition-colors"
@@ -150,16 +160,25 @@
 		:preselected-invoice="selectedInvoiceForReturn"
 		@return-created="handleReturnCreated"
 	/>
+
+	<!-- Update Mode of Payment Dialog -->
+	<UpdatePaymentModeDialog
+		v-model="showPaymentModeDialog"
+		:invoice="selectedInvoiceForPaymentMode"
+		:currency="currency"
+		@payment-mode-updated="handlePaymentModeUpdated"
+	/>
 </template>
 
 <script setup>
 import { useToast } from "@/composables/useToast"
 import { isAdministrator } from "@/data/session"
 import { DEFAULT_CURRENCY, DEFAULT_LOCALE, formatCurrency as formatCurrencyUtil } from "@/utils/currency"
-import { getInvoiceStatusColor } from "@/utils/invoice"
+import { canUpdatePaymentMode, getInvoiceStatusColor } from "@/utils/invoice"
 import { Button, Dialog, Input, createResource } from "frappe-ui"
 import { computed, ref, watch } from "vue"
 import ReturnInvoiceDialog from "./ReturnInvoiceDialog.vue"
+import UpdatePaymentModeDialog from "./UpdatePaymentModeDialog.vue"
 
 const { showError } = useToast()
 
@@ -177,7 +196,14 @@ function formatCurrency(amount) {
 	return formatCurrencyUtil(Number.parseFloat(amount || 0), props.currency)
 }
 
-const emit = defineEmits(["update:modelValue", "create-return", "view-invoice", "print-invoice", "return-created"])
+const emit = defineEmits([
+	"update:modelValue",
+	"create-return",
+	"view-invoice",
+	"print-invoice",
+	"return-created",
+	"payment-mode-updated",
+])
 
 const show = ref(props.modelValue)
 const invoices = ref([])
@@ -194,6 +220,10 @@ const hasMore = ref(false)
 // Return dialog state
 const showReturnDialog = ref(false)
 const selectedInvoiceForReturn = ref(null)
+
+// Mode of payment correction state
+const showPaymentModeDialog = ref(false)
+const selectedInvoiceForPaymentMode = ref(null)
 
 // Track if we're loading more (appending) vs fresh load (replacing)
 const isLoadingMore = ref(false)
@@ -304,6 +334,12 @@ watch(showReturnDialog, (val) => {
 	}
 })
 
+watch(showPaymentModeDialog, (val) => {
+	if (!val) {
+		selectedInvoiceForPaymentMode.value = null
+	}
+})
+
 const filteredInvoices = computed(() => {
 	if (!searchTerm.value) return invoices.value
 
@@ -353,6 +389,17 @@ function canCreateReturn(invoice) {
 function openReturnModal(invoice) {
 	selectedInvoiceForReturn.value = invoice
 	showReturnDialog.value = true
+}
+
+function openPaymentModeModal(invoice) {
+	selectedInvoiceForPaymentMode.value = invoice
+	showPaymentModeDialog.value = true
+}
+
+function handlePaymentModeUpdated(result) {
+	// The corrected sale is a new invoice, so the list has to be re-read
+	loadInvoices()
+	emit("payment-mode-updated", result)
 }
 
 function handleReturnCreated(returnInvoice) {

@@ -362,16 +362,57 @@ async function upgradeSignatureAlgorithm() {
 /** Guards against concurrent connect() calls */
 let _connectPromise = null
 
-/** When the last connect attempt failed, epoch ms. See FAILED_CONNECT_COOLDOWN_MS. */
+/** When the last connect attempt failed, epoch ms. See the cooldown below. */
 let _lastFailedConnectAt = 0
+
+/** How long the current cooldown lasts, grown on each consecutive failure. */
+let _failedConnectCooldownMs = 0
 
 /**
  * On a till with no QZ Tray installed, `qz.websocket.connect()` walks several
  * ports before giving up, which can take seconds. Auto-print calls connect on
- * every sale, so a failed attempt is remembered briefly and short-circuited —
- * otherwise every receipt on those tills would stall behind a doomed handshake.
+ * every sale, so a failed attempt is remembered and short-circuited — otherwise
+ * every receipt on those tills would stall behind a doomed handshake.
  */
 const FAILED_CONNECT_COOLDOWN_MS = 60000
+
+/**
+ * Branches without a thermal printer are a supported configuration, not a fault
+ * to keep retrying at full price. The cooldown doubles on each consecutive
+ * failure up to this cap, so such a till pays the handshake a handful of times
+ * a shift instead of once a minute forever. Any successful connect resets it.
+ */
+const MAX_FAILED_CONNECT_COOLDOWN_MS = 600000
+
+/**
+ * How long to wait for QZ Tray to answer before treating it as absent.
+ *
+ * qz-tray offers no per-attempt timeout of its own — a port that is filtered
+ * rather than closed hangs until the OS gives up, which is where the 11-19s
+ * waits on the sale screen came from. A till that has QZ Tray running answers
+ * on loopback in a few milliseconds, so anything beyond this is a dead till.
+ */
+const CONNECT_TIMEOUT_MS = 1500
+
+/**
+ * Connection options for qz-tray.
+ *
+ * The library's defaults walk `["localhost", "localhost.qz.io"]` across four
+ * ports each — up to eight attempts, one of them behind a DNS lookup. QZ Tray
+ * listens on the first port pair only, so the rest is pure waiting on a till
+ * where it is not installed.
+ */
+function qzConnectOptions() {
+	// Built fresh per call: qz-tray rewrites `host` in place (string to array, plus
+	// its "surf" suffix for unqualified names) on the object it is handed.
+	// "localhost" counts as qualified so no suffix is added, but handing it a
+	// shared constant to edit is asking for trouble later.
+	return {
+		host: "localhost",
+		port: { secure: [8181], insecure: [8182] },
+		retries: 0,
+	}
+}
 
 /**
  * Connect to the locally-running QZ Tray application.
@@ -395,7 +436,7 @@ export async function connect({ force = false } = {}) {
 	if (
 		!force &&
 		_lastFailedConnectAt &&
-		Date.now() - _lastFailedConnectAt < FAILED_CONNECT_COOLDOWN_MS
+		Date.now() - _lastFailedConnectAt < _failedConnectCooldownMs
 	) {
 		log.debug("Skipping QZ Tray connect — previous attempt failed recently")
 		return false
@@ -447,20 +488,48 @@ async function _doConnect() {
 	qzConnecting.value = true
 
 	try {
-		await qz.websocket.connect()
+		await withTimeout(
+			qz.websocket.connect(qzConnectOptions()),
+			CONNECT_TIMEOUT_MS,
+			"QZ Tray did not answer",
+		)
 		qzConnected.value = true
 		_lastFailedConnectAt = 0
+		_failedConnectCooldownMs = 0
 		log.info("Connected to QZ Tray")
 		await upgradeSignatureAlgorithm()
 		return true
 	} catch (err) {
 		qzConnected.value = false
 		_lastFailedConnectAt = Date.now()
+		_failedConnectCooldownMs = Math.min(
+			_failedConnectCooldownMs
+				? _failedConnectCooldownMs * 2
+				: FAILED_CONNECT_COOLDOWN_MS,
+			MAX_FAILED_CONNECT_COOLDOWN_MS,
+		)
 		log.warn("Could not connect to QZ Tray:", err?.message || err)
 		return false
 	} finally {
 		qzConnecting.value = false
 	}
+}
+
+/**
+ * Reject after `ms` if `promise` has not settled.
+ *
+ * The losing promise is left to settle on its own rather than cancelled — a
+ * connect that lands late still leaves `qz.websocket.isActive()` true, so the
+ * next print picks it up instead of handshaking again.
+ */
+function withTimeout(promise, ms, message) {
+	let timer
+	return Promise.race([
+		Promise.resolve(promise).finally(() => clearTimeout(timer)),
+		new Promise((_, reject) => {
+			timer = setTimeout(() => reject(new Error(message)), ms)
+		}),
+	])
 }
 
 /**

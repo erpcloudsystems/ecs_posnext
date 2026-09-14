@@ -9,6 +9,7 @@ from frappe import _
 from frappe.utils import flt, cint, nowdate, nowtime, get_datetime, cstr
 from erpnext.stock.doctype.batch.batch import get_batch_qty, get_batch_no
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import get_bank_cash_account
+from ecs_posnext.api.utilities import get_wallet_payment_modes
 
 
 # ==========================================
@@ -2166,6 +2167,66 @@ def get_invoice_print_pdf(
 	}
 
 
+# Receipt page-height model.
+#
+# A thermal roll has no page length of its own, but wkhtmltopdf must be given
+# one, and whatever it is given is what QZ Tray rasterizes and what the driver
+# feeds. Asking for a fixed 600mm meant every receipt — one line or twenty —
+# was rasterized at four times the size it needed.
+#
+# These constants come from bisecting the smallest single-page height for real
+# receipts on an 80mm roll (1-9 items, 9-19 table rows): the relationship is
+# linear at ~7.1mm per rendered table row over a ~53mm fixed header/footer.
+# They are rounded up from that fit, and _RECEIPT_HEIGHT_SLACK adds headroom for
+# rows that wrap to a second line. An estimate that still comes out short is not
+# a correctness problem — the page count is verified below and re-rendered.
+_RECEIPT_BASE_HEIGHT_MM = 55.0
+_RECEIPT_ROW_HEIGHT_MM = 7.5
+_RECEIPT_HEIGHT_SLACK = 1.10
+_RECEIPT_MIN_HEIGHT_MM = 100.0
+
+# The previous fixed height, now only the ceiling: a receipt long enough to need
+# this gets exactly the behaviour it had before.
+_RECEIPT_MAX_HEIGHT_MM = 600.0
+
+
+def _estimate_receipt_height_mm(html, width):
+	"""
+	Guess how tall the rendered receipt is, in mm, from its row count.
+
+	Counting rendered `<tr>` elements rather than invoice items on purpose: it
+	picks up tax lines, payment lines, offer lines and anything else the print
+	format chose to show, without this function having to know what the format
+	contains.
+
+	Returns None when the format has no table rows to count, in which case the
+	caller should fall back to the maximum height rather than guess.
+	"""
+	import re
+
+	rows = len(re.findall(r"<tr\b", html or "", re.IGNORECASE))
+	if not rows:
+		return None
+
+	# Narrower rolls wrap the same text onto more lines.
+	row_mm = _RECEIPT_ROW_HEIGHT_MM * (80.0 / width if width else 1.0)
+	estimate = (_RECEIPT_BASE_HEIGHT_MM + rows * row_mm) * _RECEIPT_HEIGHT_SLACK
+	return min(max(estimate, _RECEIPT_MIN_HEIGHT_MM), _RECEIPT_MAX_HEIGHT_MM)
+
+
+def _count_pdf_pages(pdf):
+	"""Page count of a PDF held in memory, or None if it cannot be read."""
+	import io
+
+	try:
+		from pypdf import PdfReader
+
+		return len(PdfReader(io.BytesIO(pdf)).pages)
+	except Exception:
+		# Never fail a receipt over a page count — the PDF itself is fine.
+		return None
+
+
 @frappe.whitelist()
 def get_receipt_pdf(
 	invoice_name,
@@ -2183,9 +2244,9 @@ def get_receipt_pdf(
 	  1. call get_invoice_print_html (inline_assets=1) to get HTML for measurement
 	  2. call get_invoice_print_pdf with the measured height
 
-	Instead, the server uses a generous fixed page height (the thermal printer
-	auto-cuts at the content boundary anyway) and returns the PDF directly.
-	This eliminates ~4-6 seconds of latency from the receipt printing pipeline.
+	The page length is estimated from the rendered row count and then verified by
+	the page count of the result, so the receipt is cut to its own length without
+	the client-side iframe measurement that made this call expensive.
 
 	Args:
 		invoice_name: Sales Invoice name
@@ -2212,61 +2273,83 @@ def get_receipt_pdf(
 		inline_assets=1,
 	)
 
+	cache_dir = _wkhtmltopdf_cache_dir()
+	base_url = get_url().rstrip("/")
+
+	def build(height, width=None, margin=None):
+		"""Render the PDF at one page height. Height None means A4."""
+		if height:
+			options = {
+				"page-width": "{0}mm".format(width),
+				"page-height": "{0}mm".format(height),
+				"margin-top": "0mm",
+				"margin-bottom": "0mm",
+				"margin-left": "{0}mm".format(margin),
+				"margin-right": "{0}mm".format(margin),
+				"load-error-handling": "ignore",
+				"load-media-error-handling": "ignore",
+			}
+			page_style = """
+<style>.print-format {{
+	margin-top: 0mm; margin-bottom: 0mm;
+	margin-left: {margin}mm; margin-right: {margin}mm;
+	page-width: {width}mm; page-height: {height}mm;
+}}</style>""".format(margin=margin, width=width, height=height)
+		else:
+			page_style = ""
+			options = {
+				"margin-top": "5mm",
+				"margin-bottom": "5mm",
+				"margin-left": "5mm",
+				"margin-right": "5mm",
+			}
+
+		if cache_dir:
+			options["cache-dir"] = cache_dir
+
+		html = """<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><base href="{base}/"><style>{style}</style>{page_style}</head>
+<body>{body}</body>
+</html>""".format(
+			base=base_url,
+			style=rendered["style"],
+			page_style=page_style,
+			body=rendered["html"],
+		)
+		return get_pdf(html, options=options)
+
 	width = flt(page_width)
 	if width:
 		width = min(max(width, 40.0), 210.0)
 		margin = flt(side_margin) if side_margin is not None else 2.0
 		margin = min(max(margin, 0.0), width / 4)
 
-		# Use a generous page height and let the printer auto-cutter handle it.
-		# This avoids the expensive client-side measurement step. Thermal printers
-		# with auto-cut ignore trailing whitespace, and continuous-roll printers
-		# simply don't feed past the content. 600mm covers even very long receipts
-		# without a second page break.
-		height = 600.0
+		height = _estimate_receipt_height_mm(rendered["html"], width)
+		if height is None:
+			height = _RECEIPT_MAX_HEIGHT_MM
 
-		options = {
-			"page-width": "{0}mm".format(width),
-			"page-height": "{0}mm".format(height),
-			"margin-top": "0mm",
-			"margin-bottom": "0mm",
-			"margin-left": "{0}mm".format(margin),
-			"margin-right": "{0}mm".format(margin),
-			"load-error-handling": "ignore",
-			"load-media-error-handling": "ignore",
-		}
-		page_style = """
-<style>.print-format {{
-	margin-top: 0mm; margin-bottom: 0mm;
-	margin-left: {margin}mm; margin-right: {margin}mm;
-	page-width: {width}mm; page-height: {height}mm;
-}}</style>""".format(margin=margin, width=width, height=height)
+		pdf = build(height, width, margin)
+
+		# The estimate only has to be close; this is what makes it safe. A receipt
+		# that spilled onto a second page is re-rendered once at a page long enough
+		# to hold all of it, which is the height it already proved it needs.
+		pages = _count_pdf_pages(pdf)
+		if pages and pages > 1 and height < _RECEIPT_MAX_HEIGHT_MM:
+			height = min(height * pages + 10.0, _RECEIPT_MAX_HEIGHT_MM)
+			pdf = build(height, width, margin)
+
+			# Content that still will not sit on one page is not a receipt-shaped
+			# document — an A4 print format aimed at a roll, most likely. Fall back
+			# to the fixed page this endpoint used before, so such a caller gets the
+			# behaviour it had rather than a worse-paginated version of it.
+			pages = _count_pdf_pages(pdf)
+			if pages and pages > 1 and height < _RECEIPT_MAX_HEIGHT_MM:
+				height = _RECEIPT_MAX_HEIGHT_MM
+				pdf = build(height, width, margin)
 	else:
 		height = None
-		page_style = ""
-		options = {
-			"margin-top": "5mm",
-			"margin-bottom": "5mm",
-			"margin-left": "5mm",
-			"margin-right": "5mm",
-		}
-
-	html = """<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><base href="{base}/"><style>{style}</style>{page_style}</head>
-<body>{body}</body>
-</html>""".format(
-		base=get_url().rstrip("/"),
-		style=rendered["style"],
-		page_style=page_style,
-		body=rendered["html"],
-	)
-
-	cache_dir = _wkhtmltopdf_cache_dir()
-	if cache_dir:
-		options["cache-dir"] = cache_dir
-
-	pdf = get_pdf(html, options=options)
+		pdf = build(None)
 
 	return {
 		"filename": "{0}.pdf".format(invoice_name),
@@ -3743,4 +3826,281 @@ def process_return_by_cancel(invoice_name, returned_items, pos_opening_shift=Non
         "cancelled_invoice": invoice_name,
         "new_invoice": new_invoice_name,
         "has_remaining_items": bool(remaining_items),
+    }
+
+
+# ==========================================
+# Mode of Payment Correction
+# ==========================================
+#
+# A POS invoice settles itself the moment it is submitted: the cash/bank GL
+# entry, the Payment Entry and - for card modes - the bank commission Journal
+# Entry are all posted against the mode of payment that was chosen at the till.
+# Editing the payment row afterwards would leave every one of those documents
+# pointing at the wrong account, so a correction instead cancels the invoice,
+# which lets each on_cancel hook reverse the documents it created, and submits
+# an amendment carrying the new mode, so the same code that posted the original
+# chain posts the corrected one.
+
+PAYMENT_ROUNDING_TOLERANCE = 0.005
+
+
+def _resolved_open_shift(pos_profile=None):
+    """The open POS Opening Shift the current user is allowed to correct within."""
+    from ecs_posnext.api.shifts import _get_last_open_shift
+
+    return _get_last_open_shift(pos_profile)
+
+
+def _mode_of_payment_update_blocker(invoice_doc):
+    """Why this invoice's mode of payment cannot be corrected, or None if it can.
+
+    Returns a translated message instead of throwing so the POS can grey the
+    action out with a reason before the cashier commits to it.
+    """
+    if invoice_doc.docstatus != 1:
+        return _("Only submitted invoices can be updated")
+
+    if not cint(invoice_doc.get("is_pos")):
+        return _("Only POS invoices can be updated")
+
+    if cint(invoice_doc.get("is_return")):
+        return _("Return invoices cannot be updated")
+
+    if cint(invoice_doc.get("is_consolidated")):
+        return _("Consolidated invoices cannot be updated")
+
+    if not invoice_doc.get("payments"):
+        return _("Invoice has no payment rows to update")
+
+    if flt(invoice_doc.outstanding_amount) > PAYMENT_ROUNDING_TOLERANCE:
+        return _("Only fully paid invoices can be updated")
+
+    if cint(invoice_doc.get("redeem_loyalty_points")) or flt(invoice_doc.get("loyalty_amount")):
+        return _("Invoices that redeem loyalty points cannot be updated")
+
+    wallet_modes = set(get_wallet_payment_modes())
+    if wallet_modes & {p.mode_of_payment for p in invoice_doc.payments}:
+        return _("Invoices paid from a wallet cannot be updated")
+
+    if frappe.db.exists(
+        DOCTYPE_SALES_INVOICE,
+        {"return_against": invoice_doc.name, "docstatus": ["!=", 2]},
+    ):
+        return _("Invoice {0} already has a return").format(invoice_doc.name)
+
+    if frappe.db.exists(
+        DOCTYPE_SALES_INVOICE,
+        {"amended_from": invoice_doc.name, "docstatus": ["!=", 2]},
+    ):
+        return _("Invoice {0} has already been amended").format(invoice_doc.name)
+
+    # Cashiers correct their own till only: the invoice has to belong to the
+    # shift that is still open for them. Once a shift is closed its totals have
+    # been reconciled, so the correction belongs in the back office instead.
+    if frappe.session.user != "Administrator":
+        open_shift = _resolved_open_shift(invoice_doc.pos_profile)
+        if not open_shift:
+            return _("No open shift found. Only invoices of an open shift can be updated")
+        if invoice_doc.get("posa_pos_opening_shift") != open_shift:
+            return _("Only invoices of the current open shift can be updated")
+
+    return None
+
+
+def _selectable_payment_modes(pos_profile, company):
+    """Modes of payment the POS Profile offers that can receive this invoice.
+
+    Wallet modes and modes without a company account are left out: neither can
+    carry a corrected POS payment.
+    """
+    if not pos_profile:
+        return []
+
+    profile_modes = frappe.get_all(
+        "POS Payment Method",
+        filters={"parent": pos_profile, "parenttype": "POS Profile"},
+        fields=["mode_of_payment", "idx"],
+        order_by="idx asc",
+    )
+    wallet_modes = set(get_wallet_payment_modes())
+
+    modes = []
+    for row in profile_modes:
+        mode = row.mode_of_payment
+        if not mode or mode in wallet_modes:
+            continue
+        account = frappe.db.get_value(
+            "Mode of Payment Account",
+            {"parent": mode, "company": company},
+            "default_account",
+        )
+        if not account:
+            continue
+        modes.append({"mode_of_payment": mode, "account": account})
+
+    return modes
+
+
+@frappe.whitelist()
+def get_payment_mode_update_options(invoice_name):
+    """Current payment rows and the modes this invoice can be switched to."""
+    invoice_doc = frappe.get_doc(DOCTYPE_SALES_INVOICE, invoice_name)
+    _check_invoice_access(invoice_doc)
+
+    blocker = _mode_of_payment_update_blocker(invoice_doc)
+
+    return {
+        "invoice": invoice_doc.name,
+        "currency": invoice_doc.currency,
+        "grand_total": flt(invoice_doc.grand_total),
+        "paid_amount": flt(invoice_doc.paid_amount),
+        "allowed": not blocker,
+        "reason": blocker,
+        "current_payments": [
+            {"mode_of_payment": p.mode_of_payment, "amount": flt(p.amount)}
+            for p in invoice_doc.payments
+            if flt(p.amount)
+        ],
+        "modes": _selectable_payment_modes(invoice_doc.pos_profile, invoice_doc.company),
+    }
+
+
+def _assert_linked_vouchers_cancelled(invoice_doc):
+    """Fail the correction if the old invoice's payment documents survived it.
+
+    Both the Payment Entry and the commission Journal Entry hooks swallow their
+    own errors so that a failure there cannot block a cancellation. That is the
+    right trade-off for a plain cancel, but here it would leave the money posted
+    twice - once by the surviving voucher and once by the amendment - so the
+    whole correction is rolled back instead.
+    """
+    stale_payment_entries = frappe.get_all(
+        "Payment Entry",
+        filters={"reference_no": invoice_doc.name, "party": invoice_doc.customer, "docstatus": 1},
+        pluck="name",
+    )
+    stale_journal_entries = frappe.get_all(
+        "Journal Entry",
+        filters={"custom_sales_invoice": invoice_doc.name, "docstatus": 1},
+        pluck="name",
+    )
+
+    stale = stale_payment_entries + stale_journal_entries
+    if stale:
+        frappe.throw(
+            _(
+                "Payment documents of invoice {0} could not be cancelled: {1}. "
+                "The payment mode was not changed."
+            ).format(invoice_doc.name, ", ".join(stale)),
+            title=_("Cannot Update Payment Mode"),
+        )
+
+
+def _log_payment_mode_update(new_invoice_name, old_invoice_name, previous_modes, mode_of_payment):
+    """Record who switched the mode of payment, and from what, on the amendment."""
+    frappe.get_doc({
+        "doctype": DOCTYPE_COMMENT,
+        "comment_type": "Comment",
+        "reference_doctype": DOCTYPE_SALES_INVOICE,
+        "reference_name": new_invoice_name,
+        "content": _(
+            "Mode of payment changed by {user}: invoice {old_invoice} was cancelled and "
+            "re-issued as {new_invoice} with {new_mode} instead of {old_modes}"
+        ).format(
+            user=frappe.session.user,
+            old_invoice=old_invoice_name,
+            new_invoice=new_invoice_name,
+            new_mode=mode_of_payment,
+            old_modes=", ".join(previous_modes) or _("no payment"),
+        ),
+    }).insert(ignore_permissions=True)
+
+
+@frappe.whitelist()
+def update_invoice_payment_mode(invoice_name, mode_of_payment):
+    """Re-issue a submitted POS invoice under a different mode of payment.
+
+    The original invoice is cancelled - reversing its GL entries, Payment Entry
+    and bank commission Journal Entry - and an amendment identical in every
+    other respect is submitted with a single payment row for the new mode, so
+    all payment documents are rebuilt against the correct account.
+
+    Args:
+        invoice_name: Sales Invoice to correct
+        mode_of_payment: Mode of Payment the amendment should be settled with
+
+    Returns:
+        dict: cancelled_invoice, new_invoice, mode_of_payment, amount
+    """
+    original = frappe.get_doc(DOCTYPE_SALES_INVOICE, invoice_name)
+    _check_invoice_access(original)
+
+    blocker = _mode_of_payment_update_blocker(original)
+    if blocker:
+        frappe.throw(blocker, title=_("Cannot Update Payment Mode"))
+
+    previous_modes = [p.mode_of_payment for p in original.payments if flt(p.amount)]
+    if previous_modes == [mode_of_payment]:
+        frappe.throw(
+            _("Invoice {0} is already paid by {1}").format(invoice_name, mode_of_payment),
+            title=_("Cannot Update Payment Mode"),
+        )
+
+    selectable = _selectable_payment_modes(original.pos_profile, original.company)
+    account = next(
+        (m["account"] for m in selectable if m["mode_of_payment"] == mode_of_payment), None
+    )
+    if not account:
+        frappe.throw(
+            _("Mode of Payment {0} is not available on POS Profile {1} for company {2}").format(
+                mode_of_payment, original.pos_profile, original.company
+            ),
+            title=_("Cannot Update Payment Mode"),
+        )
+
+    # The amendment is settled in full: a POS invoice that reaches this point has
+    # no outstanding amount, and any change handed back in cash is not part of
+    # what the new mode collects.
+    amount = flt(original.rounded_total) or flt(original.grand_total)
+
+    frappe.flags.ignore_account_permission = True
+    original.flags.ignore_permissions = True
+    original.cancel()
+    _assert_linked_vouchers_cancelled(original)
+
+    new_doc = frappe.copy_doc(original)
+    new_doc.amended_from = original.name
+    new_doc.is_pos = 1
+    # Keep the amendment in the period - and the shift - of the sale it corrects.
+    new_doc.set_posting_time = 1
+    new_doc.posting_date = original.posting_date
+    new_doc.posting_time = original.posting_time
+    new_doc.change_amount = 0
+    new_doc.base_change_amount = 0
+    new_doc.payments = []
+    new_doc.append(
+        "payments",
+        {
+            "mode_of_payment": mode_of_payment,
+            "account": account,
+            "amount": amount,
+            "default": 1,
+        },
+    )
+
+    new_doc.flags.ignore_permissions = True
+    new_doc.insert()
+    # ERPNext's set_pos_fields rebuilds the payments table from the POS Profile
+    # during save, zeroing the row inserted above; restore it before submitting.
+    _reapply_payment_amounts(new_doc, [{"mode_of_payment": mode_of_payment, "amount": amount}])
+    new_doc.submit()
+
+    _log_payment_mode_update(new_doc.name, original.name, previous_modes, mode_of_payment)
+
+    return {
+        "cancelled_invoice": original.name,
+        "new_invoice": new_doc.name,
+        "mode_of_payment": mode_of_payment,
+        "amount": amount,
     }

@@ -41,6 +41,26 @@ export function getInvoiceStatusColor(invoice) {
 }
 
 /**
+ * Whether the mode of payment of an invoice may be corrected from the POS.
+ *
+ * Mirrors the server-side guards in
+ * `ecs_posnext.api.invoices.update_invoice_payment_mode` that can be answered
+ * from the fields the history list already holds, so the action is hidden on
+ * rows it could never work for. The server still re-checks everything.
+ *
+ * @param {Object} invoice - Invoice object from the history list
+ * @returns {boolean} True when the update action should be offered
+ */
+export function canUpdatePaymentMode(invoice) {
+	if (!invoice || invoice.docstatus !== 1 || invoice.is_return) {
+		return false
+	}
+
+	const status = invoice.status?.toLowerCase()
+	return status !== 'credit note issued' && status !== 'return'
+}
+
+/**
  * Get status color theme name for use with Badge component
  * @param {string} status - Invoice status string
  * @returns {string} Theme name (red, yellow, blue, green, gray)

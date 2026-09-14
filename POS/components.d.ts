@@ -61,6 +61,7 @@ declare module 'vue' {
     Toast: typeof import('./src/components/common/Toast.vue')['default']
     TrackInvoices: typeof import('./src/components/daily_payment/TrackInvoices.vue')['default']
     TranslatedHTML: typeof import('./src/components/common/TranslatedHTML.vue')['default']
+    UpdatePaymentModeDialog: typeof import('./src/components/sale/UpdatePaymentModeDialog.vue')['default']
     UserMenu: typeof import('./src/components/common/UserMenu.vue')['default']
     WarehouseAvailabilityDialog: typeof import('./src/components/sale/WarehouseAvailabilityDialog.vue')['default']
   }
