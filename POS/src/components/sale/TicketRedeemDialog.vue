@@ -603,6 +603,7 @@ async function doUpgrade(t) {
 			ticket_name: t.name,
 			item_code: t._upgradeItem,
 			pos_profile: props.posProfile,
+			pos_opening_shift: props.posOpeningShift,
 		})
 		showSuccess(__("Upgraded {0} to a new subscription", [t.name]))
 		await refresh()

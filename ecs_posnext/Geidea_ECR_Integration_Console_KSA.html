@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GEIDEA Web ECR Integration</title>
+  <link rel="icon" type="image/png" href="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRSsIwUXcC6xZNZThGTh7ellQPsvkTtZzIRgZUG50cSBX4plqlJs1lVx30HNmXPeJpNsc8&usqp=CAU">
+  <link rel="shortcut icon" type="image/png" href="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRSsIwUXcC6xZNZThGTh7ellQPsvkTtZzIRgZUG50cSBX4plqlJs1lVx30HNmXPeJpNsc8&usqp=CAU">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  <style>
+    :root {
+      --brand:#FF4D00; --brand-glow:rgba(255,77,0,.3); --brand-sub:rgba(255,77,0,.09);
+      --ink:#0D1117; --ink2:#161B22; --ink3:#21262D;
+      --bg:#F0F2F7; --card:#fff; --border:rgba(0,0,0,.08); --border2:rgba(0,0,0,.13);
+      --t1:#111827; --t2:#6B7280; --t3:#9CA3AF;
+      --green:#00C087; --green-g:rgba(0,192,135,.28);
+      --blue:#3B82F6; --red:#EF4444; --amber:#F59E0B;
+      --r:12px; --rl:18px;
+      --s1:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.04);
+      --s2:0 4px 16px rgba(0,0,0,.08),0 2px 6px rgba(0,0,0,.04);
+      --s3:0 10px 30px rgba(0,0,0,.10);
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;font-family:'Outfit',sans-serif;background:var(--bg);color:var(--t1);overflow:hidden}
+
+    /* ── SHELL ── */
+    .shell{display:flex;flex-direction:column;height:100vh}
+
+    /* ── TOPBAR ── */
+    .topbar{
+      height:56px;background:var(--ink);display:flex;align-items:center;
+      padding:0 20px;gap:16px;flex-shrink:0;
+      border-bottom:1px solid rgba(255,255,255,.06);
+    }
+    .brand{display:flex;align-items:center;gap:10px;margin-right:auto}
+    .brand-icon{width:34px;height:34px;background:linear-gradient(135deg,#FF6B00,#FF4D00);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:.95rem;box-shadow:0 3px 10px var(--brand-glow)}
+    .brand-name{font-size:.95rem;font-weight:800;color:#fff;letter-spacing:-.2px}
+    .brand-sub{font-size:.65rem;color:rgba(255,255,255,.35);font-weight:500;text-transform:uppercase;letter-spacing:.5px}
+
+    #wsStatus{display:flex;align-items:center;gap:7px;padding:5px 12px;border-radius:50px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);font-size:.78rem;font-weight:600;color:rgba(255,255,255,.7)}
+    .ws-dot{width:7px;height:7px;border-radius:50%;background:#6B7280;flex-shrink:0;transition:background .3s}
+
+    .topbar-btn{height:32px;padding:0 14px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.07);color:rgba(255,255,255,.75);font-family:'Outfit',sans-serif;font-size:.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .2s}
+    .topbar-btn:hover{background:rgba(255,255,255,.13);color:#fff}
+    .topbar-btn.danger{border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.15);color:#F87171}
+    .topbar-btn.danger:hover{background:rgba(239,68,68,.3);color:#fff}
+    .topbar-btn.debug-on{border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.15);color:#FCD34D}
+    #disconnectBtn{display:none}
+
+    /* ── FOOTER ── */
+    .app-footer{height:32px;background:var(--ink);border-top:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;gap:10px;flex-shrink:0;padding:0 20px;font-size:.68rem;font-weight:500;color:rgba(255,255,255,.3)}
+    .footer-sep{color:rgba(255,255,255,.12)}
+    .footer-item{display:flex;align-items:center;gap:5px;color:rgba(255,255,255,.3)}
+    .footer-copy{color:rgba(255,255,255,.4);font-weight:600}
+
+    /* ── 3-COLUMN BODY ── */
+    .columns{display:grid;grid-template-columns:260px minmax(0,0.75fr) minmax(0,1.25fr);gap:16px;padding:16px;flex:1;min-height:0;overflow:hidden}
+
+    /* ── PANEL (shared card base) ── */
+    .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--rl);box-shadow:var(--s1);display:flex;flex-direction:column;overflow:hidden;min-height:0}
+    .panel-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .ph-icon{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:.8rem;flex-shrink:0}
+    .phi-brand{background:var(--brand-sub);color:var(--brand)}
+    .phi-green{background:rgba(0,192,135,.1);color:var(--green)}
+    .phi-blue{background:rgba(59,130,246,.1);color:var(--blue)}
+    .ph-title{font-size:.88rem;font-weight:700;color:var(--t1)}
+    .ph-sub{font-size:.72rem;color:var(--t3);margin-top:1px}
+    .ph-right{margin-left:auto}
+    .panel-body{padding:16px;overflow-y:auto;flex:1}
+
+    /* ── FORM ── */
+    .flabel{display:block;font-size:.7rem;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px}
+    .finput{width:100%;padding:8px 12px;background:#F8FAFC;border:1.5px solid var(--border2);border-radius:var(--r);font-family:'Outfit',sans-serif;font-size:.875rem;font-weight:500;color:var(--t1);outline:none;transition:all .2s}
+    .finput:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 0 3px rgba(255,77,0,.1)}
+    .finput::placeholder{color:var(--t3);font-weight:400}
+    .fg{margin-bottom:12px}
+
+    .input-row{display:flex;gap:8px}
+    .input-row .fg{flex:1}
+
+    .iaddon{display:flex;border:1.5px solid var(--border2);border-radius:var(--r);overflow:hidden;background:#F8FAFC;transition:all .2s}
+    .iaddon:focus-within{border-color:var(--brand);background:#fff;box-shadow:0 0 0 3px rgba(255,77,0,.1)}
+    .iaddon-label{padding:10px 14px;background:#EAECF4;border-right:1px solid var(--border2);font-size:.8rem;font-weight:700;color:var(--t2);display:flex;align-items:center}
+    .iaddon .finput{border:none;background:transparent;box-shadow:none;border-radius:0;font-weight:700;font-size:1.3rem;padding:11px 14px}
+    .iaddon .finput:focus{box-shadow:none;border:none;background:transparent}
+
+    /* ── BUTTONS ── */
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:9px 18px;border-radius:var(--r);font-family:'Outfit',sans-serif;font-size:.82rem;font-weight:600;cursor:pointer;border:none;transition:all .2s;white-space:nowrap}
+    .btn-sm{padding:6px 12px;font-size:.78rem;border-radius:9px}
+    .btn-block{width:100%}
+    .btn-brand{background:linear-gradient(135deg,#FF6B00,#FF4D00);color:#fff;box-shadow:0 4px 14px var(--brand-glow)}
+    .btn-brand:hover{transform:translateY(-1px);box-shadow:0 8px 20px var(--brand-glow)}
+    .btn-green{background:linear-gradient(135deg,#00D49B,#00C087);color:#fff;box-shadow:0 4px 12px var(--green-g)}
+    .btn-green:hover{transform:translateY(-1px)}
+    .btn-red{background:linear-gradient(135deg,#F87171,#EF4444);color:#fff;box-shadow:0 4px 12px rgba(239,68,68,.3)}
+    .btn-red:hover{transform:translateY(-1px)}
+    .btn-amber{background:linear-gradient(135deg,#FBBF24,#F59E0B);color:#fff;box-shadow:0 4px 12px rgba(245,158,11,.3)}
+    .btn-amber:hover{transform:translateY(-1px)}
+    .btn-ghost{background:#F4F6FA;color:var(--t2);border:1.5px solid var(--border2)}
+    .btn-ghost:hover{background:#EAECF4;color:var(--t1)}
+    .btn-outline{background:transparent;color:var(--brand);border:1.5px solid var(--brand)}
+    .btn-outline:hover{background:var(--brand);color:#fff}
+    .btn-outline-red{background:transparent;color:var(--red);border:1.5px solid var(--red)}
+    .btn-outline-red:hover{background:var(--red);color:#fff}
+    .btn-dark{background:var(--ink2);color:#fff}
+    .btn-dark:hover{background:var(--ink3)}
+    .btn-amber{background:linear-gradient(135deg,#FBBF24,#F59E0B);color:#fff}
+    .btn-blue{background:linear-gradient(135deg,#60A5FA,#3B82F6);color:#fff}
+    .btn-slate{background:linear-gradient(135deg,#64748B,#475569);color:#fff}
+
+    /* ── COL 1: CONNECTION ── */
+    .conn-section{margin-bottom:16px;padding-bottom:16px;border-bottom:1px dashed var(--border2)}
+    .conn-section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+    .conn-type-badge{display:inline-flex;align-items:center;gap:5px;font-size:.68rem;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+    .conn-type-badge i{color:var(--brand)}
+    .conn-btns{display:flex;gap:8px;margin-top:10px}
+
+    /* ── COL 2: TABS ── */
+    .tab-strip{display:flex;gap:2px;background:#EAECF4;border-radius:50px;padding:3px;margin-bottom:14px;flex-shrink:0}
+    .tab-btn{flex:1;padding:8px;border-radius:50px;border:none;background:none;font-family:'Outfit',sans-serif;font-size:.8rem;font-weight:600;color:var(--t2);cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px}
+    .tab-btn.active{background:#fff;color:var(--brand);box-shadow:var(--s1)}
+    .tab-pane{display:none}.tab-pane.active{display:block}
+
+    .divider{border:none;border-top:1px dashed var(--border2);margin:14px 0}
+
+    /* toggle */
+    .toggle-wrap{display:flex;align-items:center;gap:10px}
+    .toggle-sw{position:relative;width:38px;height:22px;flex-shrink:0}
+    .toggle-sw input{opacity:0;width:0;height:0;position:absolute}
+    .ttrack{position:absolute;inset:0;background:var(--border2);border-radius:50px;cursor:pointer;transition:background .2s}
+    .ttrack::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .2s}
+    .toggle-sw input:checked+.ttrack{background:var(--brand)}
+    .toggle-sw input:checked+.ttrack::after{transform:translateX(16px)}
+
+    /* quick actions */
+    .qa-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+
+    /* provider cards */
+    .provider-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+    .pcard{border:2px solid var(--border2);border-radius:var(--r);padding:12px 8px;cursor:pointer;text-align:center;transition:all .2s}
+    .pcard:hover,.pcard.selected{border-color:var(--brand);background:var(--brand-sub)}
+    .pcard-icon{font-size:1.5rem;margin-bottom:5px}
+    .pcard-name{font-size:.75rem;font-weight:700;color:var(--t1)}
+    .pcard-desc{font-size:.65rem;color:var(--t3)}
+
+    /* ── COL 3: LOGS ── */
+    .logs-col{display:flex;flex-direction:column;gap:12px;min-height:0}
+    .log-wrap{flex:1;min-height:0;display:flex;flex-direction:column}
+    .log-label{font-size:.72rem;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+    .log-label-actions{margin-left:auto;display:flex;gap:5px}
+    .log-action-btn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.45);font-size:.65rem;font-weight:600;padding:2px 8px;border-radius:4px;cursor:pointer;font-family:'Outfit',sans-serif;transition:all .2s;display:flex;align-items:center;gap:4px}
+    .log-action-btn:hover{background:rgba(255,255,255,.12);color:#fff}
+    .log-action-btn.pinned{background:rgba(251,191,36,.15);border-color:rgba(251,191,36,.3);color:#FBBF24}
+
+    .terminal{background:#0D1117;border-radius:var(--rl);overflow:hidden;border:1px solid rgba(255,255,255,.06);box-shadow:var(--s3);flex:1;display:flex;flex-direction:column;min-height:0}
+    .term-head{background:#161B22;padding:8px 14px;display:flex;align-items:center;gap:6px;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0}
+    .term-head-actions{display:flex;gap:5px;margin-left:auto}
+    .tdots{display:flex;gap:5px}
+    .tdot{width:10px;height:10px;border-radius:50%}
+    .td-r{background:#FF5F57}.td-y{background:#FEBC2E}.td-g{background:#28C840}
+    .term-lbl{font-size:.68rem;font-weight:700;color:rgba(255,255,255,.28);text-transform:uppercase;letter-spacing:1px}
+    .term-clear{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.45);font-size:.65rem;font-weight:600;padding:2px 8px;border-radius:4px;cursor:pointer;font-family:'Outfit',sans-serif;transition:all .2s}
+    .term-clear:hover{background:rgba(239,68,68,.2);border-color:rgba(239,68,68,.4);color:#F87171}
+    .term-copy{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.45);font-size:.65rem;font-weight:600;padding:2px 8px;border-radius:4px;cursor:pointer;font-family:'Outfit',sans-serif;transition:all .2s}
+    .term-copy:hover{background:rgba(59,130,246,.2);border-color:rgba(59,130,246,.4);color:#60A5FA}
+    .term-pin{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.45);font-size:.65rem;font-weight:600;padding:2px 8px;border-radius:4px;cursor:pointer;font-family:'Outfit',sans-serif;transition:all .2s}
+    .term-pin:hover{background:rgba(251,191,36,.15);border-color:rgba(251,191,36,.3);color:#FBBF24}
+    .term-pin.pinned{background:rgba(251,191,36,.15);border-color:rgba(251,191,36,.3);color:#FBBF24}
+    .term-body{
+      flex:1;overflow:auto;padding:12px 16px;
+      font-family:'Consolas','Monaco','Courier New',monospace;font-size:.78rem;line-height:1.55;
+      scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.12) transparent;
+    }
+    .term-body::-webkit-scrollbar{width:6px;height:6px}
+    .term-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:3px}
+    .term-body::-webkit-scrollbar-track{background:transparent}
+    .term-body::-webkit-scrollbar-corner{background:transparent}
+    .term-body pre{white-space:pre-wrap;word-break:break-all;margin:0;padding:0;background:transparent;border:0}
+    /* JSON syntax highlight */
+    .j-key{color:#79C0FF}.j-str{color:#A5D6FF}.j-num{color:#79C0FF}.j-bool{color:#FF7B72}.j-null{color:#8B949E}
+    /* Timestamp */
+    .ts{color:rgba(255,255,255,.25);font-size:.72rem;margin-right:6px;user-select:none}
+
+    /* ── FLASH OVERLAY ── */
+    #flashOverlay{position:fixed;inset:0;z-index:99998;pointer-events:none;opacity:0;transition:opacity .15s}
+    @keyframes flashAnim{0%{opacity:.35}60%{opacity:.15}100%{opacity:0}}
+
+    /* ── CONNECTION CHIP ── */
+    .conn-chip{display:none;align-items:center;gap:7px;padding:5px 12px;border-radius:50px;font-size:.75rem;font-weight:600}
+    .conn-chip.show{display:flex}
+    .conn-chip.tcp{background:rgba(0,192,135,.18);border:1px solid rgba(0,192,135,.4);color:#34D9A8}
+    .conn-chip.com{background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.4);color:#7DB8FF}
+    .conn-chip.offline{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);color:#F87171}
+    .conn-chip i{font-size:.7rem}
+
+    /* ── AMOUNT ERROR ── */
+    .amount-err{display:none;font-size:.7rem;color:var(--red);font-weight:600;margin-top:4px}
+    .amount-err.show{display:block}
+    .iaddon.error{border-color:var(--red);box-shadow:0 0 0 3px rgba(239,68,68,.1)}
+
+
+    /* ── RECEIPT PANEL ── */
+    #receiptViewer{position:fixed;top:0;right:-420px;width:420px;height:100vh;background:#fff;z-index:9999;box-shadow:-8px 0 32px rgba(0,0,0,.12);transition:right .4s cubic-bezier(.19,1,.22,1);display:flex;flex-direction:column;border-left:1px solid var(--border)}
+    #receiptViewer.active{right:0}
+    .rv-head{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+    .rv-title{font-size:.95rem;font-weight:700}.rv-sub{font-size:.72rem;color:var(--t3)}
+    #receiptContent{flex:1;overflow-y:auto;padding:18px 20px;font-size:.83rem}
+    .rv-foot{padding:14px 20px;border-top:1px solid var(--border);flex-shrink:0}
+    .close-rv{width:30px;height:30px;border-radius:7px;border:1px solid var(--border);background:#F4F6FA;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2);font-size:.85rem;transition:all .2s}
+    .close-rv:hover{background:var(--red);color:#fff;border-color:var(--red);transform:rotate(90deg)}
+
+    /* ── DIAL PAD ── */
+    .dial-fab{position:fixed;bottom:20px;right:20px;width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#FF6B00,#FF4D00);border:none;color:#fff;font-size:1.2rem;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 5px 18px var(--brand-glow);z-index:998;transition:all .3s}
+    .dial-fab:hover{transform:scale(1.1) rotate(-10deg)}
+    .dial-fab.hidden{transform:scale(0);opacity:0;pointer-events:none}
+    .dial-pad{position:fixed;bottom:20px;right:20px;width:224px;background:#fff;border:1px solid var(--border2);border-radius:var(--rl);box-shadow:var(--s3);z-index:999;padding:14px;transition:all .3s cubic-bezier(.4,0,.2,1);transform-origin:bottom right}
+    .dial-pad.minimized{transform:scale(0);opacity:0;pointer-events:none}
+    .dial-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:9px;border-bottom:1px solid var(--border)}
+    .dial-title{font-size:.68rem;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.5px}
+    .dial-min{width:22px;height:22px;border:none;background:#F4F6FA;border-radius:6px;cursor:pointer;color:var(--t3);font-size:.75rem;display:flex;align-items:center;justify-content:center;transition:all .2s}
+    .dial-min:hover{background:#EAECF4;color:var(--t1)}
+    .dial-display{background:#F4F6FA;border:2px solid var(--border2);border-radius:var(--r);padding:9px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;transition:all .2s}
+    .dial-display.focus{border-color:var(--brand);background:#fff;box-shadow:0 0 0 3px rgba(255,77,0,.1)}
+    #dialValue{font-size:1.3rem;font-weight:800;color:var(--t1)}
+    .dial-cur{font-size:.68rem;color:var(--t3);font-weight:600}
+    .dial-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+    .dbtn{padding:10px 0;border-radius:7px;border:1px solid var(--border2);background:#F8FAFC;font-size:.95rem;font-weight:700;color:var(--t1);cursor:pointer;transition:all .1s;font-family:'Outfit',sans-serif}
+    .dbtn:hover{background:#EAECF4}
+    .dbtn:active{transform:scale(.93)}
+    .dbtn-back{color:var(--red);background:rgba(239,68,68,.06);border-color:rgba(239,68,68,.2)}
+    .dbtn-set{grid-column:span 3;background:var(--green);color:#fff;border:none;font-size:.72rem;text-transform:uppercase;letter-spacing:1px;padding:10px 0;font-weight:700;border-radius:7px}
+    .dbtn-set:hover{background:#00B37A}
+
+    /* ── TRANSACTION RESULT RECEIPT ── */
+    .txn-result{display:none;margin-top:14px;border-radius:var(--rl);overflow:hidden;border:2px solid var(--border2);background:#2C3347;transition:all .3s}
+    .txn-result.show{display:block;animation:fadeUp .3s ease}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    .txn-result.approved{border-color:var(--green)}
+    .txn-result.declined{border-color:var(--red)}
+
+    .rcp-top{padding:18px 18px 14px;text-align:center;border-bottom:1px dashed rgba(255,255,255,.1)}
+    .rcp-status-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 22px;border-radius:50px;font-size:1rem;font-weight:800;letter-spacing:.5px;margin-bottom:8px}
+    .approved .rcp-status-badge{background:rgba(0,192,135,.12);color:var(--green)}
+    .declined .rcp-status-badge{background:rgba(239,68,68,.1);color:var(--red)}
+    .rcp-type{font-size:.72rem;color:rgba(255,255,255,.4);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-top:4px}
+
+    .rcp-rows{padding:12px 16px}
+    .rcp-row{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.07)}
+    .rcp-row:last-child{border-bottom:none}
+    .rcp-key{font-size:.72rem;font-weight:600;color:rgba(255,255,255,.38);text-transform:uppercase;letter-spacing:.3px}
+    .rcp-val{font-size:.78rem;font-weight:700;color:rgba(255,255,255,.88);text-align:right;max-width:60%;word-break:break-all}
+
+    .rcp-footer{background:rgba(0,0,0,.15);padding:10px 16px;text-align:center;border-top:1px dashed rgba(255,255,255,.1)}
+    .rcp-merchant{font-size:.75rem;font-weight:700;color:rgba(255,255,255,.55)}
+    .rcp-entry{font-size:.68rem;color:rgba(255,255,255,.3);margin-top:2px}
+
+    .rcp-amount{font-size:2.4rem;font-weight:900;color:#fff;letter-spacing:-1.5px;line-height:1}
+    .rcp-amount span{font-size:1rem;font-weight:700;color:rgba(255,255,255,.5);margin-right:5px}
+
+    /* ── DARK MODE ── */
+    body.dark{
+      background:#0D1117;color:#E2E8F0;
+      --bg:#0D1117;--card:#161B22;--border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.11);
+      --t1:#E2E8F0;--t2:#94A3B8;--t3:#64748B;
+    }
+    body.dark .topbar{background:#010409;border-color:rgba(255,255,255,.06)}
+    body.dark .tab-strip{background:rgba(255,255,255,.06)}
+    body.dark .tab-btn.active{background:#21262D;color:var(--brand)}
+    body.dark .finput{background:#21262D;border-color:var(--border2);color:var(--t1)}
+    body.dark .finput:focus{background:#2D333B}
+    body.dark .iaddon{background:#21262D;border-color:var(--border2)}
+    body.dark .iaddon-label{background:#2D333B;border-color:var(--border2)}
+    body.dark .btn-ghost{background:rgba(255,255,255,.06);border-color:var(--border2);color:var(--t2)}
+    body.dark .btn-ghost:hover{background:rgba(255,255,255,.1);color:var(--t1)}
+    body.dark .pcard{border-color:var(--border2)}
+    body.dark .pcard:hover,.dark .pcard.selected{border-color:var(--brand)}
+    body.dark #receiptViewer{background:#161B22;border-color:var(--border2)}
+    body.dark .rv-head,.dark .rv-foot{border-color:var(--border2)}
+    body.dark .dial-pad{background:#161B22;border-color:var(--border2)}
+    body.dark .dial-head{border-color:var(--border2)}
+    body.dark .dial-display{background:#0D1117;border-color:var(--border2)}
+    body.dark .dbtn{background:#21262D;border-color:var(--border2);color:#E2E8F0}
+    body.dark .dbtn:hover{background:#2D333B}
+    body.dark .ttrack{background:var(--border2)}
+
+    /* ── DF TAGS / FULL DETAILS ── */
+    .df-tags-btn{width:100%;margin-top:10px;padding:9px 14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:rgba(255,255,255,.75);font-family:'Outfit',sans-serif;font-size:.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;transition:all .2s}
+    .df-tags-btn:hover{background:rgba(255,77,0,.2);border-color:var(--brand);color:#fff}
+    .df-count{background:var(--brand);color:#fff;font-size:.65rem;font-weight:800;padding:1px 7px;border-radius:50px;letter-spacing:.2px}
+    .debug-badge{background:rgba(251,191,36,.2);color:#FCD34D;border:1px solid rgba(251,191,36,.3)}
+    .df-modal{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:9999}
+    .df-modal.open{display:flex}
+    .df-modal-box{background:var(--card);border:1px solid var(--border2);border-radius:var(--rl);box-shadow:var(--s3);width:min(640px,92vw);max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
+    .df-modal-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;font-size:.9rem;font-weight:700;color:var(--t1);background:rgba(255,77,0,.06)}
+    .df-modal-head i{color:var(--brand);margin-right:7px}
+    .df-close{width:28px;height:28px;border-radius:6px;border:1px solid var(--border2);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--t2);transition:all .2s}
+    .df-close:hover{background:rgba(239,68,68,.1);border-color:var(--red);color:var(--red)}
+    .df-modal-body{overflow-y:auto;padding:14px 18px}
+    .df-table{width:100%;border-collapse:collapse;font-size:.8rem}
+    .df-table thead th{padding:8px 12px;text-align:left;font-size:.7rem;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid var(--border2);background:var(--brand-sub)}
+    .df-table tbody tr:hover{background:var(--brand-sub)}
+    .df-table td{padding:8px 12px;border-bottom:1px solid var(--border);color:var(--t1);vertical-align:top;word-break:break-all}
+    .df-table td:first-child{font-weight:700;color:var(--brand);white-space:nowrap;width:70px}
+    body.dark .df-modal-box{background:var(--card)}
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon" style="background:white;padding:3px;">
+        <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRSsIwUXcC6xZNZThGTh7ellQPsvkTtZzIRgZUG50cSBX4plqlJs1lVx30HNmXPeJpNsc8&usqp=CAU" style="width:26px;height:26px;object-fit:contain;display:block;">
+      </div>
+      <div>
+        <div class="brand-name">GEIDEA ECR</div>
+        <div class="brand-sub">Integration Console</div>
+      </div>
+    </div>
+    <div id="connChip" class="conn-chip" style="margin-bottom:0;margin-left:10px"><i class="fas fa-check-circle"></i><span id="connChipText">Connected</span></div>
+    <div id="wsStatus" style="margin-left:auto">
+      <span class="ws-dot"></span>
+      <span id="statusText">Connecting...</span>
+      <span style="font-size:.65rem;color:rgba(255,255,255,.3);margin-left:2px">WS BRIDGE</span>
+    </div>
+    <button id="debugToggleBtn" class="topbar-btn" onclick="toggleDebugMode()" title="Toggle Debug Mode (port 7000)">
+      <i class="fas fa-bug"></i> <span id="debugLabel">Debug</span>
+    </button>
+    <button id="darkModeToggle" class="topbar-btn"><i class="fas fa-moon"></i></button>
+  </header>
+
+  <!-- 3-COLUMN BODY -->
+  <div class="columns">
+
+    <!-- COL 1: CONNECTION -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="ph-icon phi-brand"><i class="fas fa-plug"></i></div>
+        <div><div class="ph-title">Connection</div><div class="ph-sub">COM &amp; TCP setup</div></div>
+      </div>
+      <div class="panel-body">
+
+        <div class="conn-section">
+          <div class="conn-type-badge"><i class="fas fa-serial-port"></i><i class="fas fa-microchip"></i> COM Port</div>
+          <div class="fg">
+            <label class="flabel">Port Name</label>
+            <input type="text" id="com" class="finput" placeholder="COM3">
+          </div>
+          <div class="conn-btns">
+            <button onclick="handleCOMConnect()" class="btn btn-outline btn-block"><i class="fas fa-plug"></i> Connect COM</button>
+          </div>
+        </div>
+
+        <div class="conn-section">
+          <div class="conn-type-badge"><i class="fas fa-wifi"></i> TCP / IP</div>
+          <div class="fg">
+            <label class="flabel">IP Address</label>
+            <input type="text" id="ipAddress" class="finput" placeholder="192.168.1.2">
+          </div>
+          <div class="fg">
+            <label class="flabel">Port</label>
+            <input type="text" id="port" class="finput" placeholder="6100">
+          </div>
+          <div class="conn-btns">
+            <button onclick="handleTCPConnect()" class="btn btn-brand btn-block"><i class="fas fa-wifi"></i> Connect TCP</button>
+          </div>
+        </div>
+
+        <div class="conn-section" id="disconnectSection" style="display:none">
+          <button onclick="disconnect()" class="btn btn-red btn-block">
+            <i class="fas fa-power-off"></i> Disconnect Terminal
+          </button>
+          <button onclick="cancelTransaction()" class="btn btn-amber btn-block" style="margin-top:8px">
+            <i class="fas fa-ban"></i> Cancel Transaction
+          </button>
+        </div>
+
+        <div class="conn-section">
+          <div class="conn-type-badge"><i class="fas fa-tools"></i> Diagnostics</div>
+          <div class="qa-grid" style="grid-template-columns:1fr 1fr;gap:7px">
+            <button onclick="getMERCHANTId()" class="btn btn-dark btn-sm"><i class="fas fa-store"></i> Merchant</button>
+            <button onclick="getTerminalId()" class="btn btn-dark btn-sm"><i class="fas fa-fingerprint"></i> Terminal</button>
+            <button onclick="Availableport()" class="btn btn-dark btn-sm"><i class="fas fa-search"></i> Ports</button>
+            <button onclick="checkstatus()" class="btn btn-blue btn-sm"><i class="fas fa-heartbeat"></i> Status</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- COL 2: OPERATIONS -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="ph-icon phi-green"><i class="fas fa-receipt"></i></div>
+        <div><div class="ph-title">Transaction Controls</div><div class="ph-sub">Mada &amp; Scan Pay operations</div></div>
+      </div>
+      <div class="panel-body">
+
+        <div class="tab-strip">
+          <button class="tab-btn active" onclick="switchTab('mada')" data-tab="mada">
+            <i class="far fa-credit-card"></i> Mada Operations
+          </button>
+          <button class="tab-btn" onclick="switchTab('scanpay')" data-tab="scanpay">
+            <i class="fas fa-qrcode"></i> Scan &amp; Pay
+          </button>
+        </div>
+
+        <!-- MADA TAB -->
+        <div class="tab-pane active" id="tab-mada">
+
+          <!-- 1. TRANSACTIONS -->
+          <div class="conn-type-badge" style="margin-bottom:10px"><i class="fas fa-credit-card"></i> Transactions</div>
+
+          <div class="fg">
+            <label class="flabel">Amount (SAR)</label>
+            <div class="iaddon">
+              <span class="iaddon-label">SAR</span>
+              <input type="text" id="amount" class="finput" placeholder="000000" onfocus="setActiveInput('amount')" onkeydown="if(event.key==='Enter')initPurchaseTransaction()" style="min-width:0;width:100%;letter-spacing:2px">
+            </div>
+            <div id="amountErr" class="amount-err">Enter a valid amount greater than 0.00</div>
+          </div>
+
+          <div class="input-row">
+            <div class="fg" style="flex:2">
+              <label class="flabel">RRN / Order ID</label>
+              <input type="text" id="rrn" class="finput" placeholder="Reference number">
+            </div>
+            <div class="fg" style="flex:1.3">
+              <label class="flabel">Date (Refund)</label>
+              <input type="date" id="date" class="finput" onchange="formatDateToDDMMYYYY(this)">
+            </div>
+          </div>
+
+          <div class="fg">
+            <label class="flabel">Card Number <span style="color:var(--t3);font-weight:400;text-transform:none">(Refund w/ Card)</span></label>
+            <input type="text" id="cardNumber" class="finput" placeholder="476173******0010" maxlength="19">
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+            <button onclick="initPurchaseTransaction()" class="btn btn-green" style="padding:10px 8px">
+              <i class="fas fa-check-circle"></i> Purchase
+            </button>
+            <button onclick="refund()" class="btn btn-outline-red" style="padding:10px 8px">
+              <i class="fas fa-undo-alt"></i> Refund
+            </button>
+            <button onclick="refundWithCard()" class="btn btn-amber" style="padding:10px 8px">
+              <i class="fas fa-credit-card"></i> Refund w/ Card
+            </button>
+            <button onclick="reversal()" class="btn btn-outline" style="padding:10px 8px">
+              <i class="fas fa-exchange-alt"></i> Reversal
+            </button>
+          </div>
+
+          <hr class="divider">
+
+          <!-- 2. DIAGNOSTICS -->
+          <div class="conn-type-badge" style="margin-bottom:10px"><i class="fas fa-tools"></i> Diagnostics</div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">
+            <div class="toggle-wrap">
+              <label class="toggle-sw">
+                <input type="checkbox" id="refundToggle" onchange="toggleRefundControl()">
+                <span class="ttrack"></span>
+              </label>
+              <span style="font-weight:600;font-size:.82rem">Refund Control</span>
+            </div>
+            <button onclick="repeat()" class="btn btn-ghost btn-sm"><i class="fas fa-redo"></i> Repeat Last</button>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">
+            <div class="toggle-wrap">
+              <label class="toggle-sw">
+                <input type="checkbox" id="printToggle" checked>
+                <span class="ttrack"></span>
+              </label>
+              <span style="font-weight:600;font-size:.82rem">Print Receipt</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- SCAN & PAY TAB -->
+        <div class="tab-pane" id="tab-scanpay">
+          <div class="fg">
+            <label class="flabel">Payment Amount</label>
+            <div class="iaddon">
+              <span class="iaddon-label">SAR</span>
+              <input type="number" id="scanPayAmount" class="finput" placeholder="0.00" step="0.01" onfocus="setActiveInput('scanPayAmount')">
+            </div>
+          </div>
+          <div class="fg" style="margin-top:14px">
+            <label class="flabel">Select Provider</label>
+            <div class="pcard selected" style="text-align:center;border:2px solid var(--brand);background:var(--brand-sub);border-radius:var(--r);padding:14px">
+              <div class="pcard-icon">📱</div>
+              <div class="pcard-name" style="font-size:.85rem">Geidea ECR APP</div>
+              <div class="pcard-desc">Scan &amp; Pay via QR</div>
+            </div>
+            <select id="paymentOption" style="display:none">
+              <option value="scan" selected>Geidea ECR APP</option>
+            </select>
+          </div>
+          <button class="btn btn-brand btn-block" style="padding:12px" onclick="handlePayment()">
+            Generate Payment Request <i class="fas fa-arrow-right"></i>
+          </button>
+        </div>
+
+        <!-- TRANSACTION RESULT RECEIPT -->
+        <div id="txnResult" class="txn-result">
+          <div class="rcp-top">
+            <div class="rcp-status-badge"><i id="txnIcon" class="fas fa-check-circle"></i> <span id="txnStatusText">APPROVED</span></div>
+            <div class="rcp-amount"><span>SAR</span><span id="txnAmount">0.00</span></div>
+            <div class="rcp-type" id="txnType">PURCHASE</div>
+          </div>
+          <div class="rcp-rows">
+            <div class="rcp-row"><span class="rcp-key">Card</span><span class="rcp-val" id="txnCard">—</span></div>
+            <div class="rcp-row"><span class="rcp-key">Scheme</span><span class="rcp-val" id="txnScheme">—</span></div>
+            <div class="rcp-row"><span class="rcp-key">Entry Mode</span><span class="rcp-val" id="txnEntry">—</span></div>
+            <div class="rcp-row"><span class="rcp-key">Auth Code</span><span class="rcp-val" id="txnAuth">—</span></div>
+            <div class="rcp-row"><span class="rcp-key">RRN</span><span class="rcp-val" id="txnRRN">—</span></div>
+            <div class="rcp-row"><span class="rcp-key">STAN</span><span class="rcp-val" id="txnStan">—</span></div>
+            <div class="rcp-row"><span class="rcp-key">Terminal ID</span><span class="rcp-val" id="txnTerminal">—</span></div>
+            <div class="rcp-row"><span class="rcp-key">Date &amp; Time</span><span class="rcp-val" id="txnDate">—</span></div>
+          </div>
+          <div class="rcp-footer">
+            <div class="rcp-merchant" id="txnMerchant">—</div>
+            <div class="rcp-entry" id="txnAddress">—</div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button id="dfTagsBtn" class="df-tags-btn" onclick="openDfModal()" style="display:none;margin-top:0;flex:1">
+              <i class="fas fa-tags"></i> View DF Tags <span id="dfTagsCount" class="df-count"></span>
+            </button>
+            <button id="fullDetailsBtn" class="df-tags-btn" onclick="openDetailsModal()" style="display:none;margin-top:0;flex:1">
+              <i class="fas fa-list-alt"></i> Full Details <span class="df-count debug-badge">DEBUG</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- FULL DETAILS MODAL (debug only) -->
+        <div id="detailsModal" class="df-modal" onclick="if(event.target===this)closeDetailsModal()">
+          <div class="df-modal-box">
+            <div class="df-modal-head">
+              <div><i class="fas fa-list-alt"></i> Full Transaction Details <span class="df-count debug-badge">DEBUG</span></div>
+              <button onclick="closeDetailsModal()" class="df-close"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="df-modal-body">
+              <table class="df-table" id="detailsTable">
+                <thead><tr><th>Field</th><th>Value</th></tr></thead>
+                <tbody id="detailsTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- DF TAGS MODAL -->
+        <div id="dfModal" class="df-modal" onclick="if(event.target===this)closeDfModal()">
+          <div class="df-modal-box">
+            <div class="df-modal-head">
+              <div><i class="fas fa-tags"></i> DF Tags <span id="dfModalCount" class="df-count"></span></div>
+              <button onclick="closeDfModal()" class="df-close"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="df-modal-body">
+              <table class="df-table" id="dfTable">
+                <thead><tr><th>Tag</th><th>Raw Value</th></tr></thead>
+                <tbody id="dfTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- COL 3: LOGS -->
+    <div class="logs-col">
+
+      <div class="log-wrap">
+        <div class="log-label">
+          <i class="fas fa-paper-plane" style="color:var(--green)"></i> Request Log
+        </div>
+        <div class="terminal">
+          <div class="term-head">
+            <div class="tdots"><span class="tdot td-r"></span><span class="tdot td-y"></span><span class="tdot td-g"></span></div>
+            <span class="term-lbl">outgoing</span>
+            <div class="term-head-actions">
+              <button onclick="copyLog('request')" class="term-copy" title="Copy"><i class="fas fa-copy"></i></button>
+              <button onclick="exportLog('request')" class="term-copy" title="Export"><i class="fas fa-download"></i></button>
+              <button id="pinReq" onclick="togglePin('request')" class="term-pin" title="Pin scroll"><i class="fas fa-thumbtack"></i></button>
+              <button onclick="clearRequestLog()" class="term-clear">CLEAR</button>
+            </div>
+          </div>
+          <div class="term-body" id="reqBody">
+            <pre id="request" style="color:#4ADE80">&gt; System Ready...</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="log-wrap">
+        <div class="log-label">
+          <i class="fas fa-inbox" style="color:var(--blue)"></i> Response Log
+        </div>
+        <div class="terminal">
+          <div class="term-head">
+            <div class="tdots"><span class="tdot td-r"></span><span class="tdot td-y"></span><span class="tdot td-g"></span></div>
+            <span class="term-lbl">incoming</span>
+            <div class="term-head-actions">
+              <button onclick="copyLog('response')" class="term-copy" title="Copy"><i class="fas fa-copy"></i></button>
+              <button onclick="exportLog('response')" class="term-copy" title="Export"><i class="fas fa-download"></i></button>
+              <button id="pinRes" onclick="togglePin('response')" class="term-pin" title="Pin scroll"><i class="fas fa-thumbtack"></i></button>
+              <button onclick="clearResponseLog()" class="term-clear">CLEAR</button>
+            </div>
+          </div>
+          <div class="term-body" id="resBody">
+            <pre id="response" style="color:#60A5FA">&gt; Waiting for response...</pre>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div><!-- /columns -->
+
+  <footer class="app-footer">
+    <span class="footer-copy">&copy; 2025&ndash;2026 Geidea. All rights reserved.</span>
+    <span class="footer-sep">|</span>
+    <span class="footer-item"><i class="fas fa-code-branch"></i> v1.1.0</span>
+    <span class="footer-sep">|</span>
+    <span class="footer-item">ECR Integration Console</span>
+    <span class="footer-sep">|</span>
+    <span class="footer-item">WebSocket Bridge <code id="footerWsUrl" style="font-size:.65rem;opacity:.7">ws://localhost:5000</code></span>
+  </footer>
+
+</div><!-- /shell -->
+
+<!-- FLASH OVERLAY -->
+<div id="flashOverlay"></div>
+
+<!-- RECEIPT PANEL -->
+<div id="receiptViewer">
+  <div class="rv-head">
+    <div><div class="rv-title">Receipt Preview</div><div class="rv-sub">Live transaction receipt</div></div>
+    <button class="close-rv" onclick="closeReceipt()"><i class="fas fa-times"></i></button>
+  </div>
+  <div id="receiptContent"></div>
+  <div class="rv-foot">
+    <button class="btn btn-outline btn-block" onclick="alert('Printing...')"><i class="fas fa-print"></i> Print Receipt</button>
+  </div>
+</div>
+
+<!-- DIAL FAB -->
+<button class="dial-fab" onclick="toggleDialPad()" title="Amount Pad"><i class="fas fa-calculator"></i></button>
+
+<!-- DIAL PAD -->
+<div class="dial-pad minimized">
+  <div class="dial-head">
+    <span class="dial-title" id="dialPadTitle">Amount Entry</span>
+    <button class="dial-min" onclick="toggleDialPad()"><i class="fas fa-minus"></i></button>
+  </div>
+  <div class="dial-display">
+    <span id="dialValue">0.00</span>
+    <span class="dial-cur">SAR</span>
+  </div>
+  <div class="dial-grid">
+    <button class="dbtn" onclick="dialInput('1')">1</button>
+    <button class="dbtn" onclick="dialInput('2')">2</button>
+    <button class="dbtn" onclick="dialInput('3')">3</button>
+    <button class="dbtn" onclick="dialInput('4')">4</button>
+    <button class="dbtn" onclick="dialInput('5')">5</button>
+    <button class="dbtn" onclick="dialInput('6')">6</button>
+    <button class="dbtn" onclick="dialInput('7')">7</button>
+    <button class="dbtn" onclick="dialInput('8')">8</button>
+    <button class="dbtn" onclick="dialInput('9')">9</button>
+    <button class="dbtn" onclick="dialInput('.')">.</button>
+    <button class="dbtn" onclick="dialInput('0')">0</button>
+    <button class="dbtn dbtn-back" onclick="dialBackspace()"><i class="fas fa-backspace"></i></button>
+    <button class="dbtn dbtn-set" onclick="dialEnter()">SET AMOUNT</button>
+  </div>
+</div>
+
+<script>
+  // ── Tab Switching ──
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    document.querySelector('[data-tab="' + tab + '"]').classList.add('active');
+  }
+
+  // ── Provider Selection ──
+  function selectProvider(el, value) {
+    document.querySelectorAll('.pcard').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    document.getElementById('paymentOption').value = value;
+  }
+
+  // ── Receipt ──
+  function closeReceipt() { document.getElementById('receiptViewer').classList.remove('active'); }
+  function showReceipt()  { document.getElementById('receiptViewer').classList.add('active'); }
+
+  // ── Timestamp ──
+  function ts() {
+    const n = new Date();
+    const p = v => String(v).padStart(2,'0');
+    return `${p(n.getHours())}:${p(n.getMinutes())}:${p(n.getSeconds())}`;
+  }
+
+  // ── Pin state ──
+  const pinned = { request: false, response: false };
+
+  function togglePin(id) {
+    pinned[id] = !pinned[id];
+    const btn = document.getElementById(id === 'request' ? 'pinReq' : 'pinRes');
+    btn.classList.toggle('pinned', pinned[id]);
+    btn.title = pinned[id] ? 'Unpin scroll' : 'Pin scroll';
+  }
+
+  // ── Copy log ──
+  function copyLog(id) {
+    const text = document.getElementById(id).innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = event.currentTarget;
+      btn.innerHTML = '<i class="fas fa-check"></i>';
+      setTimeout(() => btn.innerHTML = '<i class="fas fa-copy"></i>', 1500);
+    });
+  }
+
+  // ── Export log ──
+  function exportLog(id) {
+    const text = document.getElementById(id).innerText;
+    const blob = new Blob([text], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${id}-log-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.txt`;
+    a.click();
+  }
+
+  // ── Append to log with timestamp + JSON highlight ──
+  function appendToLog(id, message) {
+    const el = document.getElementById(id);
+    const body = el.parentElement;
+    const time = `<span class="ts">[${ts()}]</span>`;
+    el.innerHTML += '\n' + time + highlightJSON(message);
+    if (!pinned[id]) body.scrollTop = body.scrollHeight;
+  }
+
+  // ── JSON Syntax Highlight ──
+  function highlightJSON(text) {
+    if (!text.includes('{') && !text.includes('[')) return text;
+    return text.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, m => {
+      if (/^"/.test(m)) {
+        if (/:$/.test(m)) return `<span class="j-key">${m}</span>`;
+        return `<span class="j-str">${m}</span>`;
+      }
+      if (/true|false/.test(m)) return `<span class="j-bool">${m}</span>`;
+      if (/null/.test(m)) return `<span class="j-null">${m}</span>`;
+      return `<span class="j-num">${m}</span>`;
+    });
+  }
+
+  // ── Flash overlay ──
+  function flashScreen(approved) {
+    const el = document.getElementById('flashOverlay');
+    el.style.background = approved ? 'rgba(0,192,135,1)' : 'rgba(239,68,68,1)';
+    el.style.animation = 'none';
+    el.offsetHeight; // reflow
+    el.style.animation = 'flashAnim .8s ease forwards';
+  }
+
+  // ── Connection chip ──
+  function showConnChip(mode, detail, connected) {
+    const chip = document.getElementById('connChip');
+    if (connected) {
+      chip.className = 'conn-chip show ' + (mode === 'TCP' ? 'tcp' : 'com');
+      chip.querySelector('i').className = mode === 'TCP' ? 'fas fa-wifi' : 'fas fa-microchip';
+      document.getElementById('connChipText').textContent = `${mode}: ${detail}`;
+    } else {
+      chip.className = 'conn-chip show offline';
+      chip.querySelector('i').className = 'fas fa-times-circle';
+      const label = mode === 'TCP' ? `TCP: ${detail}` : `COM: No device`;
+      document.getElementById('connChipText').textContent = label + ' — Disconnected';
+    }
+  }
+
+  // ── Amount validation ──
+  function validateAmount(val) {
+    const err = document.getElementById('amountErr');
+    const wrap = document.querySelector('.iaddon');
+    const ok = val && parseFloat(val) > 0;
+    err.classList.toggle('show', !ok);
+    wrap.classList.toggle('error', !ok);
+    return ok;
+  }
+
+  // ── WebSocket ──
+  let debugMode = false;
+  let wsUrl = "ws://localhost:5000/messages";
+  let socket, reconnectAttempts = 0;
+  const MAX_RECONNECT_ATTEMPTS = 10;
+
+  function toggleDebugMode() {
+    debugMode = !debugMode;
+    wsUrl = debugMode ? "ws://localhost:7000/messages" : "ws://localhost:5000/messages";
+    const btn = document.getElementById('debugToggleBtn');
+    const label = document.getElementById('debugLabel');
+    const footer = document.getElementById('footerWsUrl');
+    btn.classList.toggle('debug-on', debugMode);
+    label.textContent = debugMode ? 'Debug: ON' : 'Debug';
+    if (footer) footer.textContent = wsUrl.replace('/messages', '');
+    if (!debugMode) {
+      const dfBtn2 = document.getElementById('dfTagsBtn');
+      if (dfBtn2) { dfBtn2.style.display = 'none'; closeDfModal(); }
+    }
+    if (socket) { socket.onclose = null; socket.close(); }
+    reconnectAttempts = 0;
+    connectWebSocket();
+  }
+
+  function updateStatus(text, type = "secondary") {
+    document.getElementById("statusText").textContent = text;
+    const dot = document.querySelector("#wsStatus .ws-dot");
+    const disc = document.getElementById("disconnectSection");
+    let color = "#6B7280";
+    if (type === 'success') color = "#00C087";
+    if (type === 'warning') color = "#F59E0B";
+    if (type === 'danger')  color = "#EF4444";
+    dot.style.backgroundColor = color;
+    disc.style.display = type === 'success' ? 'block' : 'none';
+  }
+
+  function connectWebSocket() {
+    updateStatus("Connecting...", "warning");
+    socket = new WebSocket(wsUrl);
+    socket.onopen = () => {
+      updateStatus("Connected", "success");
+      appendToLog("request", "> WebSocket Connected");
+      reconnectAttempts = 0;
+    };
+    socket.onclose = () => {
+      updateStatus("Disconnected", "danger");
+      appendToLog("response", "> WebSocket Disconnected");
+      // keep ECR chip state; only hide if it was never shown
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS)
+        setTimeout(() => { reconnectAttempts++; connectWebSocket(); }, 3000);
+    };
+    socket.onerror = (error) => {
+      updateStatus("Error", "danger");
+      appendToLog("response", "> Error: " + (error.message || 'connection error'));
+      socket.close();
+    };
+    socket.onmessage = (data) => {
+      try {
+        const parsed = JSON.parse(data.data);
+        appendToLog("response", "> Received: " + JSON.stringify(parsed, null, 2));
+        // ECR terminal connect/disconnect events
+        if (parsed.Event === "OnConnect") {
+          const mode = (parsed.ConnectionMode || "TCP").toUpperCase();
+          const detail = parsed.Message || "";
+          showConnChip(mode, detail, true);
+        } else if (parsed.Event === "OnDisConnect") {
+          const mode = (parsed.ConnectionMode || "TCP").toUpperCase();
+          const detail = parsed.Message || "No connection";
+          showConnChip(mode, detail, false);
+        }
+        if (parsed.Receipt && parsed.Receipt.length > 0) {
+          document.getElementById("receiptContent").innerHTML = parsed.Receipt;
+          showReceipt();
+        }
+        if (parsed.EventName === "TERMINAL_RESPONSE" && parsed.JsonResult) {
+          try { showTxnResult(JSON.parse(parsed.JsonResult)); } catch(e) {}
+        }
+      } catch (e) {
+        appendToLog("response", "> Received (raw): " + data.data);
+      }
+    };
+  }
+
+  connectWebSocket();
+
+  function sendData(data) {
+    if (socket.readyState !== WebSocket.OPEN) { alert("WebSocket is not connected."); return; }
+    try { appendToLog("request", "> Sent: " + JSON.stringify(JSON.parse(data), null, 2)); }
+    catch (e) { appendToLog("request", "> Sent (raw): " + data); }
+    socket.send(data);
+  }
+
+  function handleCOMConnect() {
+    const comName = document.querySelector("#com").value || "COM3";
+    showConnChip('COM', comName);
+    sendData(JSON.stringify({ Event: "CONNECTION", Operation: "CONNECT", connectionMode: "COM", comName, braudRate: "38400", dataBits: "8", parity: "none" }));
+  }
+
+  function handleTCPConnect() {
+    const ipAddress = document.querySelector("#ipAddress").value || "192.168.1.34";
+    const port = document.querySelector("#port").value || "6100";
+    showConnChip('TCP', `${ipAddress}:${port}`);
+    sendData(JSON.stringify({ Event: "CONNECTION", Operation: "CONNECT", ConnectionMode: "TCP", ipAddress, port }));
+  }
+
+  function getPrintSettings() {
+    return document.getElementById("printToggle").checked ? "1" : "0";
+  }
+
+  function getMERCHANTId() { sendData(JSON.stringify({ Event: "TRANSACTION", Operation: "GET_MERCHANT_INFO" })); }
+  function getTerminalId() { sendData(JSON.stringify({ Event: "TRANSACTION", Operation: "GET_TERMINAL_ID" })); }
+  function Availableport() { sendData(JSON.stringify({ Event: "TRANSACTION", Operation: "AVAILABLE_TERMINAL_PORTS" })); }
+
+  function initPurchaseTransaction() {
+    const amountVal = document.querySelector("#amount").value;
+    if (!validateAmount(amountVal)) return;
+    sendData(JSON.stringify({ Event: "TRANSACTION", Operation: "PURCHASE", Amount: amountVal, PrintSettings: getPrintSettings(), AppId: "11", ECRNumber: "TT25329548G6" }));
+  }
+
+  function reversal() { sendData(JSON.stringify({ Event: "TRANSACTION", Operation: "REVERSAL", AppId: "11", PrintSettings: getPrintSettings(), ECRNumber: "1234567890123456" })); }
+
+  function refund() {
+    const rrn = document.querySelector("#rrn").value;
+    const dateInput = document.querySelector("#date");
+    const date = dateInput.dataset.formattedDate || dateInput.value.replace(/-/g, "");
+    const amount = document.querySelector("#amount").value;
+    sendData(JSON.stringify({ Event: "TRANSACTION", Operation: "REFUND", Amount: amount, ECRNumber: "1234567890123456", PrintSettings: getPrintSettings(), AppId: "11", RRNNumber: rrn, TransactionDate: date }));
+  }
+
+  function refundWithCard() {
+    const rrn = document.querySelector("#rrn").value;
+    const dateInput = document.querySelector("#date");
+    const date = dateInput.dataset.formattedDate || dateInput.value.replace(/-/g, "");
+    const amount = document.querySelector("#amount").value;
+    const card = document.querySelector("#cardNumber").value.trim();
+    if (!/^\d{12,19}$/.test(card)) { alert('Card number must be between 12 and 19 digits'); return; }
+    sendData(JSON.stringify({ Event: "TRANSACTION", Operation: "REFUND_WITH_CARDNUMBER", Amount: amount, ECRNumber: "1234567890123456", PrintSettings: getPrintSettings(), AppId: "11", RRNNumber: rrn, TransactionDate: date, CardNumber: card }));
+  }
+
+  function repeat() { sendData(JSON.stringify({ Event: "TRANSACTION", Operation: "REPEAT" })); }
+
+  function handlePayment() {
+    const amount = document.querySelector("#scanPayAmount").value || "1.00";
+    const paymentMethod = document.querySelector("#paymentOption").value;
+    const appIds = { scan: "14", tabby: "15", tamara: "16" };
+    if (!appIds[paymentMethod]) { alert("Please select a valid payment option."); return; }
+    sendData(JSON.stringify({ Event: "TRANSACTION", Operation: "PURCHASE", Amount: amount, PrintSettings: getPrintSettings(), AppId: appIds[paymentMethod], ECRNumber: "1234567890123456" }));
+  }
+
+  function toggleRefundControl() {
+    const toggle = document.getElementById("refundToggle").checked;
+    sendData(JSON.stringify({ Event: "CONNECTION", Operation: "SET_REFUND_CONTROL", Menu: toggle ? "1" : "0" }));
+  }
+
+  function checkstatus() { sendData(JSON.stringify({ Event: "TRANSACTION", Operation: "CHECK_STATUS" })); }
+  function disconnect()        { sendData(JSON.stringify({ Event: "CONNECTION", Operation: "DISCONNECT" })); }
+  function cancelTransaction() { sendData(JSON.stringify({ Event: "CONNECTION", Operation: "CANCEL_REQUEST" })); }
+
+  function clearRequestLog()  { document.getElementById("request").innerHTML  = `<span class="ts">[${ts()}]</span> > System Ready...`; }
+  function clearResponseLog() { document.getElementById("response").innerHTML = `<span class="ts">[${ts()}]</span> > Waiting for response...`; }
+
+  // ── Transaction Result ──
+  function showTxnResult(t) {
+    const approved = (t.TransactionResult || t.TransactionResponseEnglish || '').toUpperCase() === 'APPROVED';
+    const box = document.getElementById('txnResult');
+    box.className = 'txn-result show ' + (approved ? 'approved' : 'declined');
+
+    document.getElementById('txnIcon').className        = 'fas ' + (approved ? 'fa-check-circle' : 'fa-times-circle');
+    document.getElementById('txnStatusText').textContent = approved ? 'APPROVED' : 'DECLINED';
+    document.getElementById('txnAmount').textContent     = t.TransactionAmount || '—';
+    document.getElementById('txnType').textContent       = t.TransactionTypeAsReadable || '—';
+    document.getElementById('txnCard').textContent       = t.PrimaryAccountNumber || '—';
+    document.getElementById('txnScheme').textContent     = [t.CardNameEnglish, t.CardCode].filter(Boolean).join(' · ') || t.CardScheme || '—';
+    document.getElementById('txnEntry').textContent      = t.POSEntryMode || '—';
+    document.getElementById('txnAuth').textContent       = t.TransactionAuthCode || '—';
+    document.getElementById('txnRRN').textContent        = t.RetrievalReferenceNumber || '—';
+    document.getElementById('txnStan').textContent       = t.TransactionSTAN || '—';
+    document.getElementById('txnTerminal').textContent   = t.CardAcceptorTerminalId || '—';
+
+    const raw = t.TransactionDateTime || '';
+    document.getElementById('txnDate').textContent = raw.length >= 12
+      ? `${raw.slice(0,2)}/${raw.slice(2,4)}/${raw.slice(4,6)}  ${raw.slice(6,8)}:${raw.slice(8,10)}:${raw.slice(10,12)}`
+      : raw || '—';
+
+    document.getElementById('txnMerchant').textContent = t.MerchantNameEnglish || '—';
+    document.getElementById('txnAddress').textContent  = t.MerchantAddress1English || '—';
+
+    // collect DF tags (exclude DF 01)
+    const dfTagRe = /^DF\s+[0-9A-Fa-f]{2}$/;
+    const receiptKeys = new Set(['HtmlReceiptForCustomer','HtmlReceiptForRetailer']);
+    const dfTags = Object.entries(t).filter(([k]) => dfTagRe.test(k) && k.toUpperCase() !== 'DF 01');
+    const dfBtn = document.getElementById('dfTagsBtn');
+    const countEl = document.getElementById('dfTagsCount');
+    if (dfTags.length && debugMode) {
+      dfBtn.style.display = '';
+      countEl.textContent = dfTags.length;
+      const tbody = document.getElementById('dfTableBody');
+      tbody.innerHTML = dfTags.map(([tag, val]) =>
+        `<tr><td>${tag}</td><td>${val}</td></tr>`
+      ).join('');
+      document.getElementById('dfModalCount').textContent = dfTags.length;
+    } else {
+      dfBtn.style.display = 'none';
+    }
+
+    // full details — always shown
+    const allFields = Object.entries(t).filter(([k]) => !dfTagRe.test(k) && !receiptKeys.has(k));
+    document.getElementById('detailsTableBody').innerHTML = allFields.map(([k, v]) =>
+      `<tr><td>${k}</td><td>${v}</td></tr>`
+    ).join('');
+    document.getElementById('fullDetailsBtn').style.display = '';
+
+    flashScreen(approved);
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function openDfModal() { document.getElementById('dfModal').classList.add('open'); }
+  function closeDfModal() { document.getElementById('dfModal').classList.remove('open'); }
+  function openDetailsModal() { document.getElementById('detailsModal').classList.add('open'); }
+  function closeDetailsModal() { document.getElementById('detailsModal').classList.remove('open'); }
+
+  // ── Dark Mode ──
+  document.getElementById("darkModeToggle").addEventListener("click", function () {
+    document.body.classList.toggle("dark");
+    this.innerHTML = document.body.classList.contains("dark") ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
+  });
+
+  // ── Dial Pad ──
+  function toggleDialPad() {
+    const dp = document.querySelector('.dial-pad'), fab = document.querySelector('.dial-fab');
+    if (dp.classList.contains('minimized')) { dp.classList.remove('minimized'); fab.classList.add('hidden'); }
+    else { dp.classList.add('minimized'); fab.classList.remove('hidden'); }
+  }
+
+  let activeInputId = null, currentDialValue = "";
+
+  function setActiveInput(inputId) {
+    activeInputId = inputId;
+    currentDialValue = document.getElementById(activeInputId).value || "";
+    updateDialDisplay();
+    document.getElementById("dialPadTitle").textContent = inputId === 'amount' ? "Mada Amount" : "Scan & Pay";
+    document.querySelector('.dial-display').classList.add('focus');
+  }
+
+  function dialInput(val) {
+    if (!activeInputId) setActiveInput('amount');
+    if (val === '.' && currentDialValue.includes('.')) return;
+    if (currentDialValue.includes('.') && currentDialValue.split('.')[1].length >= 2) return;
+    if (currentDialValue.length > 8) return;
+    currentDialValue += val;
+    updateDialDisplay();
+    if (activeInputId) document.getElementById(activeInputId).value = currentDialValue;
+  }
+
+  function dialBackspace() {
+    currentDialValue = currentDialValue.slice(0, -1);
+    updateDialDisplay();
+    if (activeInputId) document.getElementById(activeInputId).value = currentDialValue;
+  }
+
+  function updateDialDisplay() { document.getElementById("dialValue").textContent = currentDialValue || "0.00"; }
+
+  function dialEnter() {
+    if (activeInputId) {
+      const input = document.getElementById(activeInputId);
+      if (currentDialValue && !isNaN(currentDialValue)) {
+        input.value = parseFloat(currentDialValue).toFixed(2);
+        currentDialValue = input.value; updateDialDisplay();
+      } else { input.value = ""; currentDialValue = ""; updateDialDisplay(); }
+    }
+    document.querySelector('.dial-display').classList.remove('focus');
+  }
+
+  function formatDateToDDMMYYYY(input) {
+    const dateValue = input.value;
+    if (dateValue) {
+      const [year, month, day] = dateValue.split('-');
+      input.dataset.formattedDate = `${day}${month}${year}`;
+    }
+  }
+</script>
+</body>
+</html>

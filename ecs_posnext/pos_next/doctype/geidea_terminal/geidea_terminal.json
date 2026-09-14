@@ -1,0 +1,191 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:terminal_name",
+ "creation": "2026-09-13 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "terminal_name",
+  "pos_profile",
+  "column_break_head",
+  "is_active",
+  "section_break_connection",
+  "connection_mode",
+  "com_name",
+  "braud_rate",
+  "data_bits",
+  "parity",
+  "column_break_connection",
+  "ip_address",
+  "port",
+  "section_break_service",
+  "service_url",
+  "column_break_service",
+  "app_id",
+  "print_settings"
+ ],
+ "fields": [
+  {
+   "fieldname": "terminal_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Terminal Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "POS Profile",
+   "options": "POS Profile",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "section_break_connection",
+   "fieldtype": "Section Break",
+   "label": "Terminal Connection"
+  },
+  {
+   "default": "TCP",
+   "fieldname": "connection_mode",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Connection Mode",
+   "options": "TCP\nCOM",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.connection_mode=='COM'",
+   "fieldname": "com_name",
+   "fieldtype": "Data",
+   "label": "COM Port",
+   "mandatory_depends_on": "eval:doc.connection_mode=='COM'"
+  },
+  {
+   "default": "38400",
+   "depends_on": "eval:doc.connection_mode=='COM'",
+   "fieldname": "braud_rate",
+   "fieldtype": "Data",
+   "label": "Baud Rate"
+  },
+  {
+   "default": "8",
+   "depends_on": "eval:doc.connection_mode=='COM'",
+   "fieldname": "data_bits",
+   "fieldtype": "Data",
+   "label": "Data Bits"
+  },
+  {
+   "default": "none",
+   "depends_on": "eval:doc.connection_mode=='COM'",
+   "fieldname": "parity",
+   "fieldtype": "Data",
+   "label": "Parity"
+  },
+  {
+   "fieldname": "column_break_connection",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.connection_mode=='TCP'",
+   "description": "LAN IP of the Geidea terminal. Local network only — this does not work over the internet.",
+   "fieldname": "ip_address",
+   "fieldtype": "Data",
+   "label": "Terminal IP Address",
+   "mandatory_depends_on": "eval:doc.connection_mode=='TCP'"
+  },
+  {
+   "default": "6100",
+   "depends_on": "eval:doc.connection_mode=='TCP'",
+   "description": "ECR port on the terminal. Varies by device model — confirm with a Geidea technician.",
+   "fieldname": "port",
+   "fieldtype": "Int",
+   "label": "Terminal Port"
+  },
+  {
+   "fieldname": "section_break_service",
+   "fieldtype": "Section Break",
+   "label": "Web ECR Service"
+  },
+  {
+   "default": "ws://localhost:5000/messages",
+   "description": "WebSocket endpoint of the Geidea Web ECR Windows service running on the cashier PC.",
+   "fieldname": "service_url",
+   "fieldtype": "Data",
+   "label": "Service WebSocket URL",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_service",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "11",
+   "fieldname": "app_id",
+   "fieldtype": "Data",
+   "label": "App Id"
+  },
+  {
+   "default": "1",
+   "description": "1 prints the receipt on the terminal, 0 suppresses it.",
+   "fieldname": "print_settings",
+   "fieldtype": "Select",
+   "label": "Print Settings",
+   "options": "1\n0"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-13 00:00:00",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "Geidea Terminal",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "POSNext Cashier"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

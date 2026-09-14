@@ -48,8 +48,9 @@ export function useInvoice() {
 	const bonusCashbackPercentage = ref(0)
 	// Active selling price list for the cart (defaults to the POS Profile's price list).
 	const activePriceList = ref(null)
-	// Credit-card approval codes captured from the Span/DigitalPay terminal (one per
-	// card transaction) — persisted on the invoice (custom_approval_code[s]).
+	// Credit-card approvals captured from the Geidea terminal, one entry per card
+	// transaction as { approval_code, amount } — persisted on the invoice
+	// (custom_approval_code[s]).
 	const cardApprovalCodes = ref([])
 	// When true, the invoice is paid via Tabby (Paymob QuickLink): kept as a pending
 	// draft and a payment link is returned + SMS'd to the customer.
@@ -1068,10 +1069,13 @@ export function useInvoice() {
 						? JSON.stringify(bundleSelections.value)
 						: undefined,
 					custom_approval_code: cardApprovalCodes.value.length
-						? cardApprovalCodes.value.join(", ")
+						? cardApprovalCodes.value.map((c) => c.approval_code).join(", ")
 						: undefined,
 					custom_approval_codes: cardApprovalCodes.value.length
-						? cardApprovalCodes.value.map((c) => ({ approval_code: c }))
+						? cardApprovalCodes.value.map((c) => ({
+								approval_code: c.approval_code,
+								amount: c.amount,
+							}))
 						: undefined,
 					is_pos: 1,
 					update_stock: 1, // Critical: Ensures stock is updated

@@ -959,7 +959,7 @@
 		@authorized="onDiscountAuthorized"
 	/>
 
-	<!-- Credit card terminal approval (Span/DigitalPay) -->
+	<!-- Credit card terminal approval (Geidea Web ECR) -->
 	<CardApprovalDialog
 		v-model="showCardApproval"
 		:pos-profile="posProfile"
@@ -2578,7 +2578,7 @@ function onDiscountAuthorized() {
 	completePayment()
 }
 
-// ---- Credit card (Span/DigitalPay) approval + Tabby ----
+// ---- Credit card (Geidea Web ECR) approval + Tabby ----
 const showCardApproval = ref(false)
 const cardApproved = ref(false)
 // Whether this POS Profile has an active card terminal. Only then is the
@@ -2633,8 +2633,9 @@ watch(
 	{ deep: true },
 )
 
-function onCardApproved(codes) {
-	cartStore.cardApprovalCodes = codes || []
+// Receives one { approval_code, amount } entry per approved terminal transaction.
+function onCardApproved(approvals) {
+	cartStore.cardApprovalCodes = approvals || []
 	cardApproved.value = true
 	showCardApproval.value = false
 	completePayment()

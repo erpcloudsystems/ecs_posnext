@@ -2010,7 +2010,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		bonusPointsPercentage,
 		bonusCashbackPercentage,
 
-		// Card approval codes (Span/DigitalPay) + Tabby payment flag
+		// Card approvals (Geidea Web ECR) + Tabby payment flag
 		cardApprovalCodes,
 		isTabbyPayment,
 

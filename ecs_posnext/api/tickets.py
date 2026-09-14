@@ -382,7 +382,16 @@ def renew_ticket(
 
 
 def _get_subscription_item_rate(item_code, pos_profile):
-    """Selling price for a membership item; falls back to the item's standard rate."""
+    """Selling price for a membership item, taken from Item Price.
+
+    The POS Profile's selling price list decides which Item Price applies, and
+    the price is the one effective today: rows dated in the future or already
+    expired are skipped, and the newest still-valid row wins (an item commonly
+    carries several Item Price rows with different valid_from dates, so picking
+    one arbitrarily would bill last season's price).
+
+    Falls back to the item's standard rate when the price list has no row.
+    """
     price_list = (
         frappe.db.get_value("POS Profile", pos_profile, "selling_price_list")
         if pos_profile
@@ -390,23 +399,120 @@ def _get_subscription_item_rate(item_code, pos_profile):
     )
     rate = None
     if price_list:
-        rate = frappe.db.get_value(
-            "Item Price", {"item_code": item_code, "price_list": price_list}, "price_list_rate"
+        rows = frappe.db.sql(
+            """
+            SELECT price_list_rate
+            FROM `tabItem Price`
+            WHERE item_code = %(item_code)s
+              AND price_list = %(price_list)s
+              AND selling = 1
+              AND (valid_from IS NULL OR valid_from <= %(today)s)
+              AND (valid_upto IS NULL OR valid_upto >= %(today)s)
+            ORDER BY valid_from DESC, modified DESC
+            LIMIT 1
+            """,
+            {"item_code": item_code, "price_list": price_list, "today": today()},
         )
+        if rows:
+            rate = rows[0][0]
     if rate is None:
         rate = frappe.db.get_value("Item", item_code, "standard_rate") or 0
     return flt(rate)
 
 
+def _create_pos_upgrade_invoice(
+    subscription, item_code, rate, pos_profile, mode_of_payment, pos_opening_shift, ticket_name
+):
+    """Bill an upgrade as a normal paid POS invoice and link it to the subscription.
+
+    The subscription's own invoice path (Daz Yearly Subscription.on_submit →
+    _bg_create_invoice_and_email) is the ONLINE one: no POS Profile, branch
+    hardcoded to Head Office, paid by Paymob. An upgrade sold at the till has to
+    land in the cashier's till instead, so it is billed here with the POS
+    Profile and POS Opening Shift the cashier is working on, and the online
+    invoice is suppressed (skip_invoice_creation flag) by the caller.
+
+    custom_is_wordpress = 1 so the Sales Invoice submit trigger doesn't generate
+    a second set of tickets — the subscription already created them.
+    """
+    pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
+    item = frappe.get_cached_doc("Item", item_code)
+
+    invoice_data = {
+        "doctype": "Sales Invoice",
+        "pos_profile": pos_profile,
+        "customer": subscription.customer,
+        "is_pos": 1,
+        "update_stock": 0,
+        "custom_is_wordpress": 1,
+        "posa_pos_opening_shift": pos_opening_shift,
+        "items": [
+            {
+                "item_code": item_code,
+                "item_name": item.item_name,
+                "qty": 1,
+                "uom": "Ticket",
+                "conversion_factor": 1,
+                "price_list_rate": rate,
+                "rate": rate,
+            }
+        ],
+        "payments": [
+            {
+                "mode_of_payment": mode_of_payment
+                or _default_mode_of_payment(pos_profile_doc),
+                "amount": rate,
+            }
+        ],
+        "remarks": _("Subscription upgrade for ticket {0}").format(ticket_name),
+    }
+    draft = update_invoice(invoice_data)
+    invoice_name = draft.get("name")
+    invoice_data["name"] = invoice_name
+
+    # Collect exactly what the invoice ended up totalling (the POS Profile's tax
+    # template can add exclusive VAT on top of the Item Price), otherwise the
+    # sale submits with an outstanding balance the cashier never sees.
+    grand_total = flt(draft.get("grand_total"))
+    if grand_total:
+        invoice_data["payments"][0]["amount"] = grand_total
+
+    _submit_invoice_sync(invoice=invoice_data, data={})
+
+    frappe.db.set_value(
+        "Daz Yearly Subscription", subscription.name, "sales_invoice", invoice_name
+    )
+    for tname in (
+        frappe.db.get_all("Ticket Chiled", filters={"parent": subscription.name}, pluck="ticket")
+        or []
+    ):
+        frappe.db.set_value(
+            "Ticket", tname, "sales_invoice", invoice_name, update_modified=False
+        )
+    frappe.db.commit()
+
+    return invoice_name
+
+
 @frappe.whitelist()
-def upgrade_ticket_subscription(ticket_name, item_code, pos_profile=None):
+def upgrade_ticket_subscription(
+    ticket_name,
+    item_code,
+    pos_profile=None,
+    mode_of_payment=None,
+    pos_opening_shift=None,
+):
     """Upgrade a subscription ticket to a different membership plan.
 
     Only available for tickets whose item is one of SUBSCRIPTION_ITEM_CODES.
     Creates + submits a "Daz Yearly Subscription" for the ticket's customer
-    with the chosen plan. Submitting it is what actually creates the new
-    Ticket(s) (Daz Yearly Subscription.on_submit) and, in the background,
-    the paid Sales Invoice — this endpoint does not create either directly.
+    with the chosen plan; submitting it is what creates the new Ticket(s)
+    (Daz Yearly Subscription.on_submit).
+
+    Sold from a POS Profile, the upgrade is billed here as a paid POS Sales
+    Invoice carrying that profile and the cashier's POS Opening Shift, priced
+    from the profile's Item Price. Without a POS Profile (online flow) the
+    subscription's own background job creates the Paymob invoice as before.
     """
     if item_code not in SUBSCRIPTION_ITEM_CODES:
         frappe.throw(_("{0} is not a valid subscription plan").format(item_code))
@@ -418,6 +524,7 @@ def upgrade_ticket_subscription(ticket_name, item_code, pos_profile=None):
         frappe.throw(_("This ticket has no customer to upgrade"))
 
     item = frappe.get_cached_doc("Item", item_code)
+    rate = _get_subscription_item_rate(item_code, pos_profile)
     company = frappe.db.get_value("POS Profile", pos_profile, "company") if pos_profile else None
     company = company or frappe.defaults.get_global_default("company")
 
@@ -433,17 +540,34 @@ def upgrade_ticket_subscription(ticket_name, item_code, pos_profile=None):
             "qty": 1,
             "uom": "Ticket",
             "conversion_factor": 1,
-            "rate": _get_subscription_item_rate(item_code, pos_profile),
+            "rate": rate,
         },
     )
     subscription.flags.ignore_permissions = True
+    # Billed at the till below — don't also raise the online Paymob invoice.
+    if pos_profile:
+        subscription.flags.skip_invoice_creation = True
     subscription.insert(ignore_permissions=True)
     subscription.submit()
     frappe.db.commit()
 
     new_ticket = frappe.db.get_value("Ticket Chiled", {"parent": subscription.name}, "ticket")
 
+    invoice_name = None
+    if pos_profile:
+        invoice_name = _create_pos_upgrade_invoice(
+            subscription,
+            item_code,
+            rate,
+            pos_profile,
+            mode_of_payment,
+            pos_opening_shift,
+            ticket_name,
+        )
+
     return {
         "subscription": subscription.name,
         "new_ticket": new_ticket,
+        "invoice": invoice_name,
+        "rate": rate,
     }
