@@ -160,6 +160,9 @@ def get_shift_invoices(pos_profile=None, pos_opening_shift=None, limit=10):
 		limit=limit,
 	)
 
+	from ecs_posnext.api.invoices import add_payment_modes_to_invoices
+	add_payment_modes_to_invoices(invoices)
+
 	return {"pos_opening_shift": shift, "invoices": invoices}
 
 

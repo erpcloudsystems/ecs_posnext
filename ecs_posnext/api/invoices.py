@@ -1614,6 +1614,51 @@ def submit_invoice(invoice=None, data=None):
 # ==========================================
 
 
+def add_payment_modes_to_invoices(invoices):
+	"""Attach a comma-separated payment mode label to invoice list rows."""
+	invoice_names = [invoice.get("name") for invoice in invoices if invoice.get("name")]
+	if not invoice_names:
+		return invoices
+
+	payment_rows = frappe.get_all(
+		"Sales Invoice Payment",
+		filters={"parent": ["in", invoice_names], "amount": ["!=", 0]},
+		fields=["parent", "mode_of_payment", "idx"],
+		order_by="parent asc, idx asc",
+	)
+	modes_by_invoice = {}
+	for row in payment_rows:
+		modes = modes_by_invoice.setdefault(row.parent, [])
+		if row.mode_of_payment and row.mode_of_payment not in modes:
+			modes.append(row.mode_of_payment)
+
+	for invoice in invoices:
+		invoice["mode_of_payment"] = ", ".join(modes_by_invoice.get(invoice.get("name"), []))
+
+	return invoices
+
+
+@frappe.whitelist()
+def get_invoice_payment_modes(invoice_names):
+	"""Return payment mode labels for a page of POS invoice history rows."""
+	if not frappe.has_permission(DOCTYPE_SALES_INVOICE, "read"):
+		frappe.throw(_("You don't have permission to view these invoices"), frappe.PermissionError)
+
+	invoice_names = json.loads(invoice_names) if isinstance(invoice_names, str) else invoice_names
+	if not invoice_names:
+		return {}
+
+	invoice_names = list(dict.fromkeys(invoice_names))[:100]
+	allowed_names = frappe.get_all(
+		DOCTYPE_SALES_INVOICE,
+		filters={"name": ["in", invoice_names], "is_pos": 1},
+		pluck="name",
+	)
+	invoices = [{"name": name} for name in allowed_names]
+	add_payment_modes_to_invoices(invoices)
+	return {invoice["name"]: invoice["mode_of_payment"] for invoice in invoices}
+
+
 def _check_invoice_access(invoice_doc):
 	"""
 	Shared permission check for POS invoice access.

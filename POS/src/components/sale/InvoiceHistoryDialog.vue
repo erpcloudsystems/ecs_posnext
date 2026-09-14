@@ -80,6 +80,12 @@
 									>
 										{{ __(invoice.status) }}
 									</span>
+									<span
+										v-if="invoice.mode_of_payment"
+										class="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-100 text-purple-800"
+									>
+										{{ invoice.mode_of_payment }}
+									</span>
 								</div>
 								<p class="text-xs text-gray-600 text-start">{{ invoice.customer_name }}</p>
 								<p class="text-xs text-gray-500 text-start">{{ formatDateTime(invoice.posting_date, invoice.posting_time) }}</p>
@@ -110,15 +116,19 @@
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
 										</svg>
 									</button>
+									<!-- Labelled rather than an icon: the correction cancels and
+									     re-issues the invoice, so it should not be one unmarked
+									     glyph among the harmless ones. -->
 									<button
 										v-if="canUpdatePaymentMode(invoice)"
 										@click="openPaymentModeModal(invoice)"
-										class="p-1.5 hover:bg-purple-50 rounded transition-colors"
+										class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 active:scale-[0.98] shadow-sm transition-all touch-manipulation"
 										:title="__('Update Mode of Payment')"
 									>
-										<svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h4m-7 4h16a2 2 0 002-2V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2z"/>
 										</svg>
+										<span>{{ __('Update') }}</span>
 									</button>
 									<button
 										v-if="canCreateReturn(invoice)"
@@ -255,6 +265,19 @@ const shiftInvoicesResource = createResource({
 	},
 })
 
+// Administrator history does not come through the shift endpoint, so its
+// payment labels are fetched in one batched request for the visible page.
+const paymentModesResource = createResource({
+	url: "ecs_posnext.api.invoices.get_invoice_payment_modes",
+	auto: false,
+	onSuccess(data) {
+		invoices.value = invoices.value.map((invoice) => ({
+			...invoice,
+			mode_of_payment: data?.[invoice.name] ?? invoice.mode_of_payment ?? "",
+		}))
+	},
+})
+
 // Administrator history: full list across shifts, paginated
 const invoicesResource = createResource({
 	url: "frappe.client.get_list",
@@ -299,6 +322,9 @@ const invoicesResource = createResource({
 
 			hasMore.value = data.length === pageSize.value
 			isLoadingMore.value = false
+			paymentModesResource.fetch({
+				invoice_names: JSON.stringify(newInvoices.map((invoice) => invoice.name)),
+			})
 		}
 	},
 	onError(error) {

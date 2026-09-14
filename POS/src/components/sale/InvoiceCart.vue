@@ -7,7 +7,6 @@
   This component displays the shopping cart in the POS interface, including:
   - Customer selection/search with instant in-memory filtering
   - Cart items list with quantity controls, UOM selection, and pricing
-  - Offers and coupon application buttons
   - Order totals (subtotal, discount, tax, grand total)
   - Checkout action
   - Quick action buttons when cart is empty
@@ -22,12 +21,7 @@
      - Dropdown with search results and "Create New Customer" option
      - Works offline using cached customer data
 
-  2. ACTION BUTTONS SECTION (Offers & Coupons)
-     - "Offers" button - Shows available promotional offers
-     - "Coupon" button - Apply coupon/gift card codes
-     - Badge indicators show count of available/applied offers
-
-  3. CART ITEMS SECTION
+  2. CART ITEMS SECTION
      - Scrollable list of cart items
      - Each item shows: thumbnail, name, badges (free/discount), price, quantity controls
      - Quantity controls: increment/decrement buttons + manual input
@@ -35,14 +29,14 @@
      - Serial item support with edit dialog
      - Empty cart state with quick action buttons
 
-  4. TOTALS SECTION
+  3. TOTALS SECTION
      - Total Quantity
      - Subtotal
      - Discount (highlighted when applied)
      - Tax
      - Grand Total (emphasized)
 
-  5. ACTION BUTTONS
+  4. ACTION BUTTONS
      - Checkout - Proceed to payment
 
   ============================================================================
@@ -63,15 +57,15 @@
 <template>
 	<div class="flex flex-col h-full bg-white">
 		<!-- Header with Customer -->
-		<div class="px-2.5 py-2 border-b border-gray-200 bg-gray-50">
+		<div class="px-2 py-1 border-b border-gray-200 bg-gray-50">
 			<!-- Cart Mode Toggles: Multiple Sales Persons + One Page -->
-			<div class="flex items-center flex-wrap gap-x-4 gap-y-1 mb-2">
+			<div class="flex items-center flex-wrap gap-x-3 gap-y-0.5 mb-1">
 				<!-- Multiple Sales Persons Toggle -->
 				<label class="flex items-center gap-2 cursor-pointer select-none">
 					<input
 						type="checkbox"
 						v-model="multipleSalesPersons"
-						class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+						class="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-1 focus:ring-blue-500 cursor-pointer"
 					/>
 					<span class="text-xs font-medium text-gray-700">
 						{{ __("Multiple Sales Persons") }}
@@ -82,7 +76,7 @@
 					<input
 						type="checkbox"
 						v-model="onePage"
-						class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+						class="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-1 focus:ring-blue-500 cursor-pointer"
 					/>
 					<span class="text-xs font-medium text-gray-700">
 						{{ __("One Page") }}
@@ -95,10 +89,10 @@
 					<!-- Two Cards Layout: Customer Card + Document Type Card -->
 					<div class="flex items-stretch gap-2">
 						<!-- Customer Card -->
-						<div class="flex-1 flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl p-1.5 shadow-sm min-w-0">
+						<div class="flex-1 flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-0.5 shadow-sm min-w-0">
 							<!-- Customer Avatar & Info -->
-							<div class="flex items-center gap-2 min-w-0 flex-1 px-1.5 py-1">
-								<div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+							<div class="flex items-center gap-1.5 min-w-0 flex-1 px-1 py-0.5">
+								<div class="w-7 h-7 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
 									<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
 									</svg>
@@ -118,7 +112,7 @@
 								<button
 									type="button"
 									@click.stop="$emit('edit-customer', customer)"
-									class="w-7 h-7 flex items-center justify-center text-blue-500 hover:bg-blue-50 active:bg-blue-100 rounded-lg transition-colors touch-manipulation"
+									class="w-6 h-6 flex items-center justify-center text-blue-500 hover:bg-blue-50 active:bg-blue-100 rounded-lg transition-colors touch-manipulation"
 									:title="__('Edit customer details')"
 								>
 									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
@@ -128,7 +122,7 @@
 								<button
 									type="button"
 									@click.stop="$emit('create-customer', '')"
-									class="w-7 h-7 flex items-center justify-center text-green-600 hover:bg-green-50 active:bg-green-100 rounded-lg transition-colors touch-manipulation"
+									class="w-6 h-6 flex items-center justify-center text-green-600 hover:bg-green-50 active:bg-green-100 rounded-lg transition-colors touch-manipulation"
 									:title="__('Create new customer')"
 								>
 									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
@@ -138,7 +132,7 @@
 								<button
 									type="button"
 									@click.stop="removeCustomer"
-									class="w-7 h-7 flex items-center justify-center text-red-500 hover:bg-red-50 active:bg-red-100 rounded-lg transition-colors touch-manipulation"
+									class="w-6 h-6 flex items-center justify-center text-red-500 hover:bg-red-50 active:bg-red-100 rounded-lg transition-colors touch-manipulation"
 									:title="__('Remove customer')"
 								>
 									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
@@ -382,8 +376,8 @@
 		</div>
 
 		<!-- Action Buttons Section -->
-		<div v-if="items.length > 0" class="px-2 py-2 border-b border-gray-200 bg-white">
-			<div class="flex items-center justify-between mb-1.5">
+		<div v-if="items.length > 0" class="px-2 py-1 border-b border-gray-200 bg-white">
+			<div class="flex items-center justify-between">
 				<h2 class="text-xs font-bold text-gray-900">{{ __("Cart Items") }}</h2>
 				<div class="flex items-center gap-1">
 					<!-- Clear Cart Button -->
@@ -487,66 +481,6 @@
 				</div>
 			</div>
 
-			<!-- Offers & Coupon Buttons -->
-			<div class="flex gap-2">
-				<!-- View All Offers Button -->
-				<button
-					type="button"
-					@click="$emit('show-offers')"
-					class="relative flex-1 flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 hover:border-green-400 hover:from-green-100 hover:to-emerald-100 hover:shadow-sm transition-all min-w-0 touch-manipulation active:scale-[0.98]"
-					:aria-label="__('View all available offers')"
-				>
-					<svg
-						class="w-3.5 h-3.5 text-green-600 flex-shrink-0"
-						fill="none"
-						stroke="currentColor"
-						viewBox="0 0 24 24"
-						stroke-width="2"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-						/>
-					</svg>
-					<span class="text-[11px] font-bold text-green-700">{{ __("Offers") }}</span>
-					<!-- Badge shows ONLY applied offers count - NOT eligible/pending offers -->
-					<!-- This prevents confusion where offers show as "applied" before backend validation -->
-					<span
-						v-if="appliedOfferCount > 0"
-						class="bg-green-600 text-white text-[9px] font-bold rounded-full px-1.5 py-0.5 flex-shrink-0 min-w-[16px] text-center"
-					>
-						{{ appliedOfferCount }}
-					</span>
-				</button>
-
-				<!-- Enter Coupon Code Button -->
-				<button
-					type="button"
-					@click="$emit('apply-coupon')"
-					class="relative flex-1 flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-gradient-to-r from-purple-50 to-violet-50 border border-purple-200 hover:border-purple-400 hover:from-purple-100 hover:to-violet-100 hover:shadow-sm transition-all min-w-0 touch-manipulation active:scale-[0.98]"
-					:aria-label="__('Apply coupon code')"
-				>
-					<svg
-						class="w-3.5 h-3.5 text-purple-600 flex-shrink-0"
-						fill="currentColor"
-						viewBox="0 0 20 20"
-					>
-						<path
-							fill-rule="evenodd"
-							d="M4 2a2 2 0 00-2 2v11a3 3 0 106 0V4a2 2 0 00-2-2H4zm1 14a1 1 0 100-2 1 1 0 000 2zm5-1.757l4.9-4.9a2 2 0 000-2.828L13.485 5.1a2 2 0 00-2.828 0L10 5.757v8.486zM16 18H9.071l6-6H16a2 2 0 012 2v2a2 2 0 01-2 2z"
-							clip-rule="evenodd"
-						/>
-					</svg>
-					<span class="text-[11px] font-bold text-purple-700">{{ __("Coupon") }}</span>
-					<span
-						v-if="availableGiftCards.length > 0"
-						class="bg-purple-600 text-white text-[9px] font-bold rounded-full px-1.5 py-0.5 flex-shrink-0 min-w-[16px] text-center"
-					>
-						{{ availableGiftCards.length }}
-					</span>
-				</button>
-			</div>
 		</div>
 
 		<!-- Cart Items -->
@@ -1320,13 +1254,11 @@ import { isAdministrator } from "@/data/session";
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "@/utils/currency";
 import { useFormatters } from "@/composables/useFormatters";
 import { useCartSort } from "@/composables/useCartSort";
-import { isOffline } from "@/utils/offline";
 import { offlineWorker } from "@/utils/offline/workerClient";
 import { logger } from "@/utils/logger";
 import { FeatherIcon } from "frappe-ui";
 
 const log = logger.create("InvoiceCart");
-import { createResource } from "frappe-ui";
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue";
 import EditItemDialog from "./EditItemDialog.vue";
 
@@ -1496,7 +1428,6 @@ const customerSearchFocused = ref(false); // Track if search input is focused
 const allCustomers = computed(() => customerSearchStore.allCustomers);
 const customersLoaded = computed(() => customerSearchStore.allCustomers.length > 0);
 const selectedIndex = ref(-1); // Keyboard navigation index for search results
-const availableGiftCards = ref([]); // Available gift cards for current customer
 const previousCustomer = ref(null); // Store previous customer for restore on blur
 
 // Edit item dialog state
@@ -1536,57 +1467,10 @@ if (props.posProfile) {
 }
 
 /**
- * Gift Cards Resource
- *
- * Fetches active coupon codes and gift cards for the selected customer.
- * - Only fetches when a customer is selected and online
- * - Reloads when customer changes (via watcher)
- * - Used for the "Coupon" button badge count
- *
- * @endpoint ecs_posnext.api.offers.get_active_coupons
- */
-const giftCardsResource = createResource({
-	url: "ecs_posnext.api.offers.get_active_coupons",
-	makeParams() {
-		return {
-			customer: props.customer?.name || props.customer,
-			company: props.posProfile, // Will get company from profile
-		};
-	},
-	auto: false,
-	onSuccess(data) {
-		availableGiftCards.value = data?.message || data || [];
-	},
-});
-
-/**
- * Watch for customer changes to load their gift cards.
- * Reloads gift cards resource when customer is selected (and online).
- * Clears gift cards when customer is removed or offline.
- */
-watch(
-	() => props.customer,
-	(newCustomer) => {
-		if (newCustomer && props.posProfile && !isOffline()) {
-			giftCardsResource.reload();
-		} else {
-			availableGiftCards.value = [];
-		}
-	}
-);
-
-/**
  * ============================================================================
  * COMPUTED PROPERTIES
  * ============================================================================
  */
-
-/**
- * Count of currently applied promotional offers.
- * Used for the badge on the "Offers" button.
- * @returns {Number} Count of applied offers
- */
-const appliedOfferCount = computed(() => (props.appliedOffers || []).length);
 
 /**
  * Pre-computed customer lookup map for O(1) access by ID.
