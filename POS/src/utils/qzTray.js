@@ -798,7 +798,7 @@ export function saveDrawerPin(pin) {
  * above 0x7F, and any text encoding on the way to the printer would mangle them.
  */
 function drawerKickCommand(pin) {
-	return `1B 70 ${pin === 5 ? "01" : "00"} 19 FA`
+	return `1B70${pin === 5 ? "01" : "00"}19FA`
 }
 
 /**
