@@ -610,6 +610,12 @@ export function isVirtualPrinter(name) {
 	return VIRTUAL_PRINTER_PATTERNS.some((pattern) => lower.includes(pattern))
 }
 
+// Cache the auto-detected printer in memory so we don't query the OS printer spooler
+// on every sale. QZ Tray processes websocket messages serially, so querying for
+// the default printer while a previous receipt is still printing will block and
+// cause severe, alternating delays.
+let _autoDetectedPrinter = null
+
 /**
  * Work out which physical printer to use without asking the cashier anything.
  *
@@ -628,7 +634,15 @@ export function isVirtualPrinter(name) {
  */
 export async function resolvePrinter() {
 	const saved = getSavedPrinterName()
-	if (saved) return saved
+	if (saved) {
+		// If they explicitly choose a new printer in settings, invalidate our cache
+		_autoDetectedPrinter = null
+		return saved
+	}
+
+	if (_autoDetectedPrinter) {
+		return _autoDetectedPrinter
+	}
 
 	if (!qz.websocket.isActive()) {
 		const ok = await connect()
@@ -639,6 +653,7 @@ export async function resolvePrinter() {
 		const defaultPrinter = await qz.printers.getDefault()
 		if (defaultPrinter && !isVirtualPrinter(defaultPrinter)) {
 			log.info(`Using OS default printer "${defaultPrinter}"`)
+			_autoDetectedPrinter = defaultPrinter
 			return defaultPrinter
 		}
 		if (defaultPrinter) {
@@ -655,6 +670,7 @@ export async function resolvePrinter() {
 		log.info(
 			`No physical default printer, using first available "${physical[0]}"`,
 		)
+		_autoDetectedPrinter = physical[0]
 		return physical[0]
 	}
 
