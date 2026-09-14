@@ -11,7 +11,7 @@
 			<div
 				:class="[
 					'grid items-stretch',
-					inline ? 'grid-cols-1 gap-1.5' : 'grid-cols-1 lg:grid-cols-5',
+					inline ? 'grid-cols-1 gap-0.5' : 'grid-cols-1 lg:grid-cols-5',
 					inline ? '' : dynamicGap,
 					isMobileView ? '' : 'overflow-hidden'
 				]"
@@ -22,7 +22,7 @@
 					:class="[
 						'flex flex-col min-h-0',
 						inline ? '' : 'lg:col-span-2',
-						isSmallMobile ? 'gap-1' : 'gap-1.5',
+						inline ? 'gap-0.5' : isSmallMobile ? 'gap-1' : 'gap-1.5',
 						isMobileView ? 'overflow-visible' : 'overflow-hidden'
 					]"
 					:style="{ maxHeight: isMobileView ? 'none' : dynamicLeftColumnHeight }"
@@ -153,7 +153,7 @@
 									@change="handleAdditionalDiscountChange"
 									:class="[
 										'font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer',
-										inline ? 'w-[76px] h-8 px-2 text-xs flex-shrink-0' : 'w-full h-9 px-3 text-sm'
+										inline ? 'w-[76px] h-7 px-2 text-xs flex-shrink-0' : 'w-full h-9 px-3 text-sm'
 									]"
 								>
 									<option v-for="pct in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]" :key="pct" :value="pct">{{ pct }}%</option>
@@ -187,7 +187,7 @@
 								<!-- Paid (Left Half) -->
 								<div :class="[
 										'bg-blue-50',
-										inline ? 'flex items-center justify-center gap-1.5 px-2 py-0.5' : 'text-center',
+										inline ? 'flex items-center justify-center gap-1.5 px-2' : 'text-center',
 										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
 									]">
 									<div :class="['font-medium uppercase tracking-wide', 'text-gray-500', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Paid') }}</div>
@@ -196,7 +196,7 @@
 								<!-- Remaining / Change (Right Half) -->
 								<div v-if="remainingAmount > 0 && !applyWriteOff" :class="[
 										'bg-orange-50',
-										inline ? 'flex items-center justify-center gap-1.5 px-2 py-0.5' : 'text-center',
+										inline ? 'flex items-center justify-center gap-1.5 px-2' : 'text-center',
 										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
 									]">
 									<div :class="['font-medium uppercase tracking-wide', 'text-orange-600', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Remaining') }}</div>
@@ -205,7 +205,7 @@
 								<!-- Write-off Applied -->
 								<div v-else-if="applyWriteOff && canWriteOff" :class="[
 										'bg-purple-50',
-										inline ? 'flex items-center justify-center gap-1.5 px-2 py-0.5' : 'text-center',
+										inline ? 'flex items-center justify-center gap-1.5 px-2' : 'text-center',
 										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
 									]">
 									<div :class="['font-medium uppercase tracking-wide', 'text-purple-600', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Write Off') }}</div>
@@ -213,7 +213,7 @@
 								</div>
 								<div v-else-if="changeAmount > 0 && allowsOverpayment" :class="[
 										'bg-green-50',
-										inline ? 'flex items-center justify-center gap-1.5 px-2 py-0.5' : 'text-center',
+										inline ? 'flex items-center justify-center gap-1.5 px-2' : 'text-center',
 										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
 									]">
 									<div :class="['font-medium uppercase tracking-wide', 'text-green-600', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Change Due') }}</div>
@@ -222,7 +222,7 @@
 								<!-- Exact Amount Warning (when overpayment not allowed) -->
 								<div v-else-if="changeAmount > 0 && !allowsOverpayment" :class="[
 										'bg-red-50',
-										inline ? 'flex items-center justify-center gap-1.5 px-2 py-0.5' : 'text-center',
+										inline ? 'flex items-center justify-center gap-1.5 px-2' : 'text-center',
 										inline ? '' : isCompactMode ? 'p-2' : 'p-3'
 									]">
 									<div :class="['font-medium uppercase tracking-wide', 'text-red-600', inline ? 'text-[10px]' : 'text-xs mb-1']">{{ __('Overpayment') }}</div>
@@ -662,7 +662,7 @@
 					</div>
 
 					<!-- Payment Methods -->
-					<div :class="isSmallMobile ? 'mb-1' : 'mb-1.5 lg:mb-3'">
+					<div :class="inline ? 'mb-0.5' : isSmallMobile ? 'mb-1' : 'mb-1.5 lg:mb-3'">
 						<div :class="['flex items-center justify-between', isSmallMobile ? 'mb-0.5' : 'mb-1 lg:mb-2']">
 							<div :class="['text-start font-semibold text-gray-500 uppercase tracking-wide', isSmallMobile ? 'text-[10px]' : 'text-xs']">{{ __('Payment Method') }}</div>
 						</div>
@@ -682,7 +682,7 @@
 									:class="[
 										'inline-flex items-center rounded-lg border-2 transition-all font-medium select-none touch-manipulation',
 										inline
-											? 'gap-1 px-2 h-9 text-xs'
+											? 'gap-1 px-2 h-8 text-xs'
 											: isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
 										lastSelectedMethod?.mode_of_payment === method.mode_of_payment
 											? isWalletPaymentMethod(method.mode_of_payment)
@@ -731,7 +731,7 @@
 									:class="[
 										'inline-flex items-center rounded-lg border-2 transition-all font-medium',
 										inline
-											? 'gap-1 px-2 h-9 text-xs'
+											? 'gap-1 px-2 h-8 text-xs'
 											: isSmallMobile ? 'gap-0.5 px-1.5 h-7 text-[10px]' : 'gap-1 lg:gap-2 px-2.5 lg:px-4 h-8 text-xs lg:h-11 lg:text-sm',
 										remainingAmount === 0 || remainingAvailableCredit === 0 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
 										getMethodTotal('Customer Credit') > 0
@@ -1151,7 +1151,7 @@ const isSmallMobile = computed(() => props.inline || viewportIsSmall.value)
 // Pay / Complete buttons stay touch-sized inline, just shorter than the dialog's
 const mobileButtonSize = computed(() =>
 	props.inline
-		? { height: "h-10", text: "text-xs", icon: "w-4 h-4", gap: "gap-1.5" }
+		? { height: "h-9", text: "text-xs", icon: "w-4 h-4", gap: "gap-1.5" }
 		: viewportMobileButtonSize.value,
 )
 

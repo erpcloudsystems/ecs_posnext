@@ -39,14 +39,20 @@ def apply_tax_inclusive(doc):
 		return
 
 	try:
-		# Get POS Settings for this profile
-		pos_settings = frappe.db.get_value(
-			"POS Settings",
-			{"pos_profile": doc.pos_profile},
-			["tax_inclusive"],
-			as_dict=True
-		)
-		tax_inclusive = pos_settings.get("tax_inclusive", 0) if pos_settings else 0
+		# Try to use request-level cached POS context if available
+		cache_attr = "_ecs_pos_ctx_" + str(doc.pos_profile).replace(" ", "_").replace("-", "_")
+		ctx = getattr(frappe.local, cache_attr, {})
+		if "pos_settings" in ctx:
+			pos_settings = ctx.get("pos_settings")
+		else:
+			# Get POS Settings for this profile
+			pos_settings = frappe.db.get_value(
+				"POS Settings",
+				{"pos_profile": doc.pos_profile},
+				["tax_inclusive"],
+				as_dict=True
+			)
+		tax_inclusive = cint(pos_settings.get("tax_inclusive")) if pos_settings else 0
 	except Exception:
 		tax_inclusive = 0
 
@@ -90,13 +96,19 @@ def auto_assign_loyalty_program_on_invoice(doc):
 	if customer_loyalty:
 		return
 
-	# Get POS Settings
-	pos_settings = frappe.db.get_value(
-		"POS Settings",
-		{"pos_profile": doc.pos_profile},
-		["enable_loyalty_program", "default_loyalty_program"],
-		as_dict=True
-	)
+	# Try to use request-level cached POS context if available
+	cache_attr = "_ecs_pos_ctx_" + str(doc.pos_profile).replace(" ", "_").replace("-", "_")
+	ctx = getattr(frappe.local, cache_attr, {})
+	if "pos_settings" in ctx:
+		pos_settings = ctx.get("pos_settings")
+	else:
+		# Get POS Settings
+		pos_settings = frappe.db.get_value(
+			"POS Settings",
+			{"pos_profile": doc.pos_profile},
+			["enable_loyalty_program", "default_loyalty_program"],
+			as_dict=True
+		)
 
 	if not pos_settings:
 		return

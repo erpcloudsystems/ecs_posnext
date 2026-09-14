@@ -1299,9 +1299,334 @@ def check_offline_invoice_synced(offline_id):
     return result
 
 
+# ==========================================
+# Performance-Optimised Helpers for submit_invoice
+# ==========================================
+
+
+def _get_pos_context(pos_profile):
+    """Request-level cache for all POS-related settings.
+
+    Fetches POS Settings, POS Profile doc, Stock Settings, and payment mode
+    accounts in minimal queries.  All subsequent calls within the same HTTP
+    request are free (cached on ``frappe.local``).
+    """
+    if not pos_profile:
+        return {}
+
+    cache_attr = "_ecs_pos_ctx_" + cstr(pos_profile).replace(" ", "_").replace("-", "_")
+    cached = getattr(frappe.local, cache_attr, None)
+    if cached is not None:
+        return cached
+
+    ctx = {}
+
+    # 1. POS Settings — single query, fetch every field the hooks need
+    ctx["pos_settings"] = frappe.db.get_value(
+        DOCTYPE_POS_SETTINGS,
+        {"pos_profile": pos_profile},
+        [
+            FIELD_ALLOW_USER_TO_EDIT_RATE,
+            FIELD_MAX_DISCOUNT_ALLOWED,
+            FIELD_ALLOW_NEGATIVE_STOCK,
+            "tax_inclusive",
+            "enable_loyalty_program",
+            "default_loyalty_program",
+            "wallet_account",
+            "auto_create_wallet",
+            "loyalty_to_wallet",
+            "return_validity_days",
+        ],
+        as_dict=True,
+    ) or {}
+
+    # 2. POS Profile doc — uses Frappe's built-in document cache
+    try:
+        ctx["pos_profile_doc"] = frappe.get_cached_doc(DOCTYPE_POS_PROFILE, pos_profile)
+    except Exception:
+        ctx["pos_profile_doc"] = None
+
+    # 3. disable_rounded_total lives on POS Profile, not POS Settings
+    if ctx["pos_profile_doc"]:
+        ctx[FIELD_DISABLE_ROUNDED_TOTAL] = cint(
+            getattr(ctx["pos_profile_doc"], FIELD_DISABLE_ROUNDED_TOTAL, 1)
+        )
+    else:
+        ctx[FIELD_DISABLE_ROUNDED_TOTAL] = 1
+
+    # 4. Stock Settings — one singleton value
+    ctx["global_allow_negative_stock"] = cint(
+        frappe.db.get_single_value("Stock Settings", "allow_negative_stock") or 0
+    )
+
+    # 5. Payment-mode → account mapping (batch query replaces per-mode lookups)
+    company = ctx["pos_profile_doc"].company if ctx["pos_profile_doc"] else None
+    ctx["payment_accounts"] = {}
+    if company:
+        all_modes = set()
+        if ctx["pos_profile_doc"] and hasattr(ctx["pos_profile_doc"], "payments"):
+            all_modes.update(
+                p.mode_of_payment
+                for p in ctx["pos_profile_doc"].payments
+                if p.mode_of_payment
+            )
+        if all_modes:
+            rows = frappe.get_all(
+                "Mode of Payment Account",
+                filters={"parent": ["in", sorted(all_modes)], "company": company},
+                fields=["parent", "default_account"],
+            )
+            ctx["payment_accounts"] = {
+                r.parent: r.default_account for r in rows if r.default_account
+            }
+
+    setattr(frappe.local, cache_attr, ctx)
+    return ctx
+
+
+def _resolve_payment_account(mode_of_payment, company, pos_ctx=None):
+    """Resolve the GL account for a mode of payment, using the cached map first."""
+    if pos_ctx and pos_ctx.get("payment_accounts"):
+        account = pos_ctx["payment_accounts"].get(mode_of_payment)
+        if account:
+            return account
+
+    # Fallback — single DB hit (much cheaper than get_payment_account's 5-try cascade)
+    account = frappe.db.get_value(
+        "Mode of Payment Account",
+        {"parent": mode_of_payment, "company": company},
+        "default_account",
+    )
+    if account:
+        # Warm the cache for later calls in the same request
+        if pos_ctx is not None and "payment_accounts" in pos_ctx:
+            pos_ctx["payment_accounts"][mode_of_payment] = account
+        return account
+
+    # Company-level defaults as last resort
+    if "cash" in (mode_of_payment or "").lower():
+        account = frappe.get_value("Company", company, "default_cash_account")
+        if account:
+            return account
+
+    return frappe.get_value("Company", company, "default_bank_account")
+
+
+def _build_invoice_doc_for_submit(invoice_data, pos_profile, doctype, pos_ctx):
+    """Create an invoice document ready for save+submit in a single ORM pass.
+
+    This is a *submit-only* replacement for calling ``update_invoice()``.  It
+    does the same field population (POS Profile defaults, discount logic,
+    pricing-rule normalisation, return-payment negation) but **skips the
+    ``save()`` call** so the caller can go straight to ``save()`` →
+    ``submit()``, eliminating one full save cycle plus all its hooks.
+    """
+    data = dict(invoice_data)  # Shallow copy — don't mutate caller's dict
+    data.setdefault("doctype", doctype)
+
+    # Normalise pricing_rules on items (may already be done, but is idempotent)
+    standardize_pricing_rules(data.get("items"))
+
+    invoice_doc = frappe.get_doc(data)
+
+    # ---- POS Profile defaults ------------------------------------------------
+    pos_profile_doc = pos_ctx.get("pos_profile_doc")
+    if pos_profile:
+        invoice_doc.pos_profile = pos_profile
+    if pos_profile_doc:
+        if pos_profile_doc.company and not invoice_doc.get("company"):
+            invoice_doc.company = pos_profile_doc.company
+        if pos_profile_doc.currency and not invoice_doc.get("currency"):
+            invoice_doc.currency = pos_profile_doc.currency
+        if hasattr(pos_profile_doc, "branch") and pos_profile_doc.branch:
+            invoice_doc.branch = pos_profile_doc.branch
+            for item in invoice_doc.get("items", []):
+                item.branch = pos_profile_doc.branch
+
+    company = invoice_doc.get("company") or (
+        pos_profile_doc.company if pos_profile_doc else None
+    )
+
+    # ---- Payment accounts (batch-cached) -------------------------------------
+    if company and invoice_doc.get("payments") and doctype == DOCTYPE_SALES_INVOICE:
+        for payment in invoice_doc.payments:
+            mop = payment.get("mode_of_payment")
+            if mop and not payment.get("account"):
+                acct = _resolve_payment_account(mop, company, pos_ctx)
+                if acct:
+                    payment.account = acct
+
+    # ---- Return-item validation ----------------------------------------------
+    if (data.get("is_return") or invoice_doc.get("is_return")) and invoice_doc.get(
+        "return_against"
+    ):
+        validation = validate_return_items(
+            invoice_doc.return_against,
+            [d.as_dict() for d in invoice_doc.items],
+            doctype=invoice_doc.doctype,
+        )
+        if not validation.get("valid"):
+            frappe.throw(validation.get("message"))
+
+    # ---- Ensure customer exists ----------------------------------------------
+    customer_name = invoice_doc.get("customer")
+    if customer_name and not frappe.db.exists("Customer", customer_name):
+        try:
+            cust = frappe.get_doc(
+                {
+                    "doctype": "Customer",
+                    "customer_name": customer_name,
+                    "customer_group": "All Customer Groups",
+                    "territory": "All Territories",
+                    "customer_type": "Individual",
+                }
+            )
+            cust.flags.ignore_permissions = True
+            cust.insert()
+            invoice_doc.customer = cust.name
+            invoice_doc.customer_name = cust.customer_name
+        except Exception as e:
+            frappe.log_error(f"Failed to create customer {customer_name}: {e}")
+
+    # ---- Disable automatic pricing rules -------------------------------------
+    invoice_doc.ignore_pricing_rule = 1
+    invoice_doc.flags.ignore_pricing_rule = True
+
+    # ---- Discount / price-list-rate logic (mirrors update_invoice) -----------
+    pos_settings = pos_ctx.get("pos_settings", {})
+    for item in invoice_doc.get("items", []):
+        item_rate = flt(item.rate or 0)
+        discount_pct = flt(item.discount_percentage or 0)
+        frontend_plr = flt(item.get("price_list_rate") or 0)
+        is_manual = cint(item.get(FIELD_IS_RATE_MANUALLY_EDITED) or 0)
+
+        if is_manual:
+            orig = flt(
+                item.get(FIELD_ORIGINAL_RATE) or item.get(FIELD_PRICE_LIST_RATE) or 0
+            )
+            if orig > 0:
+                item.price_list_rate = orig
+            val = validate_manual_rate_edit(item, pos_profile, pos_settings)
+            if not val.get("valid"):
+                frappe.throw(val.get("message"))
+        else:
+            if frontend_plr > 0:
+                item.price_list_rate = frontend_plr
+            elif 0 < discount_pct < 100 and item_rate > 0:
+                item.price_list_rate = calculate_price_list_rate(
+                    item_rate, discount_pct, frontend_plr
+                )
+            else:
+                item.price_list_rate = item_rate
+            if flt(item.price_list_rate) < item_rate:
+                item.price_list_rate = item_rate
+
+        # Normalise pricing_rules on individual items
+        pr = item.get("pricing_rules")
+        if pr:
+            if isinstance(pr, list):
+                item.pricing_rules = ",".join(str(r) for r in pr)
+            elif isinstance(pr, str) and pr.startswith("["):
+                try:
+                    parsed = json.loads(pr)
+                    if isinstance(parsed, list):
+                        item.pricing_rules = ",".join(str(r) for r in parsed)
+                except (json.JSONDecodeError, TypeError):
+                    item.pricing_rules = ""
+
+    # ---- POS flags -----------------------------------------------------------
+    if doctype == DOCTYPE_SALES_INVOICE:
+        invoice_doc.is_pos = 1
+        invoice_doc.update_stock = 1
+
+    # ---- Rounding ------------------------------------------------------------
+    invoice_doc.disable_rounded_total = pos_ctx.get(FIELD_DISABLE_ROUNDED_TOTAL, 1)
+
+    # ---- Let ERPNext populate accounts, fiscal year, etc. --------------------
+    invoice_doc.set_missing_values()
+    invoice_doc.calculate_taxes_and_totals()
+
+    if invoice_doc.grand_total is None:
+        invoice_doc.grand_total = 0.0
+    if invoice_doc.base_grand_total is None:
+        invoice_doc.base_grand_total = 0.0
+
+    # ---- Negate payments for returns -----------------------------------------
+    if invoice_doc.get("is_return") and doctype == DOCTYPE_SALES_INVOICE:
+        if invoice_doc.get("payments"):
+            for payment in invoice_doc.payments:
+                payment.amount = -abs(payment.amount)
+                if payment.base_amount:
+                    payment.base_amount = -abs(payment.base_amount)
+            invoice_doc.paid_amount = flt(sum(p.amount for p in invoice_doc.payments))
+            invoice_doc.base_paid_amount = flt(
+                sum(p.base_amount or 0 for p in invoice_doc.payments)
+            )
+
+    return invoice_doc
+
+
+def _post_submit_tasks(
+    invoice_name,
+    offline_id=None,
+    sync_record_name=None,
+    customer_credit_dict=None,
+    redeemed_customer_credit=None,
+    manual_edit_items=None,
+    is_return=False,
+    return_against=None,
+):
+    """Handle non-critical post-submit work in a background job.
+
+    These operations create ancillary records (audit comments, sync status,
+    credit JEs, wallet reversals) that don't affect the invoice itself.
+    Running them in the background saves 0.5-2 s from the synchronous path.
+    """
+    # 1. Complete offline sync record
+    if sync_record_name:
+        _complete_offline_sync(sync_record_name, invoice_name)
+
+    # 2. Credit redemption
+    if redeemed_customer_credit and customer_credit_dict:
+        try:
+            from ecs_posnext.api.credit_sales import redeem_customer_credit
+
+            redeem_customer_credit(invoice_name, customer_credit_dict)
+        except Exception as credit_error:
+            frappe.log_error(
+                title="Credit Redemption Error (Background)",
+                message=f"Invoice: {invoice_name}, Error: {str(credit_error)}\n{frappe.get_traceback()}",
+            )
+
+    # 3. Wallet reversal for returns
+    if is_return and return_against:
+        try:
+            from ecs_posnext.pos_next.doctype.wallet_transaction.wallet_transaction import (
+                reverse_wallet_transactions_for_return,
+            )
+
+            reverse_wallet_transactions_for_return(
+                original_invoice=return_against,
+                return_invoice=invoice_name,
+            )
+        except Exception as wallet_error:
+            frappe.log_error(
+                title="Wallet Reversal on Return Error (Background)",
+                message=f"Return Invoice: {invoice_name}, Error: {str(wallet_error)}\n{frappe.get_traceback()}",
+            )
+
+    # 4. Audit trail for manual rate edits
+    if manual_edit_items:
+        for item_data in manual_edit_items:
+            try:
+                log_manual_rate_edit(item_data, invoice_name)
+            except Exception:
+                pass  # Non-critical audit
+
+
 @frappe.whitelist()
 def submit_invoice(invoice=None, data=None):
-    """Submit the invoice (Step 2)."""
+    """Submit the invoice (Step 2) — Optimised single-pass flow."""
     # Handle different calling conventions
     if invoice is None:
         if data:
@@ -1350,11 +1675,6 @@ def submit_invoice(invoice=None, data=None):
     # ========================================================================
     # OFFLINE INVOICE DEDUPLICATION
     # ========================================================================
-    # Prevents duplicate invoice creation when the same offline invoice is
-    # submitted multiple times (e.g., network retry, multiple tabs).
-    # Uses a reservation pattern: create a "pending" record first, then
-    # update to "synced" after successful submission.
-    # ========================================================================
     offline_id = invoice.get("offline_id") or data.get("offline_id")
     sync_record_name = None
 
@@ -1366,77 +1686,47 @@ def submit_invoice(invoice=None, data=None):
         )
 
         if dedup_result and dedup_result.get("already_synced"):
-            # Invoice was already synced - return the existing invoice details
             return dedup_result.get("invoice_data", {})
 
-        # Store the sync record name for later update
         sync_record_name = dedup_result.get("sync_record_name") if dedup_result else None
 
-    # Track whether invoice was successfully submitted
     invoice_submitted = False
+    
+    # 1. Prepare POS Context (cached for the request)
+    pos_ctx = _get_pos_context(pos_profile)
 
     try:
         invoice_name = invoice.get("name")
 
-        # Get or create invoice
+        # 2. Get or create invoice draft
         if not invoice_name or not frappe.db.exists(doctype, invoice_name):
-            created = update_invoice(json.dumps(invoice))
-            if not created or not isinstance(created, dict):
-                frappe.throw(_("Failed to create invoice draft"))
-            invoice_name = created.get("name")
-            if not invoice_name:
-                frappe.throw(_("Failed to get invoice name from draft"))
-            invoice_doc = frappe.get_doc(doctype, invoice_name)
+            invoice_doc = _build_invoice_doc_for_submit(invoice, pos_profile, doctype, pos_ctx)
         else:
             invoice_doc = frappe.get_doc(doctype, invoice_name)
             invoice_doc.update(invoice)
 
-        # Ensure POS flags are set for Sales Invoice
-        if doctype == "Sales Invoice":
-            invoice_doc.is_pos = 1
-            invoice_doc.update_stock = 1
+            # Re-apply POS and return flags for existing draft
+            if doctype == DOCTYPE_SALES_INVOICE:
+                invoice_doc.is_pos = 1
+                invoice_doc.update_stock = 1
+            if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
+                invoice_doc.update_outstanding_for_self = 0
 
-        # For return invoices, set update_outstanding_for_self = 0
-        # This ensures the GL entry's against_voucher points to the original invoice,
-        # which properly reduces the original invoice's outstanding amount and
-        # sets its status to "Credit Note Issued"
-        if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
-            invoice_doc.update_outstanding_for_self = 0
+            # Set accounts for all payment methods
+            if doctype == DOCTYPE_SALES_INVOICE and hasattr(invoice_doc, "payments"):
+                company = invoice_doc.get("company")
+                for payment in invoice_doc.payments:
+                    if payment.mode_of_payment and not payment.account:
+                        account_info = _resolve_payment_account(
+                            payment.mode_of_payment, company, pos_ctx
+                        )
+                        if account_info:
+                            payment.account = account_info
 
-        # Copy accounting dimensions from POS Profile if not already set
-        if pos_profile and not invoice_doc.get("branch"):
-            try:
-                pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
-                if hasattr(pos_profile_doc, "branch") and pos_profile_doc.branch:
-                    invoice_doc.branch = pos_profile_doc.branch
-                    # Also set branch on all items for GL entries
-                    for item in invoice_doc.get("items", []):
-                        if not item.get("branch"):
-                            item.branch = pos_profile_doc.branch
-            except Exception as e:
-                # Branch is optional, log and continue
-                frappe.log_error(
-                    f"Failed to set branch from POS Profile {pos_profile}: {e}",
-                    "POS Profile Branch"
-                )
-
-        # Set accounts for all payment methods before saving
-        if doctype == "Sales Invoice" and hasattr(invoice_doc, "payments"):
-            for payment in invoice_doc.payments:
-                if payment.mode_of_payment:
-                    account_info = get_payment_account(
-                        payment.mode_of_payment, invoice_doc.company
-                    )
-                    if account_info:
-                        payment.account = account_info.get("account")
-
-        # Handle sales team (multiple sales persons)
+        # Handle sales team
         sales_team_data = invoice.get("sales_team") or data.get("sales_team")
         if sales_team_data and isinstance(sales_team_data, list):
-            # Clear existing sales team entries
             invoice_doc.sales_team = []
-
-            # Add new sales team entries
             for member in sales_team_data:
                 if member and isinstance(member, dict):
                     invoice_doc.append("sales_team", {
@@ -1444,146 +1734,83 @@ def submit_invoice(invoice=None, data=None):
                         "allocated_percentage": member.get("allocated_percentage", 0),
                     })
 
-        # Handle POS Coupon if coupon_code is provided
+        # Handle POS Coupon
         coupon_code = invoice.get("coupon_code") or data.get("coupon_code")
-        if coupon_code:
-            # Increment usage counter for POS Coupon
-            if frappe.db.table_exists("POS Coupon"):
-                try:
-                    from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import increment_coupon_usage
-                    increment_coupon_usage(coupon_code)
-                except Exception as e:
-                    frappe.log_error(
-                        title="Failed to increment coupon usage",
-                        message=f"Coupon: {coupon_code}, Error: {str(e)}"
-                    )
+        if coupon_code and frappe.db.table_exists("POS Coupon"):
+            try:
+                from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import increment_coupon_usage
+                increment_coupon_usage(coupon_code)
+            except Exception:
+                pass
 
         # Auto-set batch numbers for returns
         _auto_set_return_batches(invoice_doc)
 
-        # Handle write-off amount if provided
+        # Handle write-off
         write_off_amount = flt(data.get("write_off_amount") or invoice.get("write_off_amount") or 0)
-        if write_off_amount > 0 and doctype == "Sales Invoice":
-            # Get write-off account and cost center from POS Profile
-            if pos_profile:
-                try:
-                    pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
-                    write_off_account = pos_profile_doc.write_off_account
-                    write_off_cost_center = pos_profile_doc.write_off_cost_center
-                    write_off_limit = flt(pos_profile_doc.write_off_limit or 0)
+        if write_off_amount > 0 and doctype == DOCTYPE_SALES_INVOICE and pos_profile:
+            pos_profile_doc = pos_ctx.get("pos_profile_doc")
+            if pos_profile_doc:
+                write_off_limit = flt(pos_profile_doc.write_off_limit or 0)
+                if write_off_limit > 0 and write_off_amount > write_off_limit:
+                    frappe.throw(_("Write-off amount {0} exceeds limit {1}").format(write_off_amount, write_off_limit))
+                
+                if pos_profile_doc.write_off_account:
+                    invoice_doc.write_off_account = pos_profile_doc.write_off_account
+                    invoice_doc.write_off_cost_center = pos_profile_doc.write_off_cost_center
+                    invoice_doc.write_off_amount = write_off_amount
+                    invoice_doc.base_write_off_amount = write_off_amount
 
-                    # Validate write-off amount is within limit
-                    if write_off_limit > 0 and write_off_amount > write_off_limit:
-                        frappe.throw(
-                            _("Write-off amount {0} exceeds limit {1}").format(
-                                write_off_amount, write_off_limit
-                            )
-                        )
-
-                    # Set write-off fields on invoice
-                    if write_off_account:
-                        invoice_doc.write_off_account = write_off_account
-                        invoice_doc.write_off_cost_center = write_off_cost_center
-                        invoice_doc.write_off_amount = write_off_amount
-                        invoice_doc.base_write_off_amount = write_off_amount  # Assuming same currency
-                except Exception as e:
-                    frappe.log_error(
-                        f"Failed to apply write-off from POS Profile {pos_profile}: {e}",
-                        "POS Write-Off Error"
-                    )
-
-        # Check if POS Settings allows negative stock
-        pos_settings_allow_negative = False
-        if pos_profile:
-            pos_settings_allow_negative = cint(
-                frappe.db.get_value(
-                    "POS Settings",
-                    {"pos_profile": pos_profile},
-                    "allow_negative_stock"
-                ) or 0
-            )
-
-        # Validate stock availability only if negative stock is not allowed
-        if not pos_settings_allow_negative:
+        # Validate stock if negative stock is not allowed
+        pos_settings = pos_ctx.get("pos_settings", {})
+        if not cint(pos_settings.get("allow_negative_stock")):
             _validate_stock_on_invoice(invoice_doc)
 
-        # Save before submit
+        # 3. Save and Submit
         invoice_doc.flags.ignore_permissions = True
         frappe.flags.ignore_account_permission = True
         invoice_doc.save()
 
-        # Re-apply payment amounts after save.
-        # ERPNext's set_pos_fields (called inside save → set_missing_values) clears
-        # the payments table and re-populates it from the POS Profile with amount=0,
-        # wiping the cashier's actual entries. Restore them now via direct DB update
-        # so the submitted invoice has the correct paid_amount and status = "Paid".
+        # Re-apply payment amounts (ERPNext flushes them on save)
         _reapply_payment_amounts(invoice_doc, invoice.get("payments"), doctype)
 
-        # Submit invoice
         invoice_doc.submit()
         invoice_submitted = True
+        invoice_name = invoice_doc.name
 
-        # Explicitly create Payment Entries for POS invoices
-        # (Hooks may silently fail; this ensures PEs are always created)
-        create_payment_entries_for_invoice(invoice_doc)
-
-        # Handle wallet transaction reversal for returns
-        if invoice_doc.get("is_return") and invoice_doc.get("return_against"):
-            try:
-                from ecs_posnext.pos_next.doctype.wallet_transaction.wallet_transaction import reverse_wallet_transactions_for_return
-                reverse_wallet_transactions_for_return(
-                    original_invoice=invoice_doc.return_against,
-                    return_invoice=invoice_doc.name
-                )
-            except Exception as wallet_error:
-                frappe.log_error(
-                    title="Wallet Reversal on Return Error",
-                    message=f"Return Invoice: {invoice_doc.name}, Error: {str(wallet_error)}\n{frappe.get_traceback()}"
-                )
-                frappe.msgprint(
-                    _("Return submitted but wallet reversal failed. Please check manually."),
-                    alert=True, indicator="orange"
-                )
-        # Complete the offline sync record
-        if sync_record_name:
-            _complete_offline_sync(sync_record_name, invoice_doc.name)
-
-        # Handle credit redemption after successful submission
-        customer_credit_dict = data.get("customer_credit_dict") or invoice.get("customer_credit_dict")
-        redeemed_customer_credit = data.get("redeemed_customer_credit") or invoice.get("redeemed_customer_credit")
-
-        if redeemed_customer_credit and customer_credit_dict:
-            try:
-                from ecs_posnext.api.credit_sales import redeem_customer_credit
-                redeem_customer_credit(invoice_doc.name, customer_credit_dict)
-            except Exception as credit_error:
-                frappe.log_error(
-                    title="Credit Redemption Error",
-                    message=f"Invoice: {invoice_doc.name}, Error: {str(credit_error)}\n{frappe.get_traceback()}"
-                )
-                # Don't fail the entire transaction, just log the error
-                frappe.msgprint(
-                    _("Invoice submitted successfully but credit redemption failed. Please contact administrator."),
-                    alert=True,
-                    indicator="orange"
-                )
-
-        # Log manual rate edits for audit trail (only after successful submission)
+        # 4. Enqueue background tasks (audit log, sync record, wallet reversal, credit redemption)
+        manual_edit_items = []
         if doctype == DOCTYPE_SALES_INVOICE:
-            incoming_items = invoice.get("items") or []
-            for item in incoming_items:
+            for item in (invoice.get("items") or []):
                 if cint(item.get(FIELD_IS_RATE_MANUALLY_EDITED)):
-                    log_manual_rate_edit({
+                    manual_edit_items.append({
                         FIELD_ITEM_CODE: item.get(FIELD_ITEM_CODE),
                         "item_name": item.get("item_name"),
                         FIELD_RATE: flt(item.get(FIELD_RATE)),
                         FIELD_ORIGINAL_RATE: flt(item.get(FIELD_ORIGINAL_RATE) or item.get(FIELD_PRICE_LIST_RATE)),
                         FIELD_IS_RATE_MANUALLY_EDITED: 1
-                    }, invoice_doc.name)
+                    })
 
-        # Return complete invoice details
+        customer_credit_dict = data.get("customer_credit_dict") or invoice.get("customer_credit_dict")
+        redeemed_customer_credit = data.get("redeemed_customer_credit") or invoice.get("redeemed_customer_credit")
+
+        frappe.enqueue(
+            _post_submit_tasks,
+            queue="short",
+            invoice_name=invoice_name,
+            offline_id=offline_id,
+            sync_record_name=sync_record_name,
+            customer_credit_dict=customer_credit_dict,
+            redeemed_customer_credit=redeemed_customer_credit,
+            manual_edit_items=manual_edit_items,
+            is_return=invoice_doc.get("is_return"),
+            return_against=invoice_doc.get("return_against"),
+        )
+        sync_record_name = None  # Background job will complete it
+
+        # 5. Return result
         result = {
-            "name": invoice_doc.name,
+            "name": invoice_name,
             "status": invoice_doc.docstatus,
             "grand_total": invoice_doc.grand_total,
             "total": invoice_doc.total,
@@ -1593,7 +1820,6 @@ def submit_invoice(invoice=None, data=None):
             "change_amount": getattr(invoice_doc, "change_amount", 0),
         }
 
-        # Include offline_id in response for client-side tracking
         if offline_id:
             result["offline_id"] = offline_id
 

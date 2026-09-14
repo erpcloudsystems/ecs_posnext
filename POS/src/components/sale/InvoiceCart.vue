@@ -484,7 +484,7 @@
 		</div>
 
 		<!-- Cart Items -->
-		<div class="flex-1 overflow-y-auto p-0.5 sm:p-1.5 bg-gray-50">
+		<div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-0.5 sm:p-1.5 bg-gray-50">
 			<div
 				v-if="items.length === 0"
 				class="flex flex-col items-center justify-center h-full px-3 sm:px-4 py-6"
@@ -702,7 +702,7 @@
 				</div>
 			</div>
 
-			<div v-else class="flex flex-col gap-0.5 sm:gap-1">
+			<div v-else :class="['flex flex-col', onePage ? 'gap-1' : 'gap-0.5 sm:gap-1']">
 				<template
 					v-for="(item, index) in displayItems"
 					:key="item.item_code + '-' + (item.uom || '') + '-' + (item.sales_person || '')"
@@ -710,7 +710,10 @@
 					<!-- Sales person group header (Multiple Sales Persons mode) -->
 					<div
 						v-if="salesPersonStore.enabled && isGroupStart(index)"
-						class="flex items-center gap-1.5 px-0.5 pt-1.5 pb-0.5"
+						:class="[
+							'flex items-center gap-1.5 px-0.5',
+							onePage ? 'py-0.5' : 'pt-1.5 pb-0.5'
+						]"
 					>
 						<span class="h-px flex-1 bg-purple-200"></span>
 						<span
@@ -726,12 +729,18 @@
 					</div>
 					<div
 						@click="openEditDialog(item)"
-						class="bg-white border border-gray-200 rounded-md p-1.5 sm:p-2 hover:border-blue-300 hover:shadow-md transition-all duration-200 active:scale-[0.99] cursor-pointer group"
+						:class="[
+							'bg-white border border-gray-200 rounded-md hover:border-blue-300 hover:shadow-md transition-all duration-200 active:scale-[0.99] cursor-pointer group',
+							onePage ? 'h-[48px] p-1' : 'p-1.5 sm:p-2'
+						]"
 					>
-					<div class="flex gap-1.5 sm:gap-2">
+					<div :class="['flex h-full', onePage ? 'gap-1.5' : 'gap-1.5 sm:gap-2']">
 						<!-- Item Image Thumbnail -->
 						<div
-							class="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg flex-shrink-0 flex items-center justify-center overflow-hidden border border-gray-200"
+							:class="[
+								'bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg flex-shrink-0 flex items-center justify-center overflow-hidden border border-gray-200',
+								onePage ? 'w-10 h-10 self-center' : 'w-10 h-10 sm:w-12 sm:h-12'
+							]"
 						>
 							<img
 								v-if="item.image"
@@ -1070,7 +1079,7 @@
 		<div
 			:class="[
 				'bg-white border-t border-gray-200',
-				onePage ? 'p-1.5' : 'p-1.5 sm:p-2',
+				onePage ? 'p-1' : 'p-1.5 sm:p-2',
 			]"
 		>
 			<!-- One Page: the five stacked total rows collapse to one dense line so

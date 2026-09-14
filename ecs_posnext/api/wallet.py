@@ -336,6 +336,12 @@ def get_pos_settings(pos_profile):
 	if not pos_profile:
 		return None
 
+	# Try to use request-level cached POS context if available
+	cache_attr = "_ecs_pos_ctx_" + str(pos_profile).replace(" ", "_").replace("-", "_")
+	ctx = getattr(frappe.local, cache_attr, {})
+	if "pos_settings" in ctx:
+		return ctx.get("pos_settings")
+
 	return frappe.db.get_value(
 		"POS Settings",
 		{"pos_profile": pos_profile},
