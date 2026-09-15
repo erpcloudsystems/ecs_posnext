@@ -1065,9 +1065,16 @@ def _parse_object_verbatim(text: str) -> dict:
 
 
 def _unquote(text: str) -> str:
+	"""The body of a string literal, with its escape sequences resolved.
+
+	``unicode_escape`` reads its input as Latin-1, so the body is encoded that way
+	too and anything outside Latin-1 — an Arabic label, an accented option value —
+	is handed over as a ``\\uXXXX`` escape instead of as UTF-8 bytes it would
+	decode one byte at a time into mojibake.
+	"""
 	end = _skip_string(text, 0)
 	body = text[1 : end - 1]
-	return body.encode("utf-8").decode("unicode_escape")
+	return body.encode("latin-1", "backslashreplace").decode("unicode_escape")
 
 
 def _eval_helper(text: str):
