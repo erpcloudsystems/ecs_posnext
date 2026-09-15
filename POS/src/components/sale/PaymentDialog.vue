@@ -2160,10 +2160,7 @@ watch(
 		)
 		if (topUp <= 0) return
 
-		log.debug(
-			"[PaymentDialog] Grand total grew, topping up payment by",
-			topUp,
-		)
+		log.debug("[PaymentDialog] Grand total grew, topping up payment by", topUp)
 		applyPaymentTopUp(paymentEntries.value, topUp)
 	},
 )
