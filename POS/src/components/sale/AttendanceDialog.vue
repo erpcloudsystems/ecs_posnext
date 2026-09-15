@@ -9,11 +9,15 @@
 					v-model="numberOfEntries"
 					type="number"
 					min="0"
+					:max="MAX_ENTRIES"
 					step="1"
 					:placeholder="__('Enter number of entries to add')"
 				/>
 				<p class="text-start text-xs text-gray-500">
 					{{ __("Current total: {0}", [count]) }}
+				</p>
+				<p class="text-start text-xs text-gray-500">
+					{{ __("Enter a value between {0} and {1}", [0, MAX_ENTRIES]) }}
 				</p>
 			</div>
 		</template>
@@ -42,6 +46,10 @@ import { Button, Dialog, Input } from "frappe-ui"
 import { computed, ref, watch } from "vue"
 
 const { showError } = useToast()
+
+// A single attendance entry covers one front-desk group, so the cashier can
+// never add more than this in one go - anything larger is a typo.
+const MAX_ENTRIES = 5
 
 const props = defineProps({
 	modelValue: Boolean,
@@ -83,8 +91,10 @@ async function handleSave() {
 		return
 	}
 	const value = Number(numberOfEntries.value)
-	if (Number.isNaN(value) || value < 0) {
-		showError(__("Please enter a valid number of entries"))
+	if (!Number.isInteger(value) || value < 0 || value > MAX_ENTRIES) {
+		showError(
+			__("Please enter a whole number between {0} and {1}", [0, MAX_ENTRIES])
+		)
 		return
 	}
 	emit("save", value)
