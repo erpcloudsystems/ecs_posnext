@@ -942,7 +942,7 @@ import {
 	getCurrencySymbol,
 	roundCurrency,
 } from "@/utils/currency"
-import { getPaymentIcon } from "@/utils/payment"
+import { applyPaymentTopUp, getPaymentIcon } from "@/utils/payment"
 import { enqueueOperation } from "@/utils/offline/operations"
 import { offlineWorker } from "@/utils/offline/workerClient"
 import { logger } from "@/utils/logger"
@@ -2128,6 +2128,43 @@ watch(
 		if (props.inline && count === 0 && previousCount > 0) {
 			initPaymentState()
 		}
+	},
+)
+
+// One Page mode: when the grand total grows after payments were entered (e.g.
+// an item added after the payment method was tapped), add the difference onto
+// the last regular payment so the invoice stays fully paid instead of showing
+// a Remaining amount. Only applies when the invoice was fully covered before
+// the change — a deliberately partial payment is left alone — and never
+// reduces payments when the total drops (overpayment stays visible as Change).
+watch(
+	() => props.grandTotal,
+	(newTotal, oldTotal) => {
+		if (!props.inline || props.isSubmitting) return
+		if (paymentEntries.value.length === 0) return
+
+		// paymentEntries are untouched by a total change, so the pre-change
+		// remainder is the old total minus what has been paid so far.
+		const prevRemaining = roundCurrency(oldTotal) - totalPaid.value
+		const wasFullyPaid =
+			prevRemaining <= 0 ||
+			(applyWriteOff.value && prevRemaining <= props.writeOffLimit)
+		if (!wasFullyPaid) return
+
+		// Grow the payment by the uncovered part of the increase only: an
+		// overpayment already visible as Change absorbs the first part of it.
+		const topUp = roundCurrency(
+			roundCurrency(newTotal) -
+				roundCurrency(oldTotal) -
+				Math.max(0, -prevRemaining),
+		)
+		if (topUp <= 0) return
+
+		log.debug(
+			"[PaymentDialog] Grand total grew, topping up payment by",
+			topUp,
+		)
+		applyPaymentTopUp(paymentEntries.value, topUp)
 	},
 )
 
