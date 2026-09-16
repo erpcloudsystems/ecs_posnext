@@ -913,19 +913,29 @@ async function printExtraSalaryReport(data) {
       return
     }
 
+    // The shift is what this receipt is scoped to, so it is required and not
+    // defaulted: a working day holds several shifts at the same till, and a run
+    // that loses the shift silently widens to all of them - the receipt then
+    // names technicians who never appear on an invoice of the shift being
+    // handed over. `props.openingShift` is the shift the dialog was opened for,
+    // so it stands even if the closing payload comes back without the link.
+    const openingShift = data?.pos_opening_shift || props.openingShift
+    if (!openingShift) {
+      console.error("Cannot print extra salary report: no opening shift for", data)
+      return
+    }
+
     // all_items on, the report's own default: this receipt has to be the same
-    // document Reports prints, and with it off the report drops every invoice
+    // document the report prints, and with it off the report drops every invoice
     // item that earned no commission. That is not a tidier receipt, it is a
     // wrong one - a technician's sales column counts only the commissioned item
     // (300 where the report says 13,300), and a technician whose invoices earned
     // nothing at all disappears from the receipt instead of printing with a zero.
-    // Scoped to the shift being closed, not just its working day: a branch runs
-    // several shifts in one day and this receipt is handed over with one of them.
     const filters = {
       from_date: workingDay,
       to_date: workingDay,
       all_items: 1,
-      opening_shift: data?.pos_opening_shift || undefined,
+      opening_shift: openingShift,
     }
 
     const [report, layout] = await Promise.all([
