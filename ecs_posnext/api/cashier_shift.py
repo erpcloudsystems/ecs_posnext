@@ -144,6 +144,137 @@ def _opening_cash_amount(opening_shift_name):
 	return sum(flt(r.amount) for r in rows if _is_cash_mode(r.mode_of_payment))
 
 
+def is_opening_shift_open(opening_shift):
+	"""True only while a POS Opening Shift can still take money.
+
+	Mirrors check_opening_shift: submitted, status Open, and no closing attached.
+	"""
+	if not opening_shift:
+		return False
+	row = frappe.db.get_value(
+		"POS Opening Shift", opening_shift, ["docstatus", "status", "pos_closing_shift"], as_dict=True
+	)
+	return bool(row and row.docstatus == 1 and row.status == "Open" and not row.pos_closing_shift)
+
+
+def open_shift_for_profile(pos_profile, prefer_user=None):
+	"""The POS Opening Shift currently taking money on a profile, if any.
+
+	Prefers the collecting user's own shift; otherwise the most recently opened one, so a
+	branch running a single drawer resolves unambiguously.
+	"""
+	if not pos_profile:
+		return None
+	rows = frappe.get_all(
+		"POS Opening Shift",
+		filters={
+			"pos_profile": pos_profile,
+			"status": "Open",
+			"docstatus": 1,
+			"pos_closing_shift": ["is", "not set"],
+		},
+		fields=["name", "user"],
+		order_by="period_start_date desc",
+	)
+	if not rows:
+		return None
+	if prefer_user:
+		for r in rows:
+			if r.user == prefer_user:
+				return r.name
+	return rows[0].name
+
+
+def redirect_collection_from_closed_shift(doc, method=None):
+	"""doc_event on Payment Entry.validate — never let money land on a counted shift.
+
+	POS collection screens send the shift as `reference_no` from CLIENT state (see
+	create_pos_payment_entry / process_pos_payment, which take
+	`data.pos_opening_shift_name` straight off the payload). A terminal whose page was
+	loaded before a handover keeps sending the PREVIOUS cashier's shift, so cash collected
+	after that shift was counted gets booked onto it.
+
+	Money booked there is invisible to every reconciliation: the closing that owns the
+	shift was computed before the collection existed and never recomputes, and the drawer
+	physically holding the cash filters strictly by reference_no and so never sees it.
+
+	This is the single choke point for every path that creates a collection — POS screens,
+	dispatcher COD, background jobs — so the guard lives here rather than in any one
+	caller.
+	"""
+	if doc.get("payment_type") != "Receive" or not doc.is_new():
+		return
+	if doc.flags.get("ignore_closed_shift_guard"):
+		return
+
+	shift = doc.get("reference_no")
+	# reference_no is also used for non-shift references (closing names, invoice names).
+	if not shift or not frappe.db.exists("POS Opening Shift", shift):
+		return
+	if is_opening_shift_open(shift):
+		return
+
+	pos_profile = frappe.db.get_value("POS Opening Shift", shift, "pos_profile")
+	current = open_shift_for_profile(pos_profile, prefer_user=frappe.session.user)
+	if not current:
+		frappe.throw(
+			_(
+				"Shift {0} has already been counted and closed, and there is no open shift on "
+				"{1} to receive this collection. Open a shift and retry — the money must land "
+				"in the drawer that is actually receiving it."
+			).format(shift, pos_profile or _("this POS Profile")),
+			title=_("Shift Already Closed"),
+		)
+
+	doc.reference_no = current
+	# Re-stamp the POS links so they follow the corrected shift.
+	cs = frappe.db.get_value(
+		"POS Cashier Shift", {"pos_opening_shift": current}, ["name", "pos_business_day"], as_dict=True
+	)
+	if cs:
+		if doc.meta.has_field("custom_pos_cashier_shift"):
+			doc.custom_pos_cashier_shift = cs.name
+		if doc.meta.has_field("custom_pos_business_day"):
+			doc.custom_pos_business_day = cs.pos_business_day
+
+	# The audit row is written in after_insert, not here: at validate time the Payment
+	# Entry does not exist yet, so POS Audit Log's Dynamic Link to it fails validation and
+	# log_pos_event swallows the error — the re-route would go unrecorded.
+	doc.flags.shift_redirect = {
+		"from": shift,
+		"to": current,
+		"pos_profile": pos_profile,
+		"pos_business_day": cs.pos_business_day if cs else None,
+		"amount": flt(doc.get("paid_amount")),
+	}
+	frappe.msgprint(
+		_("Shift {0} is already closed. This collection was recorded on the open shift {1}.").format(
+			shift, current
+		),
+		indicator="orange",
+		alert=True,
+	)
+
+
+def log_shift_redirect(doc, method=None):
+	"""doc_event on Payment Entry.after_insert — record a re-route once the PE exists."""
+	info = doc.flags.get("shift_redirect")
+	if not info:
+		return
+	log_pos_event(
+		action="Override",
+		reference_doctype="Payment Entry",
+		reference_name=doc.name,
+		pos_profile=info.get("pos_profile"),
+		pos_business_day=info.get("pos_business_day"),
+		old_value=info.get("from"),
+		new_value=info.get("to"),
+		reason=_("Collection of {0} was sent to closed shift {1}; re-routed to the open shift {2}.").format(
+			info.get("amount"), info.get("from"), info.get("to")
+		),
+	)
+
+
 def _cod_returned_amount(invoice_name):
 	"""Amount reversed via submitted return(s) against a Call Center / COD invoice.
 

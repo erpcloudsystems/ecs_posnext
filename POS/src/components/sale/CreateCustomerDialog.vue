@@ -53,6 +53,7 @@
 								type="tel"
 								:placeholder="__('Mobile No *')"
 								class="flex-1 min-w-0 px-4 py-3 bg-gray-50 border-0 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 transition-all"
+								required
 								@input="updateMobileNumber"
 							/>
 						</div>
@@ -174,7 +175,7 @@
 				</button>
 				<button
 					@click="handleCreate"
-					:disabled="!customerData.customer_name || !hasPermission"
+					:disabled="!customerData.customer_name || !phoneNumber.trim() || !hasPermission"
 					class="px-8 py-2.5 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all shadow-lg shadow-cyan-100"
 				>
 					<span v-if="createCustomerResource.loading || updateCustomerResource.loading" class="flex items-center gap-2">
@@ -558,6 +559,9 @@ const checkPermissions = async () => {
 const handleCreate = async () => {
 	if (!customerData.value.customer_name) {
 		return showError(__("Customer Name is required"))
+	}
+	if (!phoneNumber.value.trim()) {
+		return showError(__("Mobile No is required"))
 	}
 	if (isEditMode.value) {
 		await updateCustomerResource.submit()

@@ -198,6 +198,13 @@ def collect_closing_issues(bd):
 	# 7, 8, 11, 12, 13, 14, 10 — best-effort operational checks
 	issues.extend(_operational_issues(bd, settings, submitted, opening_names))
 
+	# 18 — money booked onto a shift that was ALREADY counted and submitted.
+	# Such a collection is invisible to every reconciliation: the closing that owns the
+	# shift was computed before it existed and never recomputes, and the drawer that
+	# physically holds the cash filters by reference_no and so never sees it. Surface it
+	# while the day is still open, when the cash can still be traced.
+	issues.extend(_collections_after_closing(cashier_shifts))
+
 	return issues
 
 
@@ -258,6 +265,44 @@ def _operational_issues(bd, settings, submitted, opening_names):
 			)
 
 	return issues
+
+
+def _collections_after_closing(cashier_shifts):
+	"""Payment Entries created against a shift after its closing was submitted."""
+	found = []
+	for s in cashier_shifts:
+		if not s.pos_opening_shift or not s.cashier_shift_closing:
+			continue
+		closing = frappe.db.get_value(
+			"POS Cashier Shift Closing", s.cashier_shift_closing,
+			["name", "docstatus", "modified"], as_dict=True,
+		)
+		if not closing or closing.docstatus != 1:
+			continue
+		for pe in frappe.get_all(
+			"Payment Entry",
+			filters={
+				"reference_no": s.pos_opening_shift,
+				"docstatus": 1,
+				"payment_type": "Receive",
+				"creation": [">", closing.modified],
+			},
+			fields=["name", "paid_amount", "owner"],
+		):
+			found.append(
+				_issue(
+					"Collection After Shift Closed",
+					_("Payment was recorded on shift {0}, which had already been counted and closed by {1}. This money is in no reconciliation.").format(
+						s.pos_opening_shift, closing.name
+					),
+					_("Re-book Collection onto the Correct Shift"),
+					document_type="Payment Entry",
+					document_no=pe.name,
+					user_employee=pe.owner,
+					amount=pe.paid_amount,
+				)
+			)
+	return found
 
 
 @frappe.whitelist()

@@ -212,7 +212,7 @@
 
             <!-- Items -->
             <div class="flex-1 px-3.5 py-2.5 space-y-3">
-              <div v-for="(group, gi) in groupedItems(order)" :key="group.name || gi">
+              <div v-for="(group, gi) in groupedItems(order)" :key="group.name ? group.name + '-' + gi : gi">
                 <div class="flex items-start justify-between gap-2 mb-1.5">
                   <span class="text-2xl font-black text-yellow-300 shrink-0">×{{ fmtQty(group.qty) }}</span>
                   <span class="text-base font-bold text-right leading-tight flex-1 min-w-0 break-words whitespace-normal" dir="rtl">{{ group.item_name }}</span>
@@ -344,10 +344,14 @@ const showSummary = ref(true)
 const itemSummary = computed(() => {
   const map = {}
   for (const order of visibleOrders.value) {
-    for (const item of (order.items || [])) {
-      if (!item.is_component) continue
-      const name = item.item_name || item.item_code
-      map[name] = (map[name] || 0) + (item.qty || 0)
+    // Count what the kitchen actually makes: a combo's components, and simple items
+    // (a combo's parent row is just a heading, so it is skipped once it has components).
+    for (const group of groupedItems(order)) {
+      const rows = group.children.length ? group.children : [group]
+      for (const item of rows) {
+        const name = item.item_name || item.item_code
+        map[name] = (map[name] || 0) + (item.qty || 0)
+      }
     }
   }
   return Object.entries(map)
@@ -531,16 +535,31 @@ function parseRemoved(raw) {
   try { const p = typeof raw === "string" ? JSON.parse(raw) : raw; return Array.isArray(p) ? p : [] }
   catch (_) { return [] }
 }
+// Rows arrive in ticket order: each parent is immediately followed by its own
+// components. Walk them in that order and attach every component to the parent it
+// follows, so a group id shared by two parents (older tickets, before group ids were
+// made unique per invoice) can no longer hand the same components to both of them.
 function groupedItems(order) {
   const items = order.items || []
-  const parents = items.filter((i) => !i.is_component)
-  const childrenByGroup = {}
-  for (const item of items.filter((i) => i.is_component)) {
+  const groups = []
+  let current = null
+  for (const item of items) {
+    if (!item.is_component) {
+      current = { ...item, children: [] }
+      groups.push(current)
+      continue
+    }
     const gid = item.combo_group_id || ""
-    if (!childrenByGroup[gid]) childrenByGroup[gid] = []
-    childrenByGroup[gid].push(item)
+    if (current && (current.combo_group_id || "") === gid) {
+      current.children.push(item)
+      continue
+    }
+    // Orphan component (its parent row is not on this ticket) — show it on its own.
+    const orphan = { ...item, item_name: item.combo_item_name || item.item_name, children: [item] }
+    groups.push(orphan)
+    current = null
   }
-  return parents.map((p) => ({ ...p, children: childrenByGroup[p.combo_group_id || ""] || [] }))
+  return groups
 }
 function isReady(it) {
   return it.station_status === "Ready" || (!it.kds_station && it.station_status !== "Pending" && it.station_status !== "Preparing")

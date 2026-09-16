@@ -258,9 +258,58 @@ def on_sales_invoice_submit(doc, method=None):
         frappe.log_error(frappe.get_traceback(), "KDS Order Creation Failed")
 
 
+def _unmerge_addition_from_kds_order(invoice_name, parent_invoice):
+    """Cancelling a supplement invoice must pull its rows back off the original ticket.
+
+    The rows live under the PARENT's ticket, so the plain cancel path below never sees
+    them: they would stay on the board (kitchen keeps making cancelled food) and, on
+    amend + re-submit, the amended invoice would append a second copy of every row."""
+    parent_kds = frappe.db.get_value(
+        "KDS Order", {"sales_invoice": parent_invoice, "status": ["!=", "Cancelled"]}, "name",
+    )
+    if not parent_kds:
+        return False
+
+    parent_doc = frappe.get_doc("KDS Order", parent_kds)
+    remaining = [row for row in parent_doc.items if row.source_invoice != invoice_name]
+    if len(remaining) == len(parent_doc.items):
+        return False  # nothing of this invoice on the ticket
+
+    parent_doc.items = remaining
+    for idx, row in enumerate(parent_doc.items, start=1):
+        row.idx = idx
+    if not any(row.is_addition and row.station_status == "Pending" for row in parent_doc.items):
+        parent_doc.has_pending_addition = 0
+    parent_doc.save(ignore_permissions=True)
+
+    frappe.publish_realtime(
+        "kds_update",
+        {
+            "action": "addition_cancelled",
+            "order": parent_doc.name,
+            "invoice": parent_invoice,
+            "branch": parent_doc.branch,
+        },
+        after_commit=True,
+    )
+    frappe.publish_realtime(
+        "dispatch_desk_refresh",
+        {"source": "kds", "invoice": parent_invoice, "action": "addition_cancelled"},
+        after_commit=True,
+    )
+    return True
+
+
 def on_sales_invoice_cancel(doc, method=None):
     """When a Sales Invoice is cancelled, cancel its KDS Order so it disappears
     from the kitchen (KDS) and dispatch screens."""
+    parent_invoice = doc.get("custom_parent_order")
+    if parent_invoice:
+        try:
+            _unmerge_addition_from_kds_order(doc.name, parent_invoice)
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "KDS Order Addition Unmerge Failed")
+
     orders = frappe.get_all(
         "KDS Order",
         filters={"sales_invoice": doc.name, "status": ["!=", "Cancelled"]},
@@ -308,8 +357,12 @@ def _build_kds_items_rows(doc, is_addition=False):
             except Exception:
                 components = []
 
-        # Use item index as group id to link parent + its components
-        group_id = str(item.idx)
+        # Group id links a parent row to its own components. It must be unique across
+        # the WHOLE ticket, not just this invoice: a supplement invoice's items are merged
+        # into the original ticket and its idx restarts at 1, so a bare idx would collide
+        # with the original rows and the screens would render one set of components under
+        # several parents (duplicated items).
+        group_id = "{0}::{1}".format(doc.name, item.idx)
 
         # Main item — if it has no station and has components, mark Ready immediately
         # (the components carry the actual station work)
@@ -347,6 +400,7 @@ def _build_kds_items_rows(doc, is_addition=False):
             "combo_group_id": group_id,
             "is_addition": 1 if is_addition else 0,
             "added_at": added_at,
+            "source_invoice": doc.name,
         })
 
         # Expand each component into its own KDS Order Item at its own station
@@ -372,9 +426,26 @@ def _build_kds_items_rows(doc, is_addition=False):
                 "combo_group_id": group_id,
                 "is_addition": 1 if is_addition else 0,
                 "added_at": added_at,
+                "source_invoice": doc.name,
             })
 
     return items_rows
+
+
+def _next_order_no():
+    """Next daily sequence number for the kitchen board.
+
+    Derived from the highest number already issued today, not from a row count: a count
+    repeats a number as soon as a ticket is deleted, and two tickets showing the same
+    number look like a duplicated order on the screens."""
+    highest = frappe.db.sql(
+        """
+        SELECT MAX(CAST(order_no AS UNSIGNED)) FROM `tabKDS Order`
+        WHERE order_time >= %s
+        """,
+        frappe.utils.today(),
+    )[0][0]
+    return str(cint(highest) + 1).zfill(3)
 
 
 def _create_kds_order(doc):
@@ -383,11 +454,7 @@ def _create_kds_order(doc):
     target_min = _get_target_minutes(settings, order_type)
     now = now_datetime()
 
-    today_count = frappe.db.count(
-        "KDS Order",
-        {"order_time": [">=", frappe.utils.today()]},
-    )
-    order_no = str(today_count + 1).zfill(3)
+    order_no = _next_order_no()
 
     items_rows = _build_kds_items_rows(doc)
 
@@ -428,6 +495,11 @@ def _merge_addition_into_kds_order(doc, parent_invoice):
     )
     if not parent_kds:
         return False
+
+    if frappe.db.exists("KDS Order Item", {"parent": parent_kds.name, "source_invoice": doc.name}):
+        # This supplement's rows are already on the ticket — the hook ran twice (retry,
+        # re-submit). Merging again would duplicate every added item on the kitchen screen.
+        return True
 
     new_rows = _build_kds_items_rows(doc, is_addition=True)
     if not new_rows:
@@ -631,9 +703,12 @@ def get_station_orders(station, branch=None):
     orders = _drop_return_orders(orders)
 
     for order in orders:
+        # Only rows still to be prepared here. A ticket can come back to a station when
+        # items are added to it later; the rows this station already finished must not
+        # reappear, or the cook makes them a second time.
         order["items"] = frappe.get_all(
             "KDS Order Item",
-            filters={"parent": order["name"], "kds_station": station},
+            filters={"parent": order["name"], "kds_station": station, "station_status": "Pending"},
             fields=["name", "item_code", "item_name", "kds_station", "qty",
                     "is_special", "special_notes", "station_status",
                     "selected_components", "ingredients", "removed_ingredients",

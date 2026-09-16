@@ -350,7 +350,9 @@ function groupedStationItems(order) {
     if (!item.is_component) {
       result.push({ type: "item", item })
     } else {
-      const gid = item.combo_group_id || item.name
+      // Key on the combo name too: older tickets reused a group id across the original
+      // order and items added to it later, which merged two different combos into one.
+      const gid = (item.combo_group_id || item.name) + "|" + (item.combo_item_name || "")
       if (!comboMap[gid]) {
         comboMap[gid] = { type: "combo", comboName: item.combo_item_name, children: [] }
         result.push(comboMap[gid])

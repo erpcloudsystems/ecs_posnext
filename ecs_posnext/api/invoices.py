@@ -951,6 +951,21 @@ def _prepare_invoice_doc(data):
     delivery_charge_name = data.get("posa_delivery_charges")
     delivery_charge_rate = flt(data.get("posa_delivery_charges_rate"))
     passed_territory = data.get("territory")
+
+    # An addition never re-charges delivery. Pressing "+" on an order bills the extra items
+    # on a SEPARATE invoice, and the POS sends the same order context with it — including
+    # the delivery charge the customer already paid on the original. Charging it again bills
+    # one trip twice, and the driver's collection total (built from the whole order chain)
+    # carries the duplicate straight to the customer's door.
+    if data.get("parent_invoice") or data.get("parent_order_number"):
+        if delivery_charge_rate:
+            frappe.logger().info(
+                f"Skipping delivery charge {delivery_charge_name} ({delivery_charge_rate}) "
+                f"on addition to {data.get('parent_invoice') or data.get('parent_order_number')}"
+            )
+        delivery_charge_rate = 0
+        if delivery_charge_name and hasattr(invoice_doc, "taxes"):
+            invoice_doc.taxes = [t for t in invoice_doc.taxes if t.description != delivery_charge_name]
     
     if passed_territory:
         invoice_doc.territory = passed_territory
@@ -1718,15 +1733,41 @@ def submit_invoice(invoice=None, data=None):
 
             invoice_doc.custom_number_order = f"{parent_order_number}-{count + 1}"
 
-            # Resolve the ORIGINAL order by its human order number and link back to it
-            # (custom_number_order's "-N" suffix is cosmetic only — KDS/Dispatcher need
-            # a real relational link to reflect the addition on the main order).
+            # Link back to the ORIGINAL order (custom_number_order's "-N" suffix is
+            # cosmetic only — KDS/Dispatcher need a real relational link).
+            #
+            # The label must NEVER be used to find it: order numbers cycle per branch
+            # (M-1 .. custom_order_number_limit), so the same "M-50" exists in several
+            # branches on the same day. Looking the parent up by label picked an
+            # arbitrary match — additions ended up linked to another BRANCH's order and
+            # their items were merged onto that kitchen's ticket. The docname the
+            # cashier pressed "+" on is unique, so anchor on it and walk up to the root
+            # of the chain (an addition on an addition still belongs to the root order).
             if invoice_doc.meta.has_field("custom_parent_order"):
-                parent_invoice_name = frappe.db.get_value(
-                    "Sales Invoice", {"custom_number_order": parent_order_number, "docstatus": 1}, "name",
-                )
-                if parent_invoice_name:
-                    invoice_doc.custom_parent_order = parent_invoice_name
+                root_invoice = None
+                if parent_invoice:
+                    root_invoice = (
+                        frappe.db.get_value("Sales Invoice", parent.name, "custom_parent_order")
+                        or parent.name
+                    )
+                else:
+                    # Legacy client that only sent the label — scope the lookup to this
+                    # branch and this shift, and take the most recent match.
+                    matches = frappe.get_all(
+                        "Sales Invoice",
+                        filters={
+                            "custom_number_order": parent_order_number,
+                            "docstatus": 1,
+                            "is_return": 0,
+                            "branch": invoice_doc.get("branch"),
+                        },
+                        order_by="creation desc",
+                        limit=1,
+                        pluck="name",
+                    )
+                    root_invoice = matches[0] if matches else None
+                if root_invoice:
+                    invoice_doc.custom_parent_order = root_invoice
 
         elif not invoice_doc.get("custom_number_order") and invoice_doc.get("custom_order_type"):
             order_type = invoice_doc.get("custom_order_type")
@@ -2553,6 +2594,7 @@ def get_all_orders(date_from=None, date_to=None, limit=500, search=None, respect
 				si.custom_order_type,
 				si.custom_number_order,
 				si.custom_parent_invoice,
+				si.custom_parent_order,
 				si.custom_receipt_number,
 				si.custom_third_party_referance_number,
 				si.custom_unique_talbat_number,
@@ -2607,6 +2649,7 @@ def get_all_orders(date_from=None, date_to=None, limit=500, search=None, respect
 				si.custom_order_type,
 				si.custom_number_order,
 				si.custom_parent_invoice,
+				si.custom_parent_order,
 				si.custom_receipt_number,
 				si.custom_third_party_referance_number,
 				si.custom_unique_talbat_number,
@@ -2690,11 +2733,39 @@ def get_all_orders(date_from=None, date_to=None, limit=500, search=None, respect
 		""", tuple(invoice_names), as_dict=True)
 		da_status_map = {r.order_reference: r.status for r in da_rows}
 
+		# What each ORDER still owes, additions included. An addition is a separate
+		# supplement invoice, so a parent row's own outstanding understates the order and
+		# the cashier settles it without ever seeing the addition. Computed per root, so
+		# the extra work is one pass over the roots actually present on this page.
+		chain_out_map = {}
+		roots = {inv.get("custom_parent_order") or inv.name for inv in invoices}
+		if roots:
+			root_list = ", ".join(["%s"] * len(roots))
+			for r in frappe.db.sql(f"""
+				SELECT COALESCE(NULLIF(custom_parent_order, ''), name) AS root,
+				       SUM(outstanding_amount) AS due
+				FROM `tabSales Invoice`
+				WHERE docstatus = 1 AND IFNULL(is_return, 0) = 0
+				  AND COALESCE(NULLIF(custom_parent_order, ''), name) IN ({root_list})
+				GROUP BY root
+			""", tuple(roots), as_dict=True):
+				chain_out_map[r.root] = flt(r.due)
+
 		for inv in invoices:
 			inv.items = items_map.get(inv.name, [])
 			inv.owner_name = owner_name_map.get(inv.owner) or inv.owner
 			# Delivery status from the Delivery Assignment (empty for non-delivery orders)
 			inv.delivery_status = da_status_map.get(inv.name)
+
+			# Whole-order figure for the row that IS the order; an addition row keeps its
+			# own amount so paying it directly never double-charges the order.
+			# is_addition also lets the screen label the row as an addition.
+			inv.is_addition = bool(inv.get("custom_parent_order"))
+			inv.chain_outstanding = (
+				flt(inv.outstanding_amount)
+				if inv.is_addition
+				else flt(chain_out_map.get(inv.name, inv.outstanding_amount))
+			)
 
 			# Derive a display status
 			if inv.docstatus == 0:

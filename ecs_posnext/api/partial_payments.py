@@ -982,12 +982,20 @@ def add_payment_to_partial_invoice(invoice_name: str, payments, receipt_number=N
         if update_data:
             frappe.db.set_value("Sales Invoice", invoice_name, update_data, update_modified=True)
 
+    # Settle the whole order, additions included. Pressing "+" on an order creates a
+    # SEPARATE supplement invoice, so capping at this one invoice's outstanding meant the
+    # cashier could clear the order in front of them and still leave the addition unpaid,
+    # sitting as its own row nobody connects to the order.
+    from ecs_posnext.api.order_chain import allocate_across_chain, chain_outstanding
+
+    payable = flt(chain_outstanding(invoice_name)) or flt(invoice.outstanding_amount)
+
     total_payment_amount = sum(flt(p.get("amount", 0)) for p in payments)
-    if total_payment_amount > flt(invoice.outstanding_amount) + AMOUNT_TOLERANCE:
+    if total_payment_amount > payable + AMOUNT_TOLERANCE:
         frappe.throw(
             _("Total payment amount {0} exceeds outstanding amount {1}").format(
                 frappe.format_value(total_payment_amount, {"fieldtype": "Currency"}),
-                frappe.format_value(invoice.outstanding_amount, {"fieldtype": "Currency"}),
+                frappe.format_value(payable, {"fieldtype": "Currency"}),
             )
         )
 
@@ -1010,16 +1018,25 @@ def add_payment_to_partial_invoice(invoice_name: str, payments, receipt_number=N
             payment_account = payment.get("account")
             reference_no = payment.get("reference_no")
 
-            pe_name = create_payment_entry(
-                invoice_name=invoice_name,
-                amount=amount,
-                mode_of_payment=mode_of_payment,
-                payment_account=payment_account,
-                reference_no=reference_no,
-                remarks=f"POS Payment - {mode_of_payment}",
-            )
-
-            payment_entries_created.append(pe_name)
+            # Spread this payment over the order and its additions, oldest first. One
+            # Payment Entry per invoice settled, so each keeps create_payment_entry's own
+            # validation and its POS shift / business-day stamping.
+            allocations = allocate_across_chain(invoice_name, amount) or [(invoice_name, amount)]
+            for target_invoice, allocated in allocations:
+                if allocated <= 0:
+                    continue
+                note = f"POS Payment - {mode_of_payment}"
+                if target_invoice != invoice_name:
+                    note += f" (addition to {invoice_name})"
+                pe_name = create_payment_entry(
+                    invoice_name=target_invoice,
+                    amount=allocated,
+                    mode_of_payment=mode_of_payment,
+                    payment_account=payment_account,
+                    reference_no=reference_no,
+                    remarks=note,
+                )
+                payment_entries_created.append(pe_name)
 
     except Exception as e:
         # Rollback: Cancel all previously created payment entries

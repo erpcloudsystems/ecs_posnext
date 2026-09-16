@@ -74,6 +74,8 @@ class Offer:
 	valid_upto: Optional[str]
 	custom_valid_from_datetime: Optional[str]
 	custom_valid_upto_datetime: Optional[str]
+	custom_valid_time_from: Optional[str]
+	custom_valid_time_upto: Optional[str]
 	source: str
 	promotional_scheme: Optional[str]
 	promotional_scheme_id: Optional[str]
@@ -96,6 +98,43 @@ class Offer:
 	def to_dict(self) -> Dict:
 		"""Convert to dictionary for API response"""
 		return asdict(self)
+
+
+# ============================================================================
+# Validity Window
+# ============================================================================
+
+# A Pricing Rule carries two independent validity windows. The calendar window
+# (custom_valid_from_datetime / custom_valid_upto_datetime) is the continuous span
+# of days it exists at all; the daily window below is the stretch of hours within
+# each of those days that it actually applies, so a rule set to 13:00-18:00 goes
+# quiet at 18:00 every evening and returns at 13:00 the next day. An empty end of
+# the daily window means unbounded, and a start later than the end is read as
+# crossing midnight (22:00-02:00 = late evening plus the small hours).
+#
+# Kept in sync with kak.overrides.pricing_rule.get_validity_conditions, which
+# applies the same rule to pricing outside the POS.
+DAILY_TIME_WINDOW_SQL = """
+			AND (
+				(custom_valid_time_from IS NULL AND custom_valid_time_upto IS NULL)
+				OR (
+					IFNULL(custom_valid_time_from, CAST('00:00:00' AS time))
+						<= IFNULL(custom_valid_time_upto, CAST('23:59:59' AS time))
+					AND CAST(%(now_time)s AS time) BETWEEN
+						IFNULL(custom_valid_time_from, CAST('00:00:00' AS time))
+						AND IFNULL(custom_valid_time_upto, CAST('23:59:59' AS time))
+				)
+				OR (
+					IFNULL(custom_valid_time_from, CAST('00:00:00' AS time))
+						> IFNULL(custom_valid_time_upto, CAST('23:59:59' AS time))
+					AND (
+						CAST(%(now_time)s AS time)
+							>= IFNULL(custom_valid_time_from, CAST('00:00:00' AS time))
+						OR CAST(%(now_time)s AS time)
+							<= IFNULL(custom_valid_time_upto, CAST('23:59:59' AS time))
+					)
+				)
+			)"""
 
 
 # ============================================================================
@@ -368,6 +407,8 @@ class OfferBuilder:
 			valid_upto=rule.get("valid_upto"),
 			custom_valid_from_datetime=rule.get("custom_valid_from_datetime"),
 			custom_valid_upto_datetime=rule.get("custom_valid_upto_datetime"),
+			custom_valid_time_from=rule.get("custom_valid_time_from"),
+			custom_valid_time_upto=rule.get("custom_valid_time_upto"),
 			source=OfferSource.PROMOTIONAL_SCHEME,
 			promotional_scheme=rule.get("promotional_scheme"),
 			promotional_scheme_id=rule.get("promotional_scheme_id"),
@@ -429,6 +470,8 @@ class OfferBuilder:
 			valid_upto=rule.get("valid_upto"),
 			custom_valid_from_datetime=rule.get("custom_valid_from_datetime"),
 			custom_valid_upto_datetime=rule.get("custom_valid_upto_datetime"),
+			custom_valid_time_from=rule.get("custom_valid_time_from"),
+			custom_valid_time_upto=rule.get("custom_valid_time_upto"),
 			source=OfferSource.PRICING_RULE,
 			promotional_scheme=None,
 			promotional_scheme_id=None,
@@ -485,7 +528,8 @@ def _get_promotional_scheme_offers(company: str, now) -> List[Offer]:
 			name, title, apply_on, selling, promotional_scheme,
 			promotional_scheme_id, coupon_code_based,
 			price_or_product_discount, priority, valid_from, valid_upto,
-			custom_valid_from_datetime, custom_valid_upto_datetime, for_price_list
+			custom_valid_from_datetime, custom_valid_upto_datetime,
+			custom_valid_time_from, custom_valid_time_upto, for_price_list
 		FROM `tabPricing Rule`
 		WHERE
 			disable = 0
@@ -493,9 +537,9 @@ def _get_promotional_scheme_offers(company: str, now) -> List[Offer]:
 			AND promotional_scheme IS NOT NULL
 			AND company = %(company)s
 			AND (custom_valid_from_datetime IS NULL OR custom_valid_from_datetime <= %(now)s)
-			AND (custom_valid_upto_datetime IS NULL OR custom_valid_upto_datetime >= %(now)s)
+			AND (custom_valid_upto_datetime IS NULL OR custom_valid_upto_datetime >= %(now)s)""" + DAILY_TIME_WINDOW_SQL + """
 		ORDER BY priority DESC, name
-	""", {"company": company, "now": now}, as_dict=1)
+	""", {"company": company, "now": now, "now_time": now.strftime("%H:%M:%S")}, as_dict=1)
 
 	if not pricing_rules:
 		return []
@@ -544,7 +588,8 @@ def _get_standalone_pricing_rule_offers(company: str, now) -> List[Offer]:
 			rate_or_discount, rate, discount_amount, discount_percentage,
 			min_qty, max_qty, min_amt, max_amt,
 			priority, valid_from, valid_upto,
-			custom_valid_from_datetime, custom_valid_upto_datetime, for_price_list
+			custom_valid_from_datetime, custom_valid_upto_datetime,
+			custom_valid_time_from, custom_valid_time_upto, for_price_list
 		FROM `tabPricing Rule`
 		WHERE
 			disable = 0
@@ -552,10 +597,15 @@ def _get_standalone_pricing_rule_offers(company: str, now) -> List[Offer]:
 			AND promotional_scheme IS NULL
 			AND company = %(company)s
 			AND (custom_valid_from_datetime IS NULL OR custom_valid_from_datetime <= %(now)s)
-			AND (custom_valid_upto_datetime IS NULL OR custom_valid_upto_datetime >= %(now)s)
+			AND (custom_valid_upto_datetime IS NULL OR custom_valid_upto_datetime >= %(now)s)""" + DAILY_TIME_WINDOW_SQL + """
 			AND price_or_product_discount = %(discount_type)s
 		ORDER BY priority DESC, name
-	""", {"company": company, "now": now, "discount_type": DiscountType.PRICE}, as_dict=1)
+	""", {
+		"company": company,
+		"now": now,
+		"now_time": now.strftime("%H:%M:%S"),
+		"discount_type": DiscountType.PRICE,
+	}, as_dict=1)
 
 	if not pricing_rules:
 		return []

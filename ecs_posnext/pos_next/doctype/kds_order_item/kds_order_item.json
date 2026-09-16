@@ -19,7 +19,8 @@
   "ingredients",
   "removed_ingredients",
   "is_addition",
-  "added_at"
+  "added_at",
+  "source_invoice"
  ],
  "fields": [
   {
@@ -114,6 +115,15 @@
    "fieldtype": "Datetime",
    "label": "Added At",
    "read_only": 1
+  },
+  {
+   "fieldname": "source_invoice",
+   "fieldtype": "Link",
+   "label": "Source Invoice",
+   "options": "Sales Invoice",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Invoice this row came from - the order's own invoice, or the supplement invoice for rows added later."
   }
  ],
  "istable": 1,

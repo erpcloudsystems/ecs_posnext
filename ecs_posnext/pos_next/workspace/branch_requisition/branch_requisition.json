@@ -42,8 +42,8 @@
    "type": "Link"
   }
  ],
- "modified": "2026-08-06 14:49:31.188548",
- "modified_by": "Administrator",
+ "modified": "2026-09-02 11:23:10.875022",
+ "modified_by": "mahmoud.k.it@hotmail.com",
  "module": "POS Next",
  "name": "Branch Requisition",
  "number_cards": [],
@@ -62,7 +62,7 @@
    "role": "Branch supervisor"
   }
  ],
- "sequence_id": 99.0,
+ "sequence_id": 42.0,
  "shortcuts": [
   {
    "color": "Grey",

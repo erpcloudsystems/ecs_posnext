@@ -114,6 +114,17 @@ def get_open_shift():
 # surfacing a second, disconnected delivery card.
 # ---------------------------------------------------------------------------
 
+# Order-chain helpers live in api/order_chain.py so the dispatcher and the All Orders
+# collection screen answer "what is still owed on this order?" the same way.
+from ecs_posnext.api.order_chain import (  # noqa: E402
+	chain_invoices_with_outstanding,
+	chain_outstanding,
+	collectible_for_assignment,
+	order_chain_root,
+)
+from ecs_posnext.api.order_chain import _has_live_assignment  # noqa: E402
+
+
 def flag_delivery_addition(parent_invoice, new_rows=None):
 	"""Called (from kds.py) when a supplement invoice's items were merged into the
 	original order's KDS ticket. If the original order already has a live Delivery
@@ -136,14 +147,24 @@ def flag_delivery_addition(parent_invoice, new_rows=None):
 	summary = ", ".join(
 		f"{row.get('item_name')} x{row.get('qty')}" for row in (new_rows or []) if row.get("item_name")
 	)
-	frappe.db.set_value(
-		"Delivery Assignment", assignment,
-		{
-			"has_pending_addition": 1,
-			"last_addition_time": now_datetime(),
-			"pending_addition_summary": summary,
-		},
+	updates = {
+		"has_pending_addition": 1,
+		"last_addition_time": now_datetime(),
+		"pending_addition_summary": summary,
+	}
+
+	# The driver must collect the addition too. Without this the card keeps showing the
+	# ORIGINAL amount, the driver takes only that, and the supplement invoice is left for
+	# someone to remember to collect by hand later — which is how additions ended up
+	# delivered but unpaid. Recomputed from the chain rather than incremented, so it is
+	# idempotent and self-correcting if an addition is cancelled or paid another way.
+	da = frappe.db.get_value(
+		"Delivery Assignment", assignment, ["payment_mode", "amount_to_collect"], as_dict=True
 	)
+	if da and da.payment_mode == "Cash (COD)":
+		updates["amount_to_collect"] = collectible_for_assignment(parent_invoice, exclude_assignment=assignment)
+
+	frappe.db.set_value("Delivery Assignment", assignment, updates)
 	frappe.publish_realtime(
 		"dispatch_desk_refresh",
 		{"source": "dispatcher", "assignment": assignment, "action": "addition_flagged"},
@@ -938,26 +959,67 @@ def _stamp_pos_links(pe, opening_shift):
 		pe.custom_pos_business_day = cs.pos_business_day
 
 
-def _resolve_shift_for_invoice(assignment_doc):
-	"""
-	Return the POS Opening Shift name to stamp on the Payment Entry.
-	Priority:
-	  1. Shift already on the Delivery Assignment
-	  2. posa_pos_opening_shift on the Sales Invoice (set when the invoice was submitted via POS)
-	  3. Current open shift for the current user
-	"""
-	if assignment_doc.shift:
-		return assignment_doc.shift
+def _is_shift_open(opening_shift):
+	"""Delegates to the canonical helper in api.cashier_shift (single definition of
+	"a shift that can still take money")."""
+	from ecs_posnext.api.cashier_shift import is_opening_shift_open
 
+	return is_opening_shift_open(opening_shift)
+
+
+def _open_shift_for_profile(pos_profile, prefer_user=None):
+	from ecs_posnext.api.cashier_shift import open_shift_for_profile
+
+	return open_shift_for_profile(pos_profile, prefer_user=prefer_user)
+
+
+def _resolve_shift_for_invoice(assignment_doc):
+	"""Return the POS Opening Shift name to stamp on the Payment Entry.
+
+	The shift must be the one open AT COLLECTION TIME — that is the drawer the cash
+	physically lands in. The shift stamped on the Delivery Assignment is the DISPATCH-time
+	shift, which is NOT the same thing: an order that leaves near the end of a shift and
+	is collected after the handover would book its cash into a shift that has already been
+	counted and submitted. Nothing recomputes such a closing (compute_cash_figures filters
+	strictly by reference_no and only runs when the drawer is counted), so the money would
+	silently vanish from both reconciliations — absent from the closed shift's expected
+	cash AND invisible to the shift that actually holds it.
+
+	Priority:
+	  1. Shift on the Delivery Assignment — only while it is still open
+	  2. The shift currently open on that same POS Profile (preferring the collecting user)
+	  3. The invoice's own opening shift — only while it is still open
+	  4. Current user's open shift
+	"""
+	user = frappe.session.user
+
+	stamped = assignment_doc.shift
+	if _is_shift_open(stamped):
+		return stamped
+
+	# The branch whose drawer this cash belongs to. Derived from the stamped shift rather
+	# than the invoice: a Call Center invoice carries the Call Center profile, which holds
+	# no physical drawer, while the cash lands in the branch that dispatched the order.
+	pos_profile = (
+		frappe.db.get_value("POS Opening Shift", stamped, "pos_profile") if stamped else None
+	)
+
+	inv_shift = None
 	if assignment_doc.order_reference:
 		inv_shift = frappe.db.get_value(
 			"Sales Invoice", assignment_doc.order_reference, "posa_pos_opening_shift"
 		)
-		if inv_shift:
-			return inv_shift
+	if not pos_profile and inv_shift:
+		pos_profile = frappe.db.get_value("POS Opening Shift", inv_shift, "pos_profile")
 
-	# Last resort: current user's open shift
-	user = frappe.session.user
+	current = _open_shift_for_profile(pos_profile, prefer_user=user)
+	if current:
+		return current
+
+	if _is_shift_open(inv_shift):
+		return inv_shift
+
+	# Last resort: current user's open shift on any profile.
 	return frappe.db.get_value(
 		"POS Opening Shift",
 		{"user": user, "status": "Open", "docstatus": 1},
@@ -982,19 +1044,36 @@ def _create_cod_payment_entries(assignment_doc, payments=None):
 	# Resolve shift — mandatory for the PE to appear in POS Closing Shift
 	shift = _resolve_shift_for_invoice(assignment_doc)
 	if not shift:
+		# Never fall back to a closed shift: cash booked there is lost to every
+		# reconciliation. Refuse instead, so the branch opens a drawer first.
 		frappe.throw(_(
-			"Cannot record COD payment for {0}: no POS Opening Shift found. "
-			"Open a shift on the dispatcher page and retry."
+			"Cannot record COD payment for {0}: no OPEN POS Opening Shift found for this "
+			"branch. Open a shift and retry — the collection must land in the drawer that "
+			"is actually receiving the cash."
 		).format(assignment_doc.name))
 
 	# Save shift back onto the assignment if it was missing
 	if not assignment_doc.shift:
 		frappe.db.set_value("Delivery Assignment", assignment_doc.name, "shift", shift)
 
-	# Skip if the Sales Invoice is already fully settled
-	outstanding = flt(frappe.db.get_value("Sales Invoice", assignment_doc.order_reference, "outstanding_amount"))
-	if outstanding <= 0:
+	# Settle what THIS assignment was sent to collect. For the order's own assignment that
+	# is the whole chain — the original AND its additions, which allocating only against
+	# order_reference used to leave outstanding even though the driver had the money in
+	# hand. An addition that went out on its own card settles only itself, so the two
+	# assignments never collect the same money twice.
+	reference = assignment_doc.order_reference
+	if order_chain_root(reference) == reference:
+		targets = [
+			t
+			for t in chain_invoices_with_outstanding(reference)
+			if t.name == reference or not _has_live_assignment(t.name, assignment_doc.name)
+		]
+	else:
+		own = flt(frappe.db.get_value("Sales Invoice", reference, "outstanding_amount"))
+		targets = [frappe._dict({"name": reference, "outstanding": own})] if own > 0 else []
+	if not targets:
 		return
+	outstanding = flt(sum(t.outstanding for t in targets))
 
 	pos_profile = frappe.db.get_value("POS Opening Shift", shift, "pos_profile")
 	company = frappe.db.get_value("Sales Invoice", assignment_doc.order_reference, "company")
@@ -1016,7 +1095,10 @@ def _create_cod_payment_entries(assignment_doc, payments=None):
 
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
-	remaining = outstanding
+	# Oldest invoice first, so the original order is cleared before its additions.
+	unpaid = {t.name: t.outstanding for t in targets}
+	chain_order = [t.name for t in targets]
+
 	for split in splits:
 		mode_of_payment = split["mode_of_payment"]
 		amount = split["amount"]
@@ -1029,21 +1111,42 @@ def _create_cod_payment_entries(assignment_doc, payments=None):
 				"Configure an account for this Mode of Payment or a clearing account in Dispatch Settings."
 			).format(assignment_doc.name, pos_profile, mode_of_payment))
 
-		pe = get_payment_entry("Sales Invoice", assignment_doc.order_reference)
+		# Spread this split across the chain; any excess stays unallocated, as before.
+		allocations = []
+		left = flt(amount)
+		for inv_name in chain_order:
+			if left <= 0:
+				break
+			available = flt(unpaid.get(inv_name))
+			if available <= 0:
+				continue
+			take = min(left, available)
+			allocations.append((inv_name, take))
+			unpaid[inv_name] = available - take
+			left -= take
+
+		anchor = allocations[0][0] if allocations else chain_order[0]
+		pe = get_payment_entry("Sales Invoice", anchor)
 		pe.mode_of_payment = mode_of_payment
 		pe.paid_to = paid_to
 		pe.paid_amount = amount
 		pe.received_amount = amount
-		# Allocate against the invoice up to what is still outstanding; any excess stays unallocated.
-		alloc = min(amount, remaining) if remaining > 0 else 0
-		if pe.references:
-			pe.references[0].allocated_amount = alloc
-		remaining = flt(remaining - alloc)
+		pe.set("references", [])
+		for inv_name, alloc in allocations:
+			pe.append("references", {
+				"reference_doctype": "Sales Invoice",
+				"reference_name": inv_name,
+				"allocated_amount": alloc,
+			})
 		# reference_no = shift name → picked up by get_payments_entries() in POS Closing Shift
 		pe.reference_no = shift
 		pe.reference_date = frappe.utils.today()
-		pe.remarks = _("COD Collection — Delivery Assignment {0}, Driver {1}, {2}").format(
-			assignment_doc.name, assignment_doc.driver or _("Talabat"), mode_of_payment
+		settles = ", ".join(n for n, _a in allocations)
+		# ERPNext regenerates remarks on validate unless custom_remarks is set, which would
+		# drop the record of which invoices of the chain this collection settled.
+		pe.custom_remarks = 1
+		pe.remarks = _("COD Collection — Delivery Assignment {0}, Driver {1}, {2} — settles {3}").format(
+			assignment_doc.name, assignment_doc.driver or _("Talabat"), mode_of_payment, settles or anchor
 		)
 		_stamp_pos_links(pe, shift)
 		pe.insert(ignore_permissions=True)
@@ -1133,7 +1236,9 @@ def create_assignments(driver, orders, shift=None):
 
 	for invoice_name in orders:
 		inv = frappe.get_doc("Sales Invoice", invoice_name)
-		is_cod = flt(inv.outstanding_amount) > 0
+		# Includes additions made before dispatch, minus any already on their own card.
+		chain_out = collectible_for_assignment(invoice_name)
+		is_cod = chain_out > 0
 		da = frappe.get_doc(
 			{
 				"doctype": "Delivery Assignment",
@@ -1142,7 +1247,7 @@ def create_assignments(driver, orders, shift=None):
 				"order_doctype": "Sales Invoice",
 				"order_reference": invoice_name,
 				"payment_mode": "Cash (COD)" if is_cod else "Prepaid",
-				"amount_to_collect": flt(inv.outstanding_amount) if is_cod else 0,
+				"amount_to_collect": chain_out if is_cod else 0,
 				"status": "Assigned",
 			}
 		)
@@ -1183,7 +1288,7 @@ def handover_to_talabat(orders, shift=None):
 	for invoice_name in orders:
 		# Cash Talabat orders: dispatcher collects from the Talabat driver on return.
 		# Prepaid Talabat orders: nothing to collect — just confirm receipt.
-		outstanding = flt(frappe.db.get_value("Sales Invoice", invoice_name, "outstanding_amount"))
+		outstanding = collectible_for_assignment(invoice_name)
 		is_cod = outstanding > 0
 		da = frappe.get_doc(
 			{

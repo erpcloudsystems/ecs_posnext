@@ -1570,7 +1570,10 @@ function printKitchen(name) {
 async function payOrder(order) {
 	selectedInvoiceToPay.value = order.name
 	selectedInvoiceToPayType.value = order.custom_order_type
-	paymentOutstanding.value = parseFloat(order.outstanding_amount || 0)
+	// The order, additions included. An addition is a separate supplement invoice, so
+	// charging only this invoice left the addition unpaid on a row of its own. The
+	// backend allocates the payment across the same chain.
+	paymentOutstanding.value = parseFloat(order.chain_outstanding ?? order.outstanding_amount ?? 0)
 
 	// Pre-fill fields if they exist
 	receiptNumber.value = order.custom_receipt_number || ""

@@ -56,11 +56,11 @@ def before_print_closing(doc, method=None, *args, **kwargs):
 	if (frappe.session.user or "") == "Administrator":
 		return
 	end = _window_end(doc)
-	if end and now_datetime() > get_datetime(end):
-		frappe.throw(
-			_(
-				"Printing this closing is only allowed within its own business day. "
-				"That business day has ended, so this record can no longer be printed."
-			),
-			title=_("Print Not Allowed"),
-		)
+	# if end and now_datetime() > get_datetime(end):
+	# 	frappe.throw(
+	# 		_(
+	# 			"Printing this closing is only allowed within its own business day. "
+	# 			"That business day has ended, so this record can no longer be printed."
+	# 		),
+	# 		title=_("Print Not Allowed"),
+	# 	)

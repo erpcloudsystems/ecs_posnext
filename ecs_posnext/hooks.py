@@ -276,7 +276,11 @@ doc_events = {
 			"ecs_posnext.api.wallet.process_loyalty_to_wallet",
 			"ecs_posnext.api.sales_invoice_hooks.create_payment_entry_on_submit",
 			"ecs_posnext.ecs_posnext.api.kds.on_sales_invoice_submit",
-			"ecs_posnext.api.cashier_shift.flag_stale_closing_on_return"
+			"ecs_posnext.api.cashier_shift.flag_stale_closing_on_return",
+			# An addition is a separate invoice — refresh what the driver must collect.
+			"ecs_posnext.api.order_chain.sync_delivery_collection_on_addition",
+			# A whole-order return takes its additions (separate invoices) with it.
+			"ecs_posnext.api.order_chain.return_additions_with_order"
 		],
 		"on_cancel": [
 			"ecs_posnext.realtime_events.emit_stock_update_event",
@@ -308,7 +312,13 @@ doc_events = {
 	# On a closed business day, branch roles may CREATE Payment Entries (late COD) but may
 	# not edit or cancel existing ones.
 	"Payment Entry": {
-		"validate": "ecs_posnext.api.business_day.guard_closed_business_day",
+		"validate": [
+			"ecs_posnext.api.business_day.guard_closed_business_day",
+			# A collection must never be booked onto a shift that was already counted —
+			# no reconciliation would ever see the money.
+			"ecs_posnext.api.cashier_shift.redirect_collection_from_closed_shift"
+		],
+		"after_insert": "ecs_posnext.api.cashier_shift.log_shift_redirect",
 		"before_cancel": "ecs_posnext.api.business_day.guard_closed_business_day"
 	}
 }

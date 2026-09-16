@@ -128,7 +128,7 @@ class POSCashierShiftClosing(Document):
 				row.closing_amount = flt(self.actual_counted_cash)
 			else:
 				if not row.closing_amount:
-					row.closing_amount = flt(row.expected_amount)
+					row.closing_amount = flt(self.actual_credit)
 			if mtype != "Cash":
 				expected_credit += flt(row.expected_amount)
 			row.difference = flt(row.closing_amount) - flt(row.expected_amount)
