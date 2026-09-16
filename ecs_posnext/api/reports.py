@@ -186,14 +186,21 @@ def run_pos_report(
 	if isinstance(filters, str):
 		filters = json.loads(filters or "{}")
 
+	prepared = _prepare_filters(report, filters or {}, pos_profile)
+
 	result = run(
 		report_name,
-		filters=_prepare_filters(report, filters or {}, pos_profile),
+		filters=prepared,
 		ignore_prepared_report=True,
 		are_default_filters=False,
 	)
 
 	return {
+		# The filters the run actually used, not the ones the caller sent: the
+		# shift scope is applied here, so a caller that renders a JS print format
+		# in the browser has no other way to learn the branch or profile the
+		# figures are for. Print formats put those in the receipt header.
+		"filters": prepared,
 		"columns": result.get("columns") or [],
 		"result": result.get("result") or [],
 		"message": result.get("message"),

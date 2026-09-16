@@ -860,7 +860,7 @@ async function printItemSalesSummary(data) {
       title: __("POS Item Sales Summary"),
       columns: report?.columns || [],
       rows: report?.result || [],
-      filters,
+      filters: report?.filters || filters,
     })
 
     // The Z-report window has already spent the one pop-up a browser allows
@@ -913,12 +913,20 @@ async function printExtraSalaryReport(data) {
       return
     }
 
-    // all_items off: with it on the report also lists invoices that produced no
-    // commission at all, which on this receipt reads as a technician having sold
-    // something - an invoice with no Sales Team prints its grand total under
-    // "غير محدد" with a zero commission. The closing receipt is about commission
-    // earned, so only invoices that actually generated an Extra Salary belong.
-    const filters = { from_date: workingDay, to_date: workingDay, all_items: 0 }
+    // all_items on, the report's own default: this receipt has to be the same
+    // document Reports prints, and with it off the report drops every invoice
+    // item that earned no commission. That is not a tidier receipt, it is a
+    // wrong one - a technician's sales column counts only the commissioned item
+    // (300 where the report says 13,300), and a technician whose invoices earned
+    // nothing at all disappears from the receipt instead of printing with a zero.
+    // Scoped to the shift being closed, not just its working day: a branch runs
+    // several shifts in one day and this receipt is handed over with one of them.
+    const filters = {
+      from_date: workingDay,
+      to_date: workingDay,
+      all_items: 1,
+      opening_shift: data?.pos_opening_shift || undefined,
+    }
 
     const [report, layout] = await Promise.all([
       call("ecs_posnext.api.reports.run_pos_report", {
@@ -947,7 +955,9 @@ async function printExtraSalaryReport(data) {
       title: __("Extra Salary Report"),
       columns: report?.columns || [],
       rows: report?.result || [],
-      filters,
+      // What the server ran with, which carries the shift scope it pinned - the
+      // format prints branch and shift in the header from these.
+      filters: report?.filters || filters,
     })
 
     // Third window of the closing, so this is the one a pop-up blocker is most
