@@ -740,8 +740,15 @@ async function submitClosing() {
       // than fired together so the two print windows do not race each other,
       // and not awaited: the shift is closed either way, so the dialog should
       // not sit open waiting for a report to render.
-      printItemSalesSummary(closingData.value).then(() =>
-        printExtraSalaryReport(closingData.value),
+      //
+      // Held in a local first, because not awaiting it means `closeDialog()`
+      // below runs while these are still printing and clears `closingData`.
+      // The second receipt reads its shift out of a `.then()` that fires after
+      // that, so off the ref it got nothing to scope by - no shift, no profile,
+      // no start date - and printed the whole company's working day.
+      const closedShift = closingData.value
+      printItemSalesSummary(closedShift).then(() =>
+        printExtraSalaryReport(closedShift),
       )
     }
 
