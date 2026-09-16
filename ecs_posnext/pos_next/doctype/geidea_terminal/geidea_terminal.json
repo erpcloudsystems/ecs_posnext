@@ -10,6 +10,7 @@
   "pos_profile",
   "column_break_head",
   "is_active",
+  "allow_skip_terminal",
   "section_break_connection",
   "connection_mode",
   "com_name",
@@ -52,6 +53,13 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Is Active"
+  },
+  {
+   "default": "0",
+   "description": "Lets the cashier skip the terminal and submit the invoice without an approval code. Use only when the terminal is unavailable.",
+   "fieldname": "allow_skip_terminal",
+   "fieldtype": "Check",
+   "label": "Allow Cashier to Skip Terminal"
   },
   {
    "fieldname": "section_break_connection",

@@ -405,6 +405,10 @@ export function useInvoice() {
 				custom_allow_rate_edit: item.custom_allow_rate_edit || 0,
 				// Exclude from additional discount
 				custom_not_included: item.custom_not_included || 0,
+				// The item's own default customer. Carried on the cart line so the
+				// "this sale must be a Sales Order" rule can be re-checked at submit
+				// time without another server round trip.
+				custom_customer_default: item.custom_customer_default || null,
 			}
 			console.log(
 				"[DEBUG addItem]",
@@ -1081,8 +1085,12 @@ export function useInvoice() {
 					update_stock: 1, // Critical: Ensures stock is updated
 				}
 
-				if (targetDoctype === "Sales Order" && deliveryDate) {
-					invoiceData.delivery_date = deliveryDate
+				if (targetDoctype === "Sales Order") {
+					// Sales Order validation rejects a missing delivery date, and the
+					// payment dialog only collects one when the cart was already in
+					// Sales Order mode — fall back to today.
+					invoiceData.delivery_date =
+						deliveryDate || new Date().toISOString().split("T")[0]
 				}
 
 				// Add sales_team if provided

@@ -34,6 +34,7 @@ _TERMINAL_FIELDS = (
     "port",
     "app_id",
     "print_settings",
+    "allow_skip_terminal",
 )
 
 
@@ -85,6 +86,9 @@ def get_card_terminal(pos_profile=None):
         "port": cint(terminal.port) or None,
         "app_id": terminal.app_id or "11",
         "print_settings": terminal.print_settings or "1",
+        # When set, the cashier may bypass the terminal and submit the invoice
+        # without an approval code (terminal down, offline fallback).
+        "allow_skip_terminal": bool(cint(terminal.allow_skip_terminal)),
     }
 
 

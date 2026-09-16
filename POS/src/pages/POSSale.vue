@@ -2070,6 +2070,13 @@ async function handlePaymentCompleted(paymentData) {
 			const preparedItems = cartStore.formatItemsForSubmission(cartStore.invoiceItems);
 
 			const invoiceData = {
+				// An item with its own default customer makes this a Sales Order; the
+				// sync must create that doctype, not a Sales Invoice.
+				doctype: cartStore.targetDoctype,
+				delivery_date:
+					cartStore.targetDoctype === "Sales Order"
+						? cartStore.deliveryDate || new Date().toISOString().split("T")[0]
+						: undefined,
 				pos_profile: cartStore.posProfile,
 				posa_pos_opening_shift: cartStore.posOpeningShift,
 				customer: customerValue || shiftStore.profileCustomer,

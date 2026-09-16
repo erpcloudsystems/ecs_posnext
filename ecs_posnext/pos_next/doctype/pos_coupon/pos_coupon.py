@@ -68,6 +68,19 @@ class POSCoupon(Document):
         if self.max_amount and flt(self.max_amount) <= 0:
             frappe.throw(_("Maximum Discount Amount must be greater than 0"))
 
+        # Applicability: an Item Code / Item Group coupon needs something to match on,
+        # otherwise it would silently discount nothing.
+        if self.applicable_on == "Item Code":
+            if not [row for row in (self.coupon_items or []) if row.item_code]:
+                frappe.throw(_("Add at least one Item Code under Applicable Items"))
+        elif self.applicable_on == "Item Group":
+            if not [row for row in (self.coupon_items or []) if row.item_group]:
+                frappe.throw(_("Add at least one Item Group under Applicable Items"))
+        else:
+            # Whole-cart coupon: drop any leftover rows so they can't be read as a
+            # restriction later.
+            self.coupon_items = []
+
         # Date validations
         if self.valid_from and self.valid_upto:
             if getdate(self.valid_from) > getdate(self.valid_upto):

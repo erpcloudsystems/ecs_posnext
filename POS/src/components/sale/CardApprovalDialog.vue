@@ -43,6 +43,14 @@
 					{{ __("Cancel") }}
 				</button>
 				<button
+					v-if="allowSkip"
+					type="button"
+					class="flex-1 text-sm font-semibold text-amber-800 border border-amber-300 bg-amber-50 rounded-lg py-2 hover:bg-amber-100"
+					@click="skipTerminal"
+				>
+					{{ __("Skip Terminal") }}
+				</button>
+				<button
 					v-if="hasFailed"
 					type="button"
 					class="flex-1 text-sm font-semibold text-white bg-blue-600 rounded-lg py-2 hover:bg-blue-700"
@@ -51,6 +59,9 @@
 					{{ __("Retry") }}
 				</button>
 			</div>
+			<p v-if="allowSkip" class="text-[11px] text-gray-500 mt-2">
+				{{ __("Skipping submits the invoice without a terminal approval code.") }}
+			</p>
 		</template>
 	</Dialog>
 </template>
@@ -82,6 +93,9 @@ const emit = defineEmits(["update:modelValue", "approved"])
 const rows = ref([])
 const error = ref("")
 const terminalAction = ref("")
+// Set from the Geidea Terminal doc ("Allow Cashier to Skip Terminal"): lets the
+// cashier bypass the terminal and submit the invoice with no approval code.
+const allowSkip = ref(false)
 let cancelled = false
 let client = null
 
@@ -129,6 +143,7 @@ function teardownClient() {
 async function start() {
 	error.value = ""
 	terminalAction.value = ""
+	allowSkip.value = false
 	cancelled = false
 	rows.value = props.cardAmounts.map((amount) => ({
 		amount,
@@ -143,6 +158,7 @@ async function start() {
 			pos_profile: props.posProfile,
 		})
 		terminal = res?.message ?? res
+		allowSkip.value = Boolean(terminal?.allow_skip_terminal)
 	} catch (e) {
 		log.error("get_card_terminal failed", e)
 		error.value = __("Could not load the card terminal settings.")
@@ -241,6 +257,19 @@ async function processRow(row) {
 	row.state = "approved"
 	terminalAction.value = ""
 	return true
+}
+
+/** Bypass the terminal: keep any codes already approved, submit without the rest. */
+function skipTerminal() {
+	cancelled = true
+	teardownClient()
+	log.info("Terminal skipped by cashier")
+	emit(
+		"approved",
+		rows.value
+			.filter((r) => r.state === "approved" && r.approval_code)
+			.map((r) => ({ approval_code: r.approval_code, amount: r.amount })),
+	)
 }
 
 function cancel() {

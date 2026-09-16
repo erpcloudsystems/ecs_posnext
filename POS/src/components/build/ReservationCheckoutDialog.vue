@@ -224,10 +224,15 @@ async function applyCoupon() {
 		const code = couponCode.value.toUpperCase()
 		const restriction = coupon.item_restriction
 
-		if (restriction?.apply_on === "Item Code") {
-			// Offer-linked coupon restricted to specific item codes (posawesome-style
-			// "Apply Rule On Item Code") - discount only the matching cart lines.
-			const matches = store.items.filter((item) => restriction.item_codes.includes(item.item_code))
+		if (restriction) {
+			// Coupon scoped to specific item codes or item groups - discount only the
+			// matching reservation lines.
+			const matches = store.items.filter(
+				(item) =>
+					restriction.item_codes?.includes(item.item_code) ||
+					(!!item.item_group &&
+						restriction.item_groups?.includes(item.item_group)),
+			)
 			if (!matches.length) {
 				couponError.value = __("This coupon does not apply to any item in this reservation")
 				showWarning(couponError.value)

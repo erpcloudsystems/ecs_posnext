@@ -34,6 +34,9 @@
   "min_amount",
   "max_amount",
   "apply_on",
+  "applicability_section",
+  "applicable_on",
+  "coupon_items",
   "uses",
   "valid_from",
   "valid_upto",
@@ -295,6 +298,27 @@
    "no_copy": 1,
    "options": "Company:company:default_currency",
    "precision": "2"
+  },
+  {
+   "fieldname": "applicability_section",
+   "fieldtype": "Section Break",
+   "label": "Applicability"
+  },
+  {
+   "default": "All Items",
+   "description": "Restrict the discount to specific items or item groups. \"All Items\" discounts the whole cart.",
+   "fieldname": "applicable_on",
+   "fieldtype": "Select",
+   "label": "Applicable On",
+   "options": "All Items\nItem Code\nItem Group"
+  },
+  {
+   "depends_on": "eval:doc.applicable_on && doc.applicable_on != 'All Items'",
+   "description": "Cart lines matching any row here get the discount; the rest of the cart is untouched. An Item Group also covers its child groups.",
+   "fieldname": "coupon_items",
+   "fieldtype": "Table",
+   "label": "Applicable Items",
+   "options": "POS Coupon Item"
   }
  ],
  "index_web_pages_for_search": 1,

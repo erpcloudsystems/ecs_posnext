@@ -281,6 +281,19 @@ function applyGiftCard(card) {
 	applyCoupon()
 }
 
+/**
+ * True when a cart line falls inside the coupon's scope: it is listed by item
+ * code, or its item group is one of the coupon's groups (the server already
+ * expanded those to include child groups).
+ */
+function couponCoversItem(restriction, item) {
+	if (!restriction) return false
+	if (restriction.item_codes?.includes(item.item_code)) return true
+	return (
+		!!item.item_group && !!restriction.item_groups?.includes(item.item_group)
+	)
+}
+
 async function applyCoupon() {
 	if (!couponCode.value.trim()) {
 		errorMessage.value = __("Please enter a coupon code")
@@ -366,11 +379,11 @@ async function applyCoupon() {
 			return
 		}
 
-		if (restriction?.apply_on === "Item Code") {
-			// Coupon linked to a POS Offer with "Apply Rule On Item Code" - only
-			// discount matching cart lines instead of the whole cart.
+		if (restriction) {
+			// The coupon is scoped to specific item codes or item groups - only those
+			// cart lines are discounted, the rest of the cart is untouched.
 			const matches = (props.items || []).filter((item) =>
-				restriction.item_codes.includes(item.item_code),
+				couponCoversItem(restriction, item),
 			)
 			if (!matches.length) {
 				errorMessage.value = __(

@@ -138,6 +138,10 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	const suppressOfferReapply = ref(false)
 	const currentDraftId = ref(null)
 	const targetDoctype = ref("Sales Invoice")
+	// True while the Sales Order mode was forced by an item carrying its own
+	// default customer, as opposed to the cashier picking "Order" by hand. Only an
+	// item-driven switch is undone when that item leaves the cart.
+	const salesOrderFromItem = ref(false)
 
 	// Offer processing state management
 	const offerProcessingState = ref({
@@ -251,9 +255,16 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		// - item-level default → take that customer AND switch the document to Sales Order
 		//   (overrides the current customer);
 		// - otherwise the cascade default only fills in when no customer is selected.
+		// The item payload already carries the item-level default customer, so switch
+		// the document type from it immediately: ensureDefaultCustomer() below is a
+		// server round trip that silently returns null when it fails or the POS is
+		// offline, which used to leave the sale as a Sales Invoice.
+		if (item.custom_customer_default) {
+			forceSalesOrderForItem()
+		}
 		ensureDefaultCustomer(activePriceList.value, item.item_code).then((res) => {
 			if (res?.make_sales_order) {
-				setTargetDoctype("Sales Order")
+				forceSalesOrderForItem()
 			}
 		})
 
@@ -272,6 +283,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		appliedCoupon.value = null
 		currentDraftId.value = null
 		targetDoctype.value = "Sales Invoice"
+		salesOrderFromItem.value = false
 		reservationSalesOrder.value = null
 		reservationDeposit.value = 0
 
@@ -286,7 +298,21 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	}
 
 	function setTargetDoctype(doctype) {
+		// A deliberate choice (the Invoice/Order toggle) outranks the item rule: from
+		// here on the cart stays where the cashier put it.
+		salesOrderFromItem.value = false
 		targetDoctype.value = doctype
+	}
+
+	/** Switch to Sales Order because an item requires it (revertible on removal). */
+	function forceSalesOrderForItem() {
+		targetDoctype.value = "Sales Order"
+		salesOrderFromItem.value = true
+	}
+
+	/** True while any cart line carries its own default customer. */
+	function cartRequiresSalesOrder() {
+		return invoiceItems.value.some((i) => i.custom_customer_default)
 	}
 
 	const deliveryDate = ref("")
@@ -314,6 +340,13 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		// (reverse deposit + full invoice) instead of a normal submit.
 		if (reservationSalesOrder.value) {
 			return await closeReservation()
+		}
+
+		// Last gate before submitting: an item with its own default customer must
+		// never go out as a Sales Invoice. Catches a line added while offline, or
+		// from a cached item payload that predates custom_customer_default.
+		if (targetDoctype.value !== "Sales Order" && cartRequiresSalesOrder()) {
+			forceSalesOrderForItem()
 		}
 
 		const result = await baseSubmitInvoice(
@@ -1918,6 +1951,19 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		{ immediate: true, flush: "post" },
 	)
 
+	// Removing the item that forced Sales Order mode puts the cart back on Sales
+	// Invoice. A mode the cashier chose by hand is left alone (salesOrderFromItem).
+	watch(
+		() =>
+			invoiceItems.value.map((i) => i.custom_customer_default || "").join(","),
+		() => {
+			if (salesOrderFromItem.value && !cartRequiresSalesOrder()) {
+				targetDoctype.value = "Sales Invoice"
+				salesOrderFromItem.value = false
+			}
+		},
+	)
+
 	// Additional watcher for applied offers changes (to handle removal edge cases)
 	watch(
 		() => appliedOffers.value.length,
@@ -1991,6 +2037,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 
 		// Sales Order feature
 		targetDoctype,
+		salesOrderFromItem,
 		setTargetDoctype,
 		createSalesOrder,
 		deliveryDate,

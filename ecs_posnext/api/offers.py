@@ -553,6 +553,56 @@ def get_active_coupons(customer: str, company: str) -> List[Dict]:
 	return coupons
 
 
+def _coupon_item_restriction(coupon) -> Optional[Dict]:
+	"""Build the item scope of a coupon from its Applicable Items table.
+
+	Returns None for a whole-cart coupon. An Item Group row covers that group and
+	every group beneath it (nested set), so a parent group like "Food" also
+	matches items filed under its children.
+	"""
+	applicable_on = coupon.get("applicable_on")
+	if applicable_on not in ("Item Code", "Item Group"):
+		return None
+
+	rows = frappe.get_all(
+		"POS Coupon Item",
+		filters={"parent": coupon.get("name"), "parenttype": "POS Coupon"},
+		fields=["item_code", "item_group"],
+	)
+
+	if applicable_on == "Item Code":
+		item_codes = [r.item_code for r in rows if r.item_code]
+		if not item_codes:
+			return None
+		return {"apply_on": "Item Code", "item_codes": item_codes, "item_groups": []}
+
+	groups = [r.item_group for r in rows if r.item_group]
+	if not groups:
+		return None
+	return {
+		"apply_on": "Item Group",
+		"item_codes": [],
+		"item_groups": _with_descendant_groups(groups),
+	}
+
+
+def _with_descendant_groups(groups: List[str]) -> List[str]:
+	"""Expand each Item Group to itself plus every group under it."""
+	expanded = set(groups)
+	for group in groups:
+		bounds = frappe.db.get_value("Item Group", group, ["lft", "rgt"], as_dict=True)
+		if not bounds:
+			continue
+		expanded.update(
+			frappe.get_all(
+				"Item Group",
+				filters={"lft": (">=", bounds.lft), "rgt": ("<=", bounds.rgt)},
+				pluck="name",
+			)
+		)
+	return sorted(expanded)
+
+
 @frappe.whitelist()
 def validate_coupon(coupon_code: str, customer: str, company: str) -> Dict:
 	"""Validate a coupon code and return its details"""
@@ -599,12 +649,18 @@ def validate_coupon(coupon_code: str, customer: str, company: str) -> Dict:
 	if coupon.customer and coupon.customer != customer:
 		return {"valid": False, "message": _("This coupon is not valid for this customer")}
 
-	# Item-code scoped discount: if this coupon is linked to a POS Offer configured
-	# with "Apply Rule On Item Code" (same pattern as posawesome's POS Offer /
-	# POS Offer Item Code), the discount only applies to items in that offer's list
-	# instead of the whole cart. Callers that don't check for this key keep getting
-	# the existing whole-cart behavior.
-	if coupon.get("pos_offer"):
+	# Scoped discount: the coupon's own Applicable Items table (Item Code / Item
+	# Group) restricts the discount to matching cart lines instead of the whole
+	# cart. Callers that don't check for this key keep getting the whole-cart
+	# behavior.
+	restriction = _coupon_item_restriction(coupon)
+	if restriction:
+		coupon["item_restriction"] = restriction
+
+	# Legacy path: a coupon linked to a POS Offer configured with "Apply Rule On
+	# Item Code" (posawesome's POS Offer / POS Offer Item Code pattern). Only used
+	# when the coupon carries no restriction of its own.
+	elif coupon.get("pos_offer"):
 		offer_apply_on = frappe.db.get_value("POS Offer", coupon.pos_offer, "apply_on")
 		if offer_apply_on == "Item Code":
 			item_codes = frappe.get_all(
@@ -612,7 +668,11 @@ def validate_coupon(coupon_code: str, customer: str, company: str) -> Dict:
 				filters={"parent": coupon.pos_offer, "parenttype": "POS Offer"},
 				pluck="item_code",
 			)
-			coupon["item_restriction"] = {"apply_on": "Item Code", "item_codes": item_codes}
+			coupon["item_restriction"] = {
+				"apply_on": "Item Code",
+				"item_codes": item_codes,
+				"item_groups": [],
+			}
 
 	return {
 		"valid": True,
