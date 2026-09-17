@@ -353,89 +353,93 @@
 					></div>
 
 					<!-- Right: Invoice Cart (Desktop, fixed width) / Tab Content (Mobile) -->
-					<keep-alive>
-						<div
-							v-if="uiStore.isDesktop || uiStore.mobileActiveTab === 'cart'"
-							:class="[
-								'flex flex-col bg-gray-50 overflow-hidden',
-								uiStore.isDesktop ? 'w-[440px] xl:w-[480px] flex-shrink-0' : 'flex-1',
-							]"
-							style="min-width: 340px; contain: layout style paint"
+					<!-- v-show, not v-if: on mobile the cashier leaves this tab to pick
+					     items, and unmounting the cart would throw away the payment
+					     state held by the One Page payment panel inside it (selected
+					     mode of payment, entered amounts). The surrounding keep-alive
+					     never cached it — keep-alive only caches component children,
+					     and this is a plain element. -->
+					<div
+						v-show="uiStore.isDesktop || uiStore.mobileActiveTab === 'cart'"
+						:class="[
+							'flex flex-col bg-gray-50 overflow-hidden',
+							uiStore.isDesktop ? 'w-[440px] xl:w-[480px] flex-shrink-0' : 'flex-1',
+						]"
+						style="min-width: 340px; contain: layout style paint"
+					>
+						<InvoiceCart
+							:items="cartStore.invoiceItems"
+							:customer="cartStore.customer"
+							:subtotal="cartStore.subtotal"
+							:not-included-total="cartStore.notIncludedTotal"
+							:tax-amount="cartStore.totalTax"
+							:discount-amount="cartStore.totalDiscount"
+							:grand-total="cartStore.grandTotal"
+							:pos-profile="shiftStore.profileName"
+							:currency="shiftStore.profileCurrency"
+							:applied-offers="cartStore.appliedOffers"
+							:warehouses="profileWarehouses"
+							@update-quantity="cartStore.updateItemQuantity"
+							@remove-item="
+								(itemCode, uom, salesPerson) =>
+									cartStore.removeItem(itemCode, uom, salesPerson)
+							"
+							@select-customer="handleCustomerSelected"
+							@create-customer="handleCreateCustomer"
+							@edit-customer="handleEditCustomer"
+							@proceed-to-payment="handleProceedToPayment"
+							@clear-cart="handleClearCart"
+							@save-draft="handleSaveDraft"
+							@apply-coupon="uiStore.showCouponDialog = true"
+							@show-offers="uiStore.showOffersDialog = true"
+							@remove-offer="
+								(offer) =>
+									cartStore.removeOffer(
+										offer,
+										shiftStore.currentProfile,
+										offersDialogRef.value
+									)
+							"
+							@update-uom="cartStore.changeItemUOM"
+							@edit-item="handleEditItem"
+							@view-shift="uiStore.showOpenShiftDialog = true"
+							@show-drafts="uiStore.showDraftDialog = true"
+							@show-history="uiStore.showHistoryDialog = true"
+							@show-return="uiStore.showReturnDialog = true"
+							@close-shift="handleCloseShift()"
 						>
-							<InvoiceCart
-								:items="cartStore.invoiceItems"
-								:customer="cartStore.customer"
-								:subtotal="cartStore.subtotal"
-								:not-included-total="cartStore.notIncludedTotal"
-								:tax-amount="cartStore.totalTax"
-								:discount-amount="cartStore.totalDiscount"
-								:grand-total="cartStore.grandTotal"
-								:pos-profile="shiftStore.profileName"
-								:currency="shiftStore.profileCurrency"
-								:applied-offers="cartStore.appliedOffers"
-								:warehouses="profileWarehouses"
-								@update-quantity="cartStore.updateItemQuantity"
-								@remove-item="
-									(itemCode, uom, salesPerson) =>
-										cartStore.removeItem(itemCode, uom, salesPerson)
-								"
-								@select-customer="handleCustomerSelected"
-								@create-customer="handleCreateCustomer"
-								@edit-customer="handleEditCustomer"
-								@proceed-to-payment="handleProceedToPayment"
-								@clear-cart="handleClearCart"
-								@save-draft="handleSaveDraft"
-								@apply-coupon="uiStore.showCouponDialog = true"
-								@show-offers="uiStore.showOffersDialog = true"
-								@remove-offer="
-									(offer) =>
-										cartStore.removeOffer(
-											offer,
-											shiftStore.currentProfile,
-											offersDialogRef.value
-										)
-								"
-								@update-uom="cartStore.changeItemUOM"
-								@edit-item="handleEditItem"
-								@view-shift="uiStore.showOpenShiftDialog = true"
-								@show-drafts="uiStore.showDraftDialog = true"
-								@show-history="uiStore.showHistoryDialog = true"
-								@show-return="uiStore.showReturnDialog = true"
-								@close-shift="handleCloseShift()"
-							>
-								<!-- One Page mode: the Complete Payment options (discounts,
-								     mode of payment, pay / complete actions) render inside the
-								     cart panel instead of opening the payment dialog -->
-								<template v-if="uiStore.onePage" #payment>
-									<PaymentDialog
-										inline
-										:grand-total="cartStore.grandTotal"
-										:subtotal="cartStore.subtotal"
-										:discount-eligible-subtotal="cartStore.discountEligibleSubtotal"
-										:pos-profile="shiftStore.profileName"
-										:currency="shiftStore.profileCurrency"
-										:is-offline="offlineStore.isOffline"
-										:allow-partial-payment="posSettingsStore.allowPartialPayment"
-										:allow-credit-sale="posSettingsStore.allowCreditSale"
-										:allow-customer-credit-payment="posSettingsStore.allowCustomerCreditPayment"
-										:allow-write-off="posSettingsStore.allowWriteOffChange"
-										:write-off-limit="shiftStore.writeOffLimit"
-										:customer="cartStore.customer"
-										:company="shiftStore.profileCompany"
-										:additional-discount="cartStore.additionalDiscount"
-										:items="cartStore.invoiceItems"
-										:tax-amount="cartStore.totalTax"
-										:discount-amount="cartStore.totalDiscount"
-										:target-doctype="cartStore.targetDoctype"
-										:is-submitting="cartStore.isSubmitting"
-										:profile-customer="shiftStore.profileCustomer"
-										@payment-completed="handlePaymentCompleted"
-										@update-additional-discount="handleAdditionalDiscountUpdate"
-									/>
-								</template>
-							</InvoiceCart>
-						</div>
-					</keep-alive>
+							<!-- One Page mode: the Complete Payment options (discounts,
+							     mode of payment, pay / complete actions) render inside the
+							     cart panel instead of opening the payment dialog -->
+							<template v-if="uiStore.onePage" #payment>
+								<PaymentDialog
+									inline
+									:grand-total="cartStore.grandTotal"
+									:subtotal="cartStore.subtotal"
+									:discount-eligible-subtotal="cartStore.discountEligibleSubtotal"
+									:pos-profile="shiftStore.profileName"
+									:currency="shiftStore.profileCurrency"
+									:is-offline="offlineStore.isOffline"
+									:allow-partial-payment="posSettingsStore.allowPartialPayment"
+									:allow-credit-sale="posSettingsStore.allowCreditSale"
+									:allow-customer-credit-payment="posSettingsStore.allowCustomerCreditPayment"
+									:allow-write-off="posSettingsStore.allowWriteOffChange"
+									:write-off-limit="shiftStore.writeOffLimit"
+									:customer="cartStore.customer"
+									:company="shiftStore.profileCompany"
+									:additional-discount="cartStore.additionalDiscount"
+									:items="cartStore.invoiceItems"
+									:tax-amount="cartStore.totalTax"
+									:discount-amount="cartStore.totalDiscount"
+									:target-doctype="cartStore.targetDoctype"
+									:is-submitting="cartStore.isSubmitting"
+									:profile-customer="shiftStore.profileCustomer"
+									@payment-completed="handlePaymentCompleted"
+									@update-additional-discount="handleAdditionalDiscountUpdate"
+								/>
+							</template>
+						</InvoiceCart>
+					</div>
 
 					<!-- Mobile Floating Cart Button -->
 					<button
@@ -1047,7 +1051,9 @@
 // Module-scoped init guard — prevents redundant heavy initialization
 // when component remounts due to translationVersion changes.
 // Tracks the profile name so a shift change correctly re-initializes.
+// biome-ignore lint/style/useConst: reassigned from <script setup> below, which Biome lints as a separate scope
 let _initializedProfile = null
+// biome-ignore lint/style/useConst: reassigned from <script setup> below, which Biome lints as a separate scope
 let _posInitPromise = null
 </script>
 
