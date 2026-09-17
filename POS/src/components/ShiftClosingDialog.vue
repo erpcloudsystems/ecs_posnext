@@ -799,6 +799,14 @@ const ITEM_SALES_SUMMARY_FORMAT = "POS Item Sales Summary"
 // that buckets the day in the report query (Report: POS Item Sales Summary).
 const SHIFT_DAY_START_HOUR = 9
 
+// The report's `view_by` filter: "شيفت" reads `shift_date`, "مدة" reads the date
+// range instead. It has to be sent even though the report defaults it, because a
+// Query Report binds its filters straight into the SQL and nothing fills in a
+// default for a value the caller left out - `%(view_by)s` would bind NULL, and
+// `NULL = 'شيفت'` is NULL, so every invoice falls out of the WHERE and the
+// receipt prints the item list empty with zeroed totals.
+const VIEW_BY_SHIFT = "شيفت"
+
 /**
  * The shift day `period_start_date` falls in, as YYYY-MM-DD.
  *
@@ -837,7 +845,10 @@ async function printItemSalesSummary(data) {
   }
 
   const posProfile = data?.pos_profile || null
-  const filters = { shift_date: shiftDate }
+  // The branch is not sent: `run_pos_report` pins it to the Branch of the shift's
+  // POS Profile and discards whatever the client asked for, so naming it here
+  // would only be a second, ignorable opinion.
+  const filters = { view_by: VIEW_BY_SHIFT, shift_date: shiftDate }
 
   try {
     const [report, layout] = await Promise.all([
