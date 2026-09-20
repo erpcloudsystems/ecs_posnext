@@ -797,7 +797,7 @@
 								class="grid grid-cols-2" :class="isSmallMobile ? 'gap-1' : 'gap-1.5'">
 								<!-- Pay Full Amount Button -->
 								<button
-									@click="addCustomPayment(lastSelectedMethod, remainingAmount)"
+									@click="addCustomPayment(lastSelectedMethod, remainingAmount, true)"
 									:class="[
 										'font-bold rounded-lg bg-green-500 text-white active:bg-green-600 flex items-center justify-center',
 										mobileButtonSize.height, mobileButtonSize.text, mobileButtonSize.gap
@@ -834,7 +834,7 @@
 							<!-- Single Pay button (when no credit sale option) -->
 							<button
 								v-else-if="lastSelectedMethod && remainingAmount > 0"
-								@click="addCustomPayment(lastSelectedMethod, remainingAmount)"
+								@click="addCustomPayment(lastSelectedMethod, remainingAmount, true)"
 								:disabled="isSubmitting"
 								:class="[
 									'w-full font-bold rounded-lg flex items-center justify-center',
@@ -942,7 +942,7 @@ import {
 	getCurrencySymbol,
 	roundCurrency,
 } from "@/utils/currency"
-import { applyPaymentTopUp, getPaymentIcon } from "@/utils/payment"
+import { applyPaymentReduction, applyPaymentTopUp, getPaymentIcon } from "@/utils/payment"
 import { enqueueOperation } from "@/utils/offline/operations"
 import { offlineWorker } from "@/utils/offline/workerClient"
 import { logger } from "@/utils/logger"
@@ -1384,6 +1384,30 @@ function isCashPaymentMethod(method) {
 	// Check by mode_of_payment name as fallback
 	const name = (method.mode_of_payment || "").toLowerCase()
 	return name.includes("cash") || name.includes("نقد") || name.includes("نقدي")
+}
+
+// Is this payment entry cash - i.e. may it legitimately be over-tendered and
+// give change back? Wallet and customer credit are never cash regardless of
+// what the mode of payment is called.
+function isCashEntry(entry) {
+	if (entry.is_customer_credit || entry.is_wallet_payment) return false
+	const method = paymentMethods.value.find(
+		(m) => m.mode_of_payment === entry.mode_of_payment,
+	)
+	return isCashPaymentMethod(method)
+}
+
+// May this entry be pulled back down when the invoice total drops?
+//
+// Only a cash amount the cashier typed on the numpad is protected: that is
+// money physically handed over, and it has to stay put and show as Change.
+// Everything else was filled in from the total - tapping a method, the Pay
+// button, applying credit - so it was never a tender and must follow the
+// total down. Card, bank and wallet entries follow it down regardless of how
+// they were entered, since none of them can hand change back.
+function isReducibleEntry(entry) {
+	if (!isCashEntry(entry)) return true
+	return entry.auto_filled === true
 }
 
 // Get available wallet balance for payment (considering already added wallet payments)
@@ -2131,17 +2155,43 @@ watch(
 	},
 )
 
-// One Page mode: when the grand total grows after payments were entered (e.g.
-// an item added after the payment method was tapped), add the difference onto
-// the last regular payment so the invoice stays fully paid instead of showing
-// a Remaining amount. Only applies when the invoice was fully covered before
-// the change — a deliberately partial payment is left alone — and never
-// reduces payments when the total drops (overpayment stays visible as Change).
+// Keep the payment entries in step when the grand total moves after payments
+// were entered.
+//
+// Down (an additional discount picked after the payment method was tapped):
+// the non-cash entries were auto-filled from the old total, and a card or
+// wallet cannot hand change back, so they follow the total down. A cash
+// over-tender is money the customer actually handed over, so it stays and
+// stays visible as Change. Not gated on One Page mode - the discount selector
+// sits in the dialog too.
+//
+// Up (One Page only: an item added after the payment method was tapped): add
+// the difference onto the last regular payment so the invoice stays fully paid
+// instead of showing a Remaining amount. Only applies when the invoice was
+// fully covered before the change - a deliberately partial payment is left
+// alone.
 watch(
 	() => props.grandTotal,
 	(newTotal, oldTotal) => {
-		if (!props.inline || props.isSubmitting) return
+		if (props.isSubmitting) return
 		if (paymentEntries.value.length === 0) return
+
+		const rounded = roundCurrency(newTotal)
+
+		if (rounded < roundCurrency(oldTotal)) {
+			const overpay = roundCurrency(totalPaid.value - rounded)
+			if (overpay > 0) {
+				log.debug(
+					"[PaymentDialog] Grand total dropped, pulling",
+					overpay,
+					"off the payments that were filled in from it",
+				)
+				applyPaymentReduction(paymentEntries.value, overpay, isReducibleEntry)
+			}
+			return
+		}
+
+		if (!props.inline) return
 
 		// paymentEntries are untouched by a total change, so the pre-change
 		// remainder is the old total minus what has been paid so far.
@@ -2231,8 +2281,10 @@ function switchPaymentMethod(method) {
 
 	// Non-cash payments must match the invoice total exactly in exact amount mode
 	// (drops any change the previous cash payment carried)
+	let autoFilled = current.auto_filled === true
 	if (isExactAmountModeActive.value && !isCashPaymentMethod(method)) {
 		amt = roundCurrency(props.grandTotal)
+		autoFilled = true
 	}
 
 	paymentEntries.value.splice(0, 1, {
@@ -2240,6 +2292,7 @@ function switchPaymentMethod(method) {
 		amount: roundCurrency(amt),
 		type: method.type || __("Cash"),
 		is_wallet_payment: isWalletPaymentMethod(method.mode_of_payment),
+		auto_filled: autoFilled,
 	})
 	log.debug(
 		"[PaymentDialog] Switched payment method:",
@@ -2392,6 +2445,8 @@ function quickAddPayment(method) {
 		amount: roundCurrency(amt),
 		type: method.type || __("Cash"),
 		is_wallet_payment: isWalletPaymentMethod(method.mode_of_payment),
+		// Taken from the invoice total, not counted out by the cashier
+		auto_filled: true,
 	})
 	log.debug("[PaymentDialog] Quick payment added:", method.mode_of_payment)
 
@@ -2403,8 +2458,10 @@ function quickAddPayment(method) {
 	}
 }
 
-// Add custom amount for a method
-function addCustomPayment(method, amount) {
+// Add custom amount for a method. `autoFilled` marks an amount that was taken
+// from the invoice total (the Pay buttons) rather than typed on the numpad -
+// only the former should follow the total when a discount is applied later.
+function addCustomPayment(method, amount, autoFilled = false) {
 	log.debug("[PaymentDialog] Add custom payment:", {
 		method: method.mode_of_payment,
 		amount: amount,
@@ -2479,6 +2536,7 @@ function addCustomPayment(method, amount) {
 		amount: amt,
 		type: method.type || __("Cash"),
 		is_wallet_payment: isWalletPaymentMethod(method.mode_of_payment),
+		auto_filled: autoFilled,
 	})
 
 	log.debug("[PaymentDialog] Payment added, new entries:", paymentEntries.value)
@@ -2514,6 +2572,7 @@ function applyCustomerCredit() {
 		amount: roundCurrency(creditToApply),
 		type: "Credit",
 		is_customer_credit: true,
+		auto_filled: true,
 		credit_details: customerCredit.value.map((credit) => ({
 			...credit,
 			credit_to_redeem: 0, // Will be calculated on backend

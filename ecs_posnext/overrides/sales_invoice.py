@@ -65,6 +65,50 @@ def _read_post_change_gl_entries_setting():
 	)
 	return cint(result[0][0]) if result else 0
 
+
+def _get_cash_account_of_pos_profile(pos_profile, company):
+	"""Account behind the POS Profile's own Cash mode of payment.
+
+	Returns None when the profile has no cash mode for this company, or has
+	several that point at different accounts - the change account is then left
+	to whatever ERPNext resolved, since there is nothing unambiguous to pick.
+	"""
+	# Resolved once per request: set_pos_fields runs on every validate pass of a
+	# POS submit, and a profile's payment methods do not move under it mid-request.
+	memo = getattr(frappe.local, "_ecs_posnext_profile_cash_account", None)
+	if memo is None:
+		memo = frappe.local._ecs_posnext_profile_cash_account = {}
+
+	key = (pos_profile, company)
+	if key in memo:
+		return memo[key]
+
+	PaymentMethod = frappe.qb.DocType("POS Payment Method")
+	ModeOfPayment = frappe.qb.DocType("Mode of Payment")
+	ModeOfPaymentAccount = frappe.qb.DocType("Mode of Payment Account")
+
+	rows = (
+		frappe.qb.from_(PaymentMethod)
+		.join(ModeOfPayment)
+		.on(ModeOfPayment.name == PaymentMethod.mode_of_payment)
+		.join(ModeOfPaymentAccount)
+		.on(ModeOfPaymentAccount.parent == ModeOfPayment.name)
+		.select(ModeOfPaymentAccount.default_account)
+		.distinct()
+		.where(PaymentMethod.parent == pos_profile)
+		.where(PaymentMethod.parenttype == "POS Profile")
+		.where(ModeOfPayment.type == "Cash")
+		.where(ModeOfPaymentAccount.company == company)
+		.where(ModeOfPaymentAccount.default_account.notnull())
+		.run()
+	)
+
+	accounts = [row[0] for row in rows if row[0]]
+	account = accounts[0] if len(accounts) == 1 else None
+	memo[key] = account
+	return account
+
+
 class CustomSalesInvoice(SalesInvoice):
 	"""
 	Custom Sales Invoice class that handles wallet payments correctly.
@@ -73,6 +117,42 @@ class CustomSalesInvoice(SalesInvoice):
 	party information in the GL entry. This override adds party_type and party
 	for wallet payment methods marked with is_wallet_payment.
 	"""
+
+	def set_pos_fields(self, for_validate=False):
+		"""
+		Override to take the change account from the POS Profile's own cash till.
+
+		ERPNext only reads `account_for_change_amount` off the POS Profile, and
+		falls back to Company.default_cash_account when the profile leaves it
+		empty. With one company and a profile per branch that means every branch
+		hands change back out of the head office till, so the change lands in the
+		wrong cost center and the branch's expected cash at shift closing is
+		overstated by it. Fall back to the cash mode of payment configured on the
+		profile itself instead.
+
+		A value already configured on the POS Profile, or picked by hand on the
+		invoice, is left untouched; the company default is treated as "nothing was
+		chosen" so that held drafts get corrected too.
+		"""
+		result = super().set_pos_fields(for_validate=for_validate)
+
+		if not cint(self.is_pos) or not self.pos_profile:
+			return result
+
+		if frappe.get_cached_value("POS Profile", self.pos_profile, "account_for_change_amount"):
+			# Configured on the profile - ERPNext already applied it.
+			return result
+
+		company_default = frappe.get_cached_value("Company", self.company, "default_cash_account")
+		if self.account_for_change_amount and self.account_for_change_amount != company_default:
+			# Chosen deliberately on the invoice.
+			return result
+
+		account = _get_cash_account_of_pos_profile(self.pos_profile, self.company)
+		if account:
+			self.account_for_change_amount = account
+
+		return result
 
 	def make_pos_gl_entries(self, gl_entries):
 		"""

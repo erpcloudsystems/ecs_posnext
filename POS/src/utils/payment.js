@@ -51,3 +51,38 @@ export function applyPaymentTopUp(entries, delta) {
 	}
 	return entries
 }
+
+/**
+ * Pull an invoice-total decrease (e.g. an additional discount applied after
+ * the payment method was already tapped) back off the payment entries, so the
+ * cashier is not left tendering the pre-discount amount.
+ *
+ * `isReducible` decides which entries may be pulled down. Anything filled in
+ * from the total - a tapped method, a Pay button, applied credit - was never a
+ * tender and should follow the total; a cash amount the cashier typed in is
+ * money physically handed over and stays put, visible as Change. Whatever
+ * excess is left once every reducible entry sits at zero stays where it is.
+ *
+ * Mutates and returns the given entries array. No-op unless delta > 0.
+ * @param {Array} entries - Payment entries ({mode_of_payment, amount, ...})
+ * @param {number} delta - Amount to pull off the entries
+ * @param {Function} isReducible - Predicate: entry => true when it may be cut
+ * @returns {Array} The updated entries array
+ */
+export function applyPaymentReduction(entries, delta, isReducible) {
+	let remaining = roundCurrency(delta)
+	if (!entries?.length || remaining <= 0) return entries
+
+	for (let i = entries.length - 1; i >= 0 && remaining > 0; i--) {
+		const entry = entries[i]
+		if (!isReducible(entry)) continue
+
+		const amount = roundCurrency(entry.amount || 0)
+		if (amount <= 0) continue
+
+		const cut = Math.min(amount, remaining)
+		entry.amount = roundCurrency(amount - cut)
+		remaining = roundCurrency(remaining - cut)
+	}
+	return entries
+}
