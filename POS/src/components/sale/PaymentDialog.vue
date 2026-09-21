@@ -2767,8 +2767,33 @@ async function completePayment(print) {
 	const effectivePaid = totalPaid.value + writeOffAmount.value
 	const isPartial = effectivePaid < payableTotal.value
 
+	// Collapse repeat taps on the same method into one row per mode of payment.
+	// Sending a row per tap creates duplicate Sales Invoice Payment rows, which the
+	// backend settles per mode - so the extra rows either double the payment or drop
+	// part of it. The on-screen entry list is left untouched.
+	const mergedPayments = []
+	const paymentsByMode = new Map()
+	for (const entry of paymentEntries.value) {
+		const existing = paymentsByMode.get(entry.mode_of_payment)
+		if (existing) {
+			existing.amount = roundCurrency(
+				(existing.amount || 0) + (entry.amount || 0),
+			)
+			if (entry.credit_details?.length) {
+				existing.credit_details = [
+					...(existing.credit_details || []),
+					...entry.credit_details,
+				]
+			}
+			continue
+		}
+		const merged = { ...entry }
+		paymentsByMode.set(entry.mode_of_payment, merged)
+		mergedPayments.push(merged)
+	}
+
 	const paymentData = {
-		payments: paymentEntries.value,
+		payments: mergedPayments,
 		change_amount: changeAmount.value,
 		is_partial_payment: isPartial,
 		paid_amount: totalPaid.value,

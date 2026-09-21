@@ -372,6 +372,13 @@ def _reapply_payment_amounts(invoice_doc, original_payments, doctype="Sales Invo
 
     This function restores the amounts by directly updating the DB rows after save,
     bypassing set_missing_values.
+
+    The cashier can settle one invoice with several taps on the *same* method (pay
+    25.00 on the card, then the 0.0015 remainder on the same card), and the POS
+    sends one row per tap. So a mode of payment can appear more than once on both
+    sides: sum the requested rows per mode instead of letting the last one win, and
+    settle each mode's total on a single invoice row, zeroing its duplicates —
+    writing the per-mode amount into every matching row would multiply the payment.
     """
     if not original_payments or doctype != DOCTYPE_SALES_INVOICE:
         return
@@ -383,24 +390,40 @@ def _reapply_payment_amounts(invoice_doc, original_payments, doctype="Sales Invo
         mode = p.get("mode_of_payment")
         if not mode:
             continue
-        amount = flt(p.get("amount") or 0)
-        if amount > 0:
-            payment_amount_map[mode] = amount
+        payment_amount_map[mode] = payment_amount_map.get(mode, 0) + flt(
+            p.get("amount") or 0
+        )
 
+    payment_amount_map = {m: a for m, a in payment_amount_map.items() if a > 0}
     if not payment_amount_map:
         return
 
+    conversion_rate = flt(invoice_doc.get("conversion_rate")) or 1
+    base_precision = invoice_doc.precision("base_paid_amount")
+
+    settled_modes = set()
     total_paid = 0
+    base_total_paid = 0
     for payment in invoice_doc.payments:
-        if payment.mode_of_payment in payment_amount_map:
-            amt = payment_amount_map[payment.mode_of_payment]
+        mode = payment.mode_of_payment
+        if mode in payment_amount_map:
+            # First row for this mode carries the whole per-mode total; any further
+            # duplicate row for the same mode is zeroed so it is not counted twice.
+            amt = 0 if mode in settled_modes else payment_amount_map[mode]
+            settled_modes.add(mode)
+            base_amt = flt(amt * conversion_rate, base_precision)
             payment.db_set("amount", amt, update_modified=False)
+            payment.db_set("base_amount", base_amt, update_modified=False)
             payment.amount = amt
+            payment.base_amount = base_amt
         total_paid += flt(payment.amount)
+        base_total_paid += flt(payment.base_amount or 0)
 
     if total_paid > 0:
         invoice_doc.db_set("paid_amount", total_paid, update_modified=False)
+        invoice_doc.db_set("base_paid_amount", base_total_paid, update_modified=False)
         invoice_doc.paid_amount = total_paid
+        invoice_doc.base_paid_amount = base_total_paid
 
 
 # ==========================================

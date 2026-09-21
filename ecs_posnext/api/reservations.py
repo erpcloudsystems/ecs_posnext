@@ -342,6 +342,195 @@ def create_deposit_invoice(
     return {"deposit_invoice": draft.get("name"), "amount": amount, "result": result}
 
 
+# ---------------------------------------------------------------------------
+# Reconciling the Sales Order with what was actually sold
+# ---------------------------------------------------------------------------
+#
+# The cashier loads the reserved party's items into the cart and is free to edit
+# them before closing: change a qty, drop a line the customer no longer wants,
+# add something extra. The Sales Order is the reservation record, so at close it
+# should end up carrying the same lines the customer was actually billed for.
+#
+# This runs ERPNext's own "Update Items" (update_child_qty_rate) against the
+# submitted Sales Order, *before* the closing invoice exists — once that invoice
+# is submitted its billed amounts would block the very rows we want to change.
+
+
+def _invoiced_item_totals(invoice_items):
+    """Aggregate the closing invoice's lines per (item_code, uom).
+
+    The same item can appear on several cart lines (different batches, an offer
+    line next to a normal one), and the Sales Order carries one row per item, so
+    the lines are summed and the rate is the weighted average — that keeps each
+    Sales Order row's amount equal to what the customer was billed for it.
+    """
+    totals = {}
+    for item in invoice_items or []:
+        item_code = item.get("item_code")
+        # The negative deposit line only nets the advance out of the invoice; it
+        # is not something the party was sold.
+        if not item_code or item_code == DEPOSIT_ITEM_CODE:
+            continue
+
+        qty = flt(item.get("qty"))
+        if qty <= 0:
+            continue
+
+        key = (item_code, item.get("uom") or None)
+        row = totals.setdefault(
+            key,
+            {
+                "item_code": item_code,
+                "uom": item.get("uom"),
+                "conversion_factor": flt(item.get("conversion_factor")) or None,
+                "qty": 0.0,
+                "amount": 0.0,
+            },
+        )
+        row["qty"] += qty
+        row["amount"] += qty * flt(item.get("rate"))
+
+    for row in totals.values():
+        row["rate"] = flt(row["amount"] / row["qty"]) if row["qty"] else 0.0
+
+    return totals
+
+
+def _committed_qty(so_item):
+    """Qty on a Sales Order row that is already committed through another document.
+
+    ERPNext refuses to delete such a row or to take its qty below this, so the row
+    is left alone instead of letting the close blow up at the till.
+    """
+    return max(
+        flt(so_item.get("delivered_qty")),
+        flt(so_item.get("ordered_qty")),
+        flt(so_item.get("work_order_qty")),
+    )
+
+
+def _row_unchanged(so_item):
+    """trans_items entry that keeps a Sales Order row exactly as it stands."""
+    return {
+        "docname": so_item.name,
+        "item_code": so_item.item_code,
+        "qty": flt(so_item.qty),
+        "rate": flt(so_item.rate),
+        "uom": so_item.uom,
+        "conversion_factor": flt(so_item.conversion_factor),
+        "delivery_date": str(so_item.delivery_date) if so_item.delivery_date else None,
+    }
+
+
+def _build_sales_order_updates(so_doc, invoiced):
+    """Return (trans_items, untouched) for update_child_qty_rate.
+
+    `untouched` names the rows that could not follow the invoice because another
+    document already claims them; they are reported back rather than forced.
+    """
+    remaining = dict(invoiced)
+    trans_items = []
+    untouched = []
+
+    for so_item in so_doc.items:
+        match = remaining.pop((so_item.item_code, so_item.uom), None)
+        if match is None:
+            # Same item billed under a different UOM: update this row to the sold
+            # UOM instead of deleting it and adding a near-identical one.
+            alt_key = next((k for k in remaining if k[0] == so_item.item_code), None)
+            if alt_key:
+                match = remaining.pop(alt_key)
+
+        committed = _committed_qty(so_item)
+
+        if match is None:
+            # Not sold at all: drop the row by leaving it out of trans_items,
+            # unless another document already depends on it.
+            if committed or flt(so_item.billed_amt):
+                trans_items.append(_row_unchanged(so_item))
+                untouched.append(so_item.item_code)
+            continue
+
+        qty = flt(match["qty"])
+        rate = flt(match["rate"])
+
+        # ERPNext throws on qty below what is delivered/produced, and on an amount
+        # below what is already billed. Keep the row as it is in either case.
+        if qty < committed or (
+            rate > 0 and flt(so_item.billed_amt) > flt(qty * rate)
+        ):
+            trans_items.append(_row_unchanged(so_item))
+            untouched.append(so_item.item_code)
+            continue
+
+        trans_items.append(
+            {
+                "docname": so_item.name,
+                "item_code": so_item.item_code,
+                "qty": qty,
+                "rate": rate,
+                "uom": match["uom"] or so_item.uom,
+                "conversion_factor": match["conversion_factor"]
+                or flt(so_item.conversion_factor),
+                "delivery_date": str(so_item.delivery_date)
+                if so_item.delivery_date
+                else None,
+            }
+        )
+
+    # Sold at the till but never reserved: these become new Sales Order rows.
+    for match in remaining.values():
+        trans_items.append(
+            {
+                "item_code": match["item_code"],
+                "qty": flt(match["qty"]),
+                "rate": flt(match["rate"]),
+                "uom": match["uom"],
+                "conversion_factor": match["conversion_factor"],
+                "delivery_date": str(so_doc.delivery_date)
+                if so_doc.delivery_date
+                else None,
+            }
+        )
+
+    return trans_items, untouched
+
+
+def sync_sales_order_items(sales_order, invoice_items):
+    """Make the Sales Order's items match the invoice the party is being closed with.
+
+    Never raises: a Sales Order that cannot be reconciled must not stop the cashier
+    from taking the money. The outcome is returned (and logged) so the mismatch is
+    visible instead of silent.
+    """
+    from erpnext.controllers.accounts_controller import update_child_qty_rate
+
+    invoiced = _invoiced_item_totals(invoice_items)
+    if not invoiced:
+        return {"updated": False, "reason": "no billable items on the invoice"}
+
+    so_doc = frappe.get_doc("Sales Order", sales_order)
+    if not so_doc.docstatus.is_submitted():
+        # Update Items only applies to a submitted order.
+        return {"updated": False, "reason": "Sales Order is not submitted"}
+
+    trans_items, untouched = _build_sales_order_updates(so_doc, invoiced)
+    if not trans_items:
+        # A Sales Order cannot end up with no items at all.
+        return {"updated": False, "reason": "update would leave the Sales Order empty"}
+
+    try:
+        update_child_qty_rate("Sales Order", json.dumps(trans_items), sales_order)
+    except Exception:
+        frappe.log_error(
+            title="Party close: Sales Order items not updated",
+            message=f"Sales Order: {sales_order}\n\n{frappe.get_traceback()}",
+        )
+        return {"updated": False, "reason": "update failed", "untouched_items": untouched}
+
+    return {"updated": True, "rows": len(trans_items), "untouched_items": untouched}
+
+
 @frappe.whitelist()
 def close_party_reservation(sales_order, invoice_data, data=None, pos_profile=None):
     """Close a reserved party: bill the full party and net out the deposits paid.
@@ -378,6 +567,12 @@ def close_party_reservation(sales_order, invoice_data, data=None, pos_profile=No
     for item in invoice_data.get("items", []):
         item.setdefault("sales_order", sales_order)
 
+    # Bring the reservation in line with what is actually being billed (the cashier
+    # may have changed quantities, dropped lines or added items at the till). This
+    # has to happen before the invoice is submitted, while no billed amount on the
+    # Sales Order rows blocks the change yet.
+    so_update = sync_sales_order_items(sales_order, invoice_data.get("items"))
+
     # Net out the deposits already paid with one negative deposit line.
     if total_deposit > 0:
         invoice_data.setdefault("items", []).append(
@@ -400,6 +595,7 @@ def close_party_reservation(sales_order, invoice_data, data=None, pos_profile=No
 
     return {
         "sales_order": sales_order,
+        "sales_order_update": so_update,
         "total_deposit": total_deposit,
         "full_invoice": full_result,
     }
