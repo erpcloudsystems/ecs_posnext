@@ -429,6 +429,11 @@
 															{{ __('QZ Tray must be installed and running on this computer. Download from') }}
 															<a href="https://qz.io/download/" target="_blank" class="font-semibold underline">qz.io</a>.
 															{{ __('If QZ Tray is unavailable, printing will fall back to the browser dialog.') }}
+															{{ __('To stop the "Untrusted website" prompt from appearing on every reload, ') }}
+															<button type="button" @click="handleDownloadCertificate" class="font-semibold underline">
+																{{ __('download the site certificate') }}
+															</button>
+															{{ __('and install it in QZ Tray on this till (System Manager only).') }}
 														</p>
 													</div>
 												</div>
@@ -822,6 +827,36 @@ async function handleRefreshPrinters() {
 		}
 	} finally {
 		loadingPrinters.value = false
+	}
+}
+
+async function handleDownloadCertificate() {
+	try {
+		const response = await fetch(
+			"/api/method/ecs_posnext.api.qz_signing.download_certificate",
+			{ credentials: "same-origin" }
+		)
+		if (!response.ok) {
+			if (response.status === 403) {
+				showError(__("Only a System Manager can download the QZ Tray certificate"))
+			} else {
+				showError(__("Could not download the QZ Tray certificate"))
+			}
+			return
+		}
+
+		const blob = await response.blob()
+		const url = URL.createObjectURL(blob)
+		const link = document.createElement("a")
+		link.href = url
+		link.download = "override.crt"
+		document.body.appendChild(link)
+		link.click()
+		link.remove()
+		URL.revokeObjectURL(url)
+	} catch (err) {
+		log.error("Failed to download QZ Tray certificate:", err)
+		showError(__("Could not download the QZ Tray certificate"))
 	}
 }
 
