@@ -2940,6 +2940,11 @@ def convert_order_type(invoice_name, order_type, territory=None):
 	old_grand_total = flt(invoice_doc.grand_total)
 	removed_row = _remove_delivery_charge_row(invoice_doc)
 
+	# An addition rides along on the order's trip — it is a separate invoice, but the
+	# customer paid for delivery once on the original. Converting it to Delivery must set
+	# the type and zone WITHOUT charging the trip again; the charge belongs on the order.
+	is_addition = bool(invoice_doc.get("custom_parent_order"))
+
 	new_charge = None
 	if order_type == "Delivery":
 		if not territory:
@@ -2949,9 +2954,13 @@ def convert_order_type(invoice_name, order_type, territory=None):
 			frappe.throw(_("No delivery charge is configured for zone {0}.").format(territory))
 
 		invoice_doc.territory = territory
-		invoice_doc.posa_delivery_charges = new_charge["name"]
-		invoice_doc.posa_delivery_charges_rate = new_charge["rate"]
-		if flt(new_charge["rate"]):
+		if is_addition:
+			invoice_doc.posa_delivery_charges = None
+			invoice_doc.posa_delivery_charges_rate = 0
+		else:
+			invoice_doc.posa_delivery_charges = new_charge["name"]
+			invoice_doc.posa_delivery_charges_rate = new_charge["rate"]
+		if flt(new_charge["rate"]) and not is_addition:
 			invoice_doc.append("taxes", {
 				"charge_type": "Actual",
 				"description": new_charge["name"],

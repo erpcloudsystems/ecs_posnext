@@ -264,14 +264,25 @@ def get_unassigned_orders(from_date=None, business_day=None):
 		limit=200,
 	)
 
-	# A supplement invoice (items added to an already-placed order) whose parent is
-	# already assigned/out for delivery must NOT show up as a second, disconnected
-	# order — the addition was already flagged on that assignment (flag_delivery_addition).
-	if assigned_refs:
-		assigned_refs_set = set(assigned_refs)
+	# An addition is never its own delivery. Items added to an order are billed on a
+	# SEPARATE invoice, but they leave in the same bag on the same trip, so the order's
+	# card carries them — amount_to_collect covers the whole chain.
+	#
+	# Showing the addition as a card of its own charged the customer twice over: the
+	# order's card already included the addition (nothing had claimed it yet), and then the
+	# addition's own card added it again. A driver seeing an 820 order with a 200 addition
+	# read two cards of 1,020 and a total of 2,040.
+	#
+	# It is hidden while the order it belongs to is somewhere a driver can still take it —
+	# on this board, or already out with someone. If the order is gone (delivered long ago,
+	# cancelled), the addition stays visible so it is never stranded with no way to deliver.
+	on_board = {inv["name"] for inv in invoices}
+	covered_parents = on_board | set(assigned_refs or [])
+	if covered_parents:
 		invoices = [
-			inv for inv in invoices
-			if not (inv.get("custom_parent_order") and inv["custom_parent_order"] in assigned_refs_set)
+			inv
+			for inv in invoices
+			if not (inv.get("custom_parent_order") and inv["custom_parent_order"] in covered_parents)
 		]
 
 	# Precise business-day lower bound: drop orders posted before the window's exact
@@ -835,8 +846,31 @@ def return_to_unassigned(assignment, reason=""):
 	if doc.status in ("Delivered", "Returned", "Failed"):
 		frappe.throw(_("Assignment {0} is already in a terminal state.").format(assignment))
 	doc.delivery_notes = reason or doc.delivery_notes
-	doc.save(ignore_permissions=True)
-	doc.cancel(ignore_permissions=True)
+	doc.flags.ignore_permissions = True
+
+	# Release the order by putting the assignment in a state the board treats as over.
+	# Assignments are created as drafts and never submitted — every one of the ~17k in the
+	# system sits at docstatus 0 — so cancelling was impossible and this action always
+	# failed: cancel() rejects a draft, and it takes no arguments either. "Returned" is
+	# what get_unassigned_orders already reads as "this assignment no longer holds the
+	# order", and the reason stays on the record instead of the row disappearing.
+	if doc.docstatus == 1:
+		doc.save(ignore_permissions=True)
+		doc.cancel()
+	else:
+		doc.status = "Returned"
+		doc.save(ignore_permissions=True)
+
+	from ecs_posnext.api.business_day import log_pos_event
+
+	log_pos_event(
+		action="Override",
+		reference_doctype="Delivery Assignment",
+		reference_name=doc.name,
+		old_value=doc.driver,
+		new_value="Unassigned",
+		reason=_("Returned to unassigned: {0}").format(reason or _("no reason given")),
+	)
 	frappe.publish_realtime("dispatch_desk_refresh", {"shift": doc.shift})
 	return {"status": "Unassigned", "order_reference": doc.order_reference}
 

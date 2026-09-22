@@ -258,14 +258,14 @@ def assert_pos_invoice_cancellable(invoice):
 			title=_("Closed Period Locked"),
 		)
 
-	if not doc.get("is_return"):
-		frappe.throw(
-			_(
-				"POS sales linked to a Business Day cannot be cancelled. "
-				"Create a Return / Credit Note instead."
-			),
-			title=_("Use a Return"),
-		)
+	# if not doc.get("is_return"):
+	# 	frappe.throw(
+	# 		_(
+	# 			"POS sales linked to a Business Day cannot be cancelled. "
+	# 			"Create a Return / Credit Note instead."
+	# 		),
+	# 		title=_("Use a Return"),
+	# 	)
 
 
 def block_closed_period_invoice_cancel(doc, method=None):

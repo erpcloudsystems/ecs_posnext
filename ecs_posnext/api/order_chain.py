@@ -246,6 +246,12 @@ def return_additions_with_order(doc, method=None):
 	for addition in pending:
 		try:
 			ret = make_sales_return(addition.name)
+			# Book the credit note AGAINST THE ADDITION, the way every POS return is
+			# created (submit_invoice does the same). Left at ERPNext's default of 1 the
+			# note settles against itself: the addition stays Unpaid for its full amount
+			# while the credit note carries the negative balance beside it, so a returned
+			# order still shows money owed.
+			ret.update_outstanding_for_self = 0
 			# Stamp the shift doing the return, not the one that sold the addition: the
 			# refund leaves TODAY's drawer, so that is the shift whose cash it must move.
 			for field in ("posa_pos_opening_shift", "custom_pos_business_day", "custom_pos_cashier_shift"):

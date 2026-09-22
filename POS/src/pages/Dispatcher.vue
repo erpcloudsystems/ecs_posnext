@@ -419,9 +419,9 @@
 										<button @click="orderReturnToUnassigned(a)" :disabled="statusLoading" :title="__('Driver problem — send back for reassignment')" class="py-1.5 px-2.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs transition-colors disabled:opacity-50">
 											↩ {{ __('Return to Unassigned') }}
 										</button>
-										<button @click="orderFailed(a)" :disabled="statusLoading" class="py-1.5 px-2.5 bg-red-800 hover:bg-red-700 text-red-200 rounded-lg text-xs font-bold transition-colors disabled:opacity-50">
+										<!-- <button @click="orderFailed(a)" :disabled="statusLoading" class="py-1.5 px-2.5 bg-red-800 hover:bg-red-700 text-red-200 rounded-lg text-xs font-bold transition-colors disabled:opacity-50">
 											❌ {{ __('Failed') }}
-										</button>
+										</button> -->
 									</template>
 									<!-- Print invoice — always available once assigned -->
 									<button @click.stop="printOrder(a.order_reference)" :title="__('Print invoice')"
