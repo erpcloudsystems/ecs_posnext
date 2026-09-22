@@ -34,3 +34,5 @@ ecs_posnext.patches.add_kds_item_source_invoice
 ecs_posnext.patches.fix_kitchen_receipt_combo_grouping
 ecs_posnext.patches.fix_addition_parent_order_link
 ecs_posnext.patches.sales_receipt_show_additions
+ecs_posnext.patches.add_cash_custody_accounts
+ecs_posnext.patches.seed_branch_expense_types

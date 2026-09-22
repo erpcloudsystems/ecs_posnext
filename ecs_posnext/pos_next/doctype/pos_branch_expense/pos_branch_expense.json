@@ -1,0 +1,189 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-09-17 12:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "naming_series",
+  "pos_profile",
+  "company",
+  "column_break_head",
+  "posting_date",
+  "recorded_by",
+  "status",
+  "section_expense",
+  "expense_claim_type",
+  "expense_account",
+  "column_break_expense",
+  "amount",
+  "paid_from",
+  "section_proof",
+  "description",
+  "receipt",
+  "section_accounting",
+  "journal_entry",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "default": "POS-EXP-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "POS-EXP-.YYYY.-.#####",
+   "print_hide": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Branch (POS Profile)",
+   "options": "POS Profile",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "pos_profile.company",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "recorded_by",
+   "fieldtype": "Link",
+   "label": "Recorded By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nPaid\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_expense",
+   "fieldtype": "Section Break",
+   "label": "Expense"
+  },
+  {
+   "description": "Configured under Expense Claim Type, which maps each type to its account per company.",
+   "fieldname": "expense_claim_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Expense Type",
+   "options": "Expense Claim Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "expense_account",
+   "fieldtype": "Link",
+   "label": "Expense Account",
+   "options": "Account",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_expense",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "reqd": 1
+  },
+  {
+   "fieldname": "paid_from",
+   "fieldtype": "Link",
+   "label": "Paid From (Branch Safe)",
+   "options": "Account",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_proof",
+   "fieldtype": "Section Break",
+   "label": "Proof"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "description": "Photo or scan of the receipt / invoice. Required — an expense without proof cannot be submitted.",
+   "fieldname": "receipt",
+   "fieldtype": "Attach",
+   "label": "Receipt",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_accounting",
+   "fieldtype": "Section Break",
+   "label": "Accounting"
+  },
+  {
+   "fieldname": "journal_entry",
+   "fieldtype": "Link",
+   "label": "Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "POS Branch Expense",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-17 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Branch Expense",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {"cancel": 1, "create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "submit": 1, "write": 1},
+  {"cancel": 1, "create": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "POSNext Branch Manager", "share": 1, "submit": 1, "write": 1},
+  {"cancel": 1, "create": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Bransh Manager", "share": 1, "submit": 1, "write": 1},
+  {"cancel": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "POSNext Operations Manager", "share": 1},
+  {"cancel": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Accounts Manager", "share": 1}
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

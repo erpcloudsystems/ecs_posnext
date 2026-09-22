@@ -1,0 +1,297 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-09-17 10:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "naming_series",
+  "transfer_type",
+  "company",
+  "pos_profile",
+  "pos_business_day",
+  "column_break_head",
+  "posting_date",
+  "transferred_by",
+  "status",
+  "section_accounts",
+  "from_account",
+  "column_break_accounts",
+  "to_account",
+  "section_amounts",
+  "expected_amount",
+  "amount",
+  "column_break_amounts",
+  "variance",
+  "variance_account",
+  "section_vouchers",
+  "payment_entry",
+  "column_break_vouchers",
+  "variance_journal_entry",
+  "section_remarks",
+  "remarks",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "default": "POS-CT-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "POS-CT-.YYYY.-.#####",
+   "print_hide": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "transfer_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Transfer Type",
+   "options": "Drawer to Branch Safe\nBranch Safe to Master Cash",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "POS Profile",
+   "options": "POS Profile",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "pos_business_day",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "POS Business Day",
+   "options": "POS Business Day",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Posting Date",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "transferred_by",
+   "fieldtype": "Link",
+   "label": "Transferred By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nTransferred\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_accounts",
+   "fieldtype": "Section Break",
+   "label": "Accounts"
+  },
+  {
+   "fieldname": "from_account",
+   "fieldtype": "Link",
+   "label": "From Account",
+   "options": "Account",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_accounts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "to_account",
+   "fieldtype": "Link",
+   "label": "To Account",
+   "options": "Account",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_amounts",
+   "fieldtype": "Section Break",
+   "label": "Amounts"
+  },
+  {
+   "default": "0",
+   "description": "System-expected cash for the business day (opening + cash sales + call center cash - refunds). Blank for Branch Safe to Master Cash transfers.",
+   "fieldname": "expected_amount",
+   "fieldtype": "Currency",
+   "label": "Expected Amount",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Amount actually moved. For a drawer hand-over this is the physically counted cash.",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_amounts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Counted minus expected. Negative = shortage, positive = overage.",
+   "fieldname": "variance",
+   "fieldtype": "Currency",
+   "label": "Variance",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.variance",
+   "fieldname": "variance_account",
+   "fieldtype": "Link",
+   "label": "Variance Account",
+   "options": "Account",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_vouchers",
+   "fieldtype": "Section Break",
+   "label": "Accounting Vouchers"
+  },
+  {
+   "fieldname": "payment_entry",
+   "fieldtype": "Link",
+   "label": "Payment Entry",
+   "options": "Payment Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_vouchers",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "variance_journal_entry",
+   "fieldtype": "Link",
+   "label": "Variance Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_remarks",
+   "fieldtype": "Section Break",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "POS Cash Transfer",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-17 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Cash Transfer",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "POSNext Branch Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "POSNext Operations Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Bransh Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

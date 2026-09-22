@@ -38,6 +38,10 @@
   "net_sales",
   "section_issues",
   "closing_issues",
+  "section_cash_custody",
+  "drawer_to_safe_transfer",
+  "column_break_custody",
+  "safe_to_master_transfer",
   "section_override",
   "override_reason"
  ],
@@ -252,6 +256,31 @@
    "fieldtype": "Table",
    "label": "Closing Issues",
    "options": "POS Closing Issue"
+  },
+  {
+   "fieldname": "section_cash_custody",
+   "fieldtype": "Section Break",
+   "label": "Cash Custody"
+  },
+  {
+   "fieldname": "drawer_to_safe_transfer",
+   "fieldtype": "Link",
+   "options": "POS Cash Transfer",
+   "label": "Drawer to Branch Safe",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "column_break_custody",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "safe_to_master_transfer",
+   "fieldtype": "Link",
+   "options": "POS Cash Transfer",
+   "label": "Branch Safe to Master Cash",
+   "read_only": 1,
+   "no_copy": 1
   },
   {
    "collapsible": 1,

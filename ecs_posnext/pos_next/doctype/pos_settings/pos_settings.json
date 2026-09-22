@@ -73,6 +73,13 @@
   "barcode_rules",
   "section_break_cash_transfer",
   "enable_auto_cash_transfer",
+  "section_break_cash_custody",
+  "cashier_drawer_account",
+  "branch_safe_account",
+  "column_break_cash_custody",
+  "master_cash_account",
+  "cash_shortage_account",
+  "cash_overage_account",
   "section_break_compensation",
   "compensation_expense_account",
   "compensation_credit_account",
@@ -540,6 +547,50 @@
    "fieldname": "enable_auto_cash_transfer",
    "fieldtype": "Check",
    "label": "Enable Auto Cash Transfer"
+  },
+  {
+   "fieldname": "section_break_cash_custody",
+   "fieldtype": "Section Break",
+   "label": "Cash Custody Accounts"
+  },
+  {
+   "fieldname": "cashier_drawer_account",
+   "fieldtype": "Link",
+   "options": "Account",
+   "label": "Cashier Drawer Account",
+   "description": "Account POS cash sales land in. Leave blank to use the profile's Cash mode of payment account."
+  },
+  {
+   "fieldname": "branch_safe_account",
+   "fieldtype": "Link",
+   "options": "Account",
+   "label": "Branch Safe Account",
+   "description": "The branch manager's safe — where the counted drawer cash is handed over after the Business Day closes."
+  },
+  {
+   "fieldname": "column_break_cash_custody",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "master_cash_account",
+   "fieldtype": "Link",
+   "options": "Account",
+   "label": "Master Cash Account",
+   "description": "Central treasury the branch safe deposits into."
+  },
+  {
+   "fieldname": "cash_shortage_account",
+   "fieldtype": "Link",
+   "options": "Account",
+   "label": "Cash Shortage Account",
+   "description": "Expense account charged when the counted cash is less than expected."
+  },
+  {
+   "fieldname": "cash_overage_account",
+   "fieldtype": "Link",
+   "options": "Account",
+   "label": "Cash Overage Account",
+   "description": "Income account credited when the counted cash exceeds expected."
   },
   {
    "fieldname": "section_break_compensation",

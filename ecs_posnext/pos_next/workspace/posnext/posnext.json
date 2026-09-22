@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"cDBfxZcI12\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">POSNext</span>\",\"col\":12}},{\"id\":\"QZK44RksGI\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Super Opening\",\"col\":3}},{\"id\":\"p4KrSYzInK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"POS Cashier Shift\",\"col\":3}},{\"id\":\"EuDVjJUKSQ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Start POS\",\"col\":3}},{\"id\":\"VO-VLNdx_2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"POS Cashier Shift Closing\",\"col\":3}},{\"id\":\"vGT3FkIZS6\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"POS Business Day\",\"col\":3}},{\"id\":\"RoWvjX8Ocp\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Profile\",\"col\":3}},{\"id\":\"OYrA05uyCG\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Offer\",\"col\":3}},{\"id\":\"FUd4_fFBgH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Coupon\",\"col\":3}},{\"id\":\"y6UCXnEiZx\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item Manger\",\"col\":3}},{\"id\":\"uXQ4aBaRfk\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"293IFk0o6X\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"3fYYYsboAw\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b></b></span><span class=\\\"h1\\\">kitchen stations</span>\",\"col\":12}},{\"id\":\"3NpZYAB4tJ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"kds/station\",\"col\":3}},{\"id\":\"8n5T1-wTNK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Order\",\"col\":3}},{\"id\":\"j8SCRO62Lf\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Station\",\"col\":3}},{\"id\":\"eejgbg4BOC\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Settings\",\"col\":3}},{\"id\":\"Qq3D52KG6d\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Dispatcher \",\"col\":3}},{\"id\":\"Ct6MzLC1cw\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Fatta\",\"col\":3}},{\"id\":\"YwDw11oI_0\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Screen assembly\",\"col\":3}},{\"id\":\"8Lnc62O4tv\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Sandwiches station\",\"col\":4}}]",
+ "content": "[{\"id\":\"cDBfxZcI12\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">POSNext</span>\",\"col\":12}},{\"id\":\"QZK44RksGI\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Super Opening\",\"col\":3}},{\"id\":\"p4KrSYzInK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"POS Cashier Shift\",\"col\":3}},{\"id\":\"EuDVjJUKSQ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Start POS\",\"col\":3}},{\"id\":\"VO-VLNdx_2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"POS Cashier Shift Closing\",\"col\":3}},{\"id\":\"vGT3FkIZS6\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"POS Business Day\",\"col\":3}},{\"id\":\"RoWvjX8Ocp\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Profile\",\"col\":3}},{\"id\":\"OYrA05uyCG\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Offer\",\"col\":3}},{\"id\":\"FUd4_fFBgH\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Pos Coupon\",\"col\":3}},{\"id\":\"y6UCXnEiZx\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item Manger\",\"col\":3}},{\"id\":\"uXQ4aBaRfk\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Item\",\"col\":3}},{\"id\":\"293IFk0o6X\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"3fYYYsboAw\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b></b></span><span class=\\\"h1\\\">kitchen stations</span>\",\"col\":12}},{\"id\":\"3NpZYAB4tJ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"kds/station\",\"col\":3}},{\"id\":\"8n5T1-wTNK\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Order\",\"col\":3}},{\"id\":\"j8SCRO62Lf\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Station\",\"col\":3}},{\"id\":\"eejgbg4BOC\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Kds Settings\",\"col\":3}},{\"id\":\"Qq3D52KG6d\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Dispatcher \",\"col\":3}},{\"id\":\"Ct6MzLC1cw\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Fatta\",\"col\":3}},{\"id\":\"YwDw11oI_0\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Screen assembly\",\"col\":3}},{\"id\":\"8Lnc62O4tv\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Sandwiches station\",\"col\":4}},{\"id\":\"cashExpSpacer\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"cashExpHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Cash &amp; Expenses</span>\",\"col\":12}},{\"id\":\"cashExp0\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Branch Expenses\",\"col\":3}},{\"id\":\"cashExp1\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"POS Branch Expense\",\"col\":3}},{\"id\":\"cashExp2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"POS Cash Transfer\",\"col\":3}}]",
  "creation": "2026-01-28 16:48:36.007405",
  "custom_blocks": [],
  "docstatus": 0,
@@ -183,6 +183,29 @@
    "doc_view": "List",
    "label": "Pos Coupon",
    "link_to": "POS Coupon",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Branch Expenses",
+   "link_to": "pos-branch-expenses",
+   "type": "Page"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "POS Branch Expense",
+   "link_to": "POS Branch Expense",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "POS Cash Transfer",
+   "link_to": "POS Cash Transfer",
    "stats_filter": "[]",
    "type": "DocType"
   }

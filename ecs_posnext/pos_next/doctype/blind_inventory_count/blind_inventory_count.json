@@ -72,8 +72,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "POS Business Day",
-   "options": "POS Business Day",
-   "read_only": 1
+   "options": "POS Business Day"
   },
   {
    "fetch_from": "pos_business_day.business_date",
@@ -170,7 +169,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-05 09:00:00",
+ "modified": "2026-09-17 12:10:03.361034",
  "modified_by": "Administrator",
  "module": "POS Next",
  "name": "Blind Inventory Count",
@@ -178,6 +177,8 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "delete": 1,
    "email": 1,
@@ -187,11 +188,11 @@
    "role": "System Manager",
    "share": 1,
    "submit": 1,
-   "write": 1,
-   "cancel": 1,
-   "amend": 1
+   "write": 1
   },
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "delete": 1,
    "print": 1,
@@ -200,11 +201,10 @@
    "role": "POSNext Operations Manager",
    "share": 1,
    "submit": 1,
-   "write": 1,
-   "cancel": 1,
-   "amend": 1
+   "write": 1
   },
   {
+   "amend": 1,
    "create": 1,
    "print": 1,
    "read": 1,
@@ -212,10 +212,10 @@
    "role": "POSNext Branch Manager",
    "share": 1,
    "submit": 1,
-   "write": 1,
-   "amend": 1
+   "write": 1
   },
   {
+   "amend": 1,
    "create": 1,
    "print": 1,
    "read": 1,
@@ -223,8 +223,7 @@
    "role": "Bransh Manager",
    "share": 1,
    "submit": 1,
-   "write": 1,
-   "amend": 1
+   "write": 1
   },
   {
    "create": 1,
