@@ -178,6 +178,35 @@ describe("template context helpers", () => {
 			/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
 		)
 	})
+
+	it("exposes frappe.urllib, which layouts use to make an image src absolute", () => {
+		// A missing one is not a missing logo, it is a TypeError that takes the
+		// whole receipt down to the plain-table fallback - which is what the
+		// branch expenses layout hit.
+		expect(typeof context.frappe.urllib.get_base_url).toBe("function")
+		expect(
+			context.frappe.urllib.get_full_url("https://cdn.example/logo.png"),
+		).toBe("https://cdn.example/logo.png")
+		expect(context.frappe.urllib.get_full_url("/assets/app/logo.png")).toMatch(
+			/\/assets\/app\/logo\.png$/,
+		)
+	})
+})
+
+describe("a layout that builds an absolute image URL", () => {
+	it("renders instead of throwing", () => {
+		const html = renderReportPrintFormat({
+			template:
+				'{% var src = frappe.urllib.get_base_url() + "/assets/app/logo.png"; %}<img src="{%= src %}">',
+			reportName: "R",
+			title: "R",
+			columns: [],
+			rows: [],
+			filters: {},
+		})
+
+		expect(html).toContain('src="/assets/app/logo.png"')
+	})
 })
 
 describe("microtemplate", () => {

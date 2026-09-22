@@ -245,6 +245,39 @@ function datetimeShim() {
 }
 
 /**
+ * `frappe.urllib`, as much of it as a print layout uses.
+ *
+ * A layout that embeds an image has to make its `/assets/...` path absolute -
+ * the rendered page is written into a print window or a hidden frame, so a
+ * site-relative src has nothing to resolve against and the image never loads.
+ * The desk exposes this globally; the POS does not load the desk bundle, so
+ * without it a layout that calls `get_base_url()` throws a TypeError that takes
+ * the whole receipt down to the plain-table fallback - which is what the branch
+ * expenses layout did.
+ */
+function urllibShim() {
+	const getBaseUrl = () => {
+		const existing = (typeof window !== "undefined" && window.frappe) || {}
+		const url =
+			existing.base_url ||
+			(typeof window !== "undefined" && window.location?.origin) ||
+			""
+		return url.endsWith("/") ? url.slice(0, -1) : url
+	}
+
+	return {
+		get_base_url: getBaseUrl,
+		get_full_url: (url) => {
+			const path = cstr(url)
+			if (/^https?:\/\//i.test(path)) return path
+			return path.startsWith("/")
+				? getBaseUrl() + path
+				: `${getBaseUrl()}/${path}`
+		},
+	}
+}
+
+/**
  * The app's `__` off `window` rather than an import: the translation module pulls
  * in the whole frappe-ui/Vue stack, which a print helper has no business needing.
  */
@@ -293,6 +326,7 @@ export function buildTemplateContext({
 	const frappeShim = {
 		...existing,
 		datetime: { ...(existing.datetime || {}), ...datetimeShim() },
+		urllib: { ...(existing.urllib || {}), ...urllibShim() },
 		utils: { ...(existing.utils || {}), escape_html: escapeHTML },
 		format: (value, df) => formatReportValue(value, df),
 		format_value: (value, df) => formatReportValue(value, df),

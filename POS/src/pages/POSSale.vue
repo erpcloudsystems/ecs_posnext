@@ -1838,7 +1838,9 @@ function handleShiftClosed() {
  *
  * The Z-report prints itself when a shift is closed, but that window can be
  * blocked by the browser, or the roll can jam - and by then the shift is gone
- * from the screen. This gets the receipt back without a trip to the Desk.
+ * from the screen. This gets the receipt back without a trip to the Desk, and
+ * with it the shift day's branch expenses (Report: مصاريف الفروع), which the
+ * cashier cannot reach from Reports while no shift is open.
  *
  * There is no open shift here, so the server picks the closing from the POS
  * Profiles this user is assigned to.
@@ -1853,7 +1855,20 @@ async function handlePrintLastClosing() {
 	try {
 		const result = await printLastClosingShift(shiftStore.profileName || null);
 
-		if (result.ok) return;
+		if (result.ok) {
+			// The Z-report is out; only the expenses receipt behind it can still
+			// have gone wrong, so it is reported on its own terms.
+			if (result.expenses?.popupBlocked) {
+				showWarning(
+					__(
+						"Pop-ups are blocked, so the branch expenses printed without their own window. Allow pop-ups for this site to get the print window.",
+					),
+				);
+			} else if (result.expenses && !result.expenses.ok) {
+				showWarning(__("The closing printed, but the branch expenses could not be printed"));
+			}
+			return;
+		}
 
 		if (result.reason === "none") {
 			showWarning(__("No closed shift was found to print"));

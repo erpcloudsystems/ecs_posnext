@@ -511,8 +511,9 @@ import { computed, reactive, ref, watch } from "vue"
 import { call } from "@/utils/apiWrapper"
 import { isOffline } from "@/utils/offline/sync"
 import { openClosingShiftPrintView } from "@/utils/printClosingShift"
-import { printHtmlString } from "@/utils/reportOutput"
+import { openPrintWindow, printHtmlString } from "@/utils/reportOutput"
 import { RECEIPT_PAGE, renderReportPrintFormat } from "@/utils/reportPrintFormat"
+import { shiftDayOf } from "@/utils/shiftDay"
 import { useFormatters } from "../composables/useFormatters"
 import { useShift } from "../composables/useShift"
 import { useToast } from "../composables/useToast"
@@ -761,43 +762,11 @@ async function submitClosing() {
   }
 }
 
-/**
- * Show `html` in its own print window, the way /printview shows the Z-report.
- *
- * A report has no /printview URL of its own - that route prints a document, not
- * a report - so the rendered page is written into the window here and prints
- * itself on load. The cashier gets the same window and the same preview either
- * way, which is the point: one closing, two receipts that behave alike.
- *
- * @returns false when the browser refused the window, so the caller can still
- *          get the receipt out another way.
- */
-function openPrintWindow(html) {
-  const win = window.open("", "_blank", "width=800,height=600")
-  if (!win) {
-    console.error("Print window was blocked by the browser")
-    return false
-  }
-
-  // Escaped so the SFC parser does not read it as the end of this script block
-  const autoPrint = "<script>window.onload=function(){window.print()}<\/script>"
-
-  win.document.open()
-  win.document.write(html.replace("</body>", `${autoPrint}</body>`))
-  win.document.close()
-  return true
-}
-
 // The report printed alongside the Z-report, and the Print Format it is printed
 // with. Both are named the same thing; the format is the one linked to the
 // report, so the receipt is identical to the one Reports prints.
 const ITEM_SALES_SUMMARY_REPORT = "POS Item Sales Summary"
 const ITEM_SALES_SUMMARY_FORMAT = "POS Item Sales Summary"
-
-// The shift day the report groups by runs 09:00 -> 09:00, so a shift opened
-// after midnight still belongs to the day before. Kept in step with the CASE
-// that buckets the day in the report query (Report: POS Item Sales Summary).
-const SHIFT_DAY_START_HOUR = 9
 
 // The report's `view_by` filter: "شيفت" reads `shift_date`, "مدة" reads the date
 // range instead. It has to be sent even though the report defaults it, because a
@@ -806,23 +775,6 @@ const SHIFT_DAY_START_HOUR = 9
 // `NULL = 'شيفت'` is NULL, so every invoice falls out of the WHERE and the
 // receipt prints the item list empty with zeroed totals.
 const VIEW_BY_SHIFT = "شيفت"
-
-/**
- * The shift day `period_start_date` falls in, as YYYY-MM-DD.
- *
- * Read off the string rather than a Date so the day is the one the server
- * stamped, whatever timezone the browser is in. Returns null if unparseable.
- */
-function shiftDayOf(periodStartDate) {
-  const parts = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2})/.exec(String(periodStartDate || ""))
-  if (!parts) return null
-
-  const [year, month, day, hour] = parts.slice(1).map(Number)
-  if (hour >= SHIFT_DAY_START_HOUR) return parts[0].slice(0, 10)
-
-  // UTC arithmetic so subtracting the day cannot land on a DST boundary
-  return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10)
-}
 
 /**
  * Print the shift day's item sales summary, right after the Z-report.

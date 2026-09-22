@@ -251,6 +251,36 @@ export function printReport({ title, subtitle, columns, rows, appliedFilters = {
 }
 
 /**
+ * Show `html` in its own print window, the way /printview shows a document.
+ *
+ * A report has no /printview URL of its own - that route prints a document, not
+ * a report - so the rendered page is written into the window here and prints
+ * itself on load. The cashier then gets the same window and the same preview a
+ * printed document gives them, which is the point when the two come out of one
+ * action.
+ *
+ * A browser only allows one pop-up per click, so a second receipt printed off
+ * the same click is the one that gets refused. Callers fall back to
+ * `printHtmlString` rather than lose it.
+ *
+ * @returns false when the browser refused the window.
+ */
+export function openPrintWindow(html) {
+	const win = window.open("", "_blank", "width=800,height=600")
+	if (!win) {
+		log.error("Print window was blocked by the browser")
+		return false
+	}
+
+	const autoPrint = "<script>window.onload=function(){window.print()}</script>"
+
+	win.document.open()
+	win.document.write(html.replace("</body>", `${autoPrint}</body>`))
+	win.document.close()
+	return true
+}
+
+/**
  * Print a pre-built HTML string (e.g. server-rendered print format) in the hidden iframe.
  */
 export function printHtmlString(html) {

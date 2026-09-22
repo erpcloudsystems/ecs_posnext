@@ -9,6 +9,7 @@
 
 import { call } from "@/utils/apiWrapper"
 import { logger } from "@/utils/logger"
+import { printBranchExpenses } from "@/utils/printBranchExpenses"
 
 const log = logger.create("printClosingShift")
 
@@ -51,9 +52,16 @@ export function openClosingShiftPrintView(name) {
  * user is assigned to — the till has no shift open at this point, so the
  * client has no profile left to go on.
  *
+ * The shift day's branch expenses print behind it, off the same click: the
+ * cashier has no shift open here, so the POS Reports screen - the only other way
+ * to that report - is out of reach, and the expenses belong to the handover the
+ * Z-report documents. Its outcome is reported separately in `expenses` rather
+ * than folded into `ok`, because the Z-report is out either way and a second
+ * receipt that failed is not a reprint that failed.
+ *
  * @param {string|null} posProfile narrows the lookup to one till; ignored by
  *        the server when the user is not assigned to it.
- * @returns {Promise<{ok: boolean, reason?: "none"|"blocked"|"error", closing?: object}>}
+ * @returns {Promise<{ok: boolean, reason?: "none"|"blocked"|"error", closing?: object, expenses?: object}>}
  */
 export async function printLastClosingShift(posProfile = null) {
 	try {
@@ -68,7 +76,12 @@ export async function printLastClosingShift(posProfile = null) {
 			return { ok: false, reason: "blocked", closing }
 		}
 
-		return { ok: true, closing }
+		const expenses = await printBranchExpenses({
+			posProfile: closing.pos_profile,
+			periodStartDate: closing.period_start_date,
+		})
+
+		return { ok: true, closing, expenses }
 	} catch (error) {
 		log.error("Error reprinting last closing shift:", error)
 		return { ok: false, reason: "error" }
