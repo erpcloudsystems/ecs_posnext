@@ -2016,6 +2016,71 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		replaceAllItems([])
 	}
 
+	// ========================================================================
+	// FEATURED ITEMS (Item.custom_in_list_view) — quick-pick cards shown under
+	// the price list selection so they can be sold without navigating groups.
+	// Pricing resolves via the POS Profile's default price list, same as search.
+	// ========================================================================
+
+	const featuredItemsRaw = ref([])
+	const loadingFeaturedItems = ref(false)
+
+	// Inject live stock (includes cart reservations), same as filteredItems
+	const featuredItems = computed(() =>
+		featuredItemsRaw.value.map((item) => {
+			const displayStock = stockStore.getDisplayStock(item.item_code)
+			return {
+				...item,
+				actual_qty: displayStock,
+				stock_qty: displayStock,
+				original_stock: stockStore.server.get(item.item_code)?.qty || 0,
+			}
+		}),
+	)
+
+	function setFeaturedItems(items) {
+		featuredItemsRaw.value = Array.isArray(items) ? items : []
+		stockStore.init(featuredItemsRaw.value)
+	}
+
+	async function loadFeaturedItems(profile = posProfile.value) {
+		if (!profile) return
+		const storageKey = `pos_featured_items:${profile}`
+
+		if (isOffline()) {
+			try {
+				setFeaturedItems(JSON.parse(localStorage.getItem(storageKey) || "[]"))
+			} catch (e) {
+				setFeaturedItems([])
+			}
+			return
+		}
+
+		loadingFeaturedItems.value = true
+		try {
+			const response = await call("ecs_posnext.api.items.get_items", {
+				pos_profile: profile,
+				in_list_view: 1,
+				start: 0,
+				limit: 500,
+			})
+			const items = response?.message || response || []
+			setFeaturedItems(items)
+			try {
+				localStorage.setItem(storageKey, JSON.stringify(items))
+			} catch (e) {
+				// localStorage might be full or unavailable
+			}
+			if (items.length > 0) {
+				offlineWorker.cacheItems(items).catch(() => {})
+			}
+		} catch (error) {
+			log.error("Error loading featured items:", error)
+		} finally {
+			loadingFeaturedItems.value = false
+		}
+	}
+
 	/**
 	 * Offline fallback for loadGroupChildren(): derives groups from the hierarchy
 	 * already cached in `itemGroups` (loaded once by setPosProfile() and restored
@@ -2304,6 +2369,9 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		loadPriceLists,
 		selectPriceList,
 		changePriceList,
+		featuredItems,
+		loadingFeaturedItems,
+		loadFeaturedItems,
 		loadGroupChildren,
 		navigateToGroup,
 		navigateBack,

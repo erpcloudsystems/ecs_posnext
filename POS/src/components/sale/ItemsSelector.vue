@@ -164,6 +164,33 @@
 					<span class="text-[9px] sm:text-[10px] text-gray-500 mt-0.5">{{ pl.currency }}</span>
 				</button>
 			</div>
+
+			<!-- Featured Items (Item.custom_in_list_view) — add to cart directly without choosing a price list -->
+			<div v-if="featuredItems.length > 0" class="mt-5 sm:mt-6">
+				<div class="flex items-center gap-2 mb-2 sm:mb-3">
+					<h3 class="text-xs sm:text-sm font-semibold text-gray-800">{{ __('Items') }}</h3>
+					<span class="text-[10px] sm:text-xs text-gray-400">({{ featuredItems.length }})</span>
+					<div class="flex-1 h-px bg-gray-200"></div>
+				</div>
+				<div class="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1 sm:gap-1.5">
+					<ItemGridCard
+						v-for="item in featuredItems"
+						:key="item.item_code"
+						:item="item"
+						:format-currency="formatCurrency"
+						@touchstart.passive="getOptimizedClickHandler(item).touchstart"
+						@touchmove.passive="getOptimizedClickHandler(item).touchmove"
+						@touchend.passive="getOptimizedClickHandler(item).touchend"
+						@click="getOptimizedClickHandler(item).click"
+						@long-press-start="onLongPressStart"
+						@long-press-end="onLongPressEnd"
+						@long-press-cancel="clearLongPress"
+					/>
+				</div>
+			</div>
+			<div v-else-if="loadingFeaturedItems" class="flex justify-center py-4">
+				<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+			</div>
 		</div>
 
 		<!-- ========== STEP 2: Item Group Card Navigation ========== -->
@@ -380,114 +407,19 @@
 				style="min-height: 0;"
 			>
 				<div class="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1 sm:gap-1.5">
-					<div
+					<ItemGridCard
 						v-for="item in displayedItems"
 						:key="item.item_code"
+						:item="item"
+						:format-currency="formatCurrency"
 						@touchstart.passive="getOptimizedClickHandler(item).touchstart"
 						@touchmove.passive="getOptimizedClickHandler(item).touchmove"
 						@touchend.passive="getOptimizedClickHandler(item).touchend"
 						@click="getOptimizedClickHandler(item).click"
-						:class="[
-							'group relative bg-white border border-gray-200 rounded-lg p-1 sm:p-1.5 touch-manipulation transition-[border-color,box-shadow] duration-100 cursor-pointer hover:border-blue-400 hover:shadow-md',
-						]"
-					>
-						<!-- Stock Badge - Tap to select, long press to view warehouse availability -->
-						<div
-							v-if="(item.is_stock_item || item.is_bundle) && !item.has_variants"
-							@pointerdown="onLongPressStart(item)"
-							@pointerup="onLongPressEnd"
-							@pointercancel="clearLongPress"
-							@pointerleave="clearLongPress"
-							:class="[
-								'absolute -top-1.5 -end-1.5 sm:-top-2 sm:-end-2 rounded-md shadow-lg z-10',
-								'px-2 sm:px-2.5 py-1 sm:py-1 text-[10px] sm:text-xs font-bold',
-								'border-2 border-white cursor-pointer select-none',
-								'hover:scale-110 hover:shadow-xl transition-all duration-200',
-								getStockStatus((item.actual_qty ?? item.stock_qty ?? 0)).color,
-								getStockStatus((item.actual_qty ?? item.stock_qty ?? 0)).textColor
-							]"
-							:title="__('Check availability in other warehouses')"
-						>
-							{{ Math.floor((item.actual_qty ?? item.stock_qty ?? 0)) }}
-						</div>
-
-						<!-- Item Image -->
-						<div class="relative w-8 h-8 sm:w-8 sm:h-8 mx-auto bg-gray-100 rounded-md mb-1.5 sm:mb-1.5 overflow-hidden">
-							<!-- Image with conditional blur on hover -->
-							<div :class="[
-								'w-full h-full transition-all duration-300',
-								(item.is_stock_item || item.is_bundle) && (item.actual_qty ?? item.stock_qty ?? 0) <= 0 ? 'group-hover:blur-sm group-hover:brightness-75' : ''
-							]">
-								<LazyImage
-									v-if="item.image"
-									:src="item.image"
-									:alt="item.item_name"
-									container-class="relative w-full h-full"
-									img-class="w-full h-full object-cover"
-									root-margin="100px"
-								>
-									<template #error>
-										<svg
-											class="h-8 w-8 sm:h-10 sm:w-10 text-gray-300"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												stroke-linecap="round"
-												stroke-linejoin="round"
-												stroke-width="2"
-												d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-											/>
-										</svg>
-									</template>
-								</LazyImage>
-								<div v-else class="w-full h-full flex items-center justify-center">
-									<svg
-										class="h-8 w-8 sm:h-10 sm:w-10 text-gray-300"
-										fill="none"
-										stroke="currentColor"
-										viewBox="0 0 24 24"
-									>
-										<path
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											stroke-width="2"
-											d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-										/>
-									</svg>
-								</div>
-							</div>
-
-							<!-- Info Icon Overlay - Tap to select, long press to show warehouse availability -->
-							<div
-								v-if="(item.is_stock_item || item.is_bundle) && (item.actual_qty ?? item.stock_qty ?? 0) <= 0"
-								@pointerdown="onLongPressStart(item)"
-								@pointerup="onLongPressEnd"
-								@pointercancel="clearLongPress"
-								@pointerleave="clearLongPress"
-								class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-10 cursor-pointer select-none"
-								:title="__('Check availability in other warehouses')"
-							>
-								<div class="p-2.5 bg-white/80 backdrop-blur-sm rounded-full pointer-events-none">
-									<svg class="w-6 h-6 sm:w-7 sm:h-7 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
-										<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
-									</svg>
-								</div>
-							</div>
-						</div>
-
-						<!-- Item Details -->
-						<div class="min-w-0">
-							<h3 class="text-[12px] sm:text-xl font-semibold text-gray-900 truncate mb-1 leading-tight">
-								{{ item.item_name }}
-							</h3>
-							<p class="text-base sm:text-[10px] text-gray-500 leading-tight">
-									<span class="font-semibold text-blue-600">{{ formatCurrency(item.rate || item.price_list_rate || 0) }}</span>
-									<span class="text-gray-400">/ {{ item.uom || item.stock_uom || __('Nos', null, 'UOM') }}</span>
-							</p>
-						</div>
-					</div>
+						@long-press-start="onLongPressStart"
+						@long-press-end="onLongPressEnd"
+						@long-press-cancel="clearLongPress"
+					/>
 				</div>
 
 				<!-- Loading More Indicator for Grid View -->
@@ -815,6 +747,7 @@
 
 <script setup>
 import LazyImage from "@/components/common/LazyImage.vue"
+import ItemGridCard from "@/components/sale/ItemGridCard.vue"
 import WarehouseAvailabilityDialog from "@/components/sale/WarehouseAvailabilityDialog.vue"
 import { useItemSearchStore } from "@/stores/itemSearch"
 import { usePOSSettingsStore } from "@/stores/posSettings"
@@ -875,6 +808,8 @@ const {
 	currentGroupChildren,
 	loadingGroups,
 	navigationStep,
+	featuredItems,
+	loadingFeaturedItems,
 } = storeToRefs(itemStore)
 
 // Search input composable — owns search/scanner state, timers, concurrency
@@ -1011,6 +946,18 @@ watch(
 	(newProfile) => {
 		if (newProfile) {
 			itemStore.setPosProfile(newProfile)
+		}
+	},
+	{ immediate: true },
+)
+
+// Load featured (custom_in_list_view) items whenever the price list screen is shown
+// for a profile, so they stay fresh (prices/stock) each time the cashier returns to it
+watch(
+	() => navigationStep.value === 'price_list' && props.posProfile,
+	(profile) => {
+		if (profile) {
+			itemStore.loadFeaturedItems(profile)
 		}
 	},
 	{ immediate: true },
@@ -1209,7 +1156,9 @@ function handleItemClick(itemCode) {
 		itemHandledByLongPress = false
 		return
 	}
-	const item = filteredItems.value.find(i => i.item_code === itemCode)
+	const item = navigationStep.value === 'price_list'
+		? featuredItems.value.find(i => i.item_code === itemCode)
+		: filteredItems.value.find(i => i.item_code === itemCode)
 	selectItem(item)
 }
 

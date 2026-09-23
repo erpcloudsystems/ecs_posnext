@@ -1122,8 +1122,12 @@ def _get_bundle_warehouse_availability_bulk(bundle_codes, warehouses):
 
 
 @frappe.whitelist()
-def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20, include_variants=0):
-	"""Get items for POS with stock, price, and tax details"""
+def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20, include_variants=0, in_list_view=0):
+	"""Get items for POS with stock, price, and tax details
+
+	in_list_view=1 restricts results to items flagged with Item.custom_in_list_view
+	(shown as quick-pick cards on the price list selection screen).
+	"""
 	try:
 		pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
 
@@ -1153,6 +1157,12 @@ def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20,
 			pos_profile_doc, item_group, exclude_variants=exclude_variants,
 			hide_unavailable=hide_unavailable, warehouse=pos_profile_doc.warehouse,
 		)
+
+		if int(in_list_view or 0):
+			# custom_in_list_view is a site-level Custom Field; without it there is nothing to show
+			if not frappe.db.has_column("Item", "custom_in_list_view"):
+				return []
+			conditions.append("i.custom_in_list_view = 1")
 
 		# Build column list with table alias
 		item_columns = ",\n\t".join([f"i.{col}" for col in ITEM_RESULT_FIELDS])
