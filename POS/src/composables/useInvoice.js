@@ -909,20 +909,40 @@ export function useInvoice() {
 		}
 	}
 
-	async function saveDraft(targetDoctype = "Sales Invoice") {
-		/**
-		 * Save invoice as draft (Step 1)
-		 * This creates the invoice with docstatus=0
-		 */
-		// Use toRaw() to ensure we get current, non-reactive values (prevents stale cached quantities)
+	/**
+	 * Build the invoice payload the server expects.
+	 *
+	 * Single source of truth for draft, online submit and offline queue alike.
+	 * The offline queue used to assemble its own dict and quietly dropped
+	 * whatever this one gained - most visibly `discount_amount`, so an invoice
+	 * discounted at the till synced back at full price.
+	 *
+	 * @param {string} targetDoctype - "Sales Invoice" or "Sales Order"
+	 * @param {string|null} deliveryDate - Sales Order delivery date
+	 * @param {number} writeOffAmount - only emitted when non-zero; the online
+	 *   submit sends it alongside the invoice instead, so leaving it off the
+	 *   draft keeps ERPNext from validating a write-off before the account is set
+	 * @param {string|Object|null} customer - overrides the cart customer
+	 */
+	function buildInvoicePayload({
+		targetDoctype = "Sales Invoice",
+		deliveryDate = null,
+		writeOffAmount = 0,
+		customer: customerOverride = null,
+	} = {}) {
+		// toRaw() so we read current, non-reactive values (prevents stale
+		// cached quantities)
 		const rawItems = toRaw(invoiceItems.value)
 		const rawPayments = toRaw(payments.value)
+		const rawSalesTeam = toRaw(salesTeam.value)
+
+		const resolvedCustomer = customerOverride || customer.value
 
 		const invoiceData = {
 			doctype: targetDoctype,
 			pos_profile: posProfile.value,
 			posa_pos_opening_shift: posOpeningShift.value,
-			customer: customer.value?.name || customer.value,
+			customer: resolvedCustomer?.name || resolvedCustomer,
 			items: formatItemsForSubmission(rawItems),
 			payments: rawPayments.map((p) => ({
 				mode_of_payment: p.mode_of_payment,
@@ -932,14 +952,41 @@ export function useInvoice() {
 			discount_amount: additionalDiscount.value || 0,
 			coupon_code: couponCode.value,
 			is_pos: 1,
-			update_stock: 1,
+			update_stock: 1, // Critical: Ensures stock is updated
+		}
+
+		if (writeOffAmount) {
+			invoiceData.write_off_amount = writeOffAmount
 		}
 
 		if (targetDoctype === "Sales Order") {
 			const today = new Date().toISOString().split("T")[0]
-			invoiceData.delivery_date = today
+			invoiceData.delivery_date = deliveryDate || today
 			invoiceData.transaction_date = today
 		}
+
+		// Sales team (commission split). In Multiple Sales Persons mode this
+		// is derived from per-item assignment; otherwise use the manual
+		// selection from the payment dialog.
+		const derivedSalesTeam = deriveSalesTeamFromItems(rawItems)
+		if (derivedSalesTeam) {
+			invoiceData.sales_team = derivedSalesTeam
+		} else if (rawSalesTeam && rawSalesTeam.length > 0) {
+			invoiceData.sales_team = rawSalesTeam.map((member) => ({
+				sales_person: member.sales_person,
+				allocated_percentage: member.allocated_percentage || 0,
+			}))
+		}
+
+		return invoiceData
+	}
+
+	async function saveDraft(targetDoctype = "Sales Invoice") {
+		/**
+		 * Save invoice as draft (Step 1)
+		 * This creates the invoice with docstatus=0
+		 */
+		const invoiceData = buildInvoicePayload({ targetDoctype })
 
 		const result = await updateInvoiceResource.submit({ data: invoiceData })
 		return result?.data || result
@@ -977,44 +1024,10 @@ export function useInvoice() {
 
 			try {
 				// Step 1: Create invoice draft
-				// Use toRaw() to ensure we get current, non-reactive values (prevents stale cached quantities)
-				const rawItems = toRaw(invoiceItems.value)
-				const rawPayments = toRaw(payments.value)
-				const rawSalesTeam = toRaw(salesTeam.value)
-
-				const invoiceData = {
-					doctype: targetDoctype,
-					pos_profile: posProfile.value,
-					posa_pos_opening_shift: posOpeningShift.value,
-					customer: customer.value?.name || customer.value,
-					items: formatItemsForSubmission(rawItems),
-					payments: rawPayments.map((p) => ({
-						mode_of_payment: p.mode_of_payment,
-						amount: p.amount,
-						type: p.type,
-					})),
-					discount_amount: additionalDiscount.value || 0,
-					coupon_code: couponCode.value,
-					is_pos: 1,
-					update_stock: 1, // Critical: Ensures stock is updated
-				}
-
-				if (targetDoctype === "Sales Order" && deliveryDate) {
-					invoiceData.delivery_date = deliveryDate
-				}
-
-				// Sales team (commission split). In Multiple Sales Persons mode this
-				// is derived from per-item assignment; otherwise use the manual
-				// selection from the payment dialog.
-				const derivedSalesTeam = deriveSalesTeamFromItems(rawItems)
-				if (derivedSalesTeam) {
-					invoiceData.sales_team = derivedSalesTeam
-				} else if (rawSalesTeam && rawSalesTeam.length > 0) {
-					invoiceData.sales_team = rawSalesTeam.map((member) => ({
-						sales_person: member.sales_person,
-						allocated_percentage: member.allocated_percentage || 0,
-					}))
-				}
+				const invoiceData = buildInvoicePayload({
+					targetDoctype,
+					deliveryDate,
+				})
 
 				const draftInvoice = await updateInvoiceResource.submit({
 					data: invoiceData,
@@ -1290,6 +1303,7 @@ export function useInvoice() {
 		updatePayment,
 		validateStock,
 		saveDraft,
+		buildInvoicePayload,
 		submitInvoice,
 		resetInvoice,
 		clearCart,

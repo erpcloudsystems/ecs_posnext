@@ -2106,23 +2106,21 @@ async function handlePaymentCompleted(paymentData) {
 		const draftIdToDelete = cartStore.currentDraftId;
 
 		if (offlineStore.isOffline) {
-			// Use the same item transformation as online flow for consistency
-			// This ensures rate, discount_percentage, discount_amount, and pricing_rules
-			// are all correctly formatted for ERPNext
-			const preparedItems = cartStore.formatItemsForSubmission(cartStore.invoiceItems);
-
-			const invoiceData = {
-				pos_profile: cartStore.posProfile,
-				posa_pos_opening_shift: cartStore.posOpeningShift,
-				customer: customerValue || shiftStore.profileCustomer,
-				items: preparedItems,
-				payments: JSON.parse(JSON.stringify(cartStore.payments)),
-				sales_team: JSON.parse(JSON.stringify(cartStore.salesTeam || [])),
-				grand_total: cartStore.grandTotal,
-				total_tax: cartStore.totalTax,
-				total_discount: cartStore.totalDiscount,
-				write_off_amount: paymentData.write_off_amount || 0,
-			};
+			// Exactly the payload the online flow sends, so a queued sale syncs
+			// back as the same invoice it would have been online. Building it by
+			// hand here is what used to drop the additional discount, the coupon
+			// and the per-item sales team on the way into the queue.
+			//
+			// JSON round-trip: the payload goes into IndexedDB, which cannot
+			// store Vue proxies.
+			const invoiceData = JSON.parse(
+				JSON.stringify(
+					cartStore.buildInvoicePayload({
+						customer: customerValue || shiftStore.profileCustomer,
+						writeOffAmount: paymentData.write_off_amount || 0,
+					})
+				)
+			);
 
 			await offlineStore.saveInvoiceOffline(invoiceData);
 			uiStore.showSuccess(

@@ -100,6 +100,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		removeItem,
 		updateItemQuantity,
 		submitInvoice: baseSubmitInvoice,
+		buildInvoicePayload: baseBuildInvoicePayload,
 		clearCart: clearInvoiceCart,
 		loadTaxRules,
 		setTaxInclusive,
@@ -277,6 +278,20 @@ export const usePOSCartStore = defineStore("posCart", () => {
 
 	function setWriteOffAmount(amount) {
 		writeOffAmount.value = amount || 0
+	}
+
+	/**
+	 * The invoice payload for the current cart, with this store's doctype,
+	 * delivery date and write-off filled in. The offline queue uses it so a
+	 * queued sale carries exactly what an online one does.
+	 */
+	function buildInvoicePayload(overrides = {}) {
+		return baseBuildInvoicePayload({
+			targetDoctype: targetDoctype.value,
+			deliveryDate: deliveryDate.value,
+			writeOffAmount: writeOffAmount.value,
+			...overrides,
+		})
 	}
 
 	async function submitInvoice() {
@@ -1739,6 +1754,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		loadTaxRules,
 		setTaxInclusive,
 		submitInvoice,
+		buildInvoicePayload,
 		applyDiscountToCart,
 		removeDiscountFromCart,
 		applyOffer,
