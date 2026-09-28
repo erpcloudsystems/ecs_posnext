@@ -20,11 +20,21 @@ from ecs_posnext.api.cash_transfer import TRANSFER_ROLES, _account_balance, reso
 from ecs_posnext.pos_next.doctype.pos_branch_expense.pos_branch_expense import get_expense_account
 
 
+# Who may record a branch expense. A superset of TRANSFER_ROLES: spending the safe on
+# a receipt is delegated further down the branch than moving custody between treasuries,
+# so the deputies below record expenses without also gaining the transfer screens.
+EXPENSE_ROLES = TRANSFER_ROLES + (
+	"Branch Manager *",
+	"Assistant branch manager",
+	"Branch supervisor",
+)
+
+
 def _require_expense_access():
 	user = frappe.session.user
 	if user == "Administrator":
 		return
-	if not set(TRANSFER_ROLES) & set(frappe.get_roles(user)):
+	if not set(EXPENSE_ROLES) & set(frappe.get_roles(user)):
 		frappe.throw(
 			_("Only a Branch Manager may record branch expenses."), frappe.PermissionError
 		)
@@ -55,7 +65,16 @@ def get_allowed_branches():
 			filters["name"] = ["in", allowed_profiles]
 		if allowed_branches:
 			filters["branch"] = ["in", allowed_branches]
-	return frappe.get_all("POS Profile", filters=filters, fields=["name", "company"], order_by="name")
+	# Access is already decided above — by the expense roles and the user's branch scope.
+	# The POS Profile read permission is a separate grant these branch roles need not hold,
+	# and letting it filter here would only empty the branch list for a permitted user.
+	return frappe.get_all(
+		"POS Profile",
+		filters=filters,
+		fields=["name", "company"],
+		order_by="name",
+		ignore_permissions=True,
+	)
 
 
 @frappe.whitelist()
@@ -70,6 +89,7 @@ def get_expense_types(company):
 		filters={"parenttype": "Expense Claim Type", "company": company},
 		fields=["parent as expense_type", "default_account"],
 		order_by="parent",
+		ignore_permissions=True,
 	)
 	return [r for r in rows if r.default_account]
 

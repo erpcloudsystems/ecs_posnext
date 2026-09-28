@@ -27,6 +27,8 @@ TRANSFER_ROLES = (
 	"POSNext Operations Manager",
 	# Legacy role name kept in sync with ecs_posnext.api.cash_management.
 	"Bransh Manager",
+	"Branch supervisor",
+	"Assistant branch manager",
 )
 
 

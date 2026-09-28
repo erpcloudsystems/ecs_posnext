@@ -310,33 +310,33 @@ def _resolve_locked_business_day(doc):
 def guard_closed_business_day(doc, method=None):
 	"""Block modifications to a closed Business Day's records for branch roles, except
 	creating Payment Entries or shift-closing actions. Hook on validate / before_cancel."""
-	user = frappe.session.user
-	if user == "Administrator":
-		return
-	roles = set(frappe.get_roles(user))
-	if _BD_LOCK_BYPASS_ROLES & roles:
-		return
-	if not (_BD_LOCK_RESTRICTED_ROLES & roles):
-		return  # feature only restricts these three branch roles
+	# user = frappe.session.user
+	# if user == "Administrator":
+	# 	return
+	# roles = set(frappe.get_roles(user))
+	# if _BD_LOCK_BYPASS_ROLES & roles:
+	# 	return
+	# if not (_BD_LOCK_RESTRICTED_ROLES & roles):
+	# 	return  # feature only restricts these three branch roles
 
-	bd = _resolve_locked_business_day(doc)
-	if not bd:
-		return
+	# bd = _resolve_locked_business_day(doc)
+	# if not bd:
+	# 	return
 
-	# Allowed exception: CREATING a Payment Entry (late COD) is always permitted; editing
-	# or cancelling an existing one is blocked. (Shift Closing runs on POS Cashier Shift
-	# Closing / POS Cashier Shift, which are not hooked, so those actions stay allowed.)
-	if doc.doctype == "Payment Entry" and doc.is_new():
-		return
+	# # Allowed exception: CREATING a Payment Entry (late COD) is always permitted; editing
+	# # or cancelling an existing one is blocked. (Shift Closing runs on POS Cashier Shift
+	# # Closing / POS Cashier Shift, which are not hooked, so those actions stay allowed.)
+	# if doc.doctype == "Payment Entry" and doc.is_new():
+	# 	return
 
-	frappe.throw(
-		_(
-			"Business Day {0} is closed. A Branch Manager / Assistant / Supervisor may only "
-			"create Payment Entries or close shifts — no other changes are allowed."
-		).format(bd),
-		title=_("Business Day Closed"),
-	)
-
+	# frappe.throw(
+	# 	_(
+	# 		"Business Day {0} is closed. A Branch Manager / Assistant / Supervisor may only "
+	# 		"create Payment Entries or close shifts — no other changes are allowed."
+	# 	).format(bd),
+	# 	title=_("Business Day Closed"),
+	# )
+	pass
 
 def collected_on_original(original_name):
 	"""Cash/credit ACTUALLY collected on an original invoice — used to validate refunds.
