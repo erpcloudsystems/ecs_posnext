@@ -129,6 +129,7 @@ def give_free_wristband(
     pos_profile,
     mode_of_payment=None,
     pos_opening_shift=None,
+    serial_no=None,
 ):
     """Give one free wristband on a ticket: a zero-value (100% discount) POS invoice
     for the wristband item, plus counter updates on the ticket.
@@ -139,9 +140,17 @@ def give_free_wristband(
          invoice rather than a silent counter bump. custom_is_wordpress = 1 so the
          Sales Invoice submit trigger doesn't try to generate a new ticket.
       2. On the ticket: increment used_free_wristband / decrement remaining_free_wristband.
+      3. Record the band's serial (when given) as a POS Wristband, so the physical
+         band handed over can be traced back to this ticket and corrected later.
     """
     if not pos_profile:
         frappe.throw(_("POS Profile is required"))
+
+    serial_no = (serial_no or "").strip()
+    if serial_no:
+        # Fail before the invoice is raised rather than after it, so a duplicate
+        # serial can't leave a submitted giveaway invoice with no wristband record.
+        _assert_serial_available(serial_no)
 
     ticket = frappe.get_doc("Ticket", ticket_name)
     if ticket.get("is_frozen"):
@@ -214,6 +223,16 @@ def give_free_wristband(
         "Comment",
         _("Free wristband given (invoice {0})").format(draft.get("name")),
     )
+
+    wristband = None
+    if serial_no:
+        wristband = _create_wristband(
+            ticket=ticket,
+            serial_no=serial_no,
+            pos_profile=pos_profile,
+            sales_invoice=draft.get("name"),
+        )
+
     frappe.db.commit()
 
     return {
@@ -221,6 +240,124 @@ def give_free_wristband(
         "wristband_invoice": draft.get("name"),
         "used_free_wristband": ticket.used_free_wristband,
         "remaining_free_wristband": ticket.remaining_free_wristband,
+        "wristband": wristband,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Wristband serials
+# ---------------------------------------------------------------------------
+
+
+def _assert_serial_available(serial_no, exclude=None):
+    """Throw if this serial is already recorded on another wristband."""
+    existing = frappe.db.sql(
+        """
+        SELECT name, ticket FROM `tabPOS Wristband`
+        WHERE LOWER(serial_no) = LOWER(%(serial_no)s) AND name != %(exclude)s
+        LIMIT 1
+        """,
+        {"serial_no": serial_no, "exclude": exclude or ""},
+        as_dict=True,
+    )
+    if existing:
+        frappe.throw(
+            _("Wristband serial {0} is already used on ticket {1}").format(
+                serial_no, existing[0].ticket
+            )
+        )
+
+
+def _create_wristband(ticket, serial_no, pos_profile=None, sales_invoice=None):
+    """Store the serial of a band handed to the customer. Returns the row as a dict."""
+    doc = frappe.get_doc(
+        {
+            "doctype": "POS Wristband",
+            "ticket": ticket.name,
+            "serial_no": serial_no,
+            "customer": ticket.vendor,
+            "pos_profile": pos_profile,
+            "sales_invoice": sales_invoice,
+            "issued_on": frappe.utils.now_datetime(),
+        }
+    )
+    doc.flags.ignore_permissions = True
+    doc.insert(ignore_permissions=True)
+    return {
+        "name": doc.name,
+        "serial_no": doc.serial_no,
+        "ticket": doc.ticket,
+        "issued_on": doc.issued_on,
+        "sales_invoice": doc.sales_invoice,
+    }
+
+
+@frappe.whitelist()
+def get_ticket_wristbands(ticket_name):
+    """Wristband serials recorded against a ticket, newest first."""
+    if not ticket_name:
+        return []
+    return frappe.get_all(
+        "POS Wristband",
+        filters={"ticket": ticket_name},
+        fields=["name", "serial_no", "issued_on", "sales_invoice", "notes"],
+        order_by="creation desc",
+    )
+
+
+@frappe.whitelist()
+def add_wristband_serial(ticket_name, serial_no, pos_profile=None, notes=None):
+    """Record a serial for a band already given (or one issued outside the POS).
+
+    Separate from give_free_wristband(): this only stores the serial, it does not
+    consume one of the ticket's free wristbands or raise an invoice.
+    """
+    serial_no = (serial_no or "").strip()
+    if not serial_no:
+        frappe.throw(_("Wristband Serial No is required"))
+
+    ticket = frappe.get_doc("Ticket", ticket_name)
+    _assert_serial_available(serial_no)
+    wristband = _create_wristband(ticket, serial_no, pos_profile=pos_profile)
+
+    if notes:
+        frappe.db.set_value("POS Wristband", wristband["name"], "notes", notes)
+        wristband["notes"] = notes
+
+    ticket.add_comment("Comment", _("Wristband serial {0} recorded").format(serial_no))
+    frappe.db.commit()
+    return wristband
+
+
+@frappe.whitelist()
+def update_wristband_serial(wristband, serial_no, notes=None):
+    """Correct a recorded serial (mis-typed, or the band was swapped)."""
+    serial_no = (serial_no or "").strip()
+    if not serial_no:
+        frappe.throw(_("Wristband Serial No is required"))
+
+    doc = frappe.get_doc("POS Wristband", wristband)
+    if doc.serial_no == serial_no and (notes is None or notes == doc.notes):
+        return {"name": doc.name, "serial_no": doc.serial_no, "notes": doc.notes}
+
+    _assert_serial_available(serial_no, exclude=doc.name)
+
+    doc.serial_no = serial_no
+    if notes is not None:
+        doc.notes = notes
+    doc.flags.ignore_permissions = True
+    doc.save(ignore_permissions=True)
+    # The old serial is replaced outright and leaves no trail: no ticket comment,
+    # and the doctype has track_changes off so no Version row keeps the old value.
+
+    frappe.db.commit()
+    return {
+        "name": doc.name,
+        "serial_no": doc.serial_no,
+        "ticket": doc.ticket,
+        "notes": doc.notes,
+        "issued_on": doc.issued_on,
+        "sales_invoice": doc.sales_invoice,
     }
 
 

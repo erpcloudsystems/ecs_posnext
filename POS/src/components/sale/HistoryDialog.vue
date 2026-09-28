@@ -61,7 +61,7 @@
 				</div>
 
 				<!-- List -->
-				<div v-if="activeResource.loading" class="text-center py-8">
+				<div v-if="activeResource.loading && !isLoadingMore" class="text-center py-8">
 					<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
 					<p class="mt-3 text-xs text-gray-500">{{ activeTab === 'invoices' ? __('Loading invoices...') : __('Loading orders...') }}</p>
 				</div>
@@ -191,8 +191,8 @@
 				</div>
 
 				<!-- Load More -->
-				<div v-if="activeHasMore && !activeResource.loading" class="text-center">
-					<Button variant="subtle" @click="loadMore">
+				<div v-if="activeHasMore && activeList.length" class="text-center">
+					<Button variant="subtle" :loading="isLoadingMore" @click="loadMore">
 						{{ __('Load More') }}
 					</Button>
 				</div>
@@ -263,33 +263,21 @@ const selectedInvoiceForReturn = ref(null)
 // Invoices tab state
 // ============================================================================
 const invoices = ref([])
-const invoicePage = ref(0)
+// Keyset cursor (last row's modified/name), same reasoning as the Orders tab
+// below: a Sales Invoice's `modified` moves on payment/return/status changes, so
+// an offset page drifts between requests and "Load More" skipped or repeated rows.
+const invoiceCursor = ref(null)
 const invoiceHasMore = ref(true)
 const isLoadingMoreInvoices = ref(false)
 
 const invoicesResource = createResource({
-	url: "frappe.client.get_list",
+	url: "ecs_posnext.api.invoices.get_pos_invoice_history",
 	makeParams() {
 		return {
-			doctype: "Sales Invoice",
-			filters: {
-				is_pos: 1,
-				...(props.posProfile && { pos_profile: props.posProfile }),
-			},
-			fields: [
-				"name",
-				"customer",
-				"customer_name",
-				"customer.mobile_no as customer_mobile",
-				"posting_date",
-				"posting_time",
-				"grand_total",
-				"status",
-				"docstatus",
-				"is_return",
-			],
-			order_by: "`tabSales Invoice`.modified desc",
-			start: invoicePage.value * pageSize,
+			pos_profile: props.posProfile || undefined,
+			search_term: searchTerm.value || undefined,
+			last_modified: invoiceCursor.value?.modified || undefined,
+			last_name: invoiceCursor.value?.name || undefined,
 			page_length: pageSize,
 		}
 	},
@@ -297,8 +285,14 @@ const invoicesResource = createResource({
 	onSuccess(data) {
 		if (data && Array.isArray(data)) {
 			const newInvoices = data.map((inv) => ({ ...inv, items_count: 0 }))
-			invoices.value = isLoadingMoreInvoices.value ? [...invoices.value, ...newInvoices] : newInvoices
+			invoices.value = isLoadingMoreInvoices.value
+				? [...invoices.value, ...newInvoices]
+				: newInvoices
 			invoiceHasMore.value = data.length === pageSize
+			if (data.length) {
+				const last = data[data.length - 1]
+				invoiceCursor.value = { modified: last.modified, name: last.name }
+			}
 			isLoadingMoreInvoices.value = false
 		}
 	},
@@ -356,27 +350,31 @@ const ordersResource = createResource({
 // ============================================================================
 const activeResource = computed(() => (activeTab.value === "invoices" ? invoicesResource : ordersResource))
 const activeHasMore = computed(() => (activeTab.value === "invoices" ? invoiceHasMore.value : orderHasMore.value))
+// A "Load More" fetch appends to the list, so it must not blank the list out with
+// the full-page spinner the way a fresh load does.
+const isLoadingMore = computed(() =>
+	activeTab.value === "invoices"
+		? isLoadingMoreInvoices.value
+		: isLoadingMoreOrders.value,
+)
 
-const filteredInvoices = computed(() => {
-	if (!searchTerm.value) return invoices.value
-	const term = searchTerm.value.toLowerCase()
-	return invoices.value.filter(
-		(inv) => inv.name.toLowerCase().includes(term) || inv.customer_name?.toLowerCase().includes(term),
-	)
-})
-
-// Orders are searched server-side (search_term is sent as a query param above),
-// since custom_item_type filtering requires a DB join that can't be done client-side.
-const activeList = computed(() => (activeTab.value === "invoices" ? filteredInvoices.value : orders.value))
+// Both tabs search server-side: filtering only the pages already loaded made an
+// invoice that exists but hasn't been paged in look missing, and it left
+// "Load More" paging the unfiltered list underneath the filtered view.
+const activeList = computed(() =>
+	activeTab.value === "invoices" ? invoices.value : orders.value,
+)
 
 function loadInvoices() {
-	invoicePage.value = 0
+	invoiceCursor.value = null
+	invoiceHasMore.value = true
 	isLoadingMoreInvoices.value = false
 	invoicesResource.reload()
 }
 
 function loadOrders() {
 	orderCursor.value = null
+	orderHasMore.value = true
 	isLoadingMoreOrders.value = false
 	ordersResource.reload()
 }
@@ -387,8 +385,8 @@ function reloadActiveTab() {
 }
 
 function loadMore() {
+	if (activeResource.value.loading) return
 	if (activeTab.value === "invoices") {
-		invoicePage.value++
 		isLoadingMoreInvoices.value = true
 		invoicesResource.reload()
 	} else {
@@ -414,13 +412,12 @@ watch(activeTab, () => {
 	reloadActiveTab()
 })
 
-// Orders search runs server-side (see ordersResource above), so debounce and
-// re-query on every keystroke instead of filtering the already-loaded page.
-let orderSearchDebounceTimer = null
+// Search runs server-side for both tabs, so debounce and re-query from the first
+// page on every keystroke instead of filtering the already-loaded pages.
+let searchDebounceTimer = null
 watch(searchTerm, () => {
-	if (activeTab.value !== "orders") return
-	clearTimeout(orderSearchDebounceTimer)
-	orderSearchDebounceTimer = setTimeout(() => loadOrders(), 300)
+	clearTimeout(searchDebounceTimer)
+	searchDebounceTimer = setTimeout(() => reloadActiveTab(), 300)
 })
 
 // Clear selected invoice when return dialog closes

@@ -163,6 +163,38 @@
 						</div>
 					</div>
 
+					<!-- Wristband serials recorded for this ticket -->
+					<div class="bg-white rounded-lg border border-gray-200 p-3 mb-2">
+						<div class="flex items-center justify-between mb-1.5">
+							<div class="text-[11px] font-semibold text-gray-600">{{ __("Wristband Serials") }}</div>
+							<button
+								type="button"
+								class="h-7 px-2 text-[11px] font-semibold rounded-lg border border-blue-300 text-blue-700 hover:bg-blue-50"
+								@click="openWristbandSerial(t, null)"
+							>
+								{{ __("Add Serial") }}
+							</button>
+						</div>
+						<div v-if="!t._wristbands?.length" class="text-[11px] text-gray-400">
+							{{ __("No wristband serial recorded yet") }}
+						</div>
+						<div v-else class="flex flex-wrap gap-2">
+							<button
+								v-for="wb in t._wristbands"
+								:key="wb.name"
+								type="button"
+								class="inline-flex items-center gap-1 h-7 px-2 text-[11px] font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-blue-50 hover:text-blue-700"
+								:title="__('Edit serial')"
+								@click="openWristbandSerial(t, wb)"
+							>
+								<span>{{ wb.serial_no }}</span>
+								<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+								</svg>
+							</button>
+						</div>
+					</div>
+
 					<!-- Renew (recharge same ticket + paid invoice) -->
 					<div v-if="t.show_renew" class="bg-white rounded-lg border border-amber-200 p-3">
 						<div class="text-[11px] font-semibold text-amber-700 mb-1.5">{{ __("Renew (recharge this ticket)") }}</div>
@@ -287,9 +319,20 @@
 	>
 		<template #body-content>
 			<div class="py-3">
-				<p class="text-sm text-gray-600">
+				<p class="text-sm text-gray-600 mb-3">
 					{{ __("Are you sure you want to give a free wristband for this ticket?") }}
 				</p>
+				<label class="block text-[11px] font-medium text-gray-600 mb-1">
+					{{ __("Wristband Serial No") }}
+				</label>
+				<input
+					v-model="wristbandSerial"
+					type="text"
+					autofocus
+					:placeholder="__('Scan or type the serial')"
+					class="w-full h-9 px-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+					@keyup.enter="proceedGiveWristband"
+				/>
 			</div>
 		</template>
 		<template #actions>
@@ -297,8 +340,56 @@
 				<Button class="flex-1" variant="subtle" @click="showWristbandConfirm = false">
 					{{ __("Cancel") }}
 				</Button>
-				<Button class="flex-1" variant="solid" theme="blue" @click="proceedGiveWristband">
+				<Button
+					class="flex-1"
+					variant="solid"
+					theme="blue"
+					:disabled="!wristbandSerial.trim()"
+					@click="proceedGiveWristband"
+				>
 					{{ __("Give Wristband") }}
+				</Button>
+			</div>
+		</template>
+	</Dialog>
+
+	<!-- Add / edit a wristband serial (no free wristband consumed) -->
+	<Dialog
+		v-model="showSerialDialog"
+		:options="{ title: serialBeingEdited ? __('Edit Wristband Serial') : __('Add Wristband Serial'), size: 'xs' }"
+	>
+		<template #body-content>
+			<div class="py-3">
+				<label class="block text-[11px] font-medium text-gray-600 mb-1">
+					{{ __("Wristband Serial No") }}
+				</label>
+				<input
+					v-model="serialInput"
+					type="text"
+					autofocus
+					:placeholder="__('Scan or type the serial')"
+					class="w-full h-9 px-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+					@keyup.enter="saveWristbandSerial"
+				/>
+				<p v-if="!serialBeingEdited" class="mt-2 text-[11px] text-gray-500">
+					{{ __("Records a serial only - it does not use one of the ticket's free wristbands.") }}
+				</p>
+			</div>
+		</template>
+		<template #actions>
+			<div class="flex gap-2 w-full">
+				<Button class="flex-1" variant="subtle" @click="showSerialDialog = false">
+					{{ __("Cancel") }}
+				</Button>
+				<Button
+					class="flex-1"
+					variant="solid"
+					theme="blue"
+					:loading="savingSerial"
+					:disabled="!serialInput.trim()"
+					@click="saveWristbandSerial"
+				>
+					{{ __("Save") }}
 				</Button>
 			</div>
 		</template>
@@ -351,6 +442,14 @@ const ticketToRenew = ref(null)
 const renewShouldPrint = ref(false)
 const showWristbandConfirm = ref(false)
 const ticketForWristband = ref(null)
+const wristbandSerial = ref("")
+// Add/edit serial dialog: serialBeingEdited null = adding a serial to
+// ticketForSerial, otherwise the POS Wristband row being corrected.
+const showSerialDialog = ref(false)
+const serialBeingEdited = ref(null)
+const ticketForSerial = ref(null)
+const serialInput = ref("")
+const savingSerial = ref(false)
 const activeTab = ref("active")
 const showUpgradeConfirm = ref(false)
 const ticketToUpgrade = ref(null)
@@ -407,6 +506,7 @@ function decorate(rows) {
 			_renewMop: props.paymentMethods[0] || "",
 			_upgradeItem: subscriptionPlanValues.find((v) => v !== t.item) || subscriptionPlanValues[0],
 			_busy: false,
+			_wristbands: [],
 		}))
 		// Sort by expiry date, furthest expiry first (expired tickets still shown, just sorted lower).
 		.sort((a, b) => String(b.valid_to || "").localeCompare(String(a.valid_to || "")))
@@ -439,6 +539,7 @@ async function runSearch() {
 			rows = byCust?.message || byCust || []
 		}
 		tickets.value = decorate(rows)
+		loadWristbands(tickets.value)
 	} catch (e) {
 		console.error("Ticket search failed", e)
 		showError(parseError(e).message || __("Ticket search failed"))
@@ -621,18 +722,22 @@ function confirmGiveWristband(t) {
 		return
 	}
 	ticketForWristband.value = t
+	wristbandSerial.value = ""
 	showWristbandConfirm.value = true
 }
 
 async function proceedGiveWristband() {
+	const serial = wristbandSerial.value.trim()
+	if (!serial) return
 	showWristbandConfirm.value = false
 	if (ticketForWristband.value) {
-		await giveFreeWristband(ticketForWristband.value)
+		await giveFreeWristband(ticketForWristband.value, serial)
 		ticketForWristband.value = null
+		wristbandSerial.value = ""
 	}
 }
 
-async function giveFreeWristband(t) {
+async function giveFreeWristband(t, serial) {
 	if (t._busy) return
 	t._busy = true
 	try {
@@ -640,6 +745,7 @@ async function giveFreeWristband(t) {
 			ticket_name: t.name,
 			pos_profile: props.posProfile,
 			pos_opening_shift: props.posOpeningShift,
+			serial_no: serial,
 		})
 		showSuccess(__("Free wristband given for {0}", [t.name]))
 		await refresh()
@@ -648,6 +754,63 @@ async function giveFreeWristband(t) {
 		showError(parseError(e).message || __("Give free wristband failed"))
 	} finally {
 		t._busy = false
+	}
+}
+
+/** Fetch the serials already recorded for each listed ticket. */
+async function loadWristbands(rows) {
+	await Promise.all(
+		(rows || []).map(async (t) => {
+			try {
+				const res = await call(
+					"ecs_posnext.api.tickets.get_ticket_wristbands",
+					{ ticket_name: t.name },
+				)
+				t._wristbands = res?.message || res || []
+			} catch (e) {
+				console.error("Load wristbands failed", e)
+				t._wristbands = []
+			}
+		}),
+	)
+}
+
+/** Open the serial dialog: `wb` null adds a new serial, otherwise edits that one. */
+function openWristbandSerial(t, wb) {
+	ticketForSerial.value = t
+	serialBeingEdited.value = wb
+	serialInput.value = wb?.serial_no || ""
+	showSerialDialog.value = true
+}
+
+async function saveWristbandSerial() {
+	const serial = serialInput.value.trim()
+	if (!serial || savingSerial.value) return
+	savingSerial.value = true
+	try {
+		if (serialBeingEdited.value) {
+			await call("ecs_posnext.api.tickets.update_wristband_serial", {
+				wristband: serialBeingEdited.value.name,
+				serial_no: serial,
+			})
+			showSuccess(__("Wristband serial updated"))
+		} else {
+			await call("ecs_posnext.api.tickets.add_wristband_serial", {
+				ticket_name: ticketForSerial.value.name,
+				serial_no: serial,
+				pos_profile: props.posProfile,
+			})
+			showSuccess(__("Wristband serial recorded"))
+		}
+		showSerialDialog.value = false
+		if (ticketForSerial.value) await loadWristbands([ticketForSerial.value])
+	} catch (e) {
+		console.error("Save wristband serial failed", e)
+		showError(
+			parseError(e).message || __("Could not save the wristband serial"),
+		)
+	} finally {
+		savingSerial.value = false
 	}
 }
 

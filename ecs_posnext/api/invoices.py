@@ -7,6 +7,7 @@ import json
 import time
 import frappe
 from frappe import _
+from frappe.query_builder import Order
 from frappe.utils import flt, cint, nowdate, nowtime, get_datetime, cstr
 from erpnext.stock.doctype.batch.batch import get_batch_qty, get_batch_no
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import get_bank_cash_account
@@ -2147,6 +2148,73 @@ def get_invoices(pos_profile, limit=100):
 # ==========================================
 # Draft Invoice Management
 # ==========================================
+
+
+@frappe.whitelist()
+def get_pos_invoice_history(
+	pos_profile=None, search_term=None, last_modified=None, last_name=None, page_length=20
+):
+	"""Page through POS Sales Invoices for the History dialog's Invoices tab.
+
+	Args:
+		pos_profile: Optional POS Profile filter.
+		search_term: Optional search on invoice name, customer name or mobile.
+		last_modified: Cursor - `modified` of the last row from the previous page.
+		last_name: Cursor - `name` of the last row from the previous page (tie-breaker).
+		page_length: Page size.
+
+	Search runs here rather than in the browser: filtering only the pages already
+	loaded made an invoice that exists but hasn't been paged in look missing.
+
+	Paging is keyset on (modified, name), like get_third_party_sales_orders():
+	`modified` on a Sales Invoice moves whenever it is resaved (payment,
+	return, status recalculation), so an OFFSET page drifts between requests and
+	"Load More" silently skips or repeats rows.
+	"""
+	si = frappe.qb.DocType("Sales Invoice")
+	customer = frappe.qb.DocType("Customer")
+
+	query = (
+		frappe.qb.from_(si)
+		.left_join(customer)
+		.on(customer.name == si.customer)
+		.select(
+			si.name,
+			si.customer,
+			si.customer_name,
+			customer.mobile_no.as_("customer_mobile"),
+			si.posting_date,
+			si.posting_time,
+			si.grand_total,
+			si.status,
+			si.docstatus,
+			si.is_return,
+			si.modified,
+		)
+		.where(si.is_pos == 1)
+		.orderby(si.modified, order=Order.desc)
+		.orderby(si.name, order=Order.desc)
+		.limit(cint(page_length))
+	)
+
+	if pos_profile:
+		query = query.where(si.pos_profile == pos_profile)
+
+	if search_term:
+		term = f"%{cstr(search_term).strip()}%"
+		query = query.where(
+			(si.name.like(term))
+			| (si.customer_name.like(term))
+			| (customer.mobile_no.like(term))
+		)
+
+	if last_modified and last_name:
+		query = query.where(
+			(si.modified < last_modified)
+			| ((si.modified == last_modified) & (si.name < last_name))
+		)
+
+	return query.run(as_dict=True)
 
 
 @frappe.whitelist()
