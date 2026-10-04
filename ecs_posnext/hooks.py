@@ -274,7 +274,7 @@ doc_events = {
 			"ecs_posnext.realtime_events.emit_stock_update_event",
 			"ecs_posnext.realtime_events.emit_order_changed_event",
 			"ecs_posnext.api.wallet.process_loyalty_to_wallet",
-			"ecs_posnext.api.sales_invoice_hooks.create_payment_entry_on_submit",
+			# "ecs_posnext.api.sales_invoice_hooks.create_payment_entry_on_submit",
 			"ecs_posnext.ecs_posnext.api.kds.on_sales_invoice_submit",
 			"ecs_posnext.api.cashier_shift.flag_stale_closing_on_return",
 			# An addition is a separate invoice — refresh what the driver must collect.

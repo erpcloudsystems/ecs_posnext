@@ -1,0 +1,64 @@
+{
+ "actions": [],
+ "creation": "2026-09-28 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_branch_approval",
+  "enable_branch_return_approval",
+  "past_grace_block_message"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_branch_approval",
+   "fieldtype": "Section Break",
+   "label": "Branch Return Approval"
+  },
+  {
+   "fieldname": "enable_branch_return_approval",
+   "fieldtype": "Check",
+   "label": "Enable Branch Return Approval",
+   "default": "1",
+   "description": "When enabled, a return attempted after the KDS grace window is held as a Pending Branch Return Approval on Need My Action instead of being created. When disabled, no approval is requested and the return is refused outright."
+  },
+  {
+   "fieldname": "past_grace_block_message",
+   "fieldtype": "Small Text",
+   "label": "Past-Grace Refusal Message",
+   "depends_on": "eval:!doc.enable_branch_return_approval",
+   "description": "Shown to the cashier when a past-grace return is refused. Leave empty to use the default message."
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Return Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "POSNext Operations Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "POSNext Branch Manager"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -319,35 +319,55 @@ def compute_cash_figures(opening_shift_name):
 			pos_transactions.append(
 				{
 					"sales_invoice": inv.name,
+					"custom_number_order": inv.get("custom_number_order"),
 					"customer": inv.get("customer"),
 					"grand_total": flt(inv.get("grand_total")),
 					"posting_date": inv.get("posting_date"),
-					"is_return": is_return,
+					"is_return": 1 if is_return else 0,
+					# Blank on purpose: no money moved, so this line adds nothing to any
+					# mode. Stated explicitly rather than left unset, so an empty cell
+					# reads as "nothing collected" and not as missing data.
+					"mode_of_payment": "",
+					"paid_amount": 0,
 				}
 			)
 			continue
+		# How this invoice was paid, kept alongside the per-mode totals. `amount` (not
+		# p.amount) is what lands here: company currency, and net of the change handed
+		# back on cash — the same figure that feeds expected_amount, so the transaction
+		# rows add up to the reconciliation instead of merely resembling it.
+		inv_modes = []
+		inv_paid = 0.0
 		for p in inv.get("payments", []):
 			amount = get_base_value(p, "amount", "base_amount", cr)
 			if p.mode_of_payment == cash_mode:
 				amount -= get_base_value(inv, "change_amount", "base_change_amount", cr)
 			payments[p.mode_of_payment] = flt(payments.get(p.mode_of_payment, 0)) + amount
+			inv_modes.append(p.mode_of_payment)
+			inv_paid += amount
 			if _is_cash_mode(p.mode_of_payment):
 				if is_return:
 					cash_refunds += abs(amount)
 				else:
 					cash_sales += amount
+		# A split payment names every mode it used — collapsing it to one would quietly
+		# attribute the whole invoice to whichever row happened to come first.
 		pos_transactions.append(
 			{
 				"sales_invoice": inv.name,
+				"custom_number_order": inv.get("custom_number_order"),
 				"customer": inv.get("customer"),
 				"grand_total": flt(inv.get("grand_total")),
 				"posting_date": inv.get("posting_date"),
-				"is_return": is_return,
+				"is_return": 1 if is_return else 0,
+				"mode_of_payment": " + ".join(dict.fromkeys(inv_modes)),
+				"paid_amount": flt(inv_paid),
 			}
 		)
 
 	# Payment Entries settled on this shift (COD / Call Center collections)
 	call_center_cash_collected = 0.0
+	pos_payment_entries = []
 	for py in get_payments_entries(opening_shift_name):
 		amount = get_base_value(py, "paid_amount", "base_paid_amount")
 		if _is_cash_mode(py.mode_of_payment):
@@ -366,6 +386,19 @@ def compute_cash_figures(opening_shift_name):
 		payments[py.mode_of_payment] = flt(payments.get(py.mode_of_payment, 0)) + amount
 		if _is_cash_mode(py.mode_of_payment):
 			call_center_cash_collected += amount
+		# Line-by-line evidence for the closing screen. paid_amount here is the amount that
+		# ACTUALLY counted toward expected_amount — i.e. after the COD-return deduction above
+		# — not the Payment Entry's face value, so the table sums to the per-mode expected
+		# figure the supervisor is reconciling against.
+		pos_payment_entries.append(
+			{
+				"payment_entry": py.name,
+				"posting_date": py.posting_date,
+				"customer": py.party,
+				"paid_amount": flt(amount),
+				"mode_of_payment": py.mode_of_payment,
+			}
+		)
 
 	# Seed opening balances into the per-mode reconciliation
 	reconciliation = {}
@@ -399,6 +432,7 @@ def compute_cash_figures(opening_shift_name):
 			"call_center_cash_collected": flt(call_center_cash_collected),
 			"payment_reconciliation": list(reconciliation.values()),
 			"pos_transactions": pos_transactions,
+			"pos_payment_entries": pos_payment_entries,
 		}
 	)
 

@@ -32,6 +32,17 @@ def _require_approver():
 def request_branch_return_approval(sales_invoice, invoice_payload, data_payload=None, reason=None, return_source=None):
 	"""Hold a past-grace return as a Pending branch-manager approval, storing the exact
 	payload so it can be replayed (branch-approved) once approved."""
+	# The approval route is switchable system-wide. With it off there is no approval path,
+	# so refuse here too — the POS only reaches this on the grace-window error, but a
+	# direct API call must not be able to open a request the setting has disabled.
+	from ecs_posnext.ecs_posnext.api.kds import is_branch_return_approval_enabled
+
+	if not is_branch_return_approval_enabled():
+		frappe.throw(
+			_("Branch return approvals are disabled for this system."),
+			frappe.ValidationError,
+		)
+
 	if not frappe.db.exists("Sales Invoice", sales_invoice):
 		frappe.throw(_("Sales Invoice {0} not found.").format(sales_invoice))
 

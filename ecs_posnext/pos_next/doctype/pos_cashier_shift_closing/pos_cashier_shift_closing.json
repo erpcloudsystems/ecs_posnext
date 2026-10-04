@@ -53,6 +53,8 @@
   "approval_datetime",
   "section_reconciliation",
   "payment_reconciliation",
+  "section_pos_payment_entries",
+  "pos_payment_entries",
   "section_transactions",
   "pos_transactions",
   "amended_from"
@@ -279,7 +281,7 @@
   },
   {
    "default": "0",
-   "description": "Tick to confirm the drawer has been physically counted. Required to close \u2014 an empty drawer is a valid count of 0. Reveals the expected figures.",
+   "description": "Tick to confirm the drawer has been physically counted. Required to close — an empty drawer is a valid count of 0. Reveals the expected figures.",
    "fieldname": "cash_counted",
    "fieldtype": "Check",
    "label": "Cash Counted"
@@ -385,6 +387,21 @@
    "label": "Payment Reconciliation",
    "options": "POS Closing Shift Detail",
    "permlevel": 1
+  },
+  {
+   "fieldname": "section_pos_payment_entries",
+   "fieldtype": "Section Break",
+   "label": "POS Payment Entries",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "pos_payment_entries",
+   "fieldtype": "Table",
+   "label": "POS Payment Entries",
+   "options": "POS Payment Entry Reference",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "COD / Call Center Payment Entries settled on this shift. Amounts shown are what counted toward the expected figure (net of COD returns). Rebuilt automatically on save."
   },
   {
    "fieldname": "section_transactions",

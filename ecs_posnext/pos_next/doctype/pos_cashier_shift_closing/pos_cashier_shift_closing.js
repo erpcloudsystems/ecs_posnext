@@ -10,6 +10,10 @@ frappe.ui.form.on("POS Cashier Shift Closing", {
 		const counted = !!frm.doc.cash_counted;
 		frm.toggle_display("section_reveal", counted);
 		frm.toggle_display("section_reconciliation", counted);
+		// COD / Call Center collections are cash the drawer is expected to hold, so this
+		// breakdown is part of the reveal — showing it before the count would hand the
+		// supervisor a chunk of the expected figure.
+		frm.toggle_display("section_pos_payment_entries", counted);
 
 		if (frm.doc.docstatus === 0 && frm.doc.difference_requires_approval && !frm.doc.approved_by) {
 			const roles = frappe.user_roles || [];

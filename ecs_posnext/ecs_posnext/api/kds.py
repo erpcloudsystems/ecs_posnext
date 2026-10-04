@@ -18,6 +18,44 @@ def get_return_grace_minutes(branch=None):
 	return val if val > 0 else DEFAULT_RETURN_GRACE_MINUTES
 
 
+def _return_setting(fieldname):
+	"""Read one POS Return Settings field straight from tabSingles.
+
+	Deliberately NOT frappe.db.get_single_value: that goes through get_meta (which raises
+	on a site that has not migrated the doctype yet) and casts a missing Check field to 0
+	— indistinguishable from an admin switching the feature off. Reading the row directly
+	keeps "never configured" (None) apart from "explicitly disabled" (0), so an existing
+	site keeps the approval route until someone actually turns it off."""
+	try:
+		row = frappe.db.sql(
+			"SELECT `value` FROM `tabSingles` WHERE `doctype` = %s AND `field` = %s",
+			("POS Return Settings", fieldname),
+		)
+	except Exception:
+		return None
+	return row[0][0] if row else None
+
+
+def is_branch_return_approval_enabled():
+	"""System-wide switch for the past-grace Branch Return Approval route (POS Return
+	Settings). Defaults to ON so an un-migrated site keeps the existing behaviour."""
+	val = _return_setting("enable_branch_return_approval")
+	if val is None:
+		return True
+	return bool(cint(val))
+
+
+def get_past_grace_block_message(elapsed_min, grace):
+	"""Message shown when the approval route is off and a past-grace return is refused."""
+	custom = (_return_setting("past_grace_block_message") or "").strip()
+	if custom:
+		return custom
+	return _(
+		"This order reached the kitchen {0} min ago (grace {1} min) and can no longer be "
+		"returned. Branch return approvals are disabled for this system."
+	).format(elapsed_min, grace)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -112,7 +150,12 @@ def _get_target_minutes(settings, order_type):
 def assert_return_within_grace(original_name, branch_approved=False):
 	"""Guard: a return is free only within the branch's grace window after the order hit
 	the KDS. Past that, prepared food is likely wasted, so a branch manager must approve.
-	No KDS ticket (kitchen never involved) or already within grace → allowed."""
+	No KDS ticket (kitchen never involved) or already within grace → allowed.
+
+	The approval route itself is switchable system-wide from POS Return Settings. With it
+	off, a past-grace return has no approval path at all and is refused outright — the
+	error carries no RETURN_NEEDS_BRANCH_APPROVAL marker, so the POS shows it as a plain
+	refusal instead of routing the payload to Need My Action."""
 	if branch_approved:
 		return
 	ko = frappe.db.get_value(
@@ -123,14 +166,22 @@ def assert_return_within_grace(original_name, branch_approved=False):
 		return  # kitchen never made a ticket — nothing to waste
 	grace = get_return_grace_minutes(ko.branch)
 	elapsed_min = time_diff_in_seconds(now_datetime(), ko.order_time) / 60.0
-	if elapsed_min > grace:
+	if elapsed_min <= grace:
+		return
+
+	if not is_branch_return_approval_enabled():
 		frappe.throw(
-			_("RETURN_NEEDS_BRANCH_APPROVAL: This order reached the kitchen {0} min ago "
-			  "(grace {1} min). A branch manager must approve the return.").format(
-				int(elapsed_min), grace
-			),
-			title=_("Branch Approval Required"),
+			get_past_grace_block_message(int(elapsed_min), grace),
+			title=_("Return Not Allowed"),
 		)
+
+	frappe.throw(
+		_("RETURN_NEEDS_BRANCH_APPROVAL: This order reached the kitchen {0} min ago "
+		  "(grace {1} min). A branch manager must approve the return.").format(
+			int(elapsed_min), grace
+		),
+		title=_("Branch Approval Required"),
+	)
 
 
 def _notify_kds_reversal(action, invoice_name, source=None, reason=None):

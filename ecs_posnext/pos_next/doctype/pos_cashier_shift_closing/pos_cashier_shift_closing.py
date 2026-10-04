@@ -57,6 +57,10 @@ class POSCashierShiftClosing(Document):
 			self.supervisor_employee = closer_employee
 		self.set("payment_reconciliation", fig.payment_reconciliation)
 		self.set("pos_transactions", fig.pos_transactions)
+		# Payment Entries (COD / Call Center collections) settled on this shift — the
+		# line-by-line breakdown behind call_center_cash_collected, which is otherwise a
+		# single unexplained figure on the reveal screen.
+		self.set("pos_payment_entries", fig.pos_payment_entries)
 
 	def _set_business_day(self):
 		"""Always link the closing to its Business Day.
