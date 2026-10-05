@@ -959,6 +959,15 @@
 		@authorized="onDiscountAuthorized"
 	/>
 
+	<!-- Loyalty redemption (OTP to the customer's mobile) -->
+	<DiscountOtpDialog
+		v-model="showLoyaltyOtp"
+		context="loyalty"
+		:pos-profile="posProfile"
+		:customer="customer?.name || customer"
+		@authorized="onLoyaltyOtpAuthorized"
+	/>
+
 	<!-- Credit card terminal approval (Geidea Web ECR) -->
 	<CardApprovalDialog
 		v-model="showCardApproval"
@@ -970,6 +979,7 @@
 
 <script setup>
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import { usePOSShiftStore } from "@/stores/posShift"
 import { usePOSCartStore } from "@/stores/posCart"
 import { useLoyaltyStore } from "@/stores/loyalty"
 import DiscountOtpDialog from "./DiscountOtpDialog.vue"
@@ -992,6 +1002,7 @@ import { useResponsivePayment } from "@/composables/useResponsivePayment"
 
 const log = logger.create("PaymentDialog")
 const settingsStore = usePOSSettingsStore()
+const shiftStore = usePOSShiftStore()
 const cartStore = usePOSCartStore()
 const loyaltyStore = useLoyaltyStore()
 const { showWarning, showInfo } = useToast()
@@ -1114,11 +1125,42 @@ function clearLoyaltyRedemption() {
 	cartStore.loyaltyCashbackToUse = 0
 }
 
+// Redeeming needs an OTP sent to the customer's mobile, once per dialog opening,
+// when the POS Profile has "Enable OTP for Points & Cashback" checked.
+const showLoyaltyOtp = ref(false)
+const loyaltyOtpVerified = ref(false)
+let pendingLoyaltyApply = null
+
+const loyaltyOtpEnabled = computed(
+	() => !!shiftStore.currentProfile?.custom_enable_otp_for_points__cashback,
+)
+
+function requireLoyaltyOtp(apply) {
+	if (!loyaltyOtpEnabled.value || loyaltyOtpVerified.value) {
+		apply()
+		return
+	}
+	pendingLoyaltyApply = apply
+	showLoyaltyOtp.value = true
+}
+
+function onLoyaltyOtpAuthorized() {
+	loyaltyOtpVerified.value = true
+	showLoyaltyOtp.value = false
+	const apply = pendingLoyaltyApply
+	pendingLoyaltyApply = null
+	apply?.()
+}
+
 function toggleRedeemPoints() {
 	if ((cartStore.loyaltyPointsToRedeem || 0) > 0) {
 		cartStore.loyaltyPointsToRedeem = 0
 		return
 	}
+	requireLoyaltyOtp(applyRedeemPoints)
+}
+
+function applyRedeemPoints() {
 	const rate = loyaltyStore.exchangeRate || 1
 	const cap = roundCurrency(
 		(props.grandTotal || 0) * (loyaltyStore.maxPointsPercent / 100),
@@ -1134,6 +1176,10 @@ function toggleRedeemCashback() {
 		cartStore.loyaltyCashbackToUse = 0
 		return
 	}
+	requireLoyaltyOtp(applyRedeemCashback)
+}
+
+function applyRedeemCashback() {
 	const cap = roundCurrency(
 		(props.grandTotal || 0) * (loyaltyStore.maxCashbackPercent / 100),
 	)
@@ -1151,6 +1197,8 @@ watch(
 	([open]) => {
 		if (open) {
 			clearLoyaltyRedemption()
+			loyaltyOtpVerified.value = false
+			pendingLoyaltyApply = null
 			const cust = props.customer?.name || props.customer || null
 			loyaltyStore.loadLoyalty(cust)
 		}

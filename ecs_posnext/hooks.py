@@ -230,6 +230,9 @@ doc_events = {
 		],
 		"after_insert": "ecs_posnext.realtime_events.emit_invoice_created_event"
 	},
+	"Sales Order": {
+		"validate": "ecs_posnext.api.sales_invoice_hooks.validate_vim_entertainment_sale"
+	},
 	"POS Profile": {
 		"on_update": "ecs_posnext.realtime_events.emit_pos_profile_updated_event"
 	}

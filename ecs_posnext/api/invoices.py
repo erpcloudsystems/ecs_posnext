@@ -722,11 +722,51 @@ def validate_return_items(original_invoice_name, return_items, doctype="Sales In
 # ==========================================
 
 
+def _route_default_customer_items_to_sales_order(data):
+    """An item with its own default customer (Item.custom_customer_default) must be
+    sold as a Sales Order for that customer, never as a Sales Invoice.
+
+    The cart enforces this in the browser, but a cashier on a stale cached bundle,
+    a cart line from an item cache that predates the field, or an offline sale can
+    still send doctype "Sales Invoice". Enforce it here so every path is covered.
+    Mutates `data` in place (callers reuse the dict after update_invoice).
+    """
+    if data.get("doctype", "Sales Invoice") != "Sales Invoice":
+        return
+    # Returns, existing drafts and invoices billing a Sales Order stay as they are.
+    if data.get("is_return") or data.get("name"):
+        return
+    items = data.get("items") or []
+    if any(item.get("sales_order") for item in items):
+        return
+
+    item_codes = [item.get("item_code") for item in items if item.get("item_code")]
+    if not item_codes:
+        return
+    defaults = dict(
+        frappe.get_all(
+            "Item",
+            filters={"name": ["in", item_codes], "custom_customer_default": ["is", "set"]},
+            fields=["name", "custom_customer_default"],
+            as_list=True,
+        )
+    )
+    item_customer = next((defaults[code] for code in item_codes if code in defaults), None)
+    if not item_customer:
+        return
+
+    data["doctype"] = "Sales Order"
+    data["customer"] = item_customer
+    if not data.get("delivery_date"):
+        data["delivery_date"] = nowdate()
+
+
 @frappe.whitelist()
 def update_invoice(data):
     """Create or update invoice draft (Step 1)."""
     try:
         data = json.loads(data) if isinstance(data, str) else data
+        _route_default_customer_items_to_sales_order(data)
 
         pos_profile = data.get("pos_profile")
         doctype = data.get("doctype", "Sales Invoice")
@@ -1594,6 +1634,7 @@ def _prepare_invoice_for_submit(invoice=None, data=None):
     if not isinstance(data, dict):
         data = {}
 
+    _route_default_customer_items_to_sales_order(invoice)
     pos_profile = invoice.get("pos_profile")
     doctype = invoice.get("doctype", "Sales Invoice")
 

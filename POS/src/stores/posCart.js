@@ -1,6 +1,7 @@
 import { useInvoice } from "@/composables/useInvoice"
 import { usePOSOffersStore } from "@/stores/posOffers"
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import { usePOSShiftStore } from "@/stores/posShift"
 import { parseError } from "@/utils/errorHandler"
 import {
 	checkStockAvailability,
@@ -434,7 +435,17 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	}
 
 	function setCustomer(selectedCustomer) {
+		if (usePOSShiftStore().isCustomerBlocked(selectedCustomer)) {
+			showWarning(
+				__("Sales to {0} are disabled for this POS Profile", [
+					selectedCustomer?.customer_name || selectedCustomer?.name || selectedCustomer,
+				]),
+			)
+			customer.value = null
+			return false
+		}
 		customer.value = selectedCustomer
+		return true
 	}
 
 	function setPendingItem(item, qty = 1, mode = "uom") {

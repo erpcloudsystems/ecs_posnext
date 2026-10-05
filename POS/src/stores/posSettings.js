@@ -32,6 +32,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		display_item_code: 0,
 		show_customer_balance: 0,
 		hide_expected_amount: 0,
+		hide_availabilty_of_stock: 0,
 		display_discount_percentage: 0,
 		display_discount_amount: 0,
 		// Operations
@@ -62,6 +63,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		// Miscellaneous
 		input_qty: 0,
 		allow_negative_stock: 0,
+		custom_draft_on_insufficient_stock: 0,
 		// Sales Persons
 		enable_sales_persons: "Disabled",
 		// People Counting
@@ -137,6 +139,9 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 	)
 	const hideExpectedAmount = computed(() =>
 		Boolean(settings.value.hide_expected_amount),
+	)
+	const hideStockAvailability = computed(() =>
+		Boolean(settings.value.hide_availabilty_of_stock),
 	)
 	const displayDiscountPercentage = computed(() =>
 		Boolean(settings.value.display_discount_percentage),
@@ -311,6 +316,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 			display_item_code: 0,
 			show_customer_balance: 0,
 			hide_expected_amount: 0,
+			hide_availabilty_of_stock: 0,
 			display_discount_percentage: 0,
 			display_discount_amount: 0,
 			allow_sales_order: 0,
@@ -334,6 +340,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 			allow_change_posting_date: 0,
 			input_qty: 0,
 			allow_negative_stock: 0,
+			custom_draft_on_insufficient_stock: 0,
 			enable_sales_persons: "Disabled",
 			exclude_people_counting: 0,
 		}
@@ -366,7 +373,13 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 	 * @returns {boolean} - True if stock validation should prevent negative stock
 	 */
 	function shouldEnforceStockValidation() {
-		return isEnabled.value && !Boolean(settings.value.allow_negative_stock)
+		// Draft on Insufficient Stock: let out-of-stock items into the cart; the
+		// backend holds the sale as a pending-stock draft at checkout instead.
+		return (
+			isEnabled.value &&
+			!Boolean(settings.value.allow_negative_stock) &&
+			!Boolean(settings.value.custom_draft_on_insufficient_stock)
+		)
 	}
 
 	/**
@@ -423,6 +436,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		displayItemCode,
 		showCustomerBalance,
 		hideExpectedAmount,
+		hideStockAvailability,
 		displayDiscountPercentage,
 		displayDiscountAmount,
 

@@ -4,6 +4,8 @@
 # Used to authorize:
 #   - discounts above the allowed limit (send_discount_otp / verify_discount_otp)
 #   - returns / credit notes            (send_return_otp   / verify_return_otp)
+#   - loyalty points/cashback redemption (send_loyalty_otp / verify_loyalty_otp),
+#     sent to the CUSTOMER's mobile rather than the supervisors' group
 #
 # The OTP is sent to a supervisors' Telegram group via the installed
 # erpnext_telegram_integration app (NOT a hardcoded bot token like posawesome),
@@ -12,6 +14,7 @@
 # fallback when Telegram is unavailable.
 
 import random
+import re
 
 import frappe
 import requests
@@ -42,8 +45,8 @@ def _send_telegram(message):
         frappe.log_error("POS OTP Telegram Send Error", frappe.get_traceback())
 
 
-def _generate_and_send(context, pos_profile, message_lines):
-    """Generate + cache an OTP and push it to Telegram, honoring the resend cooldown."""
+def _generate_and_send(context, pos_profile, message_lines, sender=None):
+    """Generate + cache an OTP and push it (Telegram by default), honoring the resend cooldown."""
     cooldown_key = _otp_key(context, pos_profile) + ":cooldown"
     if frappe.cache().get_value(cooldown_key):
         return {"sent": False, "cooldown": True}
@@ -52,7 +55,7 @@ def _generate_and_send(context, pos_profile, message_lines):
     frappe.cache().set_value(_otp_key(context, pos_profile), str(otp), expires_in_sec=OTP_TTL_SEC)
     frappe.cache().set_value(cooldown_key, "1", expires_in_sec=RESEND_COOLDOWN_SEC)
 
-    _send_telegram("\n".join([*message_lines, f"OTP: {otp}"]))
+    (sender or _send_telegram)("\n".join([*message_lines, f"OTP: {otp}"]))
 
     return {"sent": True}
 
@@ -65,6 +68,9 @@ def _verify(context, otp, pos_profile, password_field):
     if cached and str(otp) == str(cached):
         frappe.cache().delete_value(_otp_key(context, pos_profile))  # one-time use
         return True
+
+    if not password_field:
+        return False
 
     # Static password fallback (e.g. Telegram down).
     try:
@@ -118,3 +124,42 @@ def send_return_otp(pos_profile, return_against=None):
 @frappe.whitelist()
 def verify_return_otp(otp, pos_profile):
     return _verify("return", otp, pos_profile, "custom_return_password")
+
+
+# ---- Loyalty redemption authorization (customer's mobile) ----
+
+
+def _loyalty_scope(pos_profile, customer):
+    return f"{pos_profile}:{customer}"
+
+
+@frappe.whitelist()
+def send_loyalty_otp(pos_profile, customer):
+    from ecs_vim.sms.send_sms import PhoneNumber, send_sms
+
+    mobile_no = frappe.db.get_value("Customer", customer, "mobile_no")
+    if not mobile_no:
+        frappe.throw(frappe._("Customer {0} has no mobile number").format(customer))
+    # send_sms silently skips numbers it can't parse, so reject them up front
+    # instead of leaving the cashier waiting for a code that never arrives.
+    if not PhoneNumber.validate(re.sub(r"\D", "", mobile_no)):
+        frappe.throw(frappe._("Customer mobile number {0} is not a valid Saudi mobile number").format(mobile_no))
+
+    def _send_sms(message):
+        try:
+            send_sms(message, mobile_no)
+        except Exception:
+            # Don't log the message itself: it contains the OTP.
+            frappe.log_error("Loyalty OTP SMS Send Error", f"Mobile: {mobile_no}\n\n{frappe.get_traceback()}")
+
+    return _generate_and_send(
+        "loyalty",
+        _loyalty_scope(pos_profile, customer),
+        [frappe._("Your loyalty redemption code is valid for 5 minutes.")],
+        sender=_send_sms,
+    )
+
+
+@frappe.whitelist()
+def verify_loyalty_otp(otp, pos_profile, customer):
+    return _verify("loyalty", otp, _loyalty_scope(pos_profile, customer), None)

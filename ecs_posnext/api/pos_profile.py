@@ -8,6 +8,20 @@ from frappe import _
 from ecs_posnext.api.utilities import check_user_company
 from ecs_posnext.api.utilities import _parse_list_parameter
 
+# Customer that a POS Profile can block via custom_disable_sales_from_vim_entertainment.
+VIM_ENTERTAINMENT_CUSTOMER = "VIM ENTERTAINMENT"
+
+
+def is_vim_entertainment_blocked(pos_profile, customer):
+	"""True when the POS Profile disables sales to VIM ENTERTAINMENT and customer is it."""
+	if not pos_profile or not customer:
+		return False
+	if customer.strip().upper() != VIM_ENTERTAINMENT_CUSTOMER:
+		return False
+	return bool(
+		frappe.db.get_value("POS Profile", pos_profile, "custom_disable_sales_from_vim_entertainment")
+	)
+
 
 @frappe.whitelist()
 def get_pos_profiles():
@@ -221,7 +235,7 @@ def get_default_customer(pos_profile):
 		# Get the default customer from POS Profile
 		default_customer = frappe.db.get_value("POS Profile", pos_profile, "customer")
 
-		if default_customer:
+		if default_customer and not is_vim_entertainment_blocked(pos_profile, default_customer):
 			# Get customer details
 			customer_doc = frappe.get_doc("Customer", default_customer)
 			return {
@@ -273,12 +287,12 @@ def resolve_default_customer(pos_profile, price_list=None, item_code=None):
 			price_list = frappe.db.get_value("POS Profile", pos_profile, "selling_price_list")
 		if price_list:
 			pl_customer = frappe.db.get_value("Price List", price_list, "custom_default_customer")
-			if pl_customer:
+			if pl_customer and not is_vim_entertainment_blocked(pos_profile, pl_customer):
 				return _customer_payload(pl_customer)
 
 		# 3) POS Profile default customer (final fallback).
 		profile_customer = frappe.db.get_value("POS Profile", pos_profile, "customer")
-		if profile_customer:
+		if profile_customer and not is_vim_entertainment_blocked(pos_profile, profile_customer):
 			return _customer_payload(profile_customer)
 
 		return {"customer": None}
@@ -299,6 +313,8 @@ def get_price_lists(pos_profile=None):
 			order_by="name",
 		)
 		for pl in lists:
+			if is_vim_entertainment_blocked(pos_profile, pl.get("custom_default_customer")):
+				pl["custom_default_customer"] = None
 			if pl.get("custom_default_customer"):
 				pl["default_customer_name"] = frappe.db.get_value(
 					"Customer", pl["custom_default_customer"], "customer_name"

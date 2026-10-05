@@ -4,6 +4,8 @@ import { createResource } from "frappe-ui"
 import { defineStore } from "pinia"
 import { computed, ref } from "vue"
 
+export const VIM_ENTERTAINMENT_CUSTOMER = "VIM ENTERTAINMENT"
+
 export const usePOSShiftStore = defineStore("posShift", () => {
 	// Use the existing shift composable
 	const { currentProfile, currentShift, hasOpenShift, checkOpeningShift } =
@@ -24,7 +26,22 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 	)
 	const profileWarehouse = computed(() => currentProfile.value?.warehouse)
 	const profileCompany = computed(() => currentProfile.value?.company)
-	const profileCustomer = computed(() => currentProfile.value?.customer)
+	// POS Profile "Disable Sales From Vim Entertainment"
+	const vimEntertainmentBlocked = computed(
+		() => !!currentProfile.value?.custom_disable_sales_from_vim_entertainment,
+	)
+	function isCustomerBlocked(customer) {
+		const name = customer?.name || customer
+		return (
+			vimEntertainmentBlocked.value &&
+			typeof name === "string" &&
+			name.trim().toUpperCase() === VIM_ENTERTAINMENT_CUSTOMER
+		)
+	}
+	const profileCustomer = computed(() => {
+		const customer = currentProfile.value?.customer
+		return isCustomerBlocked(customer) ? null : customer
+	})
 	const profileBranch = computed(() => currentProfile.value?.branch)
 	const profilePaymentMethods = computed(() =>
 		(currentProfile.value?.payments || []).map((p) => p.mode_of_payment).filter(Boolean)
@@ -150,6 +167,8 @@ export const usePOSShiftStore = defineStore("posShift", () => {
 		profileWarehouse,
 		profileCompany,
 		profileCustomer,
+		vimEntertainmentBlocked,
+		isCustomerBlocked,
 		profileBranch,
 		profilePaymentMethods,
 		autoPrintEnabled,

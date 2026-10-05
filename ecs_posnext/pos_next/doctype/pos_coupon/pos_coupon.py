@@ -22,9 +22,9 @@ class POSCoupon(Document):
 
     def validate(self):
         # Gift Card validations
+        # The customer is optional: a Gift Card without one can be redeemed by
+        # any customer, one with a customer is locked to that customer.
         if self.coupon_type == "Gift Card":
-            if not self.customer:
-                frappe.throw(_("Please select the customer for Gift Card."))
             if self.discount_type != "Amount":
                 # Balance tracking only makes sense for a fixed monetary value.
                 # Percentage-based gift cards (e.g. referral rewards) keep the

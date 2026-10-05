@@ -651,7 +651,7 @@ def create_coupon(data):
 		"max_amount": 200,  # Optional - Maximum discount cap
 		"apply_on": "Grand Total",  # Grand Total or Net Total
 		"company": "Company Name",
-		"customer": "CUST-001",  # Required for Gift Card
+		"customer": "CUST-001",  # Optional for Gift Card (locks it to this customer)
 		"valid_from": "2025-01-01",
 		"valid_upto": "2025-12-31",
 		"maximum_use": 100,  # Optional
@@ -686,10 +686,6 @@ def create_coupon(data):
 			frappe.throw(_("Discount amount is required when discount type is Amount"))
 		if flt(data.get("discount_amount")) <= 0:
 			frappe.throw(_("Discount amount must be greater than 0"))
-
-	# Validate Gift Card requires customer
-	if data.get("coupon_type") == "Gift Card" and not data.get("customer"):
-		frappe.throw(_("Customer is required for Gift Card coupons"))
 
 	try:
 		# Create coupon

@@ -189,7 +189,11 @@ class EligibilityFetcher:
 
 	@staticmethod
 	def _fetch_item_groups(parent_names: List[str]) -> Dict[str, List[str]]:
-		"""Fetch item groups for given parents"""
+		"""
+		Fetch item groups for given parents, expanding each group to include its
+		descendants (matching ERPNext, where a rule on a parent group such as
+		"All Item Groups" covers items filed under its child groups).
+		"""
 		results = frappe.db.sql("""
 			SELECT parent, item_group
 			FROM `tabPricing Rule Item Group`
@@ -199,7 +203,7 @@ class EligibilityFetcher:
 		groups_map = {}
 		for row in results:
 			groups_map.setdefault(row["parent"], []).append(row["item_group"])
-		return groups_map
+		return {parent: _with_descendant_groups(groups) for parent, groups in groups_map.items()}
 
 	@staticmethod
 	def _fetch_brands(parent_names: List[str]) -> Dict[str, List[str]]:

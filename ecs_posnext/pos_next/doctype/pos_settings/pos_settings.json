@@ -22,6 +22,7 @@
   "use_percentage_discount",
   "max_discount_allowed",
   "exclude_people_counting",
+  "hide_availabilty_of_stock",
   "column_break_general",
   "allow_credit_sale",
   "allow_customer_credit_payment",
@@ -543,11 +544,17 @@
    "fieldname": "exclude_people_counting",
    "fieldtype": "Check",
    "label": "Exclude People Counting"
+  },
+  {
+   "default": "0",
+   "fieldname": "hide_availabilty_of_stock",
+   "fieldtype": "Check",
+   "label": "Hide Availabilty of Stock"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-09 00:12:52.728106",
+ "modified": "2026-10-04 15:42:19.149793",
  "modified_by": "Administrator",
  "module": "POS Next",
  "name": "POS Settings",

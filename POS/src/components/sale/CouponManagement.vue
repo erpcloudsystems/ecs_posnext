@@ -289,21 +289,23 @@
 									<!-- Customer field for Gift Cards -->
 									<div v-if="form.coupon_type === 'Gift Card'" class="col-span-2">
 										<div v-if="isCreating">
-											<label class="block text-xs font-medium text-gray-500 mb-1.5">{{ __('Customer') }} <span class="text-red-500">*</span></label>
+											<label class="block text-xs font-medium text-gray-500 mb-1.5">{{ __('Customer') }}</label>
 											<AutocompleteSelect
 												v-model="form.customer"
 												:options="customerOptions"
 												:loading="customerLoading"
 												:placeholder="__('Search customer by name or mobile...')"
 												@search="handleCustomerSearch"
-												required
 											/>
 										</div>
 										<div v-else>
 											<label class="block text-sm font-medium text-gray-700 mb-2 text-start">{{ __('Customer') }}</label>
 											<div class="px-3 py-2 bg-gray-50 rounded-lg">
-												<p class="text-sm font-medium text-gray-900">{{ couponDetails.customer_name || couponDetails.customer }}</p>
-												<p class="text-xs text-gray-500">{{ couponDetails.customer }}</p>
+												<template v-if="couponDetails.customer">
+													<p class="text-sm font-medium text-gray-900">{{ couponDetails.customer_name || couponDetails.customer }}</p>
+													<p class="text-xs text-gray-500">{{ couponDetails.customer }}</p>
+												</template>
+												<p v-else class="text-sm text-gray-500">{{ __('Any customer') }}</p>
 											</div>
 										</div>
 									</div>
@@ -895,10 +897,6 @@ function handleSubmit() {
 			showWarning(__("Please enter a valid discount amount"))
 			return
 		}
-	}
-	if (form.value.coupon_type === "Gift Card" && !form.value.customer) {
-		showWarning(__("Please select a customer for gift card"))
-		return
 	}
 
 	loading.value = true

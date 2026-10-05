@@ -1943,7 +1943,7 @@ function handleAdditionalDiscountUpdate(discountAmount) {
 
 function handleCustomerSelected(selectedCustomer) {
 	if (selectedCustomer) {
-		cartStore.setCustomer(selectedCustomer);
+		if (!cartStore.setCustomer(selectedCustomer)) return;
 		uiStore.showCustomerDialog = false;
 		showSuccess(__("{0} selected", [selectedCustomer.customer_name]));
 

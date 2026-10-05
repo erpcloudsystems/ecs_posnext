@@ -91,6 +91,9 @@ def get_initial_data():
 		"warehouse": pos_profile.warehouse,
 		"selling_price_list": pos_profile.selling_price_list,
 		"customer": pos_profile.customer,
+		"custom_disable_sales_from_vim_entertainment": pos_profile.get(
+			"custom_disable_sales_from_vim_entertainment", 0
+		),
 		"write_off_account": pos_profile.write_off_account,
 		"write_off_cost_center": pos_profile.write_off_cost_center,
 		"write_off_limit": pos_profile.write_off_limit or 0,

@@ -38,9 +38,30 @@ def validate(doc, method=None):
 		doc: Sales Invoice document
 		method: Hook method name (unused)
 	"""
+	validate_vim_entertainment_sale(doc)
 	apply_tax_inclusive(doc)
 	auto_assign_loyalty_program_on_invoice(doc)
 	apply_bundle_selections(doc)
+
+
+def validate_vim_entertainment_sale(doc, method=None):
+	"""
+	Block POS sales to VIM ENTERTAINMENT when the POS Profile has
+	"Disable Sales From Vim Entertainment" checked. Returns are left alone.
+	Also hooked on Sales Order, which POS Next creates with the same pos_profile.
+	"""
+	if doc.get("is_return"):
+		return
+
+	from ecs_posnext.api.pos_profile import is_vim_entertainment_blocked
+
+	if is_vim_entertainment_blocked(doc.get("pos_profile"), doc.get("customer")):
+		frappe.throw(
+			_("Sales to customer {0} are disabled for POS Profile {1}").format(
+				frappe.bold(doc.customer), frappe.bold(doc.pos_profile)
+			),
+			title=_("Customer Not Allowed"),
+		)
 
 
 def apply_bundle_selections(doc):

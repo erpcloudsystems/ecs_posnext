@@ -701,6 +701,13 @@ def upgrade_ticket_subscription(
             pos_opening_shift,
             ticket_name,
         )
+        # Revenue schedule is built from the invoice, so it can only run now
+        frappe.enqueue(
+            "ecs_vim_ticket.ecs_vim_ticket.doctype.subscription_revenue_schedule.subscription_revenue_schedule.generate_revenue_schedule",
+            subscription_name=subscription.name,
+            queue="short",
+            timeout=120,
+        )
 
     return {
         "subscription": subscription.name,

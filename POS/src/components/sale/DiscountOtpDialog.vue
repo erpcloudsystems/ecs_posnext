@@ -2,7 +2,9 @@
 	<Dialog v-model="show" :options="{ title: dialogTitle, size: 'sm' }">
 		<template #body-content>
 			<p class="text-xs text-gray-500 mb-3">
-				{{ __("This action needs approval. Enter the OTP sent to the supervisors, or the authorization password.") }}
+				{{ isLoyalty
+					? __("Enter the code sent to the customer's mobile to redeem their loyalty balance.")
+					: __("This action needs approval. Enter the OTP sent to the supervisors, or the authorization password.") }}
 			</p>
 
 			<input
@@ -60,8 +62,10 @@ import { useToast } from "@/composables/useToast"
 const props = defineProps({
 	modelValue: Boolean,
 	posProfile: String,
-	// "discount" (default) or "return" — selects which OTP backend methods to call.
+	// "discount" (default), "return" or "loyalty" — selects which OTP backend methods to call.
 	context: { type: String, default: "discount" },
+	// Customer whose mobile receives the code (loyalty context only).
+	customer: String,
 	// A short description (discount %/amount, or the return_against invoice) shown to
 	// supervisors in the Telegram message.
 	reference: [String, Number],
@@ -72,8 +76,13 @@ const emit = defineEmits(["update:modelValue", "authorized"])
 const { showError } = useToast()
 
 const isReturn = computed(() => props.context === "return")
+const isLoyalty = computed(() => props.context === "loyalty")
 const dialogTitle = computed(() =>
-	isReturn.value ? __("Return Authorization") : __("Discount Authorization"),
+	isLoyalty.value
+		? __("Loyalty Redemption")
+		: isReturn.value
+			? __("Return Authorization")
+			: __("Discount Authorization"),
 )
 
 const code = ref("")
@@ -101,19 +110,24 @@ function startCooldown(seconds = 30) {
 async function sendOtp() {
 	sending.value = true
 	try {
-		const method = isReturn.value
-			? "ecs_posnext.api.otp.send_return_otp"
-			: "ecs_posnext.api.otp.send_discount_otp"
-		const args = isReturn.value
-			? { pos_profile: props.posProfile, return_against: props.reference }
-			: { pos_profile: props.posProfile, discount: props.reference }
+		const method = isLoyalty.value
+			? "ecs_posnext.api.otp.send_loyalty_otp"
+			: isReturn.value
+				? "ecs_posnext.api.otp.send_return_otp"
+				: "ecs_posnext.api.otp.send_discount_otp"
+		const args = isLoyalty.value
+			? { pos_profile: props.posProfile, customer: props.customer }
+			: isReturn.value
+				? { pos_profile: props.posProfile, return_against: props.reference }
+				: { pos_profile: props.posProfile, discount: props.reference }
 		const res = await call(method, args)
 		const data = res?.message || res
 		// Start the cooldown whether it was just sent or still within the cooldown window.
 		startCooldown(30)
 		return data
 	} catch (e) {
-		console.error("Failed to send discount OTP", e)
+		console.error("Failed to send OTP", e)
+		error.value = e?.messages?.[0] || e?.message || __("Could not send code")
 	} finally {
 		sending.value = false
 	}
@@ -129,13 +143,14 @@ async function submit() {
 	verifying.value = true
 	error.value = ""
 	try {
-		const method = isReturn.value
-			? "ecs_posnext.api.otp.verify_return_otp"
-			: "ecs_posnext.api.otp.verify_discount_otp"
-		const res = await call(method, {
-			otp: code.value,
-			pos_profile: props.posProfile,
-		})
+		const method = isLoyalty.value
+			? "ecs_posnext.api.otp.verify_loyalty_otp"
+			: isReturn.value
+				? "ecs_posnext.api.otp.verify_return_otp"
+				: "ecs_posnext.api.otp.verify_discount_otp"
+		const args = { otp: code.value, pos_profile: props.posProfile }
+		if (isLoyalty.value) args.customer = props.customer
+		const res = await call(method, args)
 		const ok = res?.message ?? res
 		if (ok) {
 			emit("authorized")

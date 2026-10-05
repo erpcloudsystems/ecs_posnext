@@ -46,6 +46,9 @@ def after_migrate():
 		# Setup default print format
 		setup_default_print_format(quiet=True)
 
+		# Index Sales Invoice shift link (used by Spot Check / shift totals)
+		ensure_shift_link_index()
+
 		# Clear cache
 		frappe.clear_cache()
 		frappe.db.commit()
@@ -59,6 +62,12 @@ def after_migrate():
 		)
 		log_message(f"POS Next: Migration error - {str(e)}", level="error")
 		raise
+
+
+def ensure_shift_link_index():
+	"""Add an index on Sales Invoice.posa_pos_opening_shift if it doesn't exist yet."""
+	if frappe.db.has_column("Sales Invoice", "posa_pos_opening_shift"):
+		frappe.db.add_index("Sales Invoice", ["posa_pos_opening_shift"], "posa_pos_opening_shift_index")
 
 
 def setup_default_print_format(quiet=False):

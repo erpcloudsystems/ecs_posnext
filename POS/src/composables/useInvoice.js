@@ -3,6 +3,7 @@ import { computed, ref, toRaw } from "vue"
 import { isOffline, getCachedItem } from "@/utils/offline"
 import { useSerialNumberStore } from "@/stores/serialNumber"
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import { usePOSShiftStore } from "@/stores/posShift"
 import { CoalescingMutex } from "@/utils/mutex"
 import { logger } from "@/utils/logger"
 import { roundCurrency } from "@/utils/currency"
@@ -1285,7 +1286,11 @@ export function useInvoice() {
 			// Item-level default customer overrides even a set customer; the profile/price-list
 			// default only fills in when no customer is selected.
 			const itemDriven = !!data?.make_sales_order
-			if (data?.customer && (itemDriven || !customer.value)) {
+			if (
+				data?.customer &&
+				(itemDriven || !customer.value) &&
+				!usePOSShiftStore().isCustomerBlocked(data.customer)
+			) {
 				customer.value = {
 					name: data.customer,
 					customer_name: data.customer_name || data.customer,

@@ -31,12 +31,14 @@ POS_SETTINGS_FIELDS = [
 	"use_exact_amount",
 	"decimal_precision",
 	"allow_negative_stock",
+	"custom_draft_on_insufficient_stock",
 	"enable_sales_persons",
 	"silent_print",
 	"allow_sales_order",
 	"allow_select_sales_order",
 	"create_only_sales_order",
 	"exclude_people_counting",
+	"hide_availabilty_of_stock",
 ]
 
 # Item Types (Item.custom_item_type) considered "third party" for order history filtering
@@ -65,6 +67,8 @@ DEFAULT_POS_SETTINGS = {
 	"use_exact_amount": 0,
 	"decimal_precision": "2",
 	"allow_negative_stock": 0,
+	"custom_draft_on_insufficient_stock": 0,
+	"hide_availabilty_of_stock": 0,
 	"enable_sales_persons": "Disabled",
 	"silent_print": 0,
 	"allow_sales_order": 0,
