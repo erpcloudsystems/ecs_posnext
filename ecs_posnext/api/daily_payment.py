@@ -10,7 +10,8 @@ from ecs_posnext.working_day import (
 
 @frappe.whitelist()
 def employee_query(doctype, txt, searchfield, start, page_len, filters):
-	"""Custom search query for Employee - searches by both ID and employee_name, optionally filtered by branch."""
+	"""Custom search query for Employee - searches by both ID and employee_name, optionally filtered by branch.
+	Only Active employees are offered; Left/Inactive/Suspended ones never show in POS."""
 	import json
 	txt = (txt or "").strip()
 	like = f"%{txt}%"
@@ -29,6 +30,7 @@ def employee_query(doctype, txt, searchfield, start, page_len, filters):
 		SELECT name, employee_name
 		FROM `tabEmployee`
 		WHERE (name LIKE %(like)s OR employee_name LIKE %(like)s)
+		AND status = 'Active'
 		{branch_clause}
 		ORDER BY employee_name
 		LIMIT %(start)s, %(page_len)s

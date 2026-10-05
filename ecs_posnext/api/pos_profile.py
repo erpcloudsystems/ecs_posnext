@@ -375,8 +375,9 @@ CRAFTSMAN_DESIGNATION = "صنايعى"
 
 
 def _hide_unmarked_craftsmen(sales_persons_list):
-	"""Exclude Sales Persons whose Employee Designation is CRAFTSMAN_DESIGNATION
-	and whose Attendance for the running shift does not put them on shift."""
+	"""Exclude Sales Persons linked to a non-Active Employee, and those whose
+	Employee Designation is CRAFTSMAN_DESIGNATION and whose Attendance for the
+	running shift does not put them on shift."""
 	employee_ids = [sp.employee for sp in sales_persons_list if sp.get("employee")]
 	if not employee_ids:
 		return sales_persons_list
@@ -385,14 +386,20 @@ def _hide_unmarked_craftsmen(sales_persons_list):
 	# read on both (POSNext Cashier does, via the app's Custom DocPerm fixtures).
 	# Without it get_list raises, get_sales_persons swallows the PermissionError,
 	# and every sales person silently disappears from the POS.
-	designations = {
-		emp.name: emp.designation
-		for emp in frappe.get_list(
-			"Employee",
-			filters={"name": ["in", employee_ids]},
-			fields=["name", "designation"],
-		)
-	}
+	employees = frappe.get_list(
+		"Employee",
+		filters={"name": ["in", employee_ids]},
+		fields=["name", "designation", "status"],
+	)
+	designations = {emp.name: emp.designation for emp in employees}
+
+	# Sales Persons linked to a non-Active Employee (Left, Inactive, Suspended)
+	# must not be selectable in POS
+	inactive_ids = {emp.name for emp in employees if emp.status != "Active"}
+	if inactive_ids:
+		sales_persons_list = [
+			sp for sp in sales_persons_list if sp.get("employee") not in inactive_ids
+		]
 
 	craftsman_ids = [
 		emp for emp, designation in designations.items() if designation == CRAFTSMAN_DESIGNATION
