@@ -1,19 +1,35 @@
 <template>
 	<div class="flex flex-col h-full bg-gray-50">
-		<!-- Back to groups bar (shown when viewing a group's items or search results) -->
-		<div v-if="browseMode === 'items'" class="px-1.5 sm:px-3 pt-1.5 sm:pt-3 pb-1.5 sm:pb-2 bg-white border-b border-gray-200">
-			<div class="flex items-center gap-2 min-w-0">
+		<!-- Item Groups Filter Tabs -->
+		<div class="px-1.5 sm:px-3 pt-1.5 sm:pt-3 pb-1.5 sm:pb-2 bg-white border-b border-gray-200">
+			<div class="flex flex-wrap items-center gap-1 sm:gap-2">
 				<button
-					@click="backToGroups"
-					class="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] sm:text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 whitespace-nowrap flex-shrink-0 touch-manipulation"
+					@click="itemStore.setSelectedItemGroup(null)"
+					:class="[
+						'flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-medium whitespace-nowrap transition-[background-color,border-color] duration-75 touch-manipulation snap-start flex-shrink-0',
+						!selectedItemGroup
+							? 'bg-blue-50 text-blue-600 border-2 border-blue-500 shadow-sm'
+							: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 active:bg-gray-100',
+					]"
 				>
 					<svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
 					</svg>
-					<span>{{ __('Groups') }}</span>
+					<span>{{ __('All Items') }}</span>
 				</button>
-				<span v-if="selectedItemGroup" class="text-[11px] sm:text-xs font-medium text-gray-700 truncate">{{ __(selectedItemGroup) }}</span>
-				<span v-else-if="searchTerm" class="text-[11px] sm:text-xs text-gray-500 truncate">{{ __('Search results') }}</span>
+				<button
+					v-for="group in itemGroups"
+					:key="group.item_group"
+					@click="itemStore.setSelectedItemGroup(group.item_group)"
+					:class="[
+						'flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-medium whitespace-nowrap transition-[background-color,border-color] duration-75 touch-manipulation snap-start flex-shrink-0',
+						selectedItemGroup === group.item_group
+							? 'bg-blue-50 text-blue-600 border-2 border-blue-500 shadow-sm'
+							: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 active:bg-gray-100',
+					]"
+				>
+					<span>{{ __(group.item_group) }}</span>
+				</button>
 			</div>
 		</div>
 
@@ -217,16 +233,8 @@
 			</div>
 		</div>
 
-		<!-- Group cards navigator (drill-down) - shown until a leaf group is selected -->
-		<ItemGroupNavigator
-			v-if="browseMode === 'groups'"
-			:groups="itemGroups"
-			class="flex-1 min-h-0"
-			@select="onLeafSelect"
-		/>
-
 		<!-- Initial Loading State - Show spinner while fetching items -->
-		<div v-if="browseMode === 'items' && loading && (!filteredItems || filteredItems.length === 0)" class="flex-1 flex items-center justify-center p-3">
+		<div v-if="loading && (!filteredItems || filteredItems.length === 0)" class="flex-1 flex items-center justify-center p-3">
 			<div class="text-center py-8">
 				<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
 				<p class="mt-3 text-xs text-gray-500">{{ __('Loading items...') }}</p>
@@ -235,7 +243,7 @@
 
 		<!-- Empty State - Only show when NOT loading and truly no items -->
 		<div
-			v-else-if="browseMode === 'items' && !loading && (!filteredItems || filteredItems.length === 0)"
+			v-else-if="!loading && (!filteredItems || filteredItems.length === 0)"
 			class="flex-1 flex items-center justify-center p-3"
 		>
 			<div class="text-center py-8">
@@ -262,7 +270,7 @@
 		</div>
 
 		<!-- Grid View -->
-		<div v-if="browseMode === 'items' && viewMode === 'grid'" key="grid" class="flex-1 flex flex-col overflow-hidden min-h-0">
+		<div v-if="viewMode === 'grid'" key="grid" class="flex-1 flex flex-col overflow-hidden min-h-0">
 			<div
 				ref="gridScrollContainer"
 				class="flex-1 overflow-y-auto p-1.5 sm:p-3"
@@ -485,7 +493,7 @@
 		</div>
 
 		<!-- Table View -->
-		<div v-if="browseMode === 'items' && viewMode === 'list'" key="list" class="flex-1 flex flex-col overflow-hidden min-h-0">
+		<div v-if="viewMode === 'list'" key="list" class="flex-1 flex flex-col overflow-hidden min-h-0">
 			<div
 				ref="listScrollContainer"
 				class="flex-1 overflow-x-auto overflow-y-auto"
@@ -704,7 +712,6 @@
 <script setup>
 import LazyImage from "@/components/common/LazyImage.vue"
 import WarehouseAvailabilityDialog from "@/components/sale/WarehouseAvailabilityDialog.vue"
-import ItemGroupNavigator from "@/components/sale/ItemGroupNavigator.vue"
 import { useItemSearchStore } from "@/stores/itemSearch"
 import { usePOSSettingsStore } from "@/stores/posSettings"
 import { useStock } from "@/composables/useStock"
@@ -783,25 +790,8 @@ const {
 })
 
 // Local state
-// browseMode: 'groups' = show the group-card navigator (no items fetched),
-//             'items'  = show items of a selected leaf group or search results.
-const browseMode = ref("groups")
 const viewMode = ref("grid")
 
-// Drill into a leaf group → load its items and switch to the items view.
-function onLeafSelect(itemGroup) {
-	itemStore.setSelectedItemGroup(itemGroup)
-	browseMode.value = "items"
-}
-
-// Return to the group-card navigator. Clear any search; keep selectedItemGroup
-// as-is (grid is hidden in groups mode, so no refetch is needed).
-function backToGroups() {
-	if (searchTerm.value) {
-		clearSearchAndResetInput()
-	}
-	browseMode.value = "groups"
-}
 const userManuallySetView = ref(false) // Track if user manually changed view mode
 const showSortDropdown = ref(false) // Sort dropdown visibility
 const skipPageReset = ref(false) // Skip page reset when navigating via pagination
@@ -919,24 +909,11 @@ watch(
 	() => props.posProfile,
 	(newProfile) => {
 		if (newProfile) {
-			// Always land on the group-card navigator for a (new) profile.
-			browseMode.value = "groups"
 			itemStore.setPosProfile(newProfile)
 		}
 	},
 	{ immediate: true },
 )
-
-// Searching switches to the items view (search spans all groups); clearing the
-// search with no leaf group selected returns to the group-card navigator.
-watch(searchTerm, (val) => {
-	const term = (val || "").trim()
-	if (term) {
-		browseMode.value = "items"
-	} else if (!selectedItemGroup.value) {
-		browseMode.value = "groups"
-	}
-})
 
 // Reset to page 1 when filtered items meaningfully change (group switch, search, etc.)
 // Skip reset when the change is from pagination navigation (fetchPage)

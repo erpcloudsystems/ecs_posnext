@@ -811,6 +811,15 @@ def _build_item_base_conditions(pos_profile_doc, item_group=None, exclude_varian
 		placeholders = ", ".join(["%s"] * len(item_groups))
 		conditions.append(f"i.item_group IN ({placeholders})")
 		where_params.extend(item_groups)
+	elif pos_profile_doc.get("item_groups"):
+		# No specific group: restrict to the POS Profile's item groups (and descendants)
+		# so counts/pagination match what the "All Items" tab can display
+		profile_groups = set()
+		for row in pos_profile_doc.item_groups:
+			profile_groups.update(_get_item_group_with_descendants(row.item_group))
+		placeholders = ", ".join(["%s"] * len(profile_groups))
+		conditions.append(f"i.item_group IN ({placeholders})")
+		where_params.extend(profile_groups)
 
 	extra_joins = ""
 	join_params = []
