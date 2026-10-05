@@ -71,6 +71,8 @@
   "input_qty",
   "allow_negative_stock",
   "custom_draft_on_insufficient_stock",
+  "section_break_all_items",
+  "exclude_item_group_from_all_items",
   "barcode_tab",
   "barcode_rules",
   "section_break_cash_transfer",
@@ -550,11 +552,23 @@
    "fieldname": "hide_availabilty_of_stock",
    "fieldtype": "Check",
    "label": "Hide Availabilty of Stock"
+  },
+  {
+   "fieldname": "section_break_all_items",
+   "fieldtype": "Section Break",
+   "label": "All Items"
+  },
+  {
+   "description": "Items in these groups (and their sub-groups) are hidden from the All Items tab. They still show under their own group tab and in search.",
+   "fieldname": "exclude_item_group_from_all_items",
+   "fieldtype": "Table",
+   "label": "Exclude Item Group From All Items",
+   "options": "POS Excluded Item Group"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-04 15:42:19.149793",
+ "modified": "2026-10-05 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "POS Next",
  "name": "POS Settings",

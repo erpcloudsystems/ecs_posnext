@@ -65,7 +65,7 @@ def get_pos_profile_data(pos_profile):
 
 	# Get hierarchical item groups (with child_groups info) in same call
 	# This eliminates a separate API call to get_item_groups
-	from ecs_posnext.api.items import get_item_groups
+	from ecs_posnext.api.items import get_all_items_excluded_groups, get_item_groups
 	item_groups_with_hierarchy = get_item_groups(pos_profile)
 
 	return {
@@ -73,6 +73,7 @@ def get_pos_profile_data(pos_profile):
 		"company": company_doc,
 		"pos_settings": pos_settings,
 		"item_groups_hierarchy": item_groups_with_hierarchy,  # NEW: includes child_groups
+		"all_items_excluded_groups": get_all_items_excluded_groups(pos_profile),
 		"print_settings": {
 			"auto_print": profile_doc.get("print_receipt_on_order_complete", 0),
 			"print_format": profile_doc.get("print_format"),

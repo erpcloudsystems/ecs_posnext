@@ -784,6 +784,28 @@ def _build_item_group_node(group_name):
 	}
 
 
+def get_all_items_excluded_groups(pos_profile):
+	"""Item groups (with descendants) excluded from the All Items tab via POS Settings."""
+	settings_name = frappe.db.get_value("POS Settings", {"pos_profile": pos_profile}, "name")
+	if not settings_name:
+		return []
+	groups = frappe.get_all(
+		"POS Excluded Item Group",
+		filters={"parent": settings_name, "parenttype": "POS Settings"},
+		pluck="item_group",
+	)
+	excluded = set()
+	for group in groups:
+		excluded.update(_get_item_group_with_descendants(group))
+	return sorted(excluded)
+
+
+def _exclude_item_groups(conditions, params, groups):
+	if groups:
+		conditions.append(f"i.item_group NOT IN ({', '.join(['%s'] * len(groups))})")
+		params.extend(groups)
+
+
 def _build_item_base_conditions(pos_profile_doc, item_group=None, exclude_variants=True, hide_unavailable=False, warehouse=None):
 	"""Build base SQL conditions for POS item search with hierarchical item group support.
 
@@ -1218,6 +1240,8 @@ def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20,
 			pos_profile_doc, item_group, exclude_variants=exclude_variants,
 			hide_unavailable=hide_unavailable, warehouse=pos_profile_doc.warehouse,
 		)
+		if not item_group and not (effective_search_term and effective_search_term.strip()):
+			_exclude_item_groups(conditions, params, get_all_items_excluded_groups(pos_profile))
 
 		# Build column list with table alias
 		item_columns = ",\n\t".join([f"i.{col}" for col in ITEM_RESULT_FIELDS])
@@ -1765,6 +1789,8 @@ def get_items_count(pos_profile, item_group=None, include_variants=0):
 			pos_profile_doc, item_group, exclude_variants=exclude_variants,
 			hide_unavailable=hide_unavailable, warehouse=pos_profile_doc.warehouse,
 		)
+		if not item_group:
+			_exclude_item_groups(conditions, params, get_all_items_excluded_groups(pos_profile))
 
 		where_clause = " AND ".join(conditions)
 		query = f"""

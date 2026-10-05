@@ -140,6 +140,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	const selectedItemGroup = ref(null)
 	const itemGroups = ref([])
 	const profileItemGroups = ref([]) // Item groups from POS Profile filter
+	const allItemsExcludedGroups = ref([]) // POS Settings: groups hidden from the All Items tab
 	const loading = ref(false)
 	const loadingMore = ref(false)
 	const searching = ref(false) // Separate loading state for search
@@ -573,6 +574,12 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			} else {
 				// No filters - show all items as-is
 				list = sourceItems
+			}
+
+			// "All Items" tab (not searching): hide groups excluded in POS Settings
+			if (!selectedItemGroup.value && !searchTerm.value?.trim() && allItemsExcludedGroups.value.length) {
+				const excluded = new Set(allItemsExcludedGroups.value)
+				list = list.filter(i => !excluded.has(i.item_group))
 			}
 
 			// Cache the filtered results for next time
@@ -1983,6 +1990,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 
 		if (!profile) {
 			profileItemGroups.value = []
+			allItemsExcludedGroups.value = []
 			itemGroups.value = []
 			return
 		}
@@ -1995,6 +2003,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 
 			// Set profile item groups (raw from child table)
 			profileItemGroups.value = data?.pos_profile?.item_groups || []
+			allItemsExcludedGroups.value = data?.all_items_excluded_groups || []
 
 			// Set hierarchical item groups (with child_groups) - INSTANT tab display!
 			itemGroups.value = data?.item_groups_hierarchy || []
@@ -2004,6 +2013,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			try {
 				sessionStorage.setItem(`pos_profile_data:${profile}`, JSON.stringify({
 					profileItemGroups: profileItemGroups.value,
+					allItemsExcludedGroups: allItemsExcludedGroups.value,
 					itemGroups: itemGroups.value,
 				}))
 			} catch (e) {
@@ -2032,6 +2042,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 				if (cached) {
 					const parsed = JSON.parse(cached)
 					profileItemGroups.value = parsed.profileItemGroups || []
+					allItemsExcludedGroups.value = parsed.allItemsExcludedGroups || []
 					itemGroups.value = parsed.itemGroups || []
 					log.info(`Restored ${itemGroups.value.length} item groups from session cache (offline)`)
 
@@ -2046,6 +2057,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 			}
 
 			profileItemGroups.value = []
+			allItemsExcludedGroups.value = []
 			itemGroups.value = []
 		}
 	}

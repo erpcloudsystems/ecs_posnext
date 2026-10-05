@@ -90,7 +90,11 @@ class POSClosingShift(Document):
         # update the difference values in Payment Reconciliation child table
         # get default precision for site
         precision = frappe.get_cached_value("System Settings", None, "currency_precision") or 3
+        loyalty_mode = _get_loyalty_mode_of_payment()
         for d in self.payment_reconciliation:
+            # Loyalty redemptions aren't counted by the cashier: closing always matches expected
+            if loyalty_mode and d.mode_of_payment == loyalty_mode:
+                d.closing_amount = d.expected_amount
             d.difference = +flt(d.closing_amount, precision) - flt(d.expected_amount, precision)
 
     def on_submit(self):
@@ -437,6 +441,13 @@ def get_payments_entries(pos_opening_shift):
             "party",
         ],
     )
+
+
+def _get_loyalty_mode_of_payment():
+    """Mode of Payment loyalty_engine posts redemptions under (None if not configured)."""
+    if not frappe.db.exists("DocType", "Loyalty Program Settings"):
+        return None
+    return frappe.db.get_single_value("Loyalty Program Settings", "default_mode_of_payments")
 
 
 def _get_cash_mode_of_payment(pos_profile):
