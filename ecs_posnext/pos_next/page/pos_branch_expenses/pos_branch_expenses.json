@@ -11,11 +11,30 @@
  "owner": "Administrator",
  "page_name": "pos-branch-expenses",
  "roles": [
-  {"role": "System Manager"},
-  {"role": "POSNext Branch Manager"},
-  {"role": "Bransh Manager"},
-  {"role": "POSNext Operations Manager"},
-  {"role": "Accounts Manager"}
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "POSNext Branch Manager"
+  },
+  {
+   "role": "Bransh Manager"
+  },
+  {
+   "role": "POSNext Operations Manager"
+  },
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "Branch Manager *"
+  },
+  {
+   "role": "Assistant branch manager"
+  },
+  {
+   "role": "Branch supervisor"
+  }
  ],
  "standard": "Yes",
  "title": "Branch Expenses"

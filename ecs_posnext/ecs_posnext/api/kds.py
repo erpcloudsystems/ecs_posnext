@@ -460,7 +460,12 @@ def _build_kds_items_rows(doc, is_addition=False):
             comp_station = _get_item_kds_station(comp_code)
             comp_status = "Pending" if comp_station else "Ready"
             removed_names = comp.get("removed_ingredient_names") or []
-            all_ingredients = comp.get("ingredients") or []
+            # The client often sends an empty list for a component's recipe — read it
+            # from the component's Product Bundle so the station still sees it.
+            all_ingredients = comp.get("ingredients") or _get_item_ingredients(comp_code)
+            if not removed_names and comp.get("removed_ingredients"):
+                code_to_name = {i["item_code"]: i.get("item_name", i["item_code"]) for i in all_ingredients}
+                removed_names = [code_to_name.get(c, c) for c in comp.get("removed_ingredients")]
             items_rows.append({
                 "item_code": comp_code,
                 "item_name": comp.get("item_name") or comp_code,

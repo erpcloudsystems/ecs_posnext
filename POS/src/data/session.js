@@ -3,6 +3,7 @@ import { createResource } from "frappe-ui"
 import { computed, reactive } from "vue"
 
 import { ensureCSRFToken } from "@/utils/csrf"
+import { completeLocalLogout, markLocalLogout } from "@/utils/logoutSync"
 import { userResource, userData } from "./user"
 
 export function sessionUser() {
@@ -44,17 +45,22 @@ export const session = reactive({
 	}),
 	logout: createResource({
 		url: "logout",
-		onSuccess() {
+		beforeSubmit() {
+			// Set before the cookie flips to Guest so this tab isn't treated as a remote logout
+			markLocalLogout()
+		},
+		async onSuccess() {
 			userResource.reset()
 			session.user = sessionUser()
-			router.replace({ name: "Login" })
+			// Clear cache, close other POS tabs (Dispatcher, KDS...) and reload into login
+			await completeLocalLogout()
 		},
-		onError(error) {
+		async onError(error) {
 			console.error("Logout error:", error)
 			// Even if logout fails on server, clear local session
 			userResource.reset()
 			session.user = null
-			router.replace({ name: "Login" })
+			await completeLocalLogout()
 		},
 	}),
 	user: sessionUser(),
