@@ -15,6 +15,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
+from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import is_single_use_gift_card_spent
+
 
 # ============================================================================
 # Constants
@@ -542,9 +544,10 @@ def get_active_coupons(customer: str, company: str) -> List[Dict]:
 		},
 		fields=[
 			"name", "coupon_code", "coupon_name", "valid_from", "valid_upto",
-			"discount_type", "balance_amount", "used",
+			"discount_type", "balance_amount", "used", "single_use",
 		],
 	)
+	coupons = [c for c in coupons if not is_single_use_gift_card_spent(c)]
 
 	# Amount-based gift cards are usable while a balance remains; the older
 	# Percentage-based gift cards (e.g. referral rewards) stay single-use.
@@ -631,6 +634,8 @@ def validate_coupon(coupon_code: str, customer: str, company: str) -> Dict:
 		return {"valid": False, "message": _("This coupon is disabled")}
 
 	# Check usage limits
+	if is_single_use_gift_card_spent(coupon):
+		return {"valid": False, "message": _("This gift card has already been used")}
 	if coupon.coupon_type == "Gift Card" and coupon.discount_type == "Amount":
 		if flt(coupon.balance_amount) <= 0:
 			return {"valid": False, "message": _("This gift card has no remaining balance")}

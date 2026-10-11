@@ -5,7 +5,7 @@ from __future__ import unicode_literals
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import strip, flt
+from frappe.utils import cint, strip, flt
 from frappe.utils import getdate, today
 
 
@@ -88,6 +88,16 @@ class POSCoupon(Document):
 
 
 
+def is_single_use_gift_card_spent(coupon):
+    """A Single Use gift card stops working after its first redemption, even
+    if part of its balance is left."""
+    return (
+        coupon.get("coupon_type") == "Gift Card"
+        and cint(coupon.get("single_use"))
+        and cint(coupon.get("used")) >= 1
+    )
+
+
 def check_coupon_code(coupon_code, customer=None, company=None):
     """Validate and return coupon details"""
     res = {"coupon": None}
@@ -115,6 +125,9 @@ def check_coupon_code(coupon_code, customer=None, company=None):
             return res
 
     # Check usage limits
+    if is_single_use_gift_card_spent(coupon):
+        res["msg"] = _("Sorry, this gift card has already been used")
+        return res
     if coupon.coupon_type == "Gift Card" and coupon.discount_type == "Amount":
         if flt(coupon.balance_amount) <= 0:
             res["msg"] = _("Sorry, this gift card has no remaining balance")

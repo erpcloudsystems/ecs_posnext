@@ -5,6 +5,8 @@
 import frappe
 from frappe import _
 from frappe.utils import flt, nowdate, getdate, cstr, cint
+
+from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import is_single_use_gift_card_spent
 import re
 
 
@@ -574,7 +576,8 @@ def get_coupons(company=None, include_disabled=False, coupon_type=None):
 		"name", "coupon_name", "coupon_code", "coupon_type",
 		"customer", "customer_name",
 		"valid_from", "valid_upto", "maximum_use", "used",
-		"one_use", "company", "campaign", "balance_amount", "discount_type"
+		"one_use", "company", "campaign", "balance_amount", "discount_type",
+		"single_use",
 	]
 
 	# Check for optional fields
@@ -603,6 +606,8 @@ def get_coupons(company=None, include_disabled=False, coupon_type=None):
 			coupon["status"] = "Not Started"
 		elif coupon.valid_upto and getdate(coupon.valid_upto) < today:
 			coupon["status"] = "Expired"
+		elif is_single_use_gift_card_spent(coupon):
+			coupon["status"] = "Exhausted"
 		elif coupon.coupon_type == "Gift Card" and coupon.discount_type == "Amount" and flt(coupon.balance_amount) <= 0:
 			coupon["status"] = "Exhausted"
 		elif not (coupon.coupon_type == "Gift Card" and coupon.discount_type == "Amount") \
@@ -706,6 +711,7 @@ def create_coupon(data):
 			"valid_upto": data.get("valid_upto"),
 			"maximum_use": cint(data.get("maximum_use", 0)) or None,
 			"one_use": cint(data.get("one_use", 0)),
+			"single_use": cint(data.get("single_use", 0)),
 			"campaign": data.get("campaign"),
 		})
 
@@ -768,6 +774,8 @@ def update_coupon(coupon_name, data):
 			coupon.maximum_use = cint(data["maximum_use"]) or None
 		if "one_use" in data:
 			coupon.one_use = cint(data["one_use"])
+		if "single_use" in data:
+			coupon.single_use = cint(data["single_use"])
 		if "disabled" in data:
 			coupon.disabled = cint(data["disabled"])
 		if "description" in data:

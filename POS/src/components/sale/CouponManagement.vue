@@ -472,6 +472,16 @@
 										/>
 										<span class="text-sm text-gray-700">{{ __('Only One Use Per Customer') }}</span>
 									</label>
+									<label v-if="form.coupon_type === 'Gift Card'" class="flex items-center gap-2 mt-2">
+										<input
+											type="checkbox"
+											v-model="form.single_use"
+											:true-value="1"
+											:false-value="0"
+											class="rounded border-gray-300"
+										/>
+										<span class="text-sm text-gray-700">{{ __('Single Use (remaining balance is forfeited after first use)') }}</span>
+									</label>
 								</div>
 							</div>
 						</Card>
@@ -632,6 +642,7 @@ const form = ref({
 	valid_upto: "",
 	maximum_use: null,
 	one_use: 0,
+	single_use: 0,
 	company: props.company,
 })
 
@@ -769,6 +780,7 @@ const updateCouponResource = createResource({
 				valid_upto: form.value.valid_upto,
 				maximum_use: form.value.maximum_use,
 				one_use: form.value.one_use,
+				single_use: form.value.single_use,
 			}),
 		}
 	},
@@ -952,6 +964,7 @@ function resetForm() {
 		valid_upto: "",
 		maximum_use: null,
 		one_use: 0,
+		single_use: 0,
 		company: props.company,
 	}
 }
@@ -973,6 +986,7 @@ function populateFormFromCoupon(coupon) {
 		valid_upto: coupon.valid_upto || "",
 		maximum_use: coupon.maximum_use || null,
 		one_use: coupon.one_use || 0,
+		single_use: coupon.single_use || 0,
 		company: coupon.company || props.company,
 	}
 }

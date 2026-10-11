@@ -20,6 +20,7 @@
   "company",
   "campaign",
   "balance_amount",
+  "single_use",
   "erpnext_integration_section",
   "erpnext_coupon_code",
   "pricing_rule",
@@ -300,6 +301,14 @@
    "precision": "2"
   },
   {
+   "default": "0",
+   "depends_on": "eval: doc.coupon_type == \"Gift Card\"",
+   "description": "The gift card can be redeemed on one invoice only. Any balance left after that invoice is forfeited.",
+   "fieldname": "single_use",
+   "fieldtype": "Check",
+   "label": "Single Use"
+  },
+  {
    "fieldname": "applicability_section",
    "fieldtype": "Section Break",
    "label": "Applicability"
@@ -323,7 +332,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-30 15:43:28.852005",
+ "modified": "2026-10-11 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "POS Next",
  "name": "POS Coupon",
