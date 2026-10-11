@@ -1,6 +1,9 @@
 import { createResource } from "frappe-ui"
 import { computed, ref } from "vue"
 
+// Cached shift data older than this is not trusted when the server can't be reached
+const MAX_CACHED_SHIFT_AGE_MS = 20 * 60 * 60 * 1000
+
 export const shiftState = ref({
 	pos_opening_shift: null,
 	pos_profile: null,
@@ -60,6 +63,13 @@ export function useShift() {
 			if (cachedData) {
 				try {
 					const data = JSON.parse(cachedData)
+					// Don't revive a stale shift: it may have been closed from another
+					// device/tab, and invoices tagged with it land in no closing shift.
+					const shiftStartedAt = (data._receivedAt || 0) - (data._initialElapsedMs || 0)
+					if (!data._receivedAt || Date.now() - shiftStartedAt > MAX_CACHED_SHIFT_AGE_MS) {
+						localStorage.removeItem("pos_shift_data")
+						return
+					}
 					shiftState.value = {
 						pos_opening_shift: data.pos_opening_shift,
 						pos_profile: data.pos_profile,

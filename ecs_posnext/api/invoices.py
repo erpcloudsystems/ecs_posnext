@@ -8,7 +8,7 @@ import time
 import frappe
 from frappe import _
 from frappe.query_builder import Order
-from frappe.utils import flt, cint, nowdate, nowtime, get_datetime, cstr
+from frappe.utils import flt, cint, nowdate, nowtime, get_datetime, cstr, strip_html
 from erpnext.stock.doctype.batch.batch import get_batch_qty, get_batch_no
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import get_bank_cash_account
 
@@ -560,6 +560,33 @@ def _draft_on_insufficient_stock(pos_profile):
             or 0
         )
     )
+
+
+def _error_reason(error):
+    """Plain-text reason for a failed submit, as shown on the Pending Stock page."""
+    reason = strip_html(cstr(error)).strip()
+    return reason or error.__class__.__name__
+
+
+def _hold_as_pending_stock(doctype, invoice_name, error):
+    """Flag a still-draft Sales Invoice as pending stock and record why its
+    submit failed. Returns the reason if the draft was held, else None.
+
+    The caller must have rolled back the failed transaction first; this
+    commits so the hold survives the request/job that raised.
+    """
+    if doctype != "Sales Invoice" or not invoice_name:
+        return None
+    if frappe.db.get_value(doctype, invoice_name, "docstatus") != 0:
+        return None
+
+    reason = _error_reason(error)
+    values = {"posa_pending_stock": 1}
+    if frappe.db.has_column(doctype, "posa_pending_stock_reason"):
+        values["posa_pending_stock_reason"] = reason
+    frappe.db.set_value(doctype, invoice_name, values, update_modified=False)
+    frappe.db.commit()
+    return reason
 
 
 def _validate_stock_on_invoice(invoice_doc):
@@ -1378,7 +1405,7 @@ def submit_invoice(invoice=None, data=None):
     there for the worker-timeout resilience it was queued for in the first
     place.
     """
-    prepared = _prepare_invoice_for_submit(invoice=invoice, data=data)
+    prepared = _prepare_invoice_for_submit(invoice=invoice, data=data, hold_on_error=True)
 
     if not prepared.get("proceed"):
         # Terminal outcome decided in Step 1 — offline dedup hit, Tabby
@@ -1573,6 +1600,11 @@ def _finalize_invoice_submit_with_retry(
     Same rationale as _submit_invoice_with_retry, scoped to just the
     finalize step (the part this one queues): a transient error shouldn't
     leave the (already-validated) draft stuck unsubmitted with no retry.
+
+    In backorder mode ("Draft on Insufficient Stock"), a draft that still
+    fails after the last attempt is held as pending stock with the error as
+    its reason, so it shows on the Pending Stock page instead of silently
+    staying an orphaned draft.
     """
     for attempt in range(1, max_attempts + 1):
         try:
@@ -1580,9 +1612,13 @@ def _finalize_invoice_submit_with_retry(
                 name=name, doctype=doctype, invoice=invoice, data=data,
                 offline_id=offline_id, sync_record_name=sync_record_name,
             )
-        except Exception:
+        except Exception as e:
             frappe.db.rollback()
             if attempt == max_attempts:
+                if doctype == "Sales Invoice" and _draft_on_insufficient_stock(
+                    frappe.db.get_value(doctype, name, "pos_profile")
+                ):
+                    _hold_as_pending_stock(doctype, name, e)
                 raise
             time.sleep(1.5 * attempt)
 
@@ -1608,7 +1644,7 @@ def _submit_invoice(invoice=None, data=None):
     )
 
 
-def _prepare_invoice_for_submit(invoice=None, data=None):
+def _prepare_invoice_for_submit(invoice=None, data=None, hold_on_error=False):
     """Validate, save (and decide any terminal outcome for) the invoice —
     Step 1 of submission.
 
@@ -1617,6 +1653,11 @@ def _prepare_invoice_for_submit(invoice=None, data=None):
     submit). Otherwise returns a dict describing the saved draft, ready for
     _finalize_invoice_submit (Step 2: invoice_doc.submit() and its
     downstream side effects) to pick up by name.
+
+    hold_on_error: in backorder mode, if this step fails once the draft
+    already exists, hold it as pending stock (with the error as its reason)
+    and return the pending result instead of raising. Only the POS checkout
+    endpoint passes this — internal callers (tickets) still get the error.
     """
     # Handle different calling conventions
     if invoice is None:
@@ -1854,37 +1895,15 @@ def _prepare_invoice_for_submit(invoice=None, data=None):
                 ) or 0
             )
 
-        # Stock handling only if negative stock is not allowed.
-        if not pos_settings_allow_negative:
-            if _draft_on_insufficient_stock(invoice_doc.pos_profile) and not data.get(
-                "finalize_pending"
-            ):
-                # Backorder mode: if any line is short and blocking applies, HOLD the
-                # sale as a pending-stock draft (payment already collected on the draft)
-                # instead of blocking. It is finalized later from the Pending Stock page.
-                stock_errors = _collect_stock_errors(
-                    [d.as_dict() for d in invoice_doc.items]
-                )
-                if stock_errors and _should_block(invoice_doc.pos_profile):
-                    invoice_doc.posa_pending_stock = 1
-                    invoice_doc.flags.ignore_permissions = True
-                    frappe.flags.ignore_account_permission = True
-                    _save_with_grand_total_correction(invoice_doc)
-                    _reapply_payment_amounts(
-                        invoice_doc, invoice.get("payments"), doctype
-                    )
-                    frappe.db.commit()
-                    if sync_record_name:
-                        _cleanup_failed_sync(sync_record_name)
-                    return {
-                        "name": invoice_doc.name,
-                        "docstatus": 0,
-                        "pending_stock": True,
-                        "stock_errors": stock_errors,
-                        "grand_total": invoice_doc.grand_total,
-                    }
-            else:
-                _validate_stock_on_invoice(invoice_doc)
+        # Stock pre-check only if negative stock is not allowed. In backorder
+        # mode ("Draft on Insufficient Stock") there is no qty pre-check at all:
+        # the sale is submitted as-is, and if anything throws (here or in the
+        # background submit) the draft is held as pending stock with that
+        # error as its reason, to be finalized later from the Pending Stock page.
+        if not pos_settings_allow_negative and not _draft_on_insufficient_stock(
+            invoice_doc.pos_profile
+        ):
+            _validate_stock_on_invoice(invoice_doc)
 
         # Save before submit
         invoice_doc.flags.ignore_permissions = True
@@ -1938,9 +1957,31 @@ def _prepare_invoice_for_submit(invoice=None, data=None):
         }
 
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "Submit Invoice Error")
+        # frappe.log_error(frappe.get_traceback(), "Submit Invoice Error")
+        hold = (
+            hold_on_error
+            and invoice_name
+            and doctype == "Sales Invoice"
+            and _draft_on_insufficient_stock(pos_profile)
+        )
+        if hold:
+            # Drop the failed transaction's partial writes before holding.
+            frappe.db.rollback()
         if sync_record_name:
             _cleanup_failed_sync(sync_record_name)
+        if hold:
+            reason = _hold_as_pending_stock(doctype, invoice_name, e)
+            if reason:
+                # The throw's msgprint is still queued; drop it so the client
+                # treats this as a hold, not a failed checkout.
+                frappe.local.message_log = []
+                return {
+                    "name": invoice_name,
+                    "docstatus": 0,
+                    "pending_stock": True,
+                    "reason": reason,
+                    "grand_total": frappe.db.get_value(doctype, invoice_name, "grand_total"),
+                }
         raise
 
 
@@ -2328,76 +2369,77 @@ def delete_invoice(invoice):
 
 @frappe.whitelist()
 def cleanup_old_drafts(pos_profile=None, max_age_hours=24):
-    """
-    Clean up old, unpaid draft invoices to prevent stock reservation issues.
-    Deletes drafts older than max_age_hours (default, and minimum, 24 hours).
+    pass
+    # """
+    # Clean up old, unpaid draft invoices to prevent stock reservation issues.
+    # Deletes drafts older than max_age_hours (default, and minimum, 24 hours).
 
-    Never deletes a draft that has money on it (paid_amount, a non-zero
-    payment row, or a pending-stock backorder flag) — those are completed,
-    paid sales waiting on the background submit job, not abandoned carts.
-    """
-    from datetime import datetime, timedelta
+    # Never deletes a draft that has money on it (paid_amount, a non-zero
+    # payment row, or a pending-stock backorder flag) — those are completed,
+    # paid sales waiting on the background submit job, not abandoned carts.
+    # """
+    # from datetime import datetime, timedelta
 
-    doctype = "Sales Invoice"
-    max_age_hours = int(max_age_hours)
-    if max_age_hours < MIN_DRAFT_CLEANUP_AGE_HOURS:
-        frappe.throw(
-            _("max_age_hours must be at least {0} hours").format(MIN_DRAFT_CLEANUP_AGE_HOURS)
-        )
+    # doctype = "Sales Invoice"
+    # max_age_hours = int(max_age_hours)
+    # if max_age_hours < MIN_DRAFT_CLEANUP_AGE_HOURS:
+    #     frappe.throw(
+    #         _("max_age_hours must be at least {0} hours").format(MIN_DRAFT_CLEANUP_AGE_HOURS)
+    #     )
 
-    cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
+    # cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
 
-    filters = {
-        "docstatus": 0,  # Draft only
-        "modified": ["<", cutoff_time.strftime("%Y-%m-%d %H:%M:%S")],
-        "posa_pending_stock": ["!=", 1],
-    }
+    # filters = {
+    #     "docstatus": 0,  # Draft only
+    #     "modified": ["<", cutoff_time.strftime("%Y-%m-%d %H:%M:%S")],
+    #     "posa_pending_stock": ["!=", 1],
+    # }
 
-    # Optionally filter by POS profile
-    if pos_profile:
-        filters["pos_profile"] = pos_profile
+    # # Optionally filter by POS profile
+    # if pos_profile:
+    #     filters["pos_profile"] = pos_profile
 
-    # Get old drafts
-    old_drafts = frappe.get_all(
-        doctype,
-        filters=filters,
-        fields=["name", "modified", "paid_amount"],
-        limit_page_length=100,  # Safety limit
-    )
+    # # Get old drafts
+    # old_drafts = frappe.get_all(
+    #     doctype,
+    #     filters=filters,
+    #     fields=["name", "modified", "paid_amount"],
+    #     limit_page_length=100,  # Safety limit
+    # )
 
-    skipped = []
-    deleted_count = 0
-    for draft in old_drafts:
-        if flt(draft.get("paid_amount")) > 0:
-            skipped.append(draft["name"])
-            continue
+    # skipped = []
+    # deleted_count = 0
+    # for draft in old_drafts:
+    #     if flt(draft.get("paid_amount")) > 0:
+    #         skipped.append(draft["name"])
+    #         continue
 
-        if frappe.db.exists("Sales Invoice Payment", {"parent": draft["name"], "amount": [">", 0]}):
-            skipped.append(draft["name"])
-            continue
+    #     if frappe.db.exists("Sales Invoice Payment", {"parent": draft["name"], "amount": [">", 0]}):
+    #         skipped.append(draft["name"])
+    #         continue
 
-        try:
-            frappe.delete_doc(
-                doctype, draft["name"], force=True, ignore_permissions=True
-            )
-            deleted_count += 1
-        except Exception as e:
-            frappe.log_error(
-                title="Draft Cleanup Error",
-                message=f"Failed to delete draft {draft['name']}: {str(e)}",
-            )
+    #     try:
+    #         frappe.delete_doc(
+    #             doctype, draft["name"], force=True, ignore_permissions=True
+    #         )
+    #         deleted_count += 1
+    #     except Exception as e:
+    #         frappe.log_error(
+    #             title="Draft Cleanup Error",
+    #             message=f"Failed to delete draft {draft['name']}: {str(e)}",
+    #         )
 
-    if skipped:
-        frappe.log_error(
-            title="Draft Cleanup Skipped Paid Drafts",
-            message=f"Skipped {len(skipped)} draft(s) with money on them: {', '.join(skipped)}",
-        )
+    # if skipped:
+    #     frappe.log_error(
+    #         title="Draft Cleanup Skipped Paid Drafts",
+    #         message=f"Skipped {len(skipped)} draft(s) with money on them: {', '.join(skipped)}",
+    #     )
 
-    return {
-        "deleted": deleted_count,
-        "skipped": len(skipped),
-        "message": f"Cleaned up {deleted_count} old draft invoices, skipped {len(skipped)} with payments",
-    }
+    # return {
+    #     "deleted": deleted_count,
+    #     "skipped": len(skipped),
+    #     "message": f"Cleaned up {deleted_count} old draft invoices, skipped {len(skipped)} with payments",
+    # }
 
 
 # ==========================================

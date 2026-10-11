@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 # Pending-stock (backorder) invoices for the POS.
 #
-# When "Draft on Insufficient Stock" is enabled on a POS Profile, sales with a short
-# line are held as drafts (posa_pending_stock=1) instead of blocking checkout. This
-# module lists those held drafts + the items that need restocking, and finalizes
-# (submits) a draft once stock is available.
+# When "Draft on Insufficient Stock" is enabled on a POS Profile, a sale whose
+# submit throws (for any reason — not a qty pre-check) is held as a draft
+# (posa_pending_stock=1) with the error saved as posa_pending_stock_reason. This
+# module lists those held drafts with their reason, and finalizes (submits) a
+# draft once the cause is fixed.
 
 import frappe
 from frappe import _
 from frappe.utils import flt
 
-from ecs_posnext.api.invoices import _get_available_stock, submit_invoice
+from ecs_posnext.api.invoices import _hold_as_pending_stock, _submit_invoice
 
 
 def _pending_filters(pos_profile=None, pos_opening_shift=None):
@@ -30,11 +31,11 @@ def count_pending_stock_invoices(pos_profile=None, pos_opening_shift=None):
 
 @frappe.whitelist()
 def get_pending_stock_invoices(pos_profile=None, pos_opening_shift=None):
-    """List held pending-stock drafts with per-item availability + a restock summary.
+    """List held pending-stock drafts with the error that held each one.
 
-    Returns {invoices: [...], items_needed: [...]}. Each invoice has a `ready` flag
-    (all lines now have enough stock) so the UI can enable "Finalize".
+    Returns {invoices: [...]}.
     """
+    has_reason = frappe.db.has_column("Sales Invoice", "posa_pending_stock_reason")
     names = frappe.get_all(
         "Sales Invoice",
         filters=_pending_filters(pos_profile, pos_opening_shift),
@@ -44,43 +45,8 @@ def get_pending_stock_invoices(pos_profile=None, pos_opening_shift=None):
     )
 
     invoices = []
-    needed = {}  # (item_code, warehouse) -> aggregated shortage
     for name in names:
         doc = frappe.get_doc("Sales Invoice", name)
-        items = []
-        ready = True
-        for it in doc.items:
-            required = flt(it.stock_qty) or (flt(it.qty) * flt(it.conversion_factor or 1))
-            available = flt(_get_available_stock(it.as_dict()))
-            short = available < required
-            if short:
-                ready = False
-                key = (it.item_code, it.warehouse)
-                agg = needed.setdefault(
-                    key,
-                    {
-                        "item_code": it.item_code,
-                        "item_name": it.item_name,
-                        "warehouse": it.warehouse,
-                        "required": 0,
-                        "available": available,
-                        "shortage": 0,
-                    },
-                )
-                agg["required"] += required
-                agg["shortage"] += required - available
-            items.append(
-                {
-                    "item_code": it.item_code,
-                    "item_name": it.item_name,
-                    "warehouse": it.warehouse,
-                    "qty": flt(it.qty),
-                    "required": required,
-                    "available": available,
-                    "short": short,
-                }
-            )
-
         invoices.append(
             {
                 "name": doc.name,
@@ -89,33 +55,44 @@ def get_pending_stock_invoices(pos_profile=None, pos_opening_shift=None):
                 "posting_date": str(doc.posting_date),
                 "grand_total": flt(doc.grand_total),
                 "currency": doc.currency,
-                "ready": ready,
-                "items": items,
+                "reason": doc.get("posa_pending_stock_reason") if has_reason else None,
+                "items": [
+                    {
+                        "item_code": it.item_code,
+                        "item_name": it.item_name,
+                        "warehouse": it.warehouse,
+                        "qty": flt(it.qty),
+                    }
+                    for it in doc.items
+                ],
             }
         )
 
-    return {"invoices": invoices, "items_needed": list(needed.values())}
+    return {"invoices": invoices}
 
 
 @frappe.whitelist()
 def finalize_pending_invoice(invoice_name):
-    """Submit a held pending-stock draft now that stock is available.
+    """Submit a held pending-stock draft, synchronously.
 
-    Reuses submit_invoice with finalize_pending=1 so it runs the normal stock
-    validation (throws if still short) + creates the Payment Entries; the draft's
-    already-collected payments are preserved.
+    Runs the normal submit (Step 1 + Step 2) inline so the cashier sees the
+    outcome right away. On failure the draft stays held and its reason is
+    updated to the new error, which is re-raised to the UI.
     """
     doc = frappe.get_doc("Sales Invoice", invoice_name)
     if doc.docstatus != 0:
         frappe.throw(_("Invoice {0} is not a draft").format(invoice_name))
 
-    invoice = doc.as_dict()
-    result = submit_invoice(invoice=invoice, data={"finalize_pending": 1})
+    try:
+        result = _submit_invoice(invoice=doc.as_dict(), data={"finalize_pending": 1})
+    except Exception as e:
+        frappe.db.rollback()
+        _hold_as_pending_stock("Sales Invoice", invoice_name, e)
+        raise
 
-    # Clear the pending flag on success (submitted → no longer in the list anyway).
-    if frappe.db.exists("Sales Invoice", invoice_name):
-        frappe.db.set_value(
-            "Sales Invoice", invoice_name, "posa_pending_stock", 0, update_modified=False
-        )
+    values = {"posa_pending_stock": 0}
+    if frappe.db.has_column("Sales Invoice", "posa_pending_stock_reason"):
+        values["posa_pending_stock_reason"] = None
+    frappe.db.set_value("Sales Invoice", invoice_name, values, update_modified=False)
     frappe.db.commit()
     return result

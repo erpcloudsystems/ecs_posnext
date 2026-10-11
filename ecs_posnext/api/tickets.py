@@ -6,6 +6,8 @@
 # - renew_ticket: NEW — "recharge" the same Ticket (extend valid_to + add uses) and
 #   collect a paid Sales Invoice for the renewal fee.
 
+import json
+
 import frappe
 from frappe import _
 from frappe.utils import add_days, cint, flt, getdate, today
@@ -63,12 +65,55 @@ def _resolve_branch(branch, pos_profile):
 # ---------------------------------------------------------------------------
 
 
+def _search_tickets_by_wristband_serial(search_keys):
+    """Resolve a scanned wristband serial back to its Ticket.
+
+    Wristband serials live on POS Wristband, which is an ecs_posnext doctype, so
+    posawesome's ticket search cannot see them. Returns the same columns as
+    search_redeem_tickets so the dialog renders either result identically.
+    """
+    if isinstance(search_keys, str):
+        search_keys = json.loads(search_keys)
+
+    # The dialog sends the scanned value as ticket_name first, then customer.
+    serial_no = (search_keys.get("ticket_name") or search_keys.get("customer") or "")
+    serial_no = serial_no.strip()
+    if not serial_no:
+        return []
+
+    tickets = frappe.get_all(
+        "POS Wristband",
+        filters={"serial_no": serial_no},
+        pluck="ticket",
+    )
+    tickets = [t for t in tickets if t]
+    if not tickets:
+        return []
+
+    return frappe.db.sql(
+        """
+        SELECT DISTINCT r.*, ts.show_ticket_details_in_pos, ts.show_renew
+        FROM `tabTicket` as r
+        LEFT JOIN `tabTicket Settings` as ts ON r.ticket_settings = ts.name
+        WHERE r.name IN %(tickets)s
+        ORDER BY r.valid_to IS NULL, r.valid_to DESC
+        """,
+        {"tickets": tickets},
+        as_dict=True,
+    )
+
+
 @frappe.whitelist()
 def search_tickets(search_keys):
-    """Search redeemable tickets by redeem_code / customer (delegates to posawesome)."""
+    """Search redeemable tickets by redeem_code / customer (delegates to posawesome),
+    falling back to the wristband serial so a cashier can scan the band itself."""
     from posawesome.posawesome.api.redeem_ticket import search_redeem_tickets
 
-    return search_redeem_tickets(search_keys, include_expired=1)
+    tickets = search_redeem_tickets(search_keys, include_expired=1)
+    if tickets:
+        return tickets
+
+    return _search_tickets_by_wristband_serial(search_keys)
 
 
 @frappe.whitelist()

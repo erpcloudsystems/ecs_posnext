@@ -323,6 +323,7 @@ const localRate = ref(0)
 const localWarehouse = ref("")
 const discountType = ref("percentage")
 const discountValue = ref(0)
+const initialDiscount = ref({ type: "percentage", value: 0 })
 const discountPercentageStr = ref("0")
 const calculatedSubtotal = ref(0)
 const calculatedDiscount = ref(0)
@@ -477,6 +478,9 @@ watch(
 				discountValue.value = 0
 				discountPercentageStr.value = "0"
 			}
+			// Remember the discount the item came in with (offer/coupon/earlier edit)
+			// so only a cashier change is flagged as a manual discount.
+			initialDiscount.value = { type: discountType.value, value: discountValue.value }
 
 			// Reset stock check state
 			hasStock.value = true
@@ -711,6 +715,13 @@ function updateItem() {
 		}
 	}
 
+	const discountChanged =
+		discountType.value !== initialDiscount.value.type ||
+		Number(discountValue.value) !== Number(initialDiscount.value.value)
+	const isDiscountManuallyEdited =
+		Number(discountValue.value) > 0 &&
+		(discountChanged || localItem.value.is_discount_manually_edited === 1)
+
 	const updatedItem = {
 		...localItem.value,
 		quantity: localQuantity.value,
@@ -726,6 +737,8 @@ function updateItem() {
 		// Track manual rate edits for audit logging
 		is_rate_manually_edited: isRateManuallyEdited ? 1 : 0,
 		original_rate: isRateManuallyEdited ? originalPriceListRate.value : null,
+		// Manual item discounts need supervisor authorization at checkout
+		is_discount_manually_edited: isDiscountManuallyEdited ? 1 : 0,
 	}
 
 	// Update serial numbers if item has serials

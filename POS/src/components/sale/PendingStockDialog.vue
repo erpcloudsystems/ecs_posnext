@@ -3,7 +3,7 @@
 		<template #body-content>
 			<div class="flex items-center justify-between mb-3">
 				<p class="text-xs text-gray-500">
-					{{ __("Sales held as drafts because stock was insufficient. Restock, then Finalize. The shift can't be closed while any remain.") }}
+					{{ __("Sales held as drafts because submitting them failed. Fix the reason shown, then Finalize. The shift can't be closed while any remain.") }}
 				</p>
 				<button
 					type="button"
@@ -21,17 +21,6 @@
 			</div>
 
 			<template v-else>
-				<!-- Aggregated items needing stock -->
-				<div v-if="itemsNeeded.length" class="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
-					<h4 class="text-xs font-semibold text-amber-700 uppercase mb-2">{{ __("Items needing stock") }}</h4>
-					<div class="grid grid-cols-1 lg:grid-cols-2 gap-1.5">
-						<div v-for="n in itemsNeeded" :key="n.item_code + n.warehouse" class="flex items-center justify-between text-xs bg-white rounded px-2 py-1 border border-amber-100">
-							<span class="truncate">{{ n.item_name || n.item_code }} <span class="text-gray-400">· {{ n.warehouse }}</span></span>
-							<span class="font-semibold text-red-600 flex-shrink-0 ms-2">{{ __("short {0}", [fmtQty(n.shortage)]) }}</span>
-						</div>
-					</div>
-				</div>
-
 				<!-- Pending invoices -->
 				<div class="space-y-3 max-h-[55vh] overflow-y-auto">
 					<div v-for="inv in invoices" :key="inv.name" class="border border-gray-200 rounded-xl p-3">
@@ -42,26 +31,22 @@
 							</div>
 							<div class="flex items-center gap-2 flex-shrink-0">
 								<span class="text-sm font-bold text-blue-700">{{ formatCurrency(inv.grand_total, inv.currency) }}</span>
-								<span
-									class="text-[11px] font-semibold px-2 py-0.5 rounded-full"
-									:class="inv.ready ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'"
-								>
-									{{ inv.ready ? __("Ready") : __("Waiting stock") }}
-								</span>
 							</div>
+						</div>
+
+						<div class="mb-2 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5">
+							<p class="text-[11px] font-semibold text-red-700 uppercase">{{ __("Reason") }}</p>
+							<p class="text-xs text-red-800 whitespace-pre-line break-words">{{ inv.reason || __("No reason recorded") }}</p>
 						</div>
 
 						<div class="grid grid-cols-1 lg:grid-cols-2 gap-1 mb-2">
 							<div
 								v-for="(it, i) in inv.items"
 								:key="i"
-								class="flex items-center justify-between text-xs rounded px-2 py-1"
-								:class="it.short ? 'bg-red-50' : 'bg-gray-50'"
+								class="flex items-center justify-between text-xs rounded px-2 py-1 bg-gray-50"
 							>
 								<span class="truncate">{{ it.item_name || it.item_code }}</span>
-								<span class="flex-shrink-0 ms-2" :class="it.short ? 'text-red-600 font-semibold' : 'text-gray-500'">
-									{{ __("need {0} / have {1}", [fmtQty(it.required), fmtQty(it.available)]) }}
-								</span>
+								<span class="flex-shrink-0 ms-2 text-gray-500">× {{ fmtQty(it.qty) }}</span>
 							</div>
 						</div>
 
@@ -69,7 +54,7 @@
 							<button
 								type="button"
 								class="h-9 px-4 text-xs font-semibold rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
-								:disabled="!inv.ready || inv._busy"
+								:disabled="inv._busy"
 								@click="finalize(inv)"
 							>
 								{{ inv._busy ? __("Finalizing...") : __("Finalize (Submit)") }}
@@ -106,7 +91,6 @@ const emit = defineEmits(["update:modelValue", "finalized"])
 const { showSuccess, showError } = useToast()
 
 const invoices = ref([])
-const itemsNeeded = ref([])
 const loading = ref(false)
 
 const show = computed({
@@ -130,12 +114,10 @@ async function load() {
 		)
 		const data = res?.message || res || {}
 		invoices.value = (data.invoices || []).map((i) => ({ ...i, _busy: false }))
-		itemsNeeded.value = data.items_needed || []
 	} catch (e) {
 		console.error("Load pending stock failed", e)
 		showError(parseError(e).message || __("Failed to load pending stock"))
 		invoices.value = []
-		itemsNeeded.value = []
 	} finally {
 		loading.value = false
 	}
@@ -154,6 +136,8 @@ async function finalize(inv) {
 	} catch (e) {
 		console.error("Finalize failed", e)
 		showError(parseError(e).message || __("Finalize failed"))
+		inv._busy = false
+		await load()
 	} finally {
 		inv._busy = false
 	}

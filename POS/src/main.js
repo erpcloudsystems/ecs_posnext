@@ -26,6 +26,7 @@ import { logger } from "./utils/logger"
 import { offlineWorker } from "./utils/offline/workerClient"
 import translationPlugin from "./utils/translation"
 import { initSocket } from "./socket"
+import { startCrossTabLogoutWatcher } from "./utils/crossTabLogout"
 
 import {
 	Alert,
@@ -213,6 +214,9 @@ async function initializeApp() {
 	log.debug("Registering router, auth state:", session.isLoggedIn)
 	app.use(router)
 	app.mount("#app")
+
+	// Follow logouts done in other tabs (Desk or POS)
+	startCrossTabLogoutWatcher()
 
 	// -------------------------------------------------------------------------
 	// Scheduled CSRF Token Refresh (every 30 minutes)

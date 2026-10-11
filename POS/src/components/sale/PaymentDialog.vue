@@ -2590,20 +2590,51 @@ function clearAll() {
 const showDiscountOtp = ref(false)
 const discountAuthorized = ref(false)
 
-// Authorization is required only when the cart-level Additional Discount
-// percentage is a full 100% — e.g. a coupon that zeroes out the total via
-// discountAmount should NOT trigger this gate.
-const discountRequiresAuth = computed(() => {
-	if ((Number(localAdditionalDiscount.value) || 0) === 100) return true
-	if ((Number(props.additionalDiscount) || 0) === 100) return true
-	return false
-})
+// Items whose rate was manually lowered below the original price — a discount
+// that never shows up in discount_amount.
+const manualRateCutItems = computed(() =>
+	(props.items || []).filter(
+		(item) =>
+			item.is_rate_manually_edited === 1 &&
+			Number(item.rate) < Number(item.original_rate || item.price_list_rate || 0),
+	),
+)
+
+// Items given a discount by hand in the item edit dialog (offers and coupons
+// never set this flag).
+const manualDiscountItems = computed(() =>
+	(props.items || []).filter(
+		(item) =>
+			item.is_discount_manually_edited === 1 &&
+			((Number(item.discount_percentage) || 0) > 0 || (Number(item.discount_amount) || 0) > 0),
+	),
+)
+
+// Authorization is required for discounts the cashier gives by hand: the
+// checkout Additional Discount % and manual item discounts / rate reductions.
+// Automatic offers and coupons go through without authorization.
+const discountRequiresAuth = computed(
+	() =>
+		(Number(localAdditionalDiscount.value) || 0) > 0 ||
+		manualDiscountItems.value.length > 0 ||
+		manualRateCutItems.value.length > 0,
+)
 
 // A short description for the supervisors' Telegram message.
 const discountDescription = computed(() => {
-	if ((Number(localAdditionalDiscount.value) || 0) === 100) return "100%"
-	if ((Number(props.additionalDiscount) || 0) === 100) return "100%"
-	return ""
+	const parts = []
+	const pct = Number(localAdditionalDiscount.value) || 0
+	if (pct > 0) parts.push(`Checkout: ${pct}%`)
+	for (const i of manualDiscountItems.value) {
+		const value = Number(i.discount_percentage) > 0
+			? `${i.discount_percentage}%`
+			: formatCurrency(i.discount_amount)
+		parts.push(`${i.item_name || i.item_code}: ${value}`)
+	}
+	for (const i of manualRateCutItems.value) {
+		parts.push(`${i.item_name || i.item_code}: ${i.original_rate || i.price_list_rate} -> ${i.rate}`)
+	}
+	return parts.join(" | ")
 })
 
 // Any change to the discount invalidates a prior authorization.
@@ -2858,8 +2889,17 @@ watch(
 	() => props.modelValue,
 	(isOpen) => {
 		if (isOpen) {
-			// Only sync when dialog opens, not continuously
-			localAdditionalDiscount.value = props.additionalDiscount || 0
+			// Only sync when dialog opens, not continuously.
+			// props.additionalDiscount is an AMOUNT shared with grand-total coupons:
+			// convert it back to the checkout % and ignore it when a coupon put it
+			// there (loyalty / item-scoped coupons don't touch it).
+			const coupon = cartStore.appliedCoupon
+			const couponOwnsAmount = coupon && !["loyalty", "items"].includes(coupon.scope)
+			const amount = Number(props.additionalDiscount) || 0
+			localAdditionalDiscount.value =
+				!couponOwnsAmount && amount > 0 && discountBase.value > 0
+					? Math.round((amount / discountBase.value) * 100)
+					: 0
 		}
 	},
 )

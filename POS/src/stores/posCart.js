@@ -1642,6 +1642,8 @@ export const usePOSCartStore = defineStore("posCart", () => {
 				cartItem.is_rate_manually_edited = updates.is_rate_manually_edited
 			if (updates.original_rate !== undefined)
 				cartItem.original_rate = updates.original_rate
+			if (updates.is_discount_manually_edited !== undefined)
+				cartItem.is_discount_manually_edited = updates.is_discount_manually_edited
 
 			recalculateItem(cartItem)
 			rebuildIncrementalCache()

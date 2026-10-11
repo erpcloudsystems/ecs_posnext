@@ -38,10 +38,32 @@ def validate(doc, method=None):
 		doc: Sales Invoice document
 		method: Hook method name (unused)
 	"""
+	validate_pos_opening_shift_open(doc)
 	validate_vim_entertainment_sale(doc)
 	apply_tax_inclusive(doc)
 	auto_assign_loyalty_program_on_invoice(doc)
 	apply_bundle_selections(doc)
+
+
+def validate_pos_opening_shift_open(doc):
+	"""
+	Block saving/submitting an invoice against a POS Opening Shift that is no
+	longer open. The POS frontend can hold a stale shift (e.g. cached shift data
+	in a browser that never saw the shift being closed elsewhere), and invoices
+	tagged with a closed shift end up in no closing shift at all.
+	"""
+	shift = doc.get("posa_pos_opening_shift")
+	if not shift or doc.docstatus == 2:
+		return
+
+	status = frappe.db.get_value("POS Opening Shift", shift, ["status", "docstatus"], as_dict=True)
+	if status and (status.docstatus != 1 or status.status != "Open"):
+		frappe.throw(
+			_("POS Opening Shift {0} is closed. Please reload the POS and use your current open shift.").format(
+				frappe.bold(shift)
+			),
+			title=_("Shift Closed"),
+		)
 
 
 def validate_vim_entertainment_sale(doc, method=None):

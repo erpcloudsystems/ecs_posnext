@@ -324,6 +324,7 @@
 				</p>
 				<label class="block text-[11px] font-medium text-gray-600 mb-1">
 					{{ __("Wristband Serial No") }}
+					<span class="text-gray-400 font-normal">({{ __("optional") }})</span>
 				</label>
 				<input
 					v-model="wristbandSerial"
@@ -344,7 +345,6 @@
 					class="flex-1"
 					variant="solid"
 					theme="blue"
-					:disabled="!wristbandSerial.trim()"
 					@click="proceedGiveWristband"
 				>
 					{{ __("Give Wristband") }}
@@ -728,7 +728,6 @@ function confirmGiveWristband(t) {
 
 async function proceedGiveWristband() {
 	const serial = wristbandSerial.value.trim()
-	if (!serial) return
 	showWristbandConfirm.value = false
 	if (ticketForWristband.value) {
 		await giveFreeWristband(ticketForWristband.value, serial)
@@ -745,7 +744,7 @@ async function giveFreeWristband(t, serial) {
 			ticket_name: t.name,
 			pos_profile: props.posProfile,
 			pos_opening_shift: props.posOpeningShift,
-			serial_no: serial,
+			serial_no: serial || null,
 		})
 		showSuccess(__("Free wristband given for {0}", [t.name]))
 		await refresh()

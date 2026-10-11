@@ -32,6 +32,7 @@ _asset_version = get_build_version()
 # include js, css files in header of desk.html
 # app_include_css = f"/assets/ecs_posnext/css/ecs_posnext.css?v={_asset_version}"
 # app_include_js = f"/assets/ecs_posnext/js/ecs_posnext.js?v={_asset_version}"
+app_include_js = [f"/assets/ecs_posnext/js/cross_tab_logout.js?v={_asset_version}"]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/ecs_posnext/css/ecs_posnext.css"

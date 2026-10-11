@@ -2142,8 +2142,9 @@ async function handlePaymentCompleted(paymentData) {
 					return;
 				}
 
-				// Insufficient stock: the sale was HELD as a draft (backorder). Payment
-				// was recorded on the draft; finalize later from the Pending Stock page.
+				// Submit failed: the sale was HELD as a draft (backorder) with the error as
+				// its reason. Payment was recorded on the draft; finalize later from the
+				// Pending Stock page.
 				const pending = result.pending_stock
 					? result
 					: result.message?.pending_stock
@@ -2158,7 +2159,9 @@ async function handlePaymentCompleted(paymentData) {
 					}
 					await commitAttendance(attendanceEntries);
 					showWarning(
-						__("Saved as draft — insufficient stock. Finalize it from Pending Stock once restocked.")
+						__("Saved as draft (Pending Stock): {0}", [
+							pending.reason || __("submit failed"),
+						])
 					);
 					return;
 				}

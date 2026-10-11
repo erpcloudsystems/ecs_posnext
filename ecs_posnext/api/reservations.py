@@ -287,16 +287,31 @@ def create_deposit_invoice(
     # the grand total no longer matches what was collected, and the invoice
     # comes out "Partly Paid".
     taxes_and_charges = so.get("taxes_and_charges")
+    tax_rows = so.get("taxes", [])
+    if not tax_rows:
+        # Reservation Sales Orders are usually saved without taxes — fall back to
+        # the POS Profile's template, then the company's default one, so the
+        # deposit still carries VAT.
+        taxes_and_charges = (
+            (pos_profile_doc and pos_profile_doc.get("taxes_and_charges"))
+            or frappe.db.get_value(
+                "Sales Taxes and Charges Template",
+                {"company": so.company, "is_default": 1, "disabled": 0},
+                "name",
+            )
+        )
+        if taxes_and_charges:
+            tax_rows = frappe.get_doc("Sales Taxes and Charges Template", taxes_and_charges).taxes
     taxes = [
         {
             "charge_type": t.charge_type,
             "account_head": t.account_head,
             "rate": t.rate,
             "description": t.description,
-            "included_in_print_rate": 1,
+            "included_in_print_rate": 0 if t.charge_type == "Actual" else 1,
             "cost_center": t.cost_center,
         }
-        for t in so.get("taxes", [])
+        for t in tax_rows
     ]
 
     invoice_data = {
