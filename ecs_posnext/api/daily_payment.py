@@ -342,10 +342,13 @@ def create_daily_payment(date, branch, employee=None, amount=None, mode_of_payme
 				})
 
 	# Daily Payments are always paid in cash — ignore anything else sent in
-	cash_mode = _resolve_cash_mode(pos_opening_shift, [mode_of_payment] if mode_of_payment else None)
-	if not cash_mode:
-		cash_mode = _resolve_cash_mode(pos_opening_shift)
-	doc.mode_of_payment = cash_mode or mode_of_payment
+	# Exception: Deductions do not require a mode of payment
+	is_deduction = frappe.parse_json(deduction) if isinstance(deduction, str) else deduction
+	if not is_deduction:
+		cash_mode = _resolve_cash_mode(pos_opening_shift, [mode_of_payment] if mode_of_payment else None)
+		if not cash_mode:
+			cash_mode = _resolve_cash_mode(pos_opening_shift)
+		doc.mode_of_payment = cash_mode or mode_of_payment
 
 	doc.insert(ignore_permissions=True)
 	doc.submit()

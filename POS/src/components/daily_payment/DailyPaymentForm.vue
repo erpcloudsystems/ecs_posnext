@@ -38,10 +38,11 @@
 								<!-- Payment to Employees -->
 								<label class="flex items-center gap-3 cursor-pointer select-none group">
 									<div
-										@click="form.payment_to_employees = !form.payment_to_employees"
+										@click="!form.deduction && (form.payment_to_employees = !form.payment_to_employees)"
 										:class="[
 											'w-11 h-6 rounded-full transition-colors relative flex-shrink-0',
-											form.payment_to_employees ? 'bg-green-600' : 'bg-gray-300'
+											form.payment_to_employees ? 'bg-green-600' : 'bg-gray-300',
+											form.deduction ? 'opacity-50 cursor-not-allowed' : ''
 										]"
 									>
 										<div :class="[
@@ -49,16 +50,17 @@
 											form.payment_to_employees ? 'translate-x-5' : 'translate-x-0'
 										]"></div>
 									</div>
-									<span class="text-sm font-medium text-gray-800">{{ __('Payment to Employees') }}</span>
+									<span :class="['text-sm font-medium', form.deduction ? 'text-gray-400' : 'text-gray-800']">{{ __('Payment to Employees') }}</span>
 								</label>
 
 								<!-- Expenses -->
 								<label class="flex items-center gap-3 cursor-pointer select-none group">
 									<div
-										@click="form.expenses = !form.expenses"
+										@click="!form.deduction && (form.expenses = !form.expenses)"
 										:class="[
 											'w-11 h-6 rounded-full transition-colors relative flex-shrink-0',
-											form.expenses ? 'bg-amber-500' : 'bg-gray-300'
+											form.expenses ? 'bg-amber-500' : 'bg-gray-300',
+											form.deduction ? 'opacity-50 cursor-not-allowed' : ''
 										]"
 									>
 										<div :class="[
@@ -66,16 +68,17 @@
 											form.expenses ? 'translate-x-5' : 'translate-x-0'
 										]"></div>
 									</div>
-									<span class="text-sm font-medium text-gray-800">{{ __('Expenses') }}</span>
+									<span :class="['text-sm font-medium', form.deduction ? 'text-gray-400' : 'text-gray-800']">{{ __('Expenses') }}</span>
 								</label>
 
 								<!-- Deduction -->
 								<label class="flex items-center gap-3 cursor-pointer select-none group">
 									<div
-										@click="form.deduction = !form.deduction"
+										@click="!(form.payment_to_employees || form.expenses) && (form.deduction = !form.deduction)"
 										:class="[
 											'w-11 h-6 rounded-full transition-colors relative flex-shrink-0',
-											form.deduction ? 'bg-red-500' : 'bg-gray-300'
+											form.deduction ? 'bg-red-500' : 'bg-gray-300',
+											(form.payment_to_employees || form.expenses) ? 'opacity-50 cursor-not-allowed' : ''
 										]"
 									>
 										<div :class="[
@@ -83,7 +86,7 @@
 											form.deduction ? 'translate-x-5' : 'translate-x-0'
 										]"></div>
 									</div>
-									<span class="text-sm font-medium text-gray-800">{{ __('Deduction') }}</span>
+									<span :class="['text-sm font-medium', (form.payment_to_employees || form.expenses) ? 'text-gray-400' : 'text-gray-800']">{{ __('Deduction') }}</span>
 								</label>
 							</div>
 						</div>
@@ -119,8 +122,8 @@
 								/>
 							</div>
 
-							<!-- Mode of Payment (always Cash, not editable) -->
-							<div class="sm:col-span-2">
+							<!-- Mode of Payment (always Cash, not editable, hidden for Deduction) -->
+							<div v-if="!form.deduction" class="sm:col-span-2">
 								<label class="block text-sm font-semibold text-gray-700 mb-1.5">{{ __('Mode of Payment') }}</label>
 								<input
 									:value="form.mode_of_payment || __('Cash')"
@@ -455,6 +458,35 @@ watch(
 	},
 )
 
+// Mutually exclusive checkbox behavior
+watch(
+	() => form.deduction,
+	(newVal) => {
+		if (newVal) {
+			form.payment_to_employees = false
+			form.expenses = false
+		}
+	},
+)
+
+watch(
+	() => form.payment_to_employees,
+	(newVal) => {
+		if (newVal) {
+			form.deduction = false
+		}
+	},
+)
+
+watch(
+	() => form.expenses,
+	(newVal) => {
+		if (newVal) {
+			form.deduction = false
+		}
+	},
+)
+
 // Daily Payments always go out of the cash drawer — the Cash-type Mode of
 // Payment of this POS Profile. It is resolved here (never picked by the user)
 // so the field can stay read-only.
@@ -601,7 +633,7 @@ async function handleSave() {
 		const payload = {
 			date: form.date,
 			branch: form.branch,
-			mode_of_payment: form.mode_of_payment || null,
+			mode_of_payment: form.deduction ? null : (form.mode_of_payment || null),
 			payment_to_employees: form.payment_to_employees ? 1 : 0,
 			expenses: form.expenses ? 1 : 0,
 			deduction: form.deduction ? 1 : 0,
@@ -618,10 +650,15 @@ async function handleSave() {
 			// open_shift op id with it so the sync handler can swap in the real
 			// name; without it the Daily Payment fails link validation on sync and
 			// the deduction's Extra Salary is never created.
-			await enqueueOperation("daily_payment", {
+			const offlinePayload = {
 				...payload,
 				opening_op_id: shiftState.value.pos_opening_shift?._op_id || null,
-			})
+			}
+			// Ensure mode_of_payment is null for deductions in offline mode
+			if (form.deduction) {
+				offlinePayload.mode_of_payment = null
+			}
+			await enqueueOperation("daily_payment", offlinePayload)
 			showSuccess(__("Daily Payment queued — will sync when back online"))
 			emit("saved")
 			handleClose()
