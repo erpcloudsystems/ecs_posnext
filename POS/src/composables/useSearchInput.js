@@ -80,8 +80,10 @@ export function useSearchInput({ itemStore, onItemFound, showWarning, isAnyDialo
 				itemStore.clearSearch()
 				if (searchInputRef.value) searchInputRef.value.value = ""
 
-				// Queue the search with the captured barcode
-				processBarcodeScan(barcode, autoAddEnabled.value)
+				// Queue the search with the captured barcode. Enter always adds the
+				// item straight to the cart, same as scanner mode, even when the
+				// scanner toggle is off.
+				processBarcodeScan(barcode, true)
 			}
 			return
 		}
@@ -110,8 +112,11 @@ export function useSearchInput({ itemStore, onItemFound, showWarning, isAnyDialo
 
 		clearAutoSearchTimer()
 
-		// Auto-add: after user stops typing for 500 ms, trigger barcode search
-		if (autoAddEnabled.value && value.trim().length > 0) {
+		// Auto-add: after user stops typing for 500 ms, trigger barcode search.
+		// Barcode-looking input (digits only, EAN-8 length or longer) auto-adds
+		// too, even when the scanner/auto-add toggles are off.
+		const looksLikeBarcode = /^\d{8,}$/.test(value.trim())
+		if ((autoAddEnabled.value || looksLikeBarcode) && value.trim().length > 0) {
 			autoSearchTimer = setTimeout(() => {
 				const barcode = searchInputRef.value?.value?.trim() || itemStore.searchTerm?.trim()
 				if (barcode) {
