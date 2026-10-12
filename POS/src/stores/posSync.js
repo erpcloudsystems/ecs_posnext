@@ -16,7 +16,6 @@
 
 import { useToast } from "@/composables/useToast"
 import {
-	cacheCustomersFromServer,
 	cachePaymentMethodsFromServer,
 	syncOfflineInvoices,
 	cacheInvoiceHistory,
@@ -149,26 +148,6 @@ export const usePOSSyncStore = defineStore("posSync", () => {
 		await updatePendingCount()
 	}
 
-	/**
-	 * Cache items and customers for offline use
-	 * @param {Array} items - Items to cache
-	 * @param {Array} customers - Customers to cache
-	 */
-	async function cacheData(items, customers) {
-		try {
-			if (items?.length > 0) {
-				await offlineWorker.cacheItems(items)
-			}
-			if (customers?.length > 0) {
-				await offlineWorker.cacheCustomers(customers)
-			}
-			return true
-		} catch (error) {
-			log.error('Failed to cache data', error)
-			return false
-		}
-	}
-
 	// =========================================================================
 	// PUBLIC ACTIONS
 	// =========================================================================
@@ -283,15 +262,9 @@ export const usePOSSyncStore = defineStore("posSync", () => {
 				// Continue with other data loading
 			}
 
-			// Load customers if cache needs refresh
-			if (!cacheReady || needsRefresh) {
-				showSuccess(__("Loading customers for offline use..."))
-
-				const customersData = await cacheCustomersFromServer(currentProfile.name)
-				await cacheData([], customersData.customers || [])
-
-				showSuccess(__("Data is ready for offline use"))
-			}
+			// Customers are no longer cached: they are searched on the server, so
+			// downloading the whole list up front was pure startup cost and a second
+			// copy that went stale as soon as anyone edited a customer.
 
 			// Preload invoice history and unpaid invoices in parallel for faster startup
 			log.info('Loading invoice data for offline use')

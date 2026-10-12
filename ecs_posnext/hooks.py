@@ -95,9 +95,13 @@ fixtures = [
 				"in",
 				[
 					"Sales Invoice-posa_pos_opening_shift",
+					"Sales Order-posa_pos_opening_shift",
+					"Sales Order-posa_payments",
 					"Sales Invoice-posa_is_printed",
 					"Sales Invoice-posa_customer_type",
+					"Sales Order-posa_customer_type",
 					"Sales Invoice-room",
+					"Sales Order-room",
 					"Sales Invoice-table",
 					"Stock Entry-pos_sale_type",
 					"Item-custom_company",
@@ -213,6 +217,9 @@ doc_events = {
 		],
 		"on_update": "ecs_posnext.realtime_events.emit_customer_event",
 		"on_trash": "ecs_posnext.realtime_events.emit_customer_event"
+	},
+	"Sales Order": {
+		"validate": "ecs_posnext.api.sales_order_hooks.validate"
 	},
 	"Sales Invoice": {
 		"validate": [

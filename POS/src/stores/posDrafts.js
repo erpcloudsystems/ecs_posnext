@@ -55,6 +55,13 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 				// two distinct fields - they identify different things.
 				room: context.room || "",
 				table: context.table || "",
+				// Held orders keep their POS Table Session open - the table stays
+				// occupied until the bill is settled - so the session travels with
+				// the draft and is re-attached when it is resumed.
+				guest_count: context.guestCount || 0,
+				table_session: context.tableSession || "",
+				table_opened_at: context.tableOpenedAt || "",
+				table_cashier: context.tableCashier || "",
 				customer_type: context.customerType || "",
 				sale_type: context.saleType || "customer",
 				employee: context.employee || null,
@@ -89,6 +96,10 @@ export const usePOSDraftsStore = defineStore("posDrafts", () => {
 				applied_offers: draft.applied_offers || [], // Restore applied offers
 				room: draft.room || "",
 				table: draft.table || "",
+				guestCount: draft.guest_count || 0,
+				tableSession: draft.table_session || "",
+				tableOpenedAt: draft.table_opened_at || "",
+				tableCashier: draft.table_cashier || "",
 				customerType: draft.customer_type || "",
 				saleType: draft.sale_type || "customer",
 				employee: draft.employee || null,

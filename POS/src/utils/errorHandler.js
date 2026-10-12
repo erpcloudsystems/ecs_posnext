@@ -125,17 +125,25 @@ export function parseError(error) {
 		context.type = "warning"
 		context.title = __("Insufficient Stock")
 
-		// Parse the message to extract item and quantity information
+		// Parse the message to extract item and shortfall information.
 		// Example: "1.0 units of Item IPhone 17-WHI needed in Warehouse Goods In Transit - BrD"
+		//
+		// The number ERPNext reports here is the SHORTFALL (`abs(deficiency)` in
+		// erpnext/stock/stock_ledger.py), not the quantity being sold. Wording it
+		// as "you need N" was misleading: ordering 6 with 5 in stock produced
+		// "You need 1 unit", which reads as though only 1 were required.
 		const match = context.message.match(
 			/(\d+\.?\d*)\s+units?\s+of\s+(?:Item\s+)?(.+?)\s+needed\s+in\s+(?:Warehouse\s+)?(.+?)(?:\s+to complete|$)/i,
 		)
 
 		if (match) {
-			const [, quantity, itemName, warehouse] = match
-			const qty = Number.parseFloat(quantity)
-			const unit = qty === 1 ? "unit" : "units"
-			context.message = `Not enough stock for "${itemName}".\n\nYou need ${qty} ${unit} but the warehouse "${warehouse}" doesn't have enough available.\n\nPlease reduce the quantity or check another warehouse.`
+			const [, shortfall, itemName, warehouse] = match
+			const short = Number.parseFloat(shortfall)
+			const unit = short === 1 ? "unit" : "units"
+			context.message = __(
+				'Not enough stock for "{0}".\n\nThe warehouse "{1}" is short by {2} {3}.\n\nReduce the quantity, or check another warehouse.',
+				[itemName, warehouse, short, unit],
+			)
 		} else if (
 			!context.message ||
 			context.message === "An unexpected error occurred"

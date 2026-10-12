@@ -179,6 +179,10 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	const pinnedItemGroups = ref([])
 	// Card-grid browsing (Step 2) — reachable from the tab bar, pages in more groups
 	const browsingGroups = ref(false)
+	// Root level opens on the item group card grid. This flips to true only when
+	// the cashier explicitly asks for the flat item list ("Back to items"), and
+	// resets whenever they come back to the groups.
+	const showRootItems = ref(false)
 	const groupCardsHasMore = ref(false)
 	const loadingMoreGroupCards = ref(false)
 
@@ -186,11 +190,17 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	const navigationStep = computed(() => {
 		if (!selectedPriceList.value) return 'price_list'
 		if (loadingGroups.value) return 'loading'
+		// A search term or a chosen group is a direct request for items - never
+		// leave those hidden behind the group grid.
+		if (searchTerm.value.trim() || selectedItemGroup.value) return 'items'
 		// Explicit "browse groups" mode keeps the card grid open at root level
 		if (browsingGroups.value) return 'groups'
-		// Show group cards only when actively navigating (breadcrumb exists + has children to show)
+		// Show group cards when actively navigating (breadcrumb exists + has children to show)
 		if (groupBreadcrumb.value.length > 0 && currentGroupChildren.value.length > 0) return 'groups'
-		// Always show items at root level and when no sub-group navigation is in progress
+		// Root level opens on the group card grid. Falls through to items when the
+		// cashier asked for the flat list, or when the profile exposes no groups at
+		// all - otherwise they'd face an empty grid with nothing to tap.
+		if (!showRootItems.value && currentGroupChildren.value.length > 0) return 'groups'
 		return 'items'
 	})
 
@@ -2066,6 +2076,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		pinnedItemGroups.value = []
 		browsingGroups.value = false
 		groupCardsHasMore.value = false
+		showRootItems.value = false
 	}
 
 	/**
@@ -2239,9 +2250,27 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		}
 	}
 
+	/**
+	 * "All" tab — the flat item list at root level, stepping past the group grid.
+	 *
+	 * Root children are reloaded if they were dropped (drilling into a leaf group
+	 * clears them), so the cashier can always get back to the grid afterwards.
+	 */
+	async function showAllItems() {
+		showRootItems.value = true
+		browsingGroups.value = false
+		groupBreadcrumb.value = []
+		groupCardsHasMore.value = false
+		await setSelectedItemGroup(null)
+		if (currentGroupChildren.value.length === 0) {
+			loadGroupChildren(null)
+		}
+	}
+
 	/** Open the card grid at root level with a first page of groups. */
 	async function browseAllGroups() {
 		browsingGroups.value = true
+		showRootItems.value = false
 		groupBreadcrumb.value = []
 		loadingGroups.value = true
 		try {
@@ -2256,9 +2285,9 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 	function exitGroupBrowsing() {
 		browsingGroups.value = false
 		groupCardsHasMore.value = false
-		if (groupBreadcrumb.value.length === 0) {
-			currentGroupChildren.value = []
-		}
+		// Root now defaults to the card grid, so leaving the grid has to be recorded
+		// explicitly - otherwise navigationStep would put us straight back on it.
+		showRootItems.value = true
 	}
 
 	/**
@@ -2344,6 +2373,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		replaceAllItems([])
 
 		if (newBreadcrumb.length === 0) {
+			showRootItems.value = false
 			if (browsingGroups.value) {
 				await browseAllGroups()
 			} else {
@@ -2359,6 +2389,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		if (index < 0) {
 			groupBreadcrumb.value = []
 			selectedItemGroup.value = null
+			showRootItems.value = false
 			replaceAllItems([])
 			if (browsingGroups.value) {
 				await browseAllGroups()
@@ -2589,6 +2620,8 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		unpinItemGroup,
 		browseAllGroups,
 		exitGroupBrowsing,
+		showRootItems,
+		showAllItems,
 		loadMoreGroupCards,
 		resetGroupPickerState,
 

@@ -51,6 +51,16 @@
                 <div class="text-green-600 text-xs">{{ __('After returns') }}</div>
               </div>
 
+              <!-- Charged to rooms / not collected at the till -->
+              <div v-if="chargedTotal > 0"
+                class="text-start bg-indigo-50 border border-indigo-200 rounded-lg p-3 md:p-4">
+                <div class="text-indigo-600 text-xs uppercase font-medium mb-1">{{ __('Charged to Rooms') }}</div>
+                <div class="text-lg md:text-2xl font-bold text-indigo-900 mb-0.5 md:mb-1 truncate">{{
+                  formatCurrency(chargedTotal) }}</div>
+                <div class="text-indigo-600 text-xs">{{ __('{0} not collected at the till',
+                  [closingData.charged_count]) }}</div>
+              </div>
+
               <!-- Tax Collected -->
               <div class="text-start bg-gray-50 border border-gray-200 rounded-lg p-3 md:p-4">
                 <div class="text-gray-600 text-xs uppercase font-medium mb-1">{{ __('Tax Collected') }}</div>
@@ -110,7 +120,7 @@
                   <div class="flex justify-between items-start mb-2">
                     <div class="flex items-center gap-2">
                       <span :class="['text-xs font-medium', invoice.is_return ? 'text-red-700' : 'text-gray-900']">
-                        {{ invoice.pos_invoice || invoice.sales_invoice || __('N/A') }}
+                        {{ invoice.pos_invoice || invoice.sales_invoice || invoice.sales_order || __('N/A') }}
                       </span>
                       <span v-if="invoice.is_return"
                         class="px-1.5 py-0.5 text-xs font-medium bg-red-200 text-red-800 rounded">
@@ -156,13 +166,17 @@
                       :class="invoice.is_return ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'">
                       <td class="text-start px-6 py-4 whitespace-nowrap">
                         <span :class="['text-sm font-medium', invoice.is_return ? 'text-red-700' : 'text-gray-900']">
-                          {{ invoice.pos_invoice || invoice.sales_invoice || __('N/A') }}
+                          {{ invoice.pos_invoice || invoice.sales_invoice || invoice.sales_order || __('N/A') }}
                         </span>
                       </td>
                       <td class="text-start px-6 py-4 whitespace-nowrap">
                         <span v-if="invoice.is_return"
                           class="px-2 py-1 text-xs font-medium bg-red-200 text-red-800 rounded">
                           {{ __('Return') }}
+                        </span>
+                        <span v-else-if="invoice.collected_at_till === 0"
+                          class="px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-800 rounded">
+                          {{ invoice.room ? __('Room {0}', [invoice.room]) : __('Not collected') }}
                         </span>
                         <span v-else class="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">
                           {{ __('Sale') }}
@@ -722,6 +736,12 @@ const grossSales = computed(() => {
   if (!closingData.value) return 0
   return closingData.value.sales_total ?? closingData.value.grand_total ?? 0
 })
+
+// Sales that went onto a guest folio or an employee account instead of the
+// drawer. Without this the expected cash looks short by exactly this much.
+const chargedTotal = computed(() =>
+  Number.parseFloat(closingData.value?.charged_total || 0),
+)
 const getTotalExpected = computed(() => {
   if (!closingData.value || !closingData.value.payment_reconciliation) return 0
   return closingData.value.payment_reconciliation.reduce(

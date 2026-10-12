@@ -68,6 +68,11 @@
   "section_break_misc",
   "input_qty",
   "allow_negative_stock",
+  "section_break_table_service",
+  "require_table_and_guests",
+  "table_idle_warning_minutes",
+  "column_break_table_service",
+  "table_idle_late_minutes",
   "barcode_tab",
   "barcode_rules",
   "section_break_cash_transfer",
@@ -505,6 +510,40 @@
    "fieldname": "allow_negative_stock",
    "fieldtype": "Check",
    "label": "Allow Negative Stock"
+  },
+  {
+   "fieldname": "section_break_table_service",
+   "fieldtype": "Section Break",
+   "label": "Table Service"
+  },
+  {
+   "default": "0",
+   "description": "Require the cashier to pick a Table and enter the number of guests before any item can be added to the cart. Creates a POS Table Session for each order. Leave off for retail / take-away profiles.",
+   "fieldname": "require_table_and_guests",
+   "fieldtype": "Check",
+   "label": "Require Table & Guest Count"
+  },
+  {
+   "default": "15",
+   "depends_on": "require_table_and_guests",
+   "description": "Minutes a table can sit without ordering before it turns amber on the tables dashboard. Counted from the last order, or from seating while nothing has been ordered. 0 disables the warning.",
+   "fieldname": "table_idle_warning_minutes",
+   "fieldtype": "Int",
+   "label": "Idle Warning (minutes)",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "column_break_table_service",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "30",
+   "depends_on": "require_table_and_guests",
+   "description": "Minutes without ordering before a table turns red. Must be greater than the warning threshold. 0 disables it.",
+   "fieldname": "table_idle_late_minutes",
+   "fieldtype": "Int",
+   "label": "Idle Late (minutes)",
+   "non_negative": 1
   },
   {
    "fieldname": "barcode_tab",

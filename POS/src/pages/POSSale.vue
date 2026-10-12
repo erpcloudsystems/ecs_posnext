@@ -26,10 +26,14 @@
 				:is-refreshing="stockStore.refreshing"
 				:silent-print-enabled="posSettingsStore.silentPrint"
 				:qz-connected="qzConnected"
+				:show-table-info="tableServiceEnabled"
+				:table-number="cartStore.table || null"
+				:guest-count="cartStore.guestCount"
 				@sync-click="handleSyncClick"
 				@printer-click="uiStore.showHistoryDialog = true"
 				@refresh-click="handleRefresh"
 				@clear-cache="handleClearCache"
+				@table-click="openTableGuestsDialog"
 				@logout="uiStore.showLogoutDialog = true"
 			>
 				<template #menu-items>
@@ -54,7 +58,7 @@
 						<span>{{ __("View Shift") }}</span>
 					</button>
 					<button
-						@click="uiStore.showDraftDialog = true"
+						@click="handleShowDrafts"
 						class="w-full text-start px-4 py-2.5 text-sm text-gray-700 hover:bg-purple-50 flex items-center gap-3 transition-colors relative"
 					>
 						<svg
@@ -70,9 +74,13 @@
 								d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
 							/>
 						</svg>
-						<span>{{ __("Draft Invoices") }}</span>
+						<span>{{
+							tableServiceEnabled ? __("Table Orders") : __("Draft Invoices")
+						}}</span>
+						<!-- Local drafts only exist for offline holds, so the count is
+						     meaningless on a table-service profile -->
 						<span
-							v-if="draftsStore.draftsCount > 0"
+							v-if="!tableServiceEnabled && draftsStore.draftsCount > 0"
 							class="ms-auto text-xs bg-purple-600 text-white px-1.5 py-0.5 rounded-full"
 						>
 							{{ draftsStore.draftsCount }}
@@ -175,7 +183,10 @@
 				style="max-height: calc(100vh - 60px - var(--header-height, 60px))"
 			>
 				<!-- Icon-Only Management Slider - Always Visible -->
-				<ManagementSlider @menu-clicked="handleManagementMenuClick" />
+				<ManagementSlider
+					:show-tables="tableServiceEnabled"
+					@menu-clicked="handleManagementMenuClick"
+				/>
 
 				<!-- Main Content Container -->
 				<div
@@ -270,7 +281,16 @@
 								:pos-profile="shiftStore.profileName"
 								:cart-items="cartStore.invoiceItems"
 								:currency="shiftStore.profileCurrency"
+								:require-table="tableServiceEnabled"
+								:table-session="cartStore.tableSession"
+								:table-number="cartStore.table"
+								:guest-count="cartStore.guestCount"
+								:pos-opening-shift="cartStore.posOpeningShift"
+								:drafts-count="draftsStore.draftsCount"
 								@item-selected="handleItemSelected"
+								@table-confirmed="handleTableGuestsConfirmed"
+								@show-tables="showTableDashboard = true"
+								@show-drafts="uiStore.showDraftDialog = true"
 							/>
 						</div>
 					</keep-alive>
@@ -314,6 +334,7 @@
 							style="min-width: 300px; contain: layout style paint"
 						>
 							<InvoiceCart
+								:table-service-mode="tableServiceEnabled"
 								:items="cartStore.invoiceItems"
 								:customer="cartStore.customer"
 								:subtotal="cartStore.subtotal"
@@ -325,10 +346,8 @@
 								:currency="shiftStore.profileCurrency"
 								:applied-offers="cartStore.appliedOffers"
 								:warehouses="profileWarehouses"
-								@update-quantity="cartStore.updateItemQuantity"
-								@remove-item="
-									(itemCode, uom) => cartStore.removeItem(itemCode, uom)
-								"
+								@update-quantity="handleUpdateQuantity"
+								@remove-item="handleRemoveItem"
 								@select-customer="handleCustomerSelected"
 								@create-customer="handleCreateCustomer"
 								@edit-customer="handleEditCustomer"
@@ -348,7 +367,7 @@
 								@update-uom="cartStore.changeItemUOM"
 								@edit-item="handleEditItem"
 								@view-shift="uiStore.showOpenShiftDialog = true"
-								@show-drafts="uiStore.showDraftDialog = true"
+								@show-drafts="handleShowDrafts"
 								@show-history="uiStore.showHistoryDialog = true"
 								@show-return="uiStore.showReturnDialog = true"
 								@close-shift="handleCloseShift()"
@@ -474,6 +493,19 @@
 				v-model="uiStore.showCustomerDialog"
 				:pos-profile="shiftStore.profileName"
 				@customer-selected="handleCustomerSelected"
+			/>
+
+			<!-- Open Tables dashboard -->
+			<TableDashboard
+				v-model="showTableDashboard"
+				:pos-profile="shiftStore.profileName"
+				:currency="shiftStore.profileCurrency"
+				:picker-mode="needsTableSession"
+				@open-table="handleOpenTableFromDashboard"
+				@open-check="handleOpenCheckFromDashboard"
+				@seat-table="handleSeatTableFromDashboard"
+				@free-table="handleFreeTableFromDashboard"
+				@moved="handleTableMoved"
 			/>
 
 			<!-- Hold: Table Selection Dialog -->
@@ -633,6 +665,9 @@
 				:currency="shiftStore.profileCurrency"
 				@option-selected="handleOptionSelected"
 			/>
+
+			<!-- Supervisor approval for edits to an open check -->
+			<CheckEditPasswordDialog />
 
 			<!-- Invoice History Dialog -->
 			<InvoiceHistoryDialog
@@ -949,7 +984,10 @@
 							theme="blue"
 							@click="
 								() => {
-									handlePrintInvoice({ name: uiStore.lastInvoiceName });
+									handlePrintInvoice({
+										name: uiStore.lastInvoiceName,
+										doctype: 'Sales Order',
+									});
 									uiStore.showSuccessDialog = false;
 								}
 							"
@@ -1044,6 +1082,7 @@ import CreateCustomerDialog from "@/components/sale/CreateCustomerDialog.vue";
 import CustomerDialog from "@/components/sale/CustomerDialog.vue";
 import DraftInvoicesDialog from "@/components/sale/DraftInvoicesDialog.vue";
 import InvoiceCart from "@/components/sale/InvoiceCart.vue";
+import CheckEditPasswordDialog from "@/components/sale/CheckEditPasswordDialog.vue";
 import InvoiceHistoryDialog from "@/components/sale/InvoiceHistoryDialog.vue";
 import ItemSelectionDialog from "@/components/sale/ItemSelectionDialog.vue";
 import ItemsSelector from "@/components/sale/ItemsSelector.vue";
@@ -1052,6 +1091,7 @@ import OfflineInvoicesDialog from "@/components/sale/OfflineInvoicesDialog.vue";
 import PaymentDialog from "@/components/sale/PaymentDialog.vue";
 import PromotionManagement from "@/components/sale/PromotionManagement.vue";
 import ReturnInvoiceDialog from "@/components/sale/ReturnInvoiceDialog.vue";
+import TableDashboard from "@/components/tables/TableDashboard.vue";
 import WarehouseAvailabilityDialog from "@/components/sale/WarehouseAvailabilityDialog.vue";
 import POSSettings from "@/components/settings/POSSettings.vue";
 import InvoiceManagement from "@/components/invoices/InvoiceManagement.vue";
@@ -1064,12 +1104,15 @@ import { useUserData } from "@/data/user";
 import { parseError } from "@/utils/errorHandler";
 import { offlineWorker } from "@/utils/offline/workerClient";
 import { cacheInvoiceHistory, getCachedInvoiceHistory } from "@/utils/offline/sync";
+import { deleteDraft as deleteDraftRecord } from "@/utils/draftManager";
+import { generateUUID } from "@/utils/offline/uuid";
 import { printInvoice, printInvoiceByName, printWithSilentFallback } from "@/utils/printInvoice";
 import { qzConnected, connect as qzConnect, disconnect as qzDisconnect } from "@/utils/qzTray";
 
 import { Button, Dialog, createResource } from "frappe-ui";
 import { call } from "@/utils/apiWrapper";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useCheckEditApproval } from "@/composables/useCheckEditApproval";
 import { useToast } from "@/composables/useToast";
 
 import { useCustomerSearchStore } from "@/stores/customerSearch";
@@ -1111,6 +1154,10 @@ const {
 
 // Initialize toast
 const { showSuccess, showError, showWarning } = useToast();
+const {
+	approve: approveCheckEditLine,
+	resetApprovals: resetCheckEditApprovals,
+} = useCheckEditApproval();
 
 // Initialize logger
 const log = logger.create("POSSale");
@@ -1127,6 +1174,7 @@ const offersDialogRef = ref(null);
 const containerRef = ref(null);
 const dividerRef = ref(null);
 const logoutAfterClose = ref(false);
+const showTableDashboard = ref(false);
 const showHoldTableNumberDialog = ref(false);
 const holdTableNumberInput = ref("");
 const holdTableSearch = ref("");
@@ -1788,6 +1836,15 @@ function handleShiftClosed() {
 }
 
 function handleItemSelected(item, autoAdd = false) {
+	// Table service: nothing enters the cart before the table and its head count
+	// are known, since the whole order is filed under that session. ItemsSelector
+	// guards its own emit too; this covers any other caller of this handler.
+	if (needsTableSession.value) {
+		showWarning(__("Select a table and the number of guests first"));
+		openTableGuestsDialog();
+		return;
+	}
+
 	// Auto-add mode
 	if (autoAdd) {
 		try {
@@ -1882,10 +1939,29 @@ function handleItemSelected(item, autoAdd = false) {
 }
 
 async function handleEditItem(updatedItem) {
+	const line = cartStore.invoiceItems.find(
+		(item) => item.item_code === updatedItem.item_code,
+	);
+
+	// Cutting the rate is a discount by another name
+	if (line && Number(updatedItem.rate) < Number(line.rate)) {
+		const approved = await approveCheckEdit(
+			lineKey(updatedItem.item_code, updatedItem.uom || line.uom),
+			__("Lower the price of {0}", [line.item_name || updatedItem.item_code]),
+		);
+		if (!approved) return;
+	}
+
 	await cartStore.updateItemDetails(updatedItem.item_code, updatedItem);
 }
 
-function handleAdditionalDiscountUpdate(discountAmount) {
+async function handleAdditionalDiscountUpdate(discountAmount) {
+	// Only a bigger discount needs approving; removing one gives value back
+	if (Number(discountAmount) > Number(cartStore.additionalDiscount || 0)) {
+		const approved = await approveCheckEdit(null, __("Discount the check"));
+		if (!approved) return;
+	}
+
 	// Update the additional discount value in the cart store
 	cartStore.additionalDiscount = discountAmount;
 
@@ -1974,7 +2050,7 @@ async function handleStockIssueFromDialog({ employee }) {
 	cartStore.setSaleType("employee");
 	cartStore.setEmployee(employee);
 	uiStore.showPaymentDialog = false;
-	await cartStore.submitEmployeeIssue();
+	await cartStore.submitEmployeeBenefits();
 }
 
 async function handleEmployeeLoan({ employee }) {
@@ -2012,9 +2088,13 @@ async function handleEmployeeCashSale({ employee, customer }) {
 		const order = await cartStore.createSalesOrder(null, { employee });
 		if (order) {
 			const orderName = order.name || order.message?.name || __("Unknown");
-			await cartStore.linkPosDocuments(orderName, stockResult?.name);
+			if (stockResult) {
+				await cartStore.linkPosDocuments(orderName, stockResult.name);
+			}
 			showSuccess(
-				__("Sales Order {0} and Stock Entry {1} created", [orderName, stockResult?.name]),
+				stockResult
+					? __("Sales Order {0} and Stock Entry {1} created", [orderName, stockResult.name])
+					: __("Sales Order {0} created", [orderName]),
 			);
 			cartStore.clearCart();
 		}
@@ -2055,8 +2135,8 @@ async function handlePaymentCompleted(paymentData) {
 			showWarning(__("Please select a customer"));
 			return;
 		}
-		if (cartStore.customerType === "Room Customer" && !cartStore.room) {
-			showWarning(__("Please select a Room"));
+		if (cartStore.needsRoom) {
+			showWarning(__("Select the room this sale is charged to"));
 			return;
 		}
 
@@ -2090,6 +2170,11 @@ async function handlePaymentCompleted(paymentData) {
 
 		// Delete draft if it exists (since we're submitting/saving invoice)
 		const draftIdToDelete = cartStore.currentDraftId;
+
+		// clearCart() below resets the cart's table context, so capture it now and
+		// settle after the sale lands - that frees the table for the next cover.
+		const sessionToClose = cartStore.tableSession;
+		const orderToSettle = cartStore.tableOrder;
 
 		if (offlineStore.isOffline) {
 			// Use the same item transformation as online flow for consistency
@@ -2128,6 +2213,9 @@ async function handlePaymentCompleted(paymentData) {
 				draftsStore.deleteDraft(draftIdToDelete);
 			}
 
+			// Offline sales have no invoice name yet, so the session closes without one
+			await closeTableSession(sessionToClose, null, orderToSettle);
+
 			showSuccess(__("Invoice saved offline. Will sync when online"));
 		} else {
 			const soldItemCodes = cartStore.invoiceItems.map((item) => item.item_code);
@@ -2163,6 +2251,8 @@ async function handlePaymentCompleted(paymentData) {
 					draftsStore.deleteDraft(draftIdToDelete);
 				}
 
+				await closeTableSession(sessionToClose, invoiceName, orderToSettle);
+
 				// Refresh stock - Direct API (50-200ms), no Socket.IO lag!
 				await stockStore.refresh(soldItemCodes, shiftStore.profileWarehouse);
 
@@ -2177,7 +2267,10 @@ async function handlePaymentCompleted(paymentData) {
 
 				if (shiftStore.autoPrintEnabled || posSettingsStore.silentPrint) {
 					try {
-						await handlePrintInvoice({ name: invoiceName });
+						await handlePrintInvoice({
+							name: invoiceName,
+							doctype: "Sales Order",
+						});
 						showSuccess(__("{0} created and sent to printer", [docsCreatedLabel]));
 					} catch (error) {
 						log.error("Auto-print error:", error);
@@ -2219,11 +2312,115 @@ function handleClearCart() {
 	uiStore.showClearCartDialog = true;
 }
 
-function confirmClearCart() {
+/**
+ * ============================================================================
+ * SUPERVISOR APPROVAL FOR CHECK EDITS
+ * ============================================================================
+ * Taking value off an open check - a smaller quantity, a removed item, a
+ * discount, a cancelled check - can ask for the supervisor password first, when
+ * the POS Profile turns that on. Adding items is never gated.
+ */
+
+const checkEditPasswordRequired = computed(() =>
+	Boolean(shiftStore.currentProfile?.posa_require_edit_password),
+);
+
+function lineKey(itemCode, uom) {
+	return `${itemCode}|${uom || ""}`;
+}
+
+/**
+ * Resolves true when the edit may go ahead.
+ *
+ * @param {string|null} key - Line this approval covers, so repeated edits of the
+ *   same line ask once. Null for one-off actions.
+ * @param {string} reason - Shown in the dialog.
+ * @param {object} [options]
+ * @param {boolean} [options.tableOnly=true] - Only gate while a table is open.
+ *   Table actions themselves pass false, having no cart to check.
+ */
+function approveCheckEdit(key, reason, { tableOnly = true } = {}) {
+	if (!checkEditPasswordRequired.value) return Promise.resolve(true);
+	if (tableOnly && !cartStore.tableSession) return Promise.resolve(true);
+
+	return approveCheckEditLine({
+		key,
+		reason,
+		posProfile: shiftStore.profileName,
+	});
+}
+
+// A different check is a different approval
+watch(() => cartStore.tableSession, resetCheckEditApprovals);
+
+async function handleUpdateQuantity(itemCode, newQty, uom) {
+	const line = cartStore.invoiceItems.find(
+		(item) => item.item_code === itemCode && (!uom || item.uom === uom),
+	);
+
+	// Only a reduction takes value off the check; ordering more never asks
+	if (line && Number(newQty) < Number(line.quantity)) {
+		const approved = await approveCheckEdit(
+			lineKey(itemCode, uom),
+			__("Reduce the quantity of {0}", [line.item_name || itemCode]),
+		);
+		if (!approved) return;
+	}
+
+	cartStore.updateItemQuantity(itemCode, newQty, uom);
+}
+
+async function handleRemoveItem(itemCode, uom) {
+	const line = cartStore.invoiceItems.find(
+		(item) => item.item_code === itemCode && (!uom || item.uom === uom),
+	);
+
+	const approved = await approveCheckEdit(
+		lineKey(itemCode, uom),
+		__("Remove {0} from the check", [line?.item_name || itemCode]),
+	);
+	if (!approved) return;
+
+	cartStore.removeItem(itemCode, uom);
+}
+
+async function confirmClearCart() {
+	uiStore.showClearCartDialog = false;
+
+	// Asked after the confirmation, so backing out of "are you sure" never costs
+	// the supervisor a trip to the till.
+	const approved = await approveCheckEdit(null, __("Clear the whole check"));
+	if (!approved) return;
+
+	// Only a completed checkout frees a table. Clearing the cart empties the
+	// order, but the guests are still sitting there - releasing the table here
+	// would show it as available while it is occupied. Freeing a table seated by
+	// mistake is a deliberate action on the Open Tables screen instead.
+	const table = {
+		session: cartStore.tableSession,
+		number: cartStore.table,
+		guests: cartStore.guestCount,
+		order: cartStore.tableOrder,
+		openedAt: cartStore.tableOpenedAt,
+		cashier: cartStore.tableCashier,
+	};
+
 	cartStore.clearCart();
 	// Reset cart hash when cart is cleared
 	previousCartHash = "";
-	uiStore.showClearCartDialog = false;
+	resetCheckEditApprovals();
+
+	// clearCart() wipes the table context along with the items; put it back so the
+	// cashier carries on ordering for the same table instead of re-picking it.
+	if (table.session) {
+		cartStore.setTableSession(table.session);
+		cartStore.setTable(table.number);
+		cartStore.setGuestCount(table.guests);
+		cartStore.setTableOrder(table.order);
+		cartStore.setTableOpenedAt(table.openedAt);
+		cartStore.setTableCashier(table.cashier);
+	}
+
 	showSuccess(__("All items removed from cart"));
 }
 
@@ -2333,6 +2530,700 @@ function logoutWithCloseShift() {
 	uiStore.showCloseShiftDialog = true;
 }
 
+// ============================================================================
+// Table Service: table + guest count are chosen before any item can be added
+// ============================================================================
+
+/** On for profiles configured as table service (restaurant), off for retail. */
+const tableServiceEnabled = computed(() => posSettingsStore.requireTableAndGuests);
+
+/**
+ * True while a table-service order still has no open POS Table Session. The gate
+ * dialog is shown (and undismissable) for exactly as long as this holds.
+ */
+const needsTableSession = computed(
+	() => tableServiceEnabled.value && !cartStore.tableSession
+);
+
+function openTableGuestsDialog() {
+	// The dialog lives in ItemsSelector, alongside the item selection it gates
+	itemsSelectorRef.value?.openTableDialog();
+}
+
+function handleTableGuestsConfirmed({
+	session,
+	table,
+	guestCount,
+	resumed,
+	offline,
+	openedAt,
+}) {
+	cartStore.setTableSession(session);
+	cartStore.setTable(table);
+	cartStore.setGuestCount(guestCount);
+	// Only an offline session needs its seating time carried, so the dashboard
+	// can show the real time once it reaches the server.
+	cartStore.setTableOpenedAt(offline ? openedAt : "");
+	// Remembered only for an offline seating, where the server cannot know who
+	// did it until the sync happens.
+	cartStore.setTableCashier(offline ? session.user : "");
+
+	if (offline) {
+		showWarning(
+			__("Table {0} seated offline - it will sync when the connection returns", [
+				table,
+			])
+		);
+	}
+
+	if (resumed) {
+		showWarning(__("Resumed the open order for table {0}", [table]));
+	}
+
+	// A resumed table usually has its order held as a draft - bring it back so the
+	// cashier continues that bill instead of starting a second one for the table.
+	if (resumed) {
+		resumeDraftForTable(table);
+	}
+}
+
+/**
+ * The cart's "held orders" button.
+ *
+ * On a table-service profile the held orders are server-side table orders, so
+ * that is what the cashier needs to see - the local drafts dialog only ever
+ * holds offline holds and would look empty.
+ */
+function handleShowDrafts() {
+	if (tableServiceEnabled.value) {
+		showTableDashboard.value = true;
+		return;
+	}
+	uiStore.showDraftDialog = true;
+}
+
+/** A session id that exists only on this device, not yet on the server. */
+const OFFLINE_SESSION_PREFIX = "pos_offline_session_";
+
+function isOfflineSession(session) {
+	return Boolean(session) && String(session).startsWith(OFFLINE_SESSION_PREFIX);
+}
+
+/**
+ * Build the exact cart snapshot stored alongside a held order.
+ *
+ * The server keeps a lean item table for the dashboard and reports; this payload
+ * is what actually comes back on resume, so offers, batches, serials and UOM
+ * pricing survive a hold intact.
+ */
+function buildTableOrderPayload() {
+	return {
+		items: JSON.parse(JSON.stringify(cartStore.invoiceItems)),
+		customer: cartStore.customer,
+		applied_offers: JSON.parse(JSON.stringify(cartStore.appliedOffers || [])),
+		room: cartStore.room || "",
+		table: cartStore.table || "",
+		customer_type: cartStore.customerType || "",
+		sale_type: cartStore.saleType || "customer",
+		employee: cartStore.selectedEmployee || null,
+		guest_count: cartStore.guestCount,
+		table_session: cartStore.tableSession,
+	};
+}
+
+/** Cart lines in the shape the table-order endpoints expect. */
+function buildTableOrderItems() {
+	return cartStore.invoiceItems.map((item) => ({
+		item_code: item.item_code,
+		item_name: item.item_name,
+		qty: item.quantity,
+		uom: item.uom,
+		rate: item.rate,
+		amount: item.amount,
+		// Stamped per line so every movement carries the user who rang it, even
+		// when the round is replayed from offline by someone else's terminal.
+		added_by: item.added_by || session.user,
+	}));
+}
+
+/** Hold the current cart as this table's server-side order. */
+async function saveTableOrderToServer() {
+	try {
+		const items = buildTableOrderItems();
+		const customer = cartStore.customer?.name || cartStore.customer || null;
+		const customerName =
+			cartStore.customer?.customer_name || cartStore.customer?.name || null;
+
+		// A table seated offline has no server session yet, so its first online
+		// hold has to create the session and the order together.
+		if (isOfflineSession(cartStore.tableSession)) {
+			const result = await call(
+				"ecs_posnext.api.table_orders.sync_offline_table_order",
+				{
+					offline_id: cartStore.tableSession,
+					table: cartStore.table,
+					items,
+					guest_count: cartStore.guestCount,
+					cart_payload: JSON.stringify(buildTableOrderPayload()),
+					customer,
+					customer_name: customerName,
+					pos_profile: cartStore.posProfile,
+					pos_opening_shift: cartStore.posOpeningShift,
+					opened_at: cartStore.tableOpenedAt || null,
+					// Credit whoever seated the table offline, not this session
+					cashier: cartStore.tableCashier || session.user,
+				}
+			);
+
+			if (result?.status === "conflict") {
+				showError(
+					__("Table {0} was taken by {1} while you were offline - move this order to another table", [
+						cartStore.table,
+						result.existing_cashier || __("another cashier"),
+					])
+				);
+				return false;
+			}
+
+			// Swap the local id for the real session name so everything after this
+			// (settling, the dashboard, further holds) talks about the same record.
+			cartStore.setTableSession(result.session);
+			cartStore.setTableOpenedAt("");
+			cartStore.setTableCashier("");
+			showSuccess(__("Order held for table {0}", [cartStore.table]));
+			return true;
+		}
+
+		await call("ecs_posnext.api.table_orders.save_table_order", {
+			table_session: cartStore.tableSession,
+			items,
+			cart_payload: JSON.stringify(buildTableOrderPayload()),
+			customer,
+			customer_name: customerName,
+			guest_count: cartStore.guestCount,
+			pos_profile: cartStore.posProfile,
+			pos_opening_shift: cartStore.posOpeningShift,
+		});
+
+		showSuccess(__("Order held for table {0}", [cartStore.table]));
+		return true;
+	} catch (error) {
+		log.error("[POSSale] Failed to hold table order:", error);
+		showError(
+			error?.messages?.[0] || error?.message || __("Failed to hold the order")
+		);
+		return false;
+	}
+}
+
+/** Restore a held table order into the cart. */
+async function loadTableOrder(session, orderName = null) {
+	// A split table has no single order, so a check has to be named explicitly
+	const order = await call("ecs_posnext.api.table_orders.get_table_order", {
+		order: orderName,
+		table_session: orderName ? null : session,
+	});
+
+	if (!order) return false;
+
+	const cart = order.cart;
+	if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) {
+		// The payload is the only faithful source for the cart. Without it the
+		// item table alone would rebuild the order at the wrong prices, so say so
+		// rather than silently loading something subtly different.
+		showWarning(
+			__("Order {0} could not be restored - open it from the desk to review", [
+				order.name,
+			])
+		);
+		return false;
+	}
+
+	cartStore.invoiceItems = cart.items;
+	cartStore.setSaleType(cart.sale_type || "customer");
+	if (cart.sale_type === "employee" && cart.employee) {
+		cartStore.setEmployee(cart.employee);
+	} else {
+		cartStore.setCustomer(cart.customer);
+		cartStore.setRoom(cart.room || "");
+		cartStore.setCustomerType(cart.customer_type || "");
+	}
+	cartStore.setTable(order.table || cart.table || "");
+	cartStore.setGuestCount(order.guest_count || cart.guest_count || 0);
+	cartStore.setTableSession(order.table_session || session);
+	// Remembered so payment settles this check and not an arbitrary one
+	cartStore.setTableOrder(order.name);
+	cartStore.currentDraftId = null;
+
+	cartStore.rebuildIncrementalCache();
+
+	if (cart.applied_offers && cart.applied_offers.length > 0) {
+		cartStore.appliedOffers = cart.applied_offers;
+		await cartStore.reapplyOffer(shiftStore.currentProfile);
+	}
+
+	previousCartHash = computeCartHash();
+	return true;
+}
+
+/**
+ * Seat a free table chosen on the Open Tables screen.
+ *
+ * Mirrors what the small dialog does on confirm, including the offline case:
+ * with no network the session is created locally and synced later, so seating a
+ * table never depends on connectivity.
+ */
+async function handleSeatTableFromDashboard({ table, tableNumber, guestCount }) {
+	if (!table) return;
+
+	try {
+		if (offlineStore.isOffline) {
+			handleTableGuestsConfirmed({
+				session: `${OFFLINE_SESSION_PREFIX}${generateUUID()}`,
+				table,
+				tableNumber,
+				guestCount,
+				resumed: false,
+				offline: true,
+				openedAt: new Date().toISOString(),
+			});
+			return;
+		}
+
+		const session = await call(
+			"ecs_posnext.api.table_sessions.start_table_session",
+			{
+				table,
+				guest_count: guestCount,
+				pos_profile: shiftStore.profileName,
+				pos_opening_shift: cartStore.posOpeningShift,
+			}
+		);
+
+		handleTableGuestsConfirmed({
+			session: session.name,
+			table: session.table,
+			tableNumber: tableNumber || session.table,
+			guestCount: session.guest_count,
+			resumed: Boolean(session.resumed),
+		});
+
+		uiStore.setMobileTab("items");
+	} catch (error) {
+		log.error("[POSSale] Failed to seat the table:", error);
+		showError(
+			error?.messages?.[0] || error?.message || __("Failed to seat the table")
+		);
+	}
+}
+
+/**
+ * Free a table without charging it - a seating made by mistake, or guests who
+ * left without ordering.
+ *
+ * The only other thing that ends a session is a completed checkout, so this is
+ * the deliberate escape hatch for everything else.
+ */
+async function handleFreeTableFromDashboard(table) {
+	if (!table?.session) return;
+
+	const approved = await approveCheckEdit(
+		null,
+		__("Cancel the check on table {0}", [table.table_number || table.table]),
+		{ tableOnly: false },
+	);
+	if (!approved) return;
+
+	await cancelTableSession(table.session);
+
+	// If the cart was working on that table, it has nothing to attach to now
+	if (cartStore.tableSession === table.session) {
+		cartStore.setTableSession("");
+		cartStore.setTableOrder("");
+		cartStore.setTableCashier("");
+		cartStore.setTableOpenedAt("");
+	}
+
+	showSuccess(__("Table {0} is free", [table.table_number || table.table]));
+}
+
+/**
+ * Keep the open cart in step when its own table is moved or joined elsewhere.
+ *
+ * Without this the cart would still be pointing at a table the guests left, or
+ * at a session a merge has closed - and the next hold would fail or land on the
+ * wrong bill.
+ */
+function handleTableMoved(result) {
+	if (!result) return;
+
+	if (result.status === "moved" && result.session === cartStore.tableSession) {
+		cartStore.setTable(result.target_table);
+		showSuccess(
+			__("This order now sits on table {0}", [result.target_table])
+		);
+		return;
+	}
+
+	if (result.status === "merged" && result.closed_session === cartStore.tableSession) {
+		// The held lines are already on the destination's order server-side. Point
+		// the cart at that session so anything still unsaved here is held onto the
+		// combined bill rather than onto a session that no longer exists.
+		cartStore.setTableSession(result.session);
+		cartStore.setTable(result.target_table);
+
+		if (cartStore.isEmpty) {
+			showSuccess(
+				__("Tables joined - the order is now on table {0}", [result.target_table])
+			);
+		} else {
+			showWarning(
+				__("Tables joined onto table {0}. Hold or complete the items still in the cart to add them to that bill.", [
+					result.target_table,
+				])
+			);
+		}
+	}
+}
+
+/**
+ * Open a table picked on the dashboard, holding whatever is in the cart first so
+ * switching tables never drops an order.
+ */
+async function handleOpenTableFromDashboard(table) {
+	try {
+		if (cartStore.tableSession === table.session) {
+			uiStore.setMobileTab("items");
+			return;
+		}
+
+		if (!cartStore.isEmpty) {
+			const held = cartStore.tableSession
+				? await saveTableOrderToServer()
+				: false;
+			if (!held && cartStore.tableSession) {
+				showError(__("Could not hold the current order - staying on this table"));
+				return;
+			}
+			if (!cartStore.tableSession) {
+				// A cart with no session can't be held against a table; make the
+				// cashier deal with it rather than discarding it silently.
+				showWarning(__("Finish or clear the current cart first"));
+				return;
+			}
+			cartStore.clearCart();
+			previousCartHash = "";
+		}
+
+		cartStore.setTableSession(table.session);
+		cartStore.setTable(table.table);
+		cartStore.setGuestCount(table.guest_count);
+		cartStore.setTableOrder("");
+
+		if (table.has_order) {
+			await loadTableOrder(table.session);
+		}
+
+		uiStore.setMobileTab("items");
+	} catch (error) {
+		log.error("[POSSale] Failed to open table from dashboard:", error);
+		showError(error?.message || __("Failed to open the table"));
+	}
+}
+
+/**
+ * Load one split check into the cart so it can be paid on its own.
+ *
+ * The cart holds whichever check is being settled; the table stays open until
+ * every check has been paid.
+ */
+async function handleOpenCheckFromDashboard(check) {
+	try {
+		if (!cartStore.isEmpty) {
+			showWarning(
+				__("Finish or clear the current cart before opening another check")
+			);
+			return;
+		}
+
+		const loaded = await loadTableOrder(null, check.name);
+		if (!loaded) return;
+
+		showSuccess(
+			check.room
+				? __("Check {0} — room {1}", [check.check_number, check.room])
+				: __("Check {0}", [check.check_number])
+		);
+		uiStore.setMobileTab("cart");
+	} catch (error) {
+		log.error("[POSSale] Failed to open the check:", error);
+		showError(error?.message || __("Failed to open the check"));
+	}
+}
+
+async function resumeDraftForTable(tableValue) {
+	try {
+		await draftsStore.loadDrafts();
+		const existingDraft = draftsStore.getOpenDraftForTable(
+			tableValue,
+			cartStore.currentDraftId
+		);
+		if (existingDraft) {
+			await handleLoadDraft(existingDraft);
+		}
+	} catch (error) {
+		log.error("[POSSale] Failed to resume draft for table:", error);
+	}
+}
+
+/**
+ * Push table orders that were held offline up to the server.
+ *
+ * Held orders live in the local draft store while there is no network, which
+ * means the tables dashboard cannot see them. This runs on reconnect and moves
+ * each one across, then drops the local copy so the order exists in exactly one
+ * place.
+ *
+ * Safe to run repeatedly: the server keys on the draft's offline session id, so
+ * a replay finds the existing session and order rather than duplicating them.
+ */
+async function syncOfflineTableOrders() {
+	if (offlineStore.isOffline) return;
+
+	try {
+		await draftsStore.loadDrafts();
+	} catch (error) {
+		log.error("[POSSale] Could not load drafts to sync:", error);
+		return;
+	}
+
+	const pending = (draftsStore.drafts || []).filter(
+		(draft) => isOfflineSession(draft.table_session) && draft.table
+	);
+
+	if (pending.length === 0) return;
+
+	log.info(`[POSSale] Syncing ${pending.length} offline table order(s)`);
+
+	let synced = 0;
+	const conflicts = [];
+
+	for (const draft of pending) {
+		try {
+			const items = (draft.items || []).map((item) => ({
+				item_code: item.item_code,
+				item_name: item.item_name,
+				qty: item.quantity,
+				uom: item.uom,
+				rate: item.rate,
+				amount: item.amount,
+				added_by: item.added_by || draft.table_cashier || null,
+			}));
+
+			if (items.length === 0) {
+				// Nothing to hold - drop the empty draft rather than retrying forever.
+				// Deleted through the util, not the store action, which toasts per
+				// call and would spam once per synced order.
+				await deleteDraftRecord(draft.draft_id);
+				continue;
+			}
+
+			const result = await call(
+				"ecs_posnext.api.table_orders.sync_offline_table_order",
+				{
+					offline_id: draft.table_session,
+					table: draft.table,
+					items,
+					guest_count: draft.guest_count || 1,
+					cart_payload: JSON.stringify({
+						items: draft.items,
+						customer: draft.customer,
+						applied_offers: draft.applied_offers || [],
+						room: draft.room || "",
+						table: draft.table || "",
+						customer_type: draft.customer_type || "",
+						sale_type: draft.sale_type || "customer",
+						employee: draft.employee || null,
+						guest_count: draft.guest_count || 0,
+						table_session: draft.table_session,
+					}),
+					customer: draft.customer?.name || draft.customer || null,
+					customer_name:
+						draft.customer?.customer_name || draft.customer?.name || null,
+					pos_profile: draft.pos_profile || shiftStore.profileName,
+					pos_opening_shift: cartStore.posOpeningShift,
+					opened_at: draft.table_opened_at || null,
+					// The hold time is the best record of when the order was rung up
+					last_order_at: draft.table_opened_at || null,
+					// The draft records who actually took the order; without this the
+					// sync would credit whoever's terminal happens to be online now.
+					cashier: draft.table_cashier || session.user,
+				}
+			);
+
+			if (result?.status === "conflict") {
+				// Someone seated this table while we were offline. Keep the local
+				// draft: discarding it would lose a real order, and merging it into
+				// the other party's bill would be worse.
+				conflicts.push({
+					table: draft.table,
+					cashier: result.existing_cashier,
+				});
+				continue;
+			}
+
+			// On the server now - remove the local copy so it exists in one place
+			await deleteDraftRecord(draft.draft_id);
+			synced += 1;
+
+			// If this is the order currently in the cart, adopt the real session id
+			if (cartStore.tableSession === draft.table_session) {
+				cartStore.setTableSession(result.session);
+				cartStore.setTableOpenedAt("");
+				cartStore.setTableCashier("");
+			}
+		} catch (error) {
+			log.error(
+				`[POSSale] Failed to sync offline table order for table ${draft.table}:`,
+				error
+			);
+			// Left in place for the next reconnect rather than dropped
+		}
+	}
+
+	if (synced > 0) {
+		// One refresh after the loop, since the deletes above bypassed the store
+		await draftsStore.loadDrafts();
+		showSuccess(__("{0} offline table order(s) synced", [synced]));
+	}
+
+	for (const conflict of conflicts) {
+		showWarning(
+			__("Table {0} was taken by {1} while offline - its held order is still local", [
+				conflict.table,
+				conflict.cashier || __("another cashier"),
+			])
+		);
+	}
+}
+
+/**
+ * Close the session once its order is settled, so the table is freed and the gate
+ * reopens for the next cover. Never allowed to fail the sale - the invoice is
+ * already submitted by this point.
+ */
+async function closeTableSession(sessionName, salesInvoice = null, orderName = null) {
+	if (!sessionName) return;
+
+	let remainingChecks = 0;
+
+	try {
+		// Settle the specific check that was just paid. Passing the order matters
+		// on a split table: settling "the" order there is ambiguous and the server
+		// refuses it rather than guessing.
+		//
+		// The server also does this as part of submitting the sale, so by the time
+		// this runs the table is usually already settled - both paths are
+		// idempotent. This stays as the fallback for sales submitted before that
+		// was in place, and for the offline queue.
+		const settled = await call("ecs_posnext.api.table_orders.settle_table_order", {
+			order: orderName || null,
+			table_session: orderName ? null : sessionName,
+			sales_invoice: salesInvoice || null,
+		});
+		remainingChecks = settled?.remaining_open_checks || 0;
+	} catch (error) {
+		// A table left occupied after its bill is paid blocks the next cover, so
+		// say so rather than only writing to the console.
+		log.error("[POSSale] Failed to settle table order:", error);
+		showWarning(
+			__("Table {0} could not be closed automatically - close it from Open Tables", [
+				cartStore.table || sessionName,
+			])
+		);
+		return;
+	}
+
+	// The server refuses to close a table that still owes money, but skipping the
+	// call keeps the message honest for the cashier.
+	if (remainingChecks > 0) {
+		showWarning(
+			__("{0} check(s) on table {1} are still unpaid", [
+				remainingChecks,
+				cartStore.table || sessionName,
+			])
+		);
+		return;
+	}
+
+	try {
+		await call("ecs_posnext.api.table_sessions.close_table_session", {
+			session: sessionName,
+			sales_invoice: salesInvoice || null,
+		});
+	} catch (error) {
+		log.error("[POSSale] Failed to close table session:", error);
+		showWarning(
+			__("Table {0} could not be closed automatically - close it from Open Tables", [
+				cartStore.table || sessionName,
+			])
+		);
+	}
+}
+
+/**
+ * Release a session whose order was abandoned. Like closing, this must never
+ * throw into the caller - the cart is already cleared either way.
+ */
+async function cancelTableSession(sessionName) {
+	if (!sessionName) return;
+
+	try {
+		await call("ecs_posnext.api.table_orders.cancel_table_order", {
+			table_session: sessionName,
+		});
+	} catch (error) {
+		log.error("[POSSale] Failed to cancel table order:", error);
+	}
+
+	try {
+		await call("ecs_posnext.api.table_sessions.cancel_table_session", {
+			session: sessionName,
+		});
+	} catch (error) {
+		log.error("[POSSale] Failed to cancel table session:", error);
+	}
+}
+
+/**
+ * Guards the sync to once per spell of connectivity. Reset when the connection
+ * drops, so the next reconnect syncs again.
+ */
+let offlineTableSyncDone = false;
+
+// Runs on reconnect, and also on a normal online load - the browser may have
+// been closed before an earlier reconnect could sync. Settings are part of the
+// condition because `tableServiceEnabled` is false until they arrive, which is
+// still the case when this watcher first fires.
+watch(
+	[
+		() => offlineStore.isOffline,
+		() => posSettingsStore.isLoaded,
+		tableServiceEnabled,
+	],
+	([nowOffline, settingsLoaded, tableService]) => {
+		if (nowOffline) {
+			offlineTableSyncDone = false;
+			return;
+		}
+		if (!settingsLoaded || !tableService || offlineTableSyncDone) return;
+
+		offlineTableSyncDone = true;
+		syncOfflineTableOrders();
+	},
+	{ immediate: true }
+);
+
 // Table search (Table doctype) for the Hold dialog - mirrors the Room dropdown
 // pattern used for Room Customers in PaymentDialog.vue.
 async function _searchHoldTables(query) {
@@ -2413,6 +3304,22 @@ async function confirmHoldTableNumber() {
 }
 
 async function performSaveDraft() {
+	// Table service holds live on the server so the tables dashboard and other
+	// terminals can see them. Offline still falls back to the local draft, which
+	// is the only thing available without a network.
+	if (
+		tableServiceEnabled.value &&
+		cartStore.tableSession &&
+		!offlineStore.isOffline
+	) {
+		const held = await saveTableOrderToServer();
+		if (held) {
+			cartStore.clearCart();
+			previousCartHash = "";
+		}
+		return;
+	}
+
 	const savedDraft = await draftsStore.saveDraftInvoice(
 		cartStore.invoiceItems,
 		cartStore.customer,
@@ -2422,6 +3329,10 @@ async function performSaveDraft() {
 		{
 			room: cartStore.room,
 			table: cartStore.table,
+			guestCount: cartStore.guestCount,
+			tableSession: cartStore.tableSession,
+			tableOpenedAt: cartStore.tableOpenedAt,
+			tableCashier: cartStore.tableCashier,
 			customerType: cartStore.customerType,
 			saleType: cartStore.saleType,
 			employee: cartStore.selectedEmployee,
@@ -2447,6 +3358,10 @@ async function handleLoadDraft(draft) {
 				{
 					room: cartStore.room,
 					table: cartStore.table,
+					guestCount: cartStore.guestCount,
+					tableSession: cartStore.tableSession,
+					tableOpenedAt: cartStore.tableOpenedAt,
+					tableCashier: cartStore.tableCashier,
 					customerType: cartStore.customerType,
 					saleType: cartStore.saleType,
 					employee: cartStore.selectedEmployee,
@@ -2478,6 +3393,16 @@ async function handleLoadDraft(draft) {
 			cartStore.setRoom(draftData.room || "");
 			cartStore.setTable(draftData.table || "");
 			cartStore.setCustomerType(draftData.customerType || "");
+		}
+
+		// Re-attach the table session the draft was held under, so resuming a held
+		// bill restores its table/guest context instead of re-triggering the gate.
+		cartStore.setTableSession(draftData.tableSession || "");
+		cartStore.setGuestCount(draftData.guestCount || 0);
+		cartStore.setTableOpenedAt(draftData.tableOpenedAt || "");
+		cartStore.setTableCashier(draftData.tableCashier || "");
+		if (draftData.table) {
+			cartStore.setTable(draftData.table);
 		}
 
 		cartStore.currentDraftId = draft.draft_id; // Set current draft ID
@@ -2868,6 +3793,8 @@ function handleManagementMenuClick(menuItem) {
 		// Load drafts data
 		draftsStore.loadDrafts();
 		showInvoiceManagement.value = true;
+	} else if (menuItem === "tables") {
+		showTableDashboard.value = true;
 	} else if (menuItem === "products") {
 		// Open Stock Lookup dialog in search mode
 		showStockLookup.value = true;

@@ -9,6 +9,33 @@ import { roundCurrency } from "@/utils/currency"
 
 const log = logger.create("Invoice")
 
+/**
+ * The customer a room-service sale sits on until a room says who the guest is.
+ * It is the POS Profile's default customer, so a sale nobody attributed lands
+ * here - and a sale on it with no room cannot be charged to anyone, which is
+ * why checkout refuses one. Matches the "POS Customer Type" field's own wording
+ * and the server-side constant in ecs_posnext/api/sales_order_hooks.py; all
+ * three change together.
+ */
+export const ROOM_CUSTOMER = "Room Customer"
+
+/**
+ * Which kind of sale this is: a charge to a guest's folio, or a walk-in.
+ *
+ * Driven by the customer, not by the room. Deriving it from the room instead
+ * made "Room Customer" mean "a room is set", so the checkout guard that asks for
+ * a room when the type is Room Customer could never fire - a sale on the Room
+ * Customer with no room called itself a Guest sale and went straight through,
+ * then had nowhere to post in Protel (SAL-ORD-2026-00161 and 38 others). Picking
+ * a room still marks a sale as a room charge, because a walk-in has no room to
+ * pick.
+ */
+export function deriveCustomerType(selectedCustomer, selectedRoom) {
+	const name = selectedCustomer?.name || selectedCustomer || ""
+	if (name === ROOM_CUSTOMER || selectedRoom) return "Room Customer"
+	return name ? "Guest Customer" : ""
+}
+
 // Shared mutex for invoice submission across all useInvoice instances
 // This prevents duplicate invoice creation from rapid clicks or concurrent submissions
 const submitMutex = new CoalescingMutex({
@@ -38,6 +65,21 @@ export function useInvoice() {
 	const room = ref("") // Accounting dimension: Room (hotel room-service, linked to Room doctype)
 	const table = ref("") // Accounting dimension: Table (restaurant table, linked to Table doctype)
 	const customerType = ref("") // "Room Customer" | "Guest Customer"
+	// Table service: guests seated + the POS Table Session recording this order.
+	// Kept in its own doctype rather than on the invoice, since the sale may be
+	// posted to an external system instead of persisted as a Sales Invoice.
+	const guestCount = ref(0)
+	const tableSession = ref("")
+	// When the table was seated. Only needed for a session created offline, so
+	// the dashboard can show the real seating time once it syncs.
+	const tableOpenedAt = ref("")
+	// Who seated the table. Only tracked for an offline seating, where the server
+	// cannot know the acting user until the sync happens.
+	const tableCashier = ref("")
+	// Which check (POS Table Order) the cart is working on. Empty while the table
+	// still has a single order; set when a split check is opened, so payment
+	// settles that check and not an arbitrary one.
+	const tableOrder = ref("")
 
 	// Submission state - prevents duplicate submissions
 	const isSubmitting = ref(false)
@@ -972,6 +1014,17 @@ export function useInvoice() {
 					invoiceData.delivery_date = deliveryDate
 				}
 
+				// Settle and close the table on the server, in the same call that
+				// submits the sale. A separate request afterwards can be missed - by a
+				// dropped connection, a closed tab, or any early return in the payment
+				// handler - and the table then stays open with the bill already paid.
+				if (tableSession.value) {
+					invoiceData.pos_table_session = tableSession.value
+				}
+				if (tableOrder.value) {
+					invoiceData.pos_table_order = tableOrder.value
+				}
+
 				// Link the employee (e.g. Sales Order's custom "employee" field) if provided
 				if (employee) {
 					invoiceData.employee = employee?.name || employee
@@ -1130,6 +1183,10 @@ export function useInvoice() {
 					customer_name: result.customer_name || result.customer,
 					customer_group: result.customer_group,
 				}
+				// The profile's default customer is usually the Room Customer, so the
+				// type has to follow it here too - a cart the cashier never touched is
+				// exactly the one that used to reach checkout with no room and no type.
+				customerType.value = deriveCustomerType(customer.value, room.value)
 			}
 		} catch (error) {
 			// Silently fail - default customer is optional
@@ -1149,6 +1206,11 @@ export function useInvoice() {
 		room.value = ""
 		table.value = ""
 		customerType.value = ""
+		guestCount.value = 0
+		tableSession.value = ""
+		tableOpenedAt.value = ""
+		tableCashier.value = ""
+		tableOrder.value = ""
 
 		// Reset incremental cache
 		_cachedSubtotal.value = 0
@@ -1162,15 +1224,7 @@ export function useInvoice() {
 
 	function setRoom(value) {
 		room.value = value || ""
-		// Auto-derive customer type from whether a room is set - no explicit
-		// Guest/Room Customer choice needed anywhere in the UI.
-		if (room.value) {
-			customerType.value = "Room Customer"
-		} else if (customer.value) {
-			customerType.value = "Guest Customer"
-		} else {
-			customerType.value = ""
-		}
+		customerType.value = deriveCustomerType(customer.value, room.value)
 	}
 
 	function setTable(value) {
@@ -1179,6 +1233,26 @@ export function useInvoice() {
 
 	function setCustomerType(value) {
 		customerType.value = value || ""
+	}
+
+	function setGuestCount(value) {
+		guestCount.value = Math.max(0, Math.floor(Number(value) || 0))
+	}
+
+	function setTableSession(value) {
+		tableSession.value = value || ""
+	}
+
+	function setTableOpenedAt(value) {
+		tableOpenedAt.value = value || ""
+	}
+
+	function setTableCashier(value) {
+		tableCashier.value = value || ""
+	}
+
+	function setTableOrder(value) {
+		tableOrder.value = value || ""
 	}
 
 	/**
@@ -1200,6 +1274,11 @@ export function useInvoice() {
 		room.value = ""
 		table.value = ""
 		customerType.value = ""
+		guestCount.value = 0
+		tableSession.value = ""
+		tableOpenedAt.value = ""
+		tableCashier.value = ""
+		tableOrder.value = ""
 
 		// Reset incremental cache
 		_cachedSubtotal.value = 0
@@ -1281,6 +1360,11 @@ export function useInvoice() {
 		room,
 		table,
 		customerType,
+		guestCount,
+		tableSession,
+		tableOpenedAt,
+		tableCashier,
+		tableOrder,
 
 		// Computed
 		subtotal,
@@ -1320,6 +1404,11 @@ export function useInvoice() {
 		setRoom,
 		setTable,
 		setCustomerType,
+		setGuestCount,
+		setTableSession,
+		setTableOpenedAt,
+		setTableCashier,
+		setTableOrder,
 
 		// Resources
 		updateInvoiceResource,

@@ -339,6 +339,25 @@
 										</div>
 										<div class="flex flex-col gap-3">
 											<CheckboxField
+												v-model="settings.require_table_and_guests"
+												:label="__('Require Table & Guest Count')"
+												:description="__('Table service: the cashier must pick a table and enter the number of guests before any item can be added. Leave off for retail / take-away.')"
+											/>
+											<div v-if="settings.require_table_and_guests" class="ps-6 flex flex-col gap-3 border-s-2 border-emerald-200">
+												<NumberField
+													v-model="settings.table_idle_warning_minutes"
+													:label="__('Idle Warning (minutes)')"
+													:description="__('Minutes without ordering before a table turns amber on the tables dashboard. 0 disables it.')"
+													:min="0"
+												/>
+												<NumberField
+													v-model="settings.table_idle_late_minutes"
+													:label="__('Idle Late (minutes)')"
+													:description="__('Minutes without ordering before a table turns red. Must be greater than the warning threshold. 0 disables it.')"
+													:min="0"
+												/>
+											</div>
+											<CheckboxField
 												v-model="settings.allow_credit_sale"
 												:label="__('Allow Credit Sale')"
 												:description="__('Enable sales on credit')"

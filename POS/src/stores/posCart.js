@@ -1,4 +1,5 @@
-import { useInvoice } from "@/composables/useInvoice"
+import { useInvoice, deriveCustomerType, ROOM_CUSTOMER } from "@/composables/useInvoice"
+import { useShift } from "@/composables/useShift"
 import { usePOSOffersStore } from "@/stores/posOffers"
 import { usePOSSettingsStore } from "@/stores/posSettings"
 import { parseError } from "@/utils/errorHandler"
@@ -99,6 +100,11 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		room,
 		table,
 		customerType,
+		guestCount,
+		tableSession,
+		tableOpenedAt,
+		tableCashier,
+		tableOrder,
 		addItem: addItemToInvoice,
 		removeItem,
 		updateItemQuantity,
@@ -118,10 +124,16 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		setRoom,
 		setTable,
 		setCustomerType,
+		setGuestCount,
+		setTableSession,
+		setTableOpenedAt,
+		setTableCashier,
+		setTableOrder,
 	} = useInvoice()
 
 	const offersStore = usePOSOffersStore()
 	const settingsStore = usePOSSettingsStore()
+	const { currentProfile } = useShift()
 
 	// Additional cart state
 	const pendingItem = ref(null)
@@ -259,6 +271,19 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	const deliveryDate = ref("")
 	const writeOffAmount = ref(0)
 
+	/**
+	 * A room charge with no room on it yet - the one thing checkout must not let
+	 * through, because nothing downstream can say whose folio to bill.
+	 *
+	 * Read off the customer and room themselves rather than the stored type: the
+	 * type is also set from restored drafts and from the POS Profile default, and
+	 * a stale one is what let these sales out in the first place.
+	 */
+	const needsRoom = computed(() => {
+		const name = customer.value?.name || customer.value || ""
+		return name === ROOM_CUSTOMER && !room.value
+	})
+
 	// Sale type: 'customer' | 'employee'
 	const saleType = ref("customer")
 	const selectedEmployee = ref(null)
@@ -331,7 +356,23 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		writeOffAmount.value = amount || 0
 	}
 
+	/**
+	 * Whether this profile issues stock with its sales.
+	 *
+	 * A Sales Order moves no stock by itself, so with this off the POS records
+	 * the sale and the balance is left to be issued some other way. Defaults to
+	 * on when the profile has not been migrated yet.
+	 */
+	const createsStockEntry = computed(() => {
+		const setting = currentProfile.value?.posa_create_stock_entry
+		return setting === undefined || setting === null ? true : Boolean(setting)
+	})
+
 	async function _submitStockEntry(posSaleType, requireEmployee, cartItemsSnapshot = null, roomSnapshot = undefined) {
+		// Turned off for this profile: the sale still goes through, it just does not
+		// move stock. Callers treat a null result as "no Stock Entry to link".
+		if (!createsStockEntry.value) return null
+
 		// Accepts an optional pre-captured snapshot of cart items/room, since callers
 		// that already submitted a Sales Order (which clears the cart, including room,
 		// on success) can no longer rely on the live refs by the time they get here.
@@ -350,6 +391,9 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			qty: item.quantity,
 			uom: item.uom || item.stock_uom,
 			warehouse: item.warehouse,
+			// Needed to expand a Product Bundle sold in a non-stock UOM: component
+			// quantities are per one stock unit of the bundle.
+			conversion_factor: item.conversion_factor || 1,
 		}))
 
 		const effectiveRoom = roomSnapshot !== undefined ? roomSnapshot : room.value
@@ -394,6 +438,68 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		}
 	}
 
+	/**
+	 * Record an employee Benefits handout.
+	 *
+	 * The Sales Order records who received the handout and what it was worth, and
+	 * is tagged `Benefits` - which is what keeps it out of Protel, since staff
+	 * stock is neither a guest charge nor hotel revenue.
+	 *
+	 * A Material Issue is made alongside it only where the profile issues stock
+	 * with its sales; with that off, nothing here moves stock and the balance is
+	 * left to be issued some other way.
+	 */
+	async function submitEmployeeBenefits() {
+		if (invoiceItems.value.length === 0) {
+			showWarning(__("Cart is empty"))
+			return
+		}
+		if (!selectedEmployee.value) {
+			showWarning(__("Please select an employee"))
+			return
+		}
+
+		const employee = selectedEmployee.value
+		// The Sales Order below clears the cart on success, so the lines the Stock
+		// Entry needs are taken now
+		const itemsSnapshot = [...invoiceItems.value]
+
+		try {
+			// Stock first where the profile issues any: if that fails the handout stops
+			// here, rather than leaving an order for goods that never left the store.
+			const stockResult = await submitEmployeeIssue("Benefits", itemsSnapshot, null)
+
+			// Same hand-off the Loan flow uses: submitInvoice short-circuits on an
+			// "employee" sale type, so the order is built as a customer sale with the
+			// employee attached.
+			setSaleType("customer")
+			setCustomer({ name: "Employee", customer_name: "Employee" })
+			setEmployee(employee)
+			setTargetDoctype("Sales Order")
+			setDeliveryDate(new Date().toISOString().split("T")[0])
+			// `isSubmitting` is deliberately not raised around these calls: the submit
+			// refuses to run while it is already set, so holding it made the button do
+			// nothing at all. The employee is passed explicitly because the order only
+			// takes one from its argument - a plain customer sale must never pick up
+			// whoever `selectedEmployee` happens to be holding.
+			const order = await createSalesOrder("Benefits", { employee })
+			const orderName = order ? order.name || order.message?.name : null
+
+			if (stockResult && orderName) {
+				await linkPosDocuments(orderName, stockResult.name)
+			}
+
+			// Carried on the order so the caller can name both documents; this is the
+			// field the link above writes anyway.
+			if (order) order.pos_stock_entry = stockResult?.name || null
+			return order
+		} catch (error) {
+			const msg = parseError(error)
+			showError(msg || __("Failed to record the employee issue"))
+			throw error
+		}
+	}
+
 	async function submitEmployeeLoan() {
 		if (invoiceItems.value.length === 0) {
 			showWarning(__("Cart is empty"))
@@ -410,7 +516,10 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		const loanAmount = grandTotal.value
 
 		try {
-			isSubmitting.value = true
+			// `isSubmitting` is left to the calls below, each of which raises and
+			// clears it around its own request. Holding it here blocked the Sales
+			// Order outright, since the submit refuses to run while it is set - and
+			// nothing cleared it in between once the profile stopped issuing stock.
 			const stockResult = await submitEmployeeIssue("Loan")
 
 			// Also create a Sales Order documenting the sale, against the fixed "Employee"
@@ -420,7 +529,9 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			setEmployee(employee)
 			setTargetDoctype("Sales Order")
 			setDeliveryDate(new Date().toISOString().split("T")[0])
-			const orderResult = await createSalesOrder("Loan")
+			// Passed explicitly: the order takes its employee from the argument, not
+			// from whatever `selectedEmployee` is holding
+			const orderResult = await createSalesOrder("Loan", { employee })
 			const orderName = orderResult ? (orderResult.name || orderResult.message?.name) : null
 
 			const loanResult = await employeeLoanResource.submit({
@@ -440,14 +551,12 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			const msg = parseError(error)
 			showError(msg || __("Failed to create employee loan"))
 			throw error
-		} finally {
-			isSubmitting.value = false
 		}
 	}
 
 	async function submitInvoice(posSaleType = null, { employee } = {}) {
 		if (saleType.value === "employee") {
-			return await submitEmployeeIssue(posSaleType)
+			return await submitEmployeeBenefits()
 		}
 
 		if (invoiceItems.value.length === 0) {
@@ -458,8 +567,8 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			showWarning(__("Please select a customer"))
 			return
 		}
-		if (customerType.value === "Room Customer" && !room.value) {
-			showWarning(__("Please select a Room"))
+		if (needsRoom.value) {
+			showWarning(__("Select the room this sale is charged to"))
 			return
 		}
 
@@ -510,10 +619,10 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		if (!selectedCustomer) {
 			setCustomerType("")
 			setRoom("")
-		} else if (!room.value) {
-			// Default to Guest Customer immediately; setRoom() will flip this to
-			// Room Customer automatically if/when a room gets picked.
-			setCustomerType("Guest Customer")
+		} else {
+			// The customer decides the type: picking the Room Customer makes this a
+			// room charge straight away, and checkout will then insist on a room.
+			setCustomerType(deriveCustomerType(selectedCustomer, room.value))
 		}
 	}
 
@@ -1919,6 +2028,11 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		room,
 		table,
 		customerType,
+		guestCount,
+		tableSession,
+		tableOpenedAt,
+		tableCashier,
+		tableOrder,
 		pendingItem,
 		pendingItemQty,
 		appliedOffers,
@@ -1944,6 +2058,11 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		setRoom,
 		setTable,
 		setCustomerType,
+		setGuestCount,
+		setTableSession,
+		setTableOpenedAt,
+		setTableCashier,
+		setTableOrder,
 		setDefaultCustomer,
 		setPendingItem,
 		clearPendingItem,
@@ -1979,11 +2098,14 @@ export const usePOSCartStore = defineStore("posCart", () => {
 
 		// Employee sale type
 		saleType,
+		needsRoom,
 		selectedEmployee,
 		setSaleType,
 		setEmployee,
 		submitEmployeeIssue,
+		submitEmployeeBenefits,
 		submitStockIssue,
+		createsStockEntry,
 		submitEmployeeLoan,
 		linkPosDocuments,
 		pendingEmployeeCashSale,

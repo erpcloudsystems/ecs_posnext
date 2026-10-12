@@ -3,8 +3,12 @@
 # For license information, please see license.txt
 
 from __future__ import unicode_literals
+
+import hmac
+
 import frappe
 from frappe import _
+from frappe.utils import cint
 from ecs_posnext.api.utilities import check_user_company
 from ecs_posnext.api.utilities import _parse_list_parameter
 
@@ -54,8 +58,14 @@ def get_pos_profile_data(pos_profile):
 	from ecs_posnext.api.items import get_item_groups
 	item_groups_with_hierarchy = get_item_groups(pos_profile)
 
+	# The Password fieldtype already hands out a placeholder rather than the
+	# stored secret, but the profile goes to every cashier's browser, so the field
+	# is dropped outright - the POS only ever needs to know that one is required.
+	profile_data = profile_doc.as_dict()
+	profile_data.pop("posa_edit_password", None)
+
 	return {
-		"pos_profile": profile_doc,
+		"pos_profile": profile_data,
 		"company": company_doc,
 		"pos_settings": pos_settings,
 		"item_groups_hierarchy": item_groups_with_hierarchy,  # NEW: includes child_groups
@@ -627,3 +637,81 @@ def delete_pos_profile(pos_profile):
 	"""
 	pos_profile = frappe.get_doc("POS Profile", pos_profile)
 	pos_profile.delete()
+
+# ==========================================
+# Check Edit Protection
+# ==========================================
+
+# A wrong password is cheap to try, so failures are counted and the door shuts
+# for a while. Successes are not counted - a busy shift makes many legitimate
+# edits, and rate limiting the endpoint itself would punish the honest case.
+MAX_EDIT_PASSWORD_FAILURES = 5
+EDIT_PASSWORD_LOCKOUT_SECONDS = 300
+
+
+def _edit_password_failure_key(pos_profile):
+	return f"posnext_edit_pw_fail:{frappe.session.user}:{pos_profile}"
+
+
+@frappe.whitelist()
+def verify_check_edit_password(pos_profile, password):
+	"""
+	Check the supervisor password that guards edits to an open check.
+
+	The password itself never leaves the server: the POS is told only whether the
+	profile requires one, and sends an attempt here to be judged.
+
+	Returns:
+		{"verified": True} on success, {"verified": False} on a wrong password.
+		Throws when the caller has no access to the profile or has failed too
+		often.
+	"""
+	if not pos_profile:
+		frappe.throw(_("POS Profile is required"))
+
+	if not frappe.db.exists("POS Profile User", {"parent": pos_profile, "user": frappe.session.user}):
+		frappe.throw(_("You don't have access to this POS Profile"))
+
+	cache = frappe.cache()
+	key = _edit_password_failure_key(pos_profile)
+	failures = cint(cache.get_value(key))
+
+	if failures >= MAX_EDIT_PASSWORD_FAILURES:
+		frappe.throw(
+			_("Too many wrong passwords. Try again in {0} minutes.").format(
+				EDIT_PASSWORD_LOCKOUT_SECONDS // 60
+			),
+			title=_("Locked"),
+		)
+
+	profile = frappe.get_doc("POS Profile", pos_profile)
+
+	if not profile.get("posa_require_edit_password"):
+		# Nothing to check. Answering "verified" keeps the POS working if the
+		# setting is switched off while a dialog happens to be open.
+		return {"verified": True, "required": False}
+
+	expected = profile.get_password("posa_edit_password", raise_exception=False)
+
+	if not expected:
+		# Protection is on but no password was ever set. Blocking here would leave
+		# the floor unable to correct a check at all, so the edit is allowed and
+		# the misconfiguration is recorded instead of hidden.
+		frappe.log_error(
+			f"POS Profile {pos_profile} requires a check edit password but none is set.",
+			"POS Next check edit password",
+		)
+		return {"verified": True, "required": False}
+
+	if hmac.compare_digest(str(expected), str(password or "")):
+		cache.delete_value(key)
+		return {"verified": True, "required": True}
+
+	# Expire from the first failure, so the window is a rolling lockout
+	cache.set_value(key, failures + 1, expires_in_sec=EDIT_PASSWORD_LOCKOUT_SECONDS)
+
+	return {
+		"verified": False,
+		"required": True,
+		"attempts_left": max(MAX_EDIT_PASSWORD_FAILURES - (failures + 1), 0),
+	}

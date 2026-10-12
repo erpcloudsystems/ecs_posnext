@@ -59,6 +59,13 @@
 									<h4 class="text-sm font-semibold text-gray-900">
 										{{ invoice.name }}
 									</h4>
+									<!-- This POS submits Sales Orders, so the list holds both kinds -->
+									<span
+										v-if="invoice.doctype === 'Sales Order'"
+										class="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-800"
+									>
+										{{ __('Sales Order') }}
+									</span>
 									<!-- Show Return badge (red) if it's a return invoice -->
 									<span
 										v-if="invoice.is_return"
@@ -185,60 +192,41 @@ const hasMore = ref(true)
 const showReturnDialog = ref(false)
 const selectedInvoiceForReturn = ref(null)
 
-// Track if we're loading more (appending) vs fresh load (replacing)
-const isLoadingMore = ref(false)
+/**
+ * How many rows to ask for. The endpoint takes a limit but no offset - it
+ * merges invoices and orders before trimming - so each "load more" re-reads
+ * the list one page wider and replaces it.
+ */
+function requestedLimit() {
+	return (page.value + 1) * pageSize
+}
 
 // Create resource for loading invoices
 const invoicesResource = createResource({
-	url: "frappe.client.get_list",
+	// Not frappe.client.get_list on Sales Invoice: this POS submits Sales Orders,
+	// so reading invoices alone showed an empty history. This endpoint returns
+	// both, already sorted together.
+	url: "ecs_posnext.api.invoices.get_invoices",
 	makeParams() {
 		return {
-			doctype: "Sales Invoice",
-			filters: {
-				is_pos: 1,
-				...(props.posProfile && { pos_profile: props.posProfile }),
-			},
-			fields: [
-				"name",
-				"customer",
-				"customer_name",
-				"posting_date",
-				"posting_time",
-				"grand_total",
-				"status",
-				"docstatus",
-				"is_return",
-			],
-			order_by: "modified desc",
-			start: page.value * pageSize,
-			page_length: pageSize,
+			pos_profile: props.posProfile,
+			limit: requestedLimit(),
 		}
 	},
 	auto: false,
 	onSuccess(data) {
-		if (data && Array.isArray(data)) {
-			const newInvoices = data.map((inv) => ({
-				...inv,
-				items_count: 0,
-			}))
+		if (!Array.isArray(data)) return
 
-			if (isLoadingMore.value) {
-				// Append to existing list
-				invoices.value = [...invoices.value, ...newInvoices]
-			} else {
-				// Replace the list
-				invoices.value = newInvoices
-			}
+		invoices.value = data.map((row) => ({
+			...row,
+			items_count: row.items?.length || 0,
+		}))
 
-			// Check if there are more results
-			hasMore.value = data.length === pageSize
-			isLoadingMore.value = false
-		}
+		hasMore.value = data.length >= requestedLimit()
 	},
 	onError(error) {
 		console.error("Error loading invoices:", error)
 		showError(__("Failed to load invoices"))
-		isLoadingMore.value = false
 	},
 })
 
@@ -247,6 +235,7 @@ watch(
 	(val) => {
 		show.value = val
 		if (val && props.posProfile) {
+			page.value = 0
 			invoicesResource.reload()
 		}
 	},
@@ -278,14 +267,12 @@ function loadInvoices() {
 	if (props.posProfile) {
 		// Reset to first page for fresh load
 		page.value = 0
-		isLoadingMore.value = false
 		invoicesResource.reload()
 	}
 }
 
 function loadMore() {
 	page.value++
-	isLoadingMore.value = true
 	invoicesResource.reload()
 }
 
@@ -306,7 +293,13 @@ function canCreateReturn(invoice) {
 	// 1. Invoice is submitted (docstatus === 1)
 	// 2. Not already a return invoice
 	// 3. Status is not "Credit Note Issued" (already has a return)
-	return invoice.docstatus === 1 && !invoice.is_return && invoice.status !== 'Credit Note Issued'
+	// 4. It is an invoice - the return flow has no Sales Order path
+	return (
+		invoice.docstatus === 1 &&
+		!invoice.is_return &&
+		invoice.status !== 'Credit Note Issued' &&
+		invoice.doctype !== 'Sales Order'
+	)
 }
 
 function openReturnModal(invoice) {

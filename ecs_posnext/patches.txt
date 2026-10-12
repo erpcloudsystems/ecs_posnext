@@ -6,3 +6,10 @@
 # Patches added in this section will be executed after doctypes are migrated
 ecs_posnext.patches.v1_7_0.reinstall_workspace
 ecs_posnext.patches.v1_15_0.add_posa_customer_type_field
+ecs_posnext.patches.v1_16_0.add_table_service_workspace_links
+ecs_posnext.patches.v1_17_0.add_sales_order_pos_fields
+ecs_posnext.patches.v1_18_0.add_pos_sales_detail_report_link
+ecs_posnext.patches.v1_19_0.add_check_edit_password_fields
+ecs_posnext.patches.v1_20_0.add_create_stock_entry_setting
+ecs_posnext.patches.v1_21_0.add_sales_order_table_fields
+ecs_posnext.patches.v1_22_0.require_room_for_room_customer

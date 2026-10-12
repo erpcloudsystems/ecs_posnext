@@ -347,12 +347,16 @@
 								</div>
 							</div>
 						</div>
-						<!-- Room (linked to Room doctype) - optional. Picking a room automatically -->
-						<!-- marks this as a Room Customer; leaving it blank keeps it a Guest -->
-						<!-- Customer. No separate type choice needed. -->
+						<!-- Room (linked to Room doctype). Required on the Room Customer, whose -->
+						<!-- sale is a charge to a guest folio and has nowhere to post without -->
+						<!-- one; optional otherwise, where picking a room is what marks the sale -->
+						<!-- as a room charge rather than a walk-in. -->
 						<div v-if="localSaleType === 'customer' && (effectiveCustomer || customerNameQuery.trim()) && effectiveCustomer?.name !== 'Employee'" class="mt-2">
 						<div class="flex items-center gap-1 mb-1">
-							<span class="text-xs font-medium text-amber-700">{{ __('Room') }} <span class="text-gray-400 font-normal">({{ __('optional') }})</span></span>
+							<span class="text-xs font-medium text-amber-700">{{ __('Room') }}
+								<span v-if="roomRequired" class="text-red-500 font-normal">({{ __('required') }})</span>
+								<span v-else class="text-gray-400 font-normal">({{ __('optional') }})</span>
+							</span>
 						</div>
 						<div class="relative">
 							<!-- Selected room badge -->
@@ -385,6 +389,10 @@
 								/>
 								<div v-if="roomDropdownOpen && roomResults.length > 0"
 									class="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto border border-amber-200 rounded-lg bg-white shadow-lg">
+									<p v-if="roomsAreStale"
+										class="px-3 py-1.5 text-[10px] text-amber-700 bg-amber-50 border-b border-amber-200">
+										{{ __("Protel unreachable - showing the last known in-house list") }}
+									</p>
 									<div v-for="room in roomResults" :key="room.name"
 										@mousedown.prevent="selectRoom(room)"
 										class="flex items-center gap-2 px-3 py-2 hover:bg-amber-50 cursor-pointer border-b border-amber-100 last:border-b-0">
@@ -392,7 +400,7 @@
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
 										</svg>
 										<span class="text-sm font-medium text-gray-900">{{ room.room }}</span>
-										<span v-if="room.room_category" class="text-xs text-gray-500 ms-auto">{{ room.room_category }}</span>
+										<span v-if="room.guest_name" class="text-xs text-gray-600 ms-auto truncate max-w-[55%]">{{ room.guest_name }}</span>
 									</div>
 								</div>
 							</div>
@@ -918,7 +926,7 @@
 
 							<!-- Complete Payment Button -->
 							<button
-								v-if="(remainingAmount === 0 || (applyWriteOff && canWriteOff)) && totalPaid > 0"
+								v-if="(remainingAmount === 0 || (applyWriteOff && canWriteOff)) && (totalPaid > 0 || nothingToCollect)"
 								@click="completePayment"
 								:disabled="isSubmitting || !canComplete || isCreatingCustomer"
 								:class="[
@@ -1047,6 +1055,7 @@
 
 <script setup>
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import { ROOM_CUSTOMER } from "@/composables/useInvoice"
 import {
 	DEFAULT_CURRENCY,
 	formatCurrency as formatCurrencyUtil,
@@ -1215,6 +1224,8 @@ const localRoom = ref("")
 const roomSearch = ref("")
 const roomDropdownOpen = ref(false)
 const roomResults = ref([])
+// True when Protel could not be reached and the cached list is being shown
+const roomsAreStale = ref(false)
 let _roomSearchTimer = null
 
 // Employee state
@@ -1265,6 +1276,10 @@ const effectiveCustomer = computed(() => {
 	if (selectedCustomer.value?.name) return selectedCustomer.value
 	return null
 })
+
+// A sale on the Room Customer is a charge to a guest's folio, so the room is the
+// only thing that says whose - the sale cannot be posted without it.
+const roomRequired = computed(() => effectiveCustomer.value?.name === ROOM_CUSTOMER)
 
 // Column refs for height matching
 const rightColumnRef = ref(null)
@@ -1802,17 +1817,22 @@ function handleCustomerMobileBlur() {
 // ===========================================
 async function _searchRooms(query) {
 	try {
-		const filters = query && query.length >= 1
-			? [["room", "like", `%${query}%`], ["is_active", "=", 1]]
-			: [["is_active", "=", 1]]
-		const results = await call("frappe.client.get_list", {
-			doctype: "Room",
-			fields: ["name", "room", "room_category"],
-			filters,
-			limit_page_length: 0,
-			order_by: "room asc",
-		})
-		roomResults.value = results || []
+		// Straight to Protel rather than the synced `is_active` flag: that only
+		// refreshes every 15 minutes, which is too slow in both directions - a guest
+		// who just checked in could not be charged, and one who just checked out
+		// still could. Falls back to the last synced list if Protel is unreachable,
+		// so the POS keeps working through an outage.
+		const result = await call(
+			"royal.royal.doctype.protel_settings.protel_settings.search_in_house_rooms",
+			{ search_term: query || null, limit: 100 },
+		)
+		roomResults.value = (result?.rooms || []).map((r) => ({
+			name: r.room,
+			room: r.room,
+			// Shown beside the number so the waiter can check it against the guest
+			guest_name: r.guest_name,
+		}))
+		roomsAreStale.value = Boolean(result?.stale)
 	} catch (err) {
 		log.error("[PaymentDialog] Room search error:", err)
 		roomResults.value = []
@@ -2191,6 +2211,10 @@ const isExactAmountValid = computed(() => {
 	return totalPaid.value <= roundCurrency(props.grandTotal)
 })
 
+// A sale with nothing left to charge for: no tender is taken and none is waited
+// on. Kept separate from "fully paid", which means money actually came in.
+const nothingToCollect = computed(() => roundCurrency(props.grandTotal) === 0)
+
 const canComplete = computed(() => {
 	// Check customer (required when no cart/profile customer and nothing entered)
 	if (customerRequired.value && !customerNameQuery.value.trim() && !selectedCustomer.value) {
@@ -2204,6 +2228,15 @@ const canComplete = computed(() => {
 	// Check exact amount validation
 	if (!isExactAmountValid.value) {
 		return false
+	}
+
+	// Nothing to collect. A sale that totals zero - a breakfast buffet included in
+	// the room rate, a complimentary item - is settled the moment it is rung up.
+	// There is no tender to take, and `quickAddPayment` refuses to add one while
+	// nothing is owed, so insisting on a payment entry below left the cashier
+	// looking at "Fully Paid" next to a dead Complete Payment button.
+	if (nothingToCollect.value) {
+		return true
 	}
 
 	// If partial payment is allowed, can complete with any amount > 0

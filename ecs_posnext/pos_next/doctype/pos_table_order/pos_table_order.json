@@ -1,0 +1,309 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-09-03 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "table",
+  "table_session",
+  "guest_count",
+  "check_number",
+  "room",
+  "split_from",
+  "column_break_1",
+  "status",
+  "pos_profile",
+  "pos_opening_shift",
+  "cashier",
+  "last_order_by",
+  "synced_by",
+  "section_break_customer",
+  "customer",
+  "column_break_2",
+  "customer_name",
+  "section_break_items",
+  "items",
+  "section_break_totals",
+  "total_qty",
+  "column_break_3",
+  "total_amount",
+  "section_break_timing",
+  "ordered_at",
+  "column_break_4",
+  "last_order_at",
+  "section_break_reference",
+  "sales_invoice",
+  "column_break_5",
+  "external_reference",
+  "section_break_payload",
+  "cart_payload"
+ ],
+ "fields": [
+  {
+   "default": "POS-TO-.YYYY.-",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "no_copy": 1,
+   "options": "POS-TO-.YYYY.-",
+   "print_hide": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "table",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Table",
+   "options": "Table",
+   "reqd": 1
+  },
+  {
+   "fieldname": "table_session",
+   "fieldtype": "Link",
+   "label": "Table Session",
+   "options": "POS Table Session",
+   "reqd": 1
+  },
+  {
+   "fieldname": "guest_count",
+   "fieldtype": "Int",
+   "label": "Guest Count",
+   "non_negative": 1
+  },
+  {
+   "default": "0",
+   "description": "0 for a table's single working order. 1..N once the bill is split into separate checks, so each check is its own payable unit.",
+   "fieldname": "check_number",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Check No",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Hotel room this check is charged to. Each split check can go to a different room, which is what lets them be posted separately.",
+   "fieldname": "room",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Room",
+   "options": "Room"
+  },
+  {
+   "description": "The order this check was split out of.",
+   "fieldname": "split_from",
+   "fieldtype": "Link",
+   "label": "Split From",
+   "options": "POS Table Order",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Open",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Open\nSettled\nCancelled"
+  },
+  {
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "POS Profile",
+   "options": "POS Profile"
+  },
+  {
+   "fieldname": "pos_opening_shift",
+   "fieldtype": "Link",
+   "label": "POS Opening Shift",
+   "options": "POS Opening Shift"
+  },
+  {
+   "fieldname": "cashier",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Cashier",
+   "options": "User"
+  },
+  {
+   "description": "The user who last added to this order. Cashier stays as the user who opened it, so a second waiter adding a round does not erase the first.",
+   "fieldname": "last_order_by",
+   "fieldtype": "Link",
+   "label": "Last Order By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "The user whose terminal uploaded this order, when it was held offline. Kept alongside Cashier so attribution stays auditable.",
+   "fieldname": "synced_by",
+   "fieldtype": "Link",
+   "label": "Synced By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_customer",
+   "fieldtype": "Section Break",
+   "label": "Customer"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "label": "Customer Name"
+  },
+  {
+   "fieldname": "section_break_items",
+   "fieldtype": "Section Break",
+   "label": "Items"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "POS Table Order Item"
+  },
+  {
+   "fieldname": "section_break_totals",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "total_qty",
+   "fieldtype": "Float",
+   "label": "Total Quantity",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_timing",
+   "fieldtype": "Section Break",
+   "label": "Timing"
+  },
+  {
+   "description": "When the first item was ordered on this table",
+   "fieldname": "ordered_at",
+   "fieldtype": "Datetime",
+   "label": "First Ordered At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "When the order was last added to - drives the idle timer on the tables dashboard",
+   "fieldname": "last_order_at",
+   "fieldtype": "Datetime",
+   "label": "Last Order At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_reference",
+   "fieldtype": "Section Break",
+   "label": "Reference"
+  },
+  {
+   "description": "Set only when the order is also recorded as a Sales Invoice in ERPNext",
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "label": "Sales Invoice",
+   "options": "Sales Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Reference returned by the external system (e.g. Protel) this order was posted to",
+   "fieldname": "external_reference",
+   "fieldtype": "Data",
+   "label": "External Reference"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_payload",
+   "fieldtype": "Section Break",
+   "label": "Cart Payload"
+  },
+  {
+   "description": "Full POS cart as JSON. The items table above is for reading and reporting; this is what the POS restores when the order is resumed, so offers, batches, serials and UOM pricing come back exactly as they were.",
+   "fieldname": "cart_payload",
+   "fieldtype": "Long Text",
+   "label": "Cart Payload",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POS Next",
+ "name": "POS Table Order",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "POSNext Cashier",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

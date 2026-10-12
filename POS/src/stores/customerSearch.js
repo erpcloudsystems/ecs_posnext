@@ -1,6 +1,5 @@
 import { call } from "@/utils/apiWrapper"
 import { isOffline } from "@/utils/offline"
-import { offlineWorker } from "@/utils/offline/workerClient"
 import { logger } from "@/utils/logger"
 import { useRealtimeCustomers } from "@/composables/useRealtimeCustomers"
 import { defineStore } from "pinia"
@@ -22,8 +21,29 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 	const resultCache = ref(new Map())
 
 	// Sync state
-	const CUSTOMERS_SYNC_KEY = "pos_customers_last_sync"
 	let serverDataFresh = false
+
+	// ---------------------------------------------------------------------------
+	// Server-side search
+	//
+	// Searching used to scan every customer held in memory, which meant the whole
+	// customer list had to be downloaded first. The server now does the matching
+	// and returns a small page; the local ranking below still orders that page, so
+	// results keep their quality without the list ever being loaded in full.
+	// ---------------------------------------------------------------------------
+	const SEARCH_DEBOUNCE_MS = 250
+	const SEARCH_LIMIT = 50
+	// The list shown before anything is typed - recent and frequent names come
+	// first, so this only needs to be long enough to be useful, not complete.
+	const INITIAL_LIMIT = 50
+
+	// Remembered from loadAllCustomers so a search can scope itself to the same
+	// customer groups the profile allows.
+	const currentPosProfile = ref(null)
+	const serverResults = ref([])
+	const searching = ref(false)
+	let searchTimer = null
+	let searchSeq = 0
 
 	// Ultra-fast search helper - optimized for speed
 	function quickMatch(search, customer) {
@@ -103,20 +123,18 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 			return cached
 		}
 
-		// Check result cache first
-		const cacheKey = term.toLowerCase()
-		const cachedResult = resultCache.value.get(cacheKey)
-		if (cachedResult) {
-			return cachedResult
-		}
+		// The server already narrowed the list; rank that small page locally so the
+		// ordering stays as good as it was, without ever scanning every customer.
+		// Falls back to whatever is in memory when a search has not returned yet.
+		const pool = serverResults.value.length > 0 ? serverResults.value : allCustomers.value
 
-		// Ultra-fast search with early exit
+		// Ranking a server page is cheap, and caching it would go stale as soon as
+		// the same term returns different rows, so only the no-term list is cached.
 		const results = []
 		const maxResults = 50
-		let scanned = 0
 
 		// First pass: Get exact and high-scoring matches ONLY
-		for (const cust of allCustomers.value) {
+		for (const cust of pool) {
 			scanned++
 			const score = quickMatch(term, cust)
 
@@ -130,8 +148,8 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 		// Second pass: Fill remaining slots with lower scores if needed
 		if (results.length < maxResults) {
 			const highResultNames = new Set(results.map((r) => r.customer.name))
-			for (let i = 0; i < allCustomers.value.length; i++) {
-				const cust = allCustomers.value[i]
+			for (let i = 0; i < pool.length; i++) {
+				const cust = pool[i]
 				if (highResultNames.has(cust.name)) continue
 				const score = quickMatch(term, cust)
 
@@ -144,18 +162,7 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 
 		// Sort ONLY what we found (much faster than sorting everything)
 		results.sort((a, b) => b.score - a.score)
-		const final = results.map((r) => r.customer)
-
-		// Cache this result for instant retrieval
-		resultCache.value.set(cacheKey, final)
-
-		// Limit cache size to prevent memory bloat
-		if (resultCache.value.size > 100) {
-			const firstKey = resultCache.value.keys().next().value
-			resultCache.value.delete(firstKey)
-		}
-
-		return final
+		return results.map((r) => r.customer)
 	})
 
 	// Recommendations based on search patterns
@@ -199,109 +206,74 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 	})
 
 	// Actions
+	/**
+	 * Load the short list shown before the cashier types anything.
+	 *
+	 * Customers are no longer mirrored into IndexedDB. The whole list used to be
+	 * downloaded and cached so it could be searched in the browser; searching now
+	 * happens on the server, which makes the copy pure cost - a slow first load,
+	 * and a second source of truth that goes stale the moment anyone edits a
+	 * customer elsewhere.
+	 *
+	 * The trade is deliberate: with no local copy there is no customer list while
+	 * offline.
+	 */
 	async function loadAllCustomers(posProfile, forceReload = false) {
 		if (!posProfile) {
 			return
 		}
 
-		// Skip if we already have fresh server data this session
+		currentPosProfile.value = posProfile
+
 		if (!forceReload && serverDataFresh && allCustomers.value.length > 0) {
+			return
+		}
+
+		if (isOffline()) {
+			// Nothing to fall back to - say so rather than showing a stale list
+			log.warn("Offline: the customer list is server-side only")
+			allCustomers.value = []
 			return
 		}
 
 		loading.value = true
 		try {
-			// Step 1: Load from IndexedDB cache (instant display)
-			const cachedCustomers = await offlineWorker.searchCachedCustomers(
-				"",
-				0,
-			)
+			const response = await call("ecs_posnext.api.customers.get_customers", {
+				pos_profile: posProfile,
+				search_term: "",
+				start: 0,
+				limit: INITIAL_LIMIT,
+			})
+			const rows = response?.message || response || []
 
-			if (cachedCustomers && cachedCustomers.length > 0) {
-				allCustomers.value = cachedCustomers
-				log.debug(`Loaded ${cachedCustomers.length} customers from cache`)
-			}
+			allCustomers.value = rows.filter((c) => !c.disabled)
+			serverDataFresh = true
 
-			// Step 2: If online, fetch delta from server
-			if (!isOffline()) {
-				const lastSync = forceReload ? null : localStorage.getItem(CUSTOMERS_SYNC_KEY)
-
-				const response = await call("ecs_posnext.api.customers.get_customers", {
-					pos_profile: posProfile,
-					search_term: "",
-					start: 0,
-					limit: 0,
-					modified_since: lastSync,
-				})
-				const delta = response?.message || response || []
-
-				if (delta.length > 0) {
-					const active = delta.filter((c) => !c.disabled)
-					const disabled = delta.filter((c) => c.disabled)
-
-					// Merge active customers into memory
-					const existingMap = new Map(allCustomers.value.map((c) => [c.name, c]))
-					for (const c of active) {
-						existingMap.set(c.name, c)
-					}
-					// Remove disabled customers from memory
-					for (const c of disabled) {
-						existingMap.delete(c.name)
-					}
-					allCustomers.value = Array.from(existingMap.values())
-
-					// Persist active to IndexedDB
-					if (active.length) {
-						await offlineWorker.cacheCustomers(active)
-					}
-					// Remove disabled from IndexedDB
-					if (disabled.length) {
-						await offlineWorker.deleteCustomers(disabled.map((c) => c.name))
-					}
-
-					log.debug(`Synced ${active.length} active, removed ${disabled.length} disabled customers`)
-				}
-
-				serverDataFresh = true
-				localStorage.setItem(CUSTOMERS_SYNC_KEY, new Date().toISOString())
-			} else if (allCustomers.value.length === 0) {
-				// Offline and cache is empty
-				log.warn("Offline mode: No cached customers available")
-				allCustomers.value = []
-			}
-
-			// Clear caches when new data is loaded
 			searchIndex.value.clear()
 			resultCache.value.clear()
 		} catch (error) {
 			log.error("Error loading customers:", error)
-			if (allCustomers.value.length === 0) {
-				allCustomers.value = []
-			}
+			allCustomers.value = []
 		} finally {
 			loading.value = false
 		}
 	}
 
-	async function addCustomerToCache(customer) {
-		try {
-			// Add to local array (at the beginning for visibility)
-			const existingWithoutNew = allCustomers.value.filter(
-				(cust) => cust.name !== customer.name,
-			)
-			allCustomers.value = [customer, ...existingWithoutNew]
+	/**
+	 * Put a customer at the top of the in-memory list.
+	 *
+	 * In memory only - a just-created customer needs to be pickable straight away
+	 * without waiting for a round trip, but the server stays the source of truth.
+	 */
+	function addCustomerToCache(customer) {
+		allCustomers.value = [
+			customer,
+			...allCustomers.value.filter((cust) => cust.name !== customer.name),
+		]
 
-			// Cache in worker (IndexedDB)
-			await offlineWorker.cacheCustomers([customer])
-
-			// Clear BOTH caches to ensure new customer appears in search
-			searchIndex.value.clear()
-			resultCache.value.clear()
-
-			log.success(`New customer cached: ${customer.customer_name}`)
-		} catch (error) {
-			log.error("Error caching newly created customer:", error)
-		}
+		// Clear BOTH caches so the new customer shows up in search
+		searchIndex.value.clear()
+		resultCache.value.clear()
 	}
 
 	// Real-time Push Integration
@@ -310,11 +282,9 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 		const { name, action, customer_name, mobile_no, email_id, disabled } = data
 		console.log("Customer update via real-time:", data)
 		if (action === "delete" || disabled) {
-			// Remove from memory
+			// Memory only - there is no local copy to keep in step any more
 			allCustomers.value = allCustomers.value.filter((c) => c.name !== name)
-
-			// Remove from IndexedDB
-			await offlineWorker.deleteCustomers([name])
+			serverResults.value = serverResults.value.filter((c) => c.name !== name)
 
 			// Clear search caches
 			searchIndex.value.clear()
@@ -330,18 +300,59 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 				email_id,
 				disabled: !!disabled,
 			}
-			await addCustomerToCache(customer)
+			addCustomerToCache(customer)
 		}
 	})
 
 	function setSearchTerm(term) {
 		searchTerm.value = term
 		selectedIndex.value = -1
+
+		clearTimeout(searchTimer)
+
+		const trimmed = (term || "").trim()
+		if (!trimmed) {
+			serverResults.value = []
+			searching.value = false
+			return
+		}
+
+		searching.value = true
+		searchTimer = setTimeout(() => runSearch(trimmed), SEARCH_DEBOUNCE_MS)
+	}
+
+	async function runSearch(term) {
+		// Out-of-order responses would otherwise overwrite a newer search with an
+		// older one's results.
+		const seq = ++searchSeq
+
+		try {
+			const response = await call("ecs_posnext.api.customers.get_customers", {
+				pos_profile: currentPosProfile.value || null,
+				search_term: term,
+				start: 0,
+				limit: SEARCH_LIMIT,
+			})
+			const rows = response?.message || response || []
+
+			if (seq !== searchSeq) return
+			serverResults.value = (rows || []).filter((c) => !c.disabled)
+		} catch (error) {
+			log.error("Customer search failed", error)
+			if (seq !== searchSeq) return
+			// Fall back to whatever is already in memory rather than showing nothing
+			serverResults.value = allCustomers.value
+		} finally {
+			if (seq === searchSeq) searching.value = false
+		}
 	}
 
 	function clearSearch() {
 		searchTerm.value = ""
 		selectedIndex.value = -1
+		serverResults.value = []
+		searching.value = false
+		clearTimeout(searchTimer)
 		// Don't clear resultCache on empty search - it's beneficial
 	}
 
@@ -409,6 +420,7 @@ export const useCustomerSearchStore = defineStore("customerSearch", () => {
 
 		// Getters
 		filteredCustomers,
+		searching,
 		recommendations,
 
 		// Actions

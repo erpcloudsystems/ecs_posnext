@@ -9,6 +9,7 @@ from frappe import _
 from frappe.utils import flt, cint, nowdate, nowtime, get_datetime, cstr
 from erpnext.stock.doctype.batch.batch import get_batch_qty, get_batch_no
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import get_bank_cash_account
+from erpnext.controllers.accounts_controller import get_taxes_and_charges
 
 
 # ==========================================
@@ -24,6 +25,7 @@ FIELD_ALLOW_USER_TO_EDIT_RATE = "allow_user_to_edit_rate"
 FIELD_MAX_DISCOUNT_ALLOWED = "max_discount_allowed"
 FIELD_DISABLE_ROUNDED_TOTAL = "disable_rounded_total"
 FIELD_ALLOW_NEGATIVE_STOCK = "allow_negative_stock"
+FIELD_TAX_INCLUSIVE = "tax_inclusive"
 
 # Doctypes
 DOCTYPE_SALES_INVOICE = "Sales Invoice"
@@ -741,6 +743,87 @@ def validate_return_items(original_invoice_name, return_items, doctype="Sales In
 # ==========================================
 
 
+def _set_sales_order_pos_payments(order_doc, payments):
+    """
+    Record how a POS Sales Order was paid, per mode of payment.
+
+    Kept on the order rather than in a separate ledger because that is where the
+    shift closing now reads from, and it means the money and the sale can never
+    drift apart - they are saved in one transaction.
+    """
+    if not order_doc.meta.has_field("posa_payments"):
+        # The custom field patch has not run yet; the sale must still go through
+        return
+
+    order_doc.set("posa_payments", [])
+
+    for row in payments or []:
+        if not isinstance(row, dict):
+            continue
+        mode = row.get("mode_of_payment")
+        amount = flt(row.get("amount"))
+        if not mode or not amount:
+            continue
+
+        order_doc.append("posa_payments", {
+            "mode_of_payment": mode,
+            "type": row.get("type"),
+            "amount": amount,
+            # Company currency is what the drawer is counted in
+            "base_amount": amount * flt(order_doc.get("conversion_rate") or 1),
+        })
+
+
+def _apply_pos_profile_taxes(invoice_doc, pos_profile_doc):
+    """
+    Put the POS Profile's tax template on the sale before totals are worked out.
+
+    The POS shows the cashier a tax figure taken from this very template (see
+    `pos_profile.get_taxes`), but the payload it submits carries no taxes at all.
+    A Sales Invoice still ends up with them because ERPNext reads `pos_profile`
+    off the document - Sales Order has no such field, so every order was saved
+    without the tax the cashier had just been shown, and its grand total came out
+    short by exactly that amount.
+
+    Whether the price already includes the tax is decided by this profile's
+    `tax_inclusive` POS Setting, not by the template. The POS reads that same
+    setting to work out what to show and what rate to send, so letting the
+    template disagree would put the screen and the document on different
+    arithmetic - the one thing this is here to prevent.
+
+    Anything the document already carries wins: a return, or a re-save of a
+    document that was priced earlier, must not be re-templated underneath.
+    """
+    if not pos_profile_doc:
+        return
+
+    if not invoice_doc.meta.get_field("taxes"):
+        return
+
+    if invoice_doc.get("taxes"):
+        return
+
+    template = pos_profile_doc.get("taxes_and_charges")
+    if not template:
+        return
+
+    # POS Settings is one record per profile here, not a Single
+    tax_inclusive = cint(
+        frappe.db.get_value(
+            DOCTYPE_POS_SETTINGS, {"pos_profile": pos_profile_doc.name}, FIELD_TAX_INCLUSIVE
+        )
+    )
+
+    invoice_doc.taxes_and_charges = template
+
+    for row in get_taxes_and_charges("Sales Taxes and Charges Template", template) or []:
+        row = dict(row)
+        # Inclusive: the POS sends the gross rate and ERPNext takes the tax out of
+        # it. Exclusive: the rate is net and the tax goes on top.
+        row["included_in_print_rate"] = 1 if tax_inclusive else 0
+        invoice_doc.append("taxes", row)
+
+
 @frappe.whitelist()
 def update_invoice(data):
     """Create or update invoice draft (Step 1)."""
@@ -762,6 +845,12 @@ def update_invoice(data):
             invoice_doc.update(data)
         else:
             invoice_doc = frappe.get_doc(data)
+
+        # A Sales Order has no payments table of its own, so the breakdown the POS
+        # sends would be dropped on arrival - which is exactly why Close Shift had
+        # nothing to total. Mirror it into the custom table the closing reads.
+        if doctype == "Sales Order":
+            _set_sales_order_pos_payments(invoice_doc, data.get("payments"))
 
         pos_profile_doc = None
         if pos_profile:
@@ -973,6 +1062,10 @@ def update_invoice(data):
             disable_rounded = cint(pos_settings_cache.get(FIELD_DISABLE_ROUNDED_TOTAL))
 
         invoice_doc.disable_rounded_total = disable_rounded
+
+        # The cashier was shown tax from the profile's template; the document has
+        # to carry it, or the total collected and the total owed disagree.
+        _apply_pos_profile_taxes(invoice_doc, pos_profile_doc)
 
         # Populate missing fields (company, currency, accounts, etc.)
         invoice_doc.set_missing_values()
@@ -1269,6 +1362,36 @@ def check_offline_invoice_synced(offline_id):
     return result
 
 
+def _settle_table_for_invoice(table_session, table_order, document_name):
+    """
+    Settle the paid check and close its table once the sale has gone through.
+
+    Kept deliberately forgiving: every failure is logged and swallowed, because
+    the sale is already submitted by the time this runs and a bookkeeping problem
+    must never surface as a failed checkout.
+    """
+    try:
+        from ecs_posnext.api.table_orders import settle_table_order
+        from ecs_posnext.api.table_sessions import close_table_session
+
+        settled = settle_table_order(
+            order=table_order or None,
+            table_session=None if table_order else table_session,
+            sales_invoice=document_name if frappe.db.exists("Sales Invoice", document_name) else None,
+        )
+
+        # A split bill keeps the table open until every check is paid
+        if cint(settled.get("remaining_open_checks")):
+            return
+
+        close_table_session(session=table_session)
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            f"POS: could not close table session {table_session} for {document_name}",
+        )
+
+
 @frappe.whitelist()
 def submit_invoice(invoice=None, data=None):
     """Submit the invoice (Step 2)."""
@@ -1553,6 +1676,22 @@ def submit_invoice(invoice=None, data=None):
                     indicator="orange"
                 )
 
+        # ====================================================================
+        # TABLE SERVICE: settle and free the table
+        # ====================================================================
+        # Done here, in the same call that submits the sale, rather than by a
+        # follow-up request from the POS: a separate call can be missed (dropped
+        # connection, closed tab, an early return in the payment handler) and the
+        # table then stays occupied with its bill already paid. Never raises - the
+        # sale is already submitted and must not be failed over bookkeeping.
+        table_session = invoice.get("pos_table_session") or data.get("pos_table_session")
+        if table_session:
+            _settle_table_for_invoice(
+                table_session,
+                invoice.get("pos_table_order") or data.get("pos_table_order"),
+                invoice_doc.name,
+            )
+
         # Log manual rate edits for audit trail (only after successful submission)
         if doctype == DOCTYPE_SALES_INVOICE:
             incoming_items = invoice.get("items") or []
@@ -1600,30 +1739,114 @@ def submit_invoice(invoice=None, data=None):
 
 
 @frappe.whitelist()
-def get_invoice(invoice_name):
+def get_invoice(invoice_name, doctype=None):
 	"""
-	Get a single invoice with all details for POS.
+	Get a single sale with all details for POS.
+
+	Handles both doctypes: this POS submits Sales Orders, while older data and
+	other profiles hold Sales Invoices, and the history list shows them together.
 
 	Args:
-		invoice_name: Sales Invoice name
+		invoice_name: Sales Invoice or Sales Order name
+		doctype: Which one, when the caller knows. Detected from the record
+			otherwise, so an older caller passing only a name still works.
 
 	Returns:
-		Complete invoice document with items and payments
+		Complete document with items and payments
 	"""
 	if not invoice_name:
 		frappe.throw(_("Invoice name is required"))
 
-	if not frappe.db.exists("Sales Invoice", invoice_name):
+	if doctype not in ("Sales Invoice", "Sales Order"):
+		doctype = None
+
+	if not doctype:
+		for candidate in ("Sales Invoice", "Sales Order"):
+			if frappe.db.exists(candidate, invoice_name):
+				doctype = candidate
+				break
+
+	if not doctype:
 		frappe.throw(_("Invoice {0} does not exist").format(invoice_name))
 
 	# Check permissions
-	if not frappe.has_permission("Sales Invoice", "read", invoice_name):
+	if not frappe.has_permission(doctype, "read", invoice_name):
 		frappe.throw(_("You don't have permission to view this invoice"))
 
-	# Get invoice document
-	invoice = frappe.get_doc("Sales Invoice", invoice_name)
+	invoice = frappe.get_doc(doctype, invoice_name)
 
 	return invoice.as_dict()
+
+
+def _get_pos_sales_orders(pos_profile, limit):
+    """
+    This POS profile's submitted Sales Orders, shaped like the invoice rows the
+    history list already renders.
+
+    Sales Order has no `posting_time`, `paid_amount` or `outstanding_amount`, so
+    those are derived: the time from `creation`, and what was paid from the
+    `posa_payments` breakdown the POS now records on each order.
+    """
+    # Sales Order has no `pos_profile` column of its own (Sales Invoice does), so
+    # it is scoped through the shift it was rung up in. Orders from before that
+    # field existed carry no shift and are left out - there is nothing to
+    # attribute them to.
+    if not frappe.get_meta("Sales Order").has_field("posa_pos_opening_shift"):
+        return []
+
+    orders = frappe.db.sql("""
+        SELECT
+            so.name, so.customer, so.customer_name, so.transaction_date,
+            so.grand_total, so.status, so.docstatus, so.creation
+        FROM `tabSales Order` so
+        INNER JOIN `tabPOS Opening Shift` os ON os.name = so.posa_pos_opening_shift
+        WHERE os.pos_profile = %(pos_profile)s AND so.docstatus = 1
+        ORDER BY so.transaction_date DESC, so.creation DESC
+        LIMIT %(limit)s
+    """, {"pos_profile": pos_profile, "limit": cint(limit)}, as_dict=True)
+
+    if not orders:
+        return []
+
+    paid_by_order = {}
+    if frappe.get_meta("Sales Order").has_field("posa_payments"):
+        for row in frappe.get_all(
+            "POS Order Payment",
+            filters={"parent": ["in", [o.name for o in orders]], "parenttype": "Sales Order"},
+            fields=["parent", "amount", "base_amount"],
+        ):
+            paid_by_order[row.parent] = paid_by_order.get(row.parent, 0) + (
+                flt(row.base_amount) or flt(row.amount)
+            )
+
+    rows = []
+    for order in orders:
+        paid = flt(paid_by_order.get(order.name))
+        rows.append(frappe._dict({
+            "doctype": "Sales Order",
+            "name": order.name,
+            "customer": order.customer,
+            "customer_name": order.customer_name,
+            "posting_date": order.transaction_date,
+            "posting_time": order.creation.strftime("%H:%M:%S") if order.creation else None,
+            "grand_total": flt(order.grand_total),
+            "paid_amount": paid,
+            "outstanding_amount": flt(order.grand_total) - paid,
+            "status": order.status,
+            "docstatus": order.docstatus,
+            # Sales Orders are never returns in this flow; the return path works on
+            # invoices, and saying otherwise would offer a return that cannot run.
+            "is_return": 0,
+            "return_against": None,
+            "items": frappe.get_all(
+                "Sales Order Item",
+                filters={"parent": order.name},
+                fields=["item_code", "item_name", "qty", "rate", "amount"],
+                order_by="idx",
+            ),
+        }))
+
+    return rows
 
 
 @frappe.whitelist()
@@ -1680,8 +1903,24 @@ def get_invoices(pos_profile, limit=100):
 		"limit": limit
 	}, as_dict=True)
 
+	for invoice in invoices:
+		invoice["doctype"] = "Sales Invoice"
+
+	# This POS submits Sales Orders, not Sales Invoices, so history read from
+	# invoices alone comes back empty. Both are returned so a profile that does
+	# create invoices keeps its history too.
+	invoices.extend(_get_pos_sales_orders(pos_profile, limit))
+
+	invoices.sort(
+		key=lambda row: (str(row.get("posting_date") or ""), str(row.get("posting_time") or "")),
+		reverse=True,
+	)
+	invoices = invoices[: cint(limit)]
+
 	# Load items for each invoice for filtering purposes
 	for invoice in invoices:
+		if invoice.get("doctype") == "Sales Order":
+			continue
 		items = frappe.db.sql("""
 			SELECT
 				item_code,
@@ -3141,6 +3380,91 @@ def get_item_valuation_rate(item_code, warehouse):
     return flt(rate) if rate else 0
 
 
+# A bundle holding a bundle is legitimate; a bundle holding itself is not.
+MAX_BUNDLE_DEPTH = 5
+
+
+def _get_uom_conversion_factor(item_code, uom):
+    """Stock units per one `uom` of the item. 1 when it is already the stock UOM."""
+    if not uom:
+        return 1
+
+    stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
+    if not stock_uom or uom == stock_uom:
+        return 1
+
+    factor = frappe.db.get_value(
+        "UOM Conversion Detail", {"parent": item_code, "uom": uom}, "conversion_factor"
+    )
+    return flt(factor) or 1
+
+
+def _resolve_stock_issue_lines(item_code, qty, uom, warehouse, conversion_factor=None, depth=0, seen=None):
+    """
+    Flatten one sold line into the lines a Material Issue can actually move.
+
+    A Product Bundle is normally a non-stock item, so issuing the bundle itself
+    fails ERPNext's "{0} is not a stock Item" validation. What physically leaves
+    the store is the bundle's components, so those are what get issued.
+
+    Quantities multiply through: 2 of a bundle holding 3 of a component issues 6.
+    Components are resolved recursively, so a bundle inside a bundle also works.
+
+    Returns:
+        list[dict]: {item_code, qty, uom, warehouse}, every item_code a stock item.
+    """
+    if seen is None:
+        seen = set()
+
+    if not item_code:
+        return []
+
+    meta = frappe.db.get_value(
+        "Item", item_code, ["is_stock_item", "stock_uom"], as_dict=True
+    )
+    if not meta:
+        frappe.throw(_("Item {0} does not exist").format(item_code))
+
+    if cint(meta.is_stock_item):
+        return [{
+            "item_code": item_code,
+            "qty": flt(qty),
+            "uom": uom or meta.stock_uom,
+            "warehouse": warehouse,
+        }]
+
+    # Not a stock item. The only thing that can leave a warehouse is a bundle's
+    # contents; anything else (a service, a fee) has no stock to move.
+    if not frappe.db.exists("Product Bundle", item_code):
+        return []
+
+    if item_code in seen or depth >= MAX_BUNDLE_DEPTH:
+        frappe.throw(
+            _("Product Bundle {0} refers to itself or is nested too deeply").format(item_code)
+        )
+
+    # Component quantities are expressed per one *stock* unit of the bundle, so a
+    # bundle sold in a larger UOM has to be converted before multiplying.
+    factor = flt(conversion_factor) or _get_uom_conversion_factor(item_code, uom)
+    parent_stock_qty = flt(qty) * (factor or 1)
+
+    lines = []
+    for component in frappe.get_cached_doc("Product Bundle", item_code).items:
+        lines.extend(
+            _resolve_stock_issue_lines(
+                component.item_code,
+                flt(component.qty) * parent_stock_qty,
+                component.uom,
+                warehouse,
+                None,
+                depth + 1,
+                seen | {item_code},
+            )
+        )
+
+    return lines
+
+
 @frappe.whitelist()
 def create_employee_stock_issue(pos_profile, items, employee=None, pos_sale_type=None, room=None):
     """
@@ -3192,14 +3516,40 @@ def create_employee_stock_issue(pos_profile, items, employee=None, pos_sale_type
     if pos_sale_type and hasattr(se, "pos_sale_type"):
         se.pos_sale_type = pos_sale_type
 
+    # Expand Product Bundles into their components first: the bundle item itself is
+    # usually non-stock and cannot be issued, and skipping it silently would move no
+    # stock at all for that sale.
+    resolved_lines = []
+    skipped = []
     for item_data in items:
         item_code = item_data.get("item_code")
-        qty = flt(item_data.get("qty") or item_data.get("quantity") or 1)
-        uom = item_data.get("uom") or frappe.db.get_value("Item", item_code, "stock_uom")
-        warehouse = item_data.get("warehouse") or default_warehouse
-
         if not item_code:
             continue
+
+        lines = _resolve_stock_issue_lines(
+            item_code,
+            flt(item_data.get("qty") or item_data.get("quantity") or 1),
+            item_data.get("uom"),
+            item_data.get("warehouse") or default_warehouse,
+            item_data.get("conversion_factor"),
+        )
+
+        if lines:
+            resolved_lines.extend(lines)
+        else:
+            skipped.append(item_code)
+
+    if not resolved_lines:
+        frappe.throw(
+            _("Nothing in this sale moves stock. {0} is not a stock item and has no Product Bundle contents.")
+            .format(", ".join(skipped) or _("The selected items"))
+        )
+
+    for line in resolved_lines:
+        item_code = line["item_code"]
+        qty = flt(line["qty"])
+        uom = line["uom"] or frappe.db.get_value("Item", item_code, "stock_uom")
+        warehouse = line["warehouse"] or default_warehouse
 
         row = se.append("items", {})
         row.item_code = item_code

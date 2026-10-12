@@ -64,6 +64,10 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		allow_negative_stock: 0,
 		// Sales Persons
 		enable_sales_persons: "Disabled",
+		// Table Service
+		require_table_and_guests: 0,
+		table_idle_warning_minutes: 15,
+		table_idle_late_minutes: 30,
 	})
 
 	const isLoading = ref(false)
@@ -228,6 +232,17 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		settings.value.enable_sales_persons === "Multiple"
 	)
 
+	// Computed - Table Service
+	const requireTableAndGuests = computed(() =>
+		Boolean(settings.value.require_table_and_guests),
+	)
+	const tableIdleWarningMinutes = computed(
+		() => Number.parseInt(settings.value.table_idle_warning_minutes) || 0,
+	)
+	const tableIdleLateMinutes = computed(
+		() => Number.parseInt(settings.value.table_idle_late_minutes) || 0,
+	)
+
 	// Resource
 	const settingsResource = createResource({
 		url: "ecs_posnext.pos_next.doctype.pos_settings.pos_settings.get_pos_settings",
@@ -326,6 +341,9 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 			input_qty: 0,
 			allow_negative_stock: 0,
 			enable_sales_persons: "Disabled",
+			require_table_and_guests: 0,
+			table_idle_warning_minutes: 15,
+			table_idle_late_minutes: 30,
 		}
 		isLoaded.value = false
 	}
@@ -456,6 +474,11 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		salesPersonsMode,
 		isSingleSalesPerson,
 		isMultipleSalesPersons,
+
+		// Computed - Table Service
+		requireTableAndGuests,
+		tableIdleWarningMinutes,
+		tableIdleLateMinutes,
 
 		// Actions
 		loadSettings,

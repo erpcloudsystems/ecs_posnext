@@ -8,6 +8,211 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **POS Profile Setting to Stop Issuing Stock with Sales**
+  - New **Create Stock Entry with POS Sales** checkbox on POS Profile, on by default so nothing changes for a profile that does not ask. With it off the POS records the sale as a Sales Order alone and creates no Material Issue
+  - Gated in one place — `_submitStockEntry` in the cart store — so all four paths that used to issue stock honour it: the ordinary customer sale, the employee cash sale, the employee Loan and the employee Benefits handout
+  - A profile saved before the field existed still issues stock, rather than silently stopping because the setting reads as undefined
+  - **A Sales Order moves no stock by itself.** With this off, a sale never reduces the balance — the stock has to be issued some other way
+- **Employee Benefits Follows the Profile's Stock Setting**
+  - A Benefits handout obeys **Create Stock Entry with POS Sales** like every other path: with it off nothing here moves stock, and the handout is recorded by its Sales Order alone
+  - Where a profile does issue stock, the Material Issue is still made **before** the Sales Order — so goods are never recorded as handed out without the movement behind them — and the two are cross-linked
+  - The success dialog names whichever document was actually created
+  - Confirmed against the floor's own orders rather than a contrived one: `SAL-ORD-2026-00182` (825.00) and `SAL-ORD-2026-00179` (565.00) both carry their employee and the `Benefits` tag, and have **zero rows in Protel** — neither in the permanent ledger nor on any folio
+- **Employee Benefits Recorded as a Sales Order, Kept Out of Protel**
+  - The Benefits handout had no Sales Order of its own: issuing stock *was* the whole flow. On a profile that does not issue stock it would have recorded nothing at all, so it now books a Sales Order against the fixed "Employee" customer, tagged `Benefits`
+  - `is_protel_sale` in the `royal` app keeps a Benefits order out of Protel entirely — it is stock handed to staff, not a guest charge or hotel revenue, so it belongs on neither a folio nor the hotel's books
+  - The same guard covers the submit hook, the cancel hook (nothing was posted, so there is nothing to void) and `validate_protel_operator`, which no longer demands a Protel Operator for a sale that never reaches Protel
+  - The success dialog names what was actually created, rather than announcing a Stock Entry that no longer exists
+- **Tax and After-Tax Price in POS Sales Detail**
+  - Detail rows gain **Rate with Tax**, **Tax** and **Amount with Tax** beside the figures they already showed; grouped rows gain **Avg Rate with Tax**, **Tax** and **Amount with Tax**
+  - The report summary now separates **Items Total**, **Tax** and **Items Total with Tax**
+  - Tax is charged on the order as a whole — one rate on its net total — so there is no per-item figure to read. Each line is given its share in proportion to what it contributed, and the last line of an order absorbs the rounding, so the Tax column adds up to the tax actually charged rather than a cent more or less
+  - A line's share is measured against the whole order even when a filter holds only part of it, so narrowing the report never changes what a line is carrying
+  - Verified against every submitted order: allocated tax matches charged tax order by order, and all six groupings agree on amount, tax and amount with tax
+- **Supervisor Password for Edits to an Open Check**
+  - Two new POS Profile fields under **Check Edit Protection**: a checkbox to turn it on and the password itself. Off by default, so nothing changes for a profile that does not want it
+  - While a table is open, the password is asked before **reducing a quantity**, **removing an item**, **clearing the check**, **discounting it** or **lowering a line's price**. Adding items is never gated, and a sale with no table open is not gated either
+  - Cancelling a check or freeing a table that has an order always asks, table or no table — there is no cart to judge it by
+  - The password **never reaches the browser**. It uses Frappe's `Password` fieldtype, so it lives in the `__Auth` table and the document carries a placeholder; on top of that the field is dropped from the POS Profile payload outright. The POS learns only that a password is required, and sends each attempt to `verify_check_edit_password` to be judged on the server
+  - Compared with `hmac.compare_digest`, and five wrong attempts lock that cashier out of the check for five minutes. Only failures count, so a busy shift making many legitimate edits is never throttled. A correct password during a lockout is still refused
+  - A lost connection or a lockout **refuses** the edit rather than waving it through — an approval that cannot be checked is not an approval
+  - Once a line is approved the cashier can keep correcting it without the dialog reappearing; the quantity box emits on every keystroke, and repeated asks about the same line share one answer instead of each cancelling the last. Approvals are forgotten when the cart moves to another check
+  - Protection on with no password set allows the edit and logs the misconfiguration, rather than leaving the floor unable to correct a check at all. The field is mandatory when the checkbox is ticked, so this only happens if the row is edited directly
+- **POS Sales Detail Report**
+  - New Script Report answering what the POS sold, broken down by **item**, **item group** or **room**, and by **which shift sold it**
+  - Group By switches the whole report between Item, Item Group, Room, Shift, Item Group + Item, Room + Item, and Detail (one row per sold line, with its order, shift, cashier, room and customer)
+  - Every grouping carries quantity, average rate, amount and a count of distinct orders; the report summary adds the items total, the orders' grand total **including tax**, total quantity and how many distinct items sold
+  - Filters: company, date range, POS Profile, shift, cashier, room, item group, item and customer. The shift picker narrows to the chosen profile
+  - Built on **Sales Orders**, not Sales Invoices, because that is what this POS submits — a report over invoices would be empty. A POS sale is recognised by the shift stamped on it or the Stock Entry it issued stock through, so back-office Sales Orders stay out
+  - Split checks charged room by room are read at line level (`Sales Order Item.room`) and fall back to the order's room, so a table split across two rooms reports against both
+  - Where a row is keyed by item, its group is named from the **Item master** rather than the sold line: the line stores the group the item had when sold, so an item recategorised since would have its whole history labelled with whichever group came first. Grouping *by* item group still reads the line, which is the historical truth
+  - A grouped row leaves the UOM blank when the item sold in more than one unit, rather than printing one unit over a summed quantity
+  - Sales with no room are labelled "Walk-in" and sales predating the shift field "No shift recorded" — both are counted, and neither leaves an empty cell to interpret
+  - Reachable from a new **Reports** card on the POSNext workspace. Open to System Manager, Sales Manager, Accounts Manager and Stock Manager
+- **Table & Guest Count Required Before Item Selection (Table Service)**
+  - New `POS Table Session` doctype records the table and number of guests for an order, independent of any Sales Invoice — the sale may be posted to an external system (e.g. Protel) rather than persisted locally
+  - New `require_table_and_guests` POS Setting ("Table Service" section) gates the POS: with it on, the cashier must pick a table and enter the guest count before any item can enter the cart. Default off, so retail / take-away profiles are unaffected
+  - New `TableGuestsDialog.vue` — table search with "Occupied" indicators, guest counter with quick picks, seating-capacity warning
+  - Table and guest count shown as a chip in the POS header, clickable to change either at any time mid-order
+  - Only one open session per table, so two cashiers cannot build separate orders for the same table; picking an occupied table resumes its session and its held draft instead
+  - Sessions close automatically when the sale completes (freeing the table) and are cancelled when the cart is cleared; held orders keep their session open and carry it in the draft
+  - New API module `ecs_posnext.api.table_sessions` — `get_tables`, `start_table_session`, `update_table_session`, `close_table_session`, `cancel_table_session`, `get_open_table_sessions`, `get_table_session`
+  - `external_reference` field on the session as the hook for the external system's reference (the Protel push itself is not yet implemented)
+  - The gate lives inside `ItemsSelector`, alongside the item selection it gates: an opaque overlay on that component's own root element replaces the grid with a "Select Table" panel, and the table dialog is mounted and auto-opened there. Fixes a real hole — `ItemsSelector` has three root nodes, so the previous `v-show` on the component from `POSSale.vue` was applied to a fragment and silently did nothing (Vue warns "non-element root node"), leaving the items grid visible while the gate was supposedly up
+  - `ItemsSelector` also guards its own `item-selected` emit, which is what stops a barcode scan from adding an item while the gate is showing
+  - The dialog is freely dismissable; cancelling lands back on the gate overlay, which is itself the gate. Held orders, invoice management, the sidebar and header all stay reachable, which matters right after a Hold when the cart is cleared and no table is set
+  - The header chip changes table/guests mid-order through `ItemsSelector`'s exposed `openTableDialog()`, so there is a single dialog instance
+- **Open Tables Dashboard with Idle Colour Coding**
+  - New `POS Table Order` doctype (with `POS Table Order Item` child table) holds a table's order on the server, so a manager screen or a second terminal sees the true state of the floor. Held orders were previously browser-only (IndexedDB), invisible to everyone else
+  - `cart_payload` on the order stores the full POS cart, so resuming brings back offers, batches, serials and UOM pricing exactly; the items child table is the readable projection used by the dashboard and reports
+  - New **Open Tables** dashboard in the POS sidebar (table-service profiles only): live cards per table showing guests, item count, open total, seated time and time since the last order, worst-first. Tap a card to take or resume that table's order
+  - Tables colour by how long they have gone **without ordering** — amber past `table_idle_warning_minutes`, red past `table_idle_late_minutes`, both new POS Settings. Measured from the last order, falling back to seating time while nothing has been ordered
+  - Timers tick locally between 30-second server refreshes, and cards re-evaluate their colour band live so a table crosses into amber or red without waiting for the next fetch
+  - New **Open Tables** Script Report for the Desk (filters by POS Profile / status / nothing-ordered, coloured status column, donut chart, summary tiles, optional 30s auto-refresh), plus a "Table Service" card on the POSNext workspace
+  - Holding a table-service order now writes to the server; offline still falls back to the local draft, and the gate panel links to the dashboard for server-held orders and to the drafts dialog for offline ones
+  - Settling or clearing a table settles/cancels its order alongside the session, so a freed table can never leave an open order behind on the dashboard
+
+### Fixed
+- **Employee Benefits Issue Did Nothing**
+  - Pressing Benefits produced no document at all. The flow raised `isSubmitting` and then called the submit, which **refuses to run while that flag is set** — it logged "already in progress, skipping duplicate request" and returned null. Nothing was created and nothing said why
+  - The flag is now left to the submit itself, which raises and clears it around its own request
+  - The employee was also being dropped: the order takes its employee from an argument, never from `selectedEmployee` — deliberately, so a plain customer sale cannot pick up whoever was left attached — and this flow was not passing one. Benefits orders recorded the customer "Employee" with no employee on them, so nothing said who received the handout
+  - **The Loan flow had the same two defects.** It survived while stock issuing was on, because the Stock Entry call cleared the flag on its way out; once a profile stopped issuing stock that call returns immediately and the flag stayed up, blocking the Loan's Sales Order
+  - Covered by tests driving the real store: the draft is created, carries `pos_sale_type` (`Benefits` / `Loan`) and the employee, is booked against the Employee customer as a Sales Order, and is refused outright when no employee is chosen
+  - The tag matters beyond bookkeeping: `Benefits` is what keeps the handout out of Protel, and no order in the system had ever carried one
+- **Protel Charges Went to the Wrong Guest, or to Nobody** (`royal`)
+  - `resolve_room_guest` accepted any *confirmed* booking (`resstatus = 100`) and preferred the one starting latest. A guest arriving today therefore outranked the guest sitting in the room: `SAL-ORD-2026-00116` put room 510's water on Nadia louati — arriving, room **216** — instead of Mohamed Ibrahim, who was in 510
+  - It now requires `buchstatus = 1`, Protel's "checked in", the same rule that already governs which rooms the POS offers. The date ordering survives as a tie-break, so a room changing hands the same day charges the guest who has just arrived
+  - Verified against all **45 occupied rooms**: the resolver now agrees with Protel on every one, and room 510 resolves to Mohamed Ibrahim. Rooms holding only a not-yet-arrived booking (507, 205, 305) resolve to nobody, as they should
+  - **A sale with no guest to charge is no longer posted at all.** It used to go in with `kundennr = 0` and an empty room, which lands in the ledger belonging to nobody: invisible on every folio and every room history, so no one is ever billed and no one can find it to correct. There are **50 such rows in Protel, 5,105.00 EGP**. The sale is now left visibly unsynced with the reason on `protel_sync_error`, which is a state someone can act on
+  - This also stops a sale carrying neither a room nor an employee from posting — which is most of the "Employee" customer sales. They were the bulk of those orphan rows
+- **Checkout Now Frees the Table**
+  - Paying a check left the table occupied. `submit_invoice` settles the check and closes the table in the same call that submits the sale, reading `pos_table_session` back off the document — but **Sales Order had no such field**, so the value the POS sent was dropped on save and that read always came back empty
+  - Added `pos_table_session` and `pos_table_order` to Sales Order. The same failure as `v1_17_0`: the POS described what it was doing and the document had nowhere to put it
+  - `pos_table_order` matters on a split table, where settling "the" order is ambiguous and the server refuses to guess
+  - Verified end to end through the POS's own two calls — seat a table, ring up a sale, submit it — and the session comes back **Closed** with `closed_at` set, without a follow-up request from the browser
+  - Until now no session had ever reached `Closed`: all 24 in the system were `Cancelled`, i.e. freed by hand from Open Tables after each checkout failed to do it
+- **Tax Missing from POS Sales Orders**
+  - The POS showed the cashier a tax figure and then submitted an order without it. The payload it sends carries no `taxes` and no `taxes_and_charges` at all: a Sales Invoice still picked the template up because ERPNext reads `pos_profile` off the document, but **Sales Order has no such field**, so every order was saved with its grand total short by exactly the tax on screen
+  - `update_invoice` now puts the POS Profile's tax template on the document before totals are worked out — the same template the POS previews through `pos_profile.get_taxes`, so the figure quoted and the figure recorded come from one source
+  - Taxes already on the document win, so a return, or a re-save of something priced earlier, is not re-templated underneath
+  - ERPNext computes the amounts from the template rather than the browser, so the account head, rate and cost centre are its own. A line that previously landed with `rate: 0` and a hand-computed amount now carries the real 14% row against `VAT 14% - RR`
+  - Whether the price already includes the tax follows this profile's **`tax_inclusive` POS Setting**, not the template. The POS reads that same setting to decide what to show and whether to send a gross or a net rate, so a template that disagreed would put the screen and the document on different arithmetic — the one thing this is here to prevent. Note that POS Settings is one record per profile here, not a Single
+  - Inclusive: the POS sends the gross rate and the tax rows are marked `included_in_print_rate`, so ERPNext takes the tax out of that rate instead of adding it again on top. Exclusive: the rate is net and the tax goes above it
+  - Verified by creating orders through the POS's own entry point in both modes: ten units quoted at 45.60 inclusive and ten at 40.00 exclusive both land on a grand total of 456.00 — net 400.00 plus 56.00 tax — matching what the cashier was shown either way
+- **Close Shift Figures on a Sales Order POS**
+  - The closing screen showed **"No Sales During This Shift"** next to a non-zero sales total, and hid the transaction list entirely. Both are driven by `pos_transactions`, which was only ever filled from Sales Invoices — this POS submits Sales Orders, so the list was always empty
+  - Sales Orders now produce a transaction row each, so the cashier can see the sales making up the total. The rows carry `sales_order` and are display-only: the saved child table's link field points at Sales Invoice and would reject them, and `submit_closing_shift` strips them on the way back so a round-trip cannot fail the save
+  - **Tax Collected read 0.00** on every shift: taxes were aggregated from invoices only. Sales Order taxes are now aggregated too (one shift here was under-reporting 49.11 of VAT)
+  - **Expected cash looked wrong with no way to tell why.** A sale charged to a room goes onto the guest's folio in Protel, and an employee Benefits/Loan sale is not paid at the counter, so neither adds to the drawer — but the screen showed gross sales of 479.91 against expected cash of 100.00 and said nothing. A **Charged to Rooms** figure now states the difference, and each transaction row is tagged with its room or "Not collected"
+  - Verified against three real shifts: gross 280.00 − charged 200.00 = expected 80.00 over opening; gross 479.91 − charged 479.91 = opening only; gross 240.00 − charged 240.00 = 0.00
+  - `_is_drawer_money` was whitelisted, exposing an endpoint nothing calls. It is an internal helper taking a dict, so the decorator is gone
+- **Invoice History Shows Sales Orders**
+  - The history list queried Sales Invoices only, so it was empty: this POS submits Sales Orders. It now returns **both**, newest first, so a profile that does create invoices keeps its history
+  - Sales Order rows are mapped onto the shape the list already renders — the time from `creation` (Sales Order has no `posting_time`), and `paid_amount` / `outstanding_amount` derived from the `posa_payments` breakdown now recorded on each order
+  - Scoped through the shift, because **Sales Order has no `pos_profile` column** (Sales Invoice does). Orders predating the new shift field carry no shift and are left out — there is nothing to attribute them to
+  - `get_invoice` takes an optional `doctype` and otherwise detects it, so opening a row works for either kind and older callers passing only a name still work
+  - Sales Orders are reported as non-returns: the return flow operates on invoices, and marking them otherwise would offer a return that cannot run
+  - **The history dialog never reached that endpoint.** `InvoiceHistoryDialog` queried `frappe.client.get_list` on Sales Invoice directly, so the list stayed empty however the API behaved. It now reads `ecs_posnext.api.invoices.get_invoices`, and a Sales Order row carries a badge saying so
+  - "Load more" re-reads the list one page wider instead of paging by offset: the endpoint merges two doctypes before trimming, so an offset would skip or repeat rows across the join
+  - Reopening the dialog resets to the first page, so it does not silently re-fetch a slice widened earlier in the session
+  - The return button is hidden on Sales Order rows, matching the endpoint's own position that they cannot be returned
+  - Printing carries the doctype through: `printWithSilentFallback` passes it to the thermal-print call, which was hardcoded to Sales Invoice. Every POS sale is a Sales Order, so silent printing had been failing on each one and quietly falling back to the browser print dialog
+
+- **Shift Closing Now Totals the Money** *(Close Shift no longer reports zero)*
+  - The POS has always sent `posa_pos_opening_shift` **and** the per-mode payment breakdown with every sale. Sales Order had neither field, so both were silently dropped on arrival — the money was collected, described, sent, and thrown away. That, not a reporting bug, is why every shift closed at zero
+  - New `POS Order Payment` child table plus two Sales Order custom fields (`posa_pos_opening_shift`, `posa_payments`), added by patch `v1_17_0` and shipped in fixtures
+  - `make_closing_shift_from_opening` aggregates the shift's submitted Sales Orders alongside the existing Sales Invoice and Payment Entry sources, so profiles that do create invoices are unaffected
+  - **Room charges and employee Benefits/Loan sales count as sales but not as drawer money.** A room charge goes to the guest's folio in Protel and is never collected at the counter; counting it as cash would show a shortage on every shift exactly equal to the room postings
+  - Verified end to end: four orders totalling 380 (100 cash + 50 cash + 200 room charge + 30 employee benefit) report **380 sold** and **150 expected in the drawer**
+  - No change to the POS Closing Shift doctype or the closing dialog — both already had the right shape; only the source of `expected_amount` changed
+
+- **Tables Sort by Number**
+  - The Open Tables screen now orders every card by table number, numerically (1, 2, 10, 20 — not 1, 10, 2, 20), regardless of state. A table sits where the cashier expects it on the floor, and stops moving between refreshes as its idle time changes
+  - Urgency is still carried by the card colour and the Waiting/Late counts in the summary strip, which is what the previous worst-first ordering conveyed
+
+- **A Table Now Closes Only on Checkout**
+  - Closing moved into the **same server call that submits the sale**. It used to depend on a separate request from the browser afterwards, which could be missed — a dropped connection, a closed tab, any early return in the payment handler — leaving the table occupied with its bill already paid. The follow-up call remains as an idempotent fallback
+  - Clearing the cart **no longer frees the table**. It emptied the items and released the table, but the guests are still sitting there, so the floor showed it as available while it was occupied. The cart now keeps its table, so the cashier carries on ordering for the same one
+  - New **Free table** action on the Open Tables screen — the deliberate escape hatch for a mistaken seating or guests who left without ordering. It confirms first, naming the unpaid amount it would discard
+  - A split bill still stays open until the last check is paid
+  - Settle/close failures now warn the cashier instead of going only to the browser console
+
+- **Customers No Longer Cached in IndexedDB**
+  - The whole customer list was downloaded at startup and mirrored into IndexedDB so it could be searched in the browser. With searching now done on the server that copy was pure cost — a slow first load, and a second source of truth that went stale the moment anyone edited a customer elsewhere
+  - `loadAllCustomers` fetches a bounded first page (50) for the pre-search list instead of `limit: 0` meaning *every* customer; the background "Loading customers for offline use..." sync is gone entirely
+  - A newly created customer is still pickable immediately — held in memory — and realtime removals drop out of both the list and the current search results
+  - **Deliberate trade: there is no customer list while offline.** The store returns an empty list and logs it, rather than showing a stale one. Item caching for offline is untouched
+
+- **Customer Search Is Now Server-Side**
+  - `get_customers` accepted a `search_term`, logged it, and then **never used it** — the query was built from the POS Profile's customer groups alone. Searching returned the same rows as not searching, which is why the POS had to download every customer and filter them in the browser
+  - The term now matches customer ID, name, mobile and email on the server, combined with the profile's customer-group filter rather than replacing it
+  - The POS searches the server, debounced at 250ms, instead of scanning the full in-memory list: typing five characters makes one request, not five. The existing local ranking still orders the returned page, so result quality is unchanged while the full list is never loaded
+  - Out-of-order responses are discarded by sequence number, so a slow early request cannot overwrite a newer one's results
+  - Offline still searches the IndexedDB cache, and a failed search falls back to what is already in memory rather than showing an empty list
+
+- **Room Search Now Queries Protel Live** *(in the `royal` app)*
+  - New `search_in_house_rooms` endpoint asks Protel at the moment the cashier types, instead of reading the `Room.is_active` flag that only refreshes every 15 minutes. That lag was wrong in both directions: a guest who had just checked in could not be charged, and one who had just checked out still could
+  - Guest names come back with the rooms and show beside the number ("205 · Dhekra Alsabri"), so the waiter can check it against the person in front of them. Search matches the room number **or** the guest's name
+  - A Protel outage never blocks the POS: the search falls back to the last synced list and the dropdown says so, matching how the Protel posting already refuses to fail a checkout
+  - Rooms returned live are created as Room records on the fly, since `Sales Invoice.room` and the POS table order both Link to Room — a room Protel knows about is unusable until that record exists
+  - Pseudo-accounts (`PASS`, `99999`) are filtered out of both the live results and the auto-creation
+
+- **Room List Now Matches Protel's "Guest in House"** *(fix is in the `royal` app)*
+  - `sync_active_rooms` counted `buchstatus IN (0, 1)` — confirmed-but-not-yet-arrived **and** checked-in. Seven empty rooms were being offered to cashiers, who could charge a restaurant sale to a guest not yet in the hotel. Now `buchstatus = 1` only, which is exactly what Protel's Guest in House page shows
+  - The sync now **creates** Room records for occupied Protel rooms that have none. Protel holds 167 rooms against ERPNext's 65, and a room with no Room record can never be charged — the POS simply never offers it, so a guest demonstrably in the hotel could not order. Five in-house rooms (9000, 9002, 9004, 9011, 9013) were in exactly that state
+  - Only numeric, currently-occupied rooms are created, so Protel's pseudo-accounts (`PASS`, `99999`) stay out of the cashier's dropdown
+  - The four POS room dropdowns already filtered `is_active = 1` and were unchanged; the defect was entirely in what that flag meant
+
+### Added
+- **The Open Tables Screen Is Now the Table Picker**
+  - The "Select Table" gate opens the Open Tables screen instead of a separate dialog, so the cashier sees the whole floor — free tables to seat and busy ones to go back to — on one screen
+  - `get_open_tables` gained `include_free`, returning unoccupied tables in the **same row shape** (`seated: 0`, `idle_state: "free"`) so a single card renders both. The default call is unchanged, so the manager dashboard still shows only what is actually open
+  - Guest count is taken **inline on the free table's own card** — counter plus quick picks — rather than opening a second dialog on top of the first. Capacity prefills it, since it is the likeliest head count
+  - Free tables sort last and numerically (4 before 10), and are excluded from the summary strip: they are choices, not activity, and counting them would make every figure on the strip wrong
+  - Seating works offline, creating the local session and syncing later, exactly as the old dialog did
+  - The small table dialog stays for editing the table or guest count of an order already in progress, where the rest of the floor is irrelevant
+
+- **Held-Orders Button Opens Table Orders on a Table-Service Profile**
+  - The cart's "Draft Invoices" button (and the same entry in the header menu) now opens the open-tables view instead of the local drafts dialog when `require_table_and_guests` is on. Table-service holds are server-side table orders, so the drafts dialog would have looked empty
+  - Both are relabelled "Table Orders" in that mode, and the local-drafts count badge is hidden there since it only ever reflects offline holds
+  - Retail / take-away profiles are unchanged, and the gate panel keeps its separate "Offline held orders (N)" shortcut to the local drafts
+
+- **Separate Checks (Split a Bill by Item, Each Charged to Its Own Room)**
+  - New `split_table_order` endpoint and a Split Check screen: the cashier assigns each item to a check, and every check becomes its own `POS Table Order` with its own `check_number`, `room` and `external_reference` — so each one can be posted to a different hotel room separately
+  - A split must reconcile **exactly**: every unit of every line has to land on one check. Unassigned items, over-assignment, fewer than two checks, an empty check, and re-splitting an existing check are all refused with specific messages. Rates come from the source order, never the client, so a split cannot reprice
+  - Each check is paid on its own. Settling one reports `remaining_open_checks`, and the table stays open (and visible on the dashboard) until every check is paid — `close_table_session` now refuses to free a table that still owes money
+  - New `set_check_room` lets a check's room be corrected while it is still open, and refuses once it is settled
+  - `POS Table Order Item.added_by` is carried onto the split checks, so the waiter who rang each line survives the split
+  - **Fixes 8 latent bugs**: the table-service code assumed exactly one open order per session. Once split, `save_table_order`, `settle_table_order`/`get_table_order` by session, and re-splitting all now **refuse rather than pick an arbitrary check** (which would have put items or a payment on the wrong guest); cancelling a table releases *every* check; moving a table moves *all* of its checks; and the dashboard aggregates totals across checks instead of reporting one
+  - Joining tables is refused when either side is split — which of several checks to fold into is genuinely ambiguous
+  - Dashboard cards show "N separate checks" with the rooms, and a Checks screen lists each check with its items, room, paid state and a Pay button
+
+- **Move an Open Order Between Tables (and Join Tables)**
+  - New `move_table_session` endpoint plus a "Move" action on every tables-dashboard card: pick a destination and the order moves with it
+  - **Fixes a data bug**: changing a session's table (which the header chip already allowed) updated only the session, leaving `POS Table Order.table` pointing at the table the guests had left — the dashboard read correctly while the order record disagreed. Both the new move endpoint and `update_table_session` now move the order with the session
+  - Moving onto an occupied table changes nothing by default and reports `status: "occupied"`. Combining two bills is a deliberate choice, so the dialog requires ticking "Join the tables and combine the bills" — previously the offline-conflict message told cashiers to "move this order to another table" with no way to do it
+  - Joining tables folds the source order's lines into the destination's, adds the guest counts together, closes the source session and cancels its order, so the dashboard shows one table rather than two. Each line keeps the waiter who rang it across the merge
+  - Every move and merge is recorded on the session's timeline with who did it
+  - The open cart follows its own table: a move updates the cart's table, and a merge repoints the cart at the surviving session so items still in it are held onto the combined bill instead of a session that no longer exists
+
+- **User Attribution on Table Service (for the Protel push)**
+  - Every table-service record now carries the POS Next user who actually performed the action, so anything later pushed to an external system (Protel) can be attributed to them rather than to a service account
+  - `POS Table Order Item.added_by` — attribution **per line**, since a table's rounds can be taken by different waiters and each movement must carry the user who rang it
+  - `POS Table Order.cashier` is no longer overwritten on every save. It stays as the user who **opened** the order; the new `last_order_by` records who last added to it. Previously a second waiter adding a round erased the first waiter's attribution entirely
+  - `synced_by` on both `POS Table Session` and `POS Table Order` — an order held offline by one user and uploaded from another terminal previously got credited to whoever's browser happened to sync it. The acting user is now sent with the sync and kept in `cashier`, with the uploader recorded separately so attribution stays auditable
+  - A client-supplied user is only honoured on the offline-replay path, and only for a real, enabled User — otherwise it falls back to the uploading session. The online endpoints take the acting user from the server session and never from the request, so it cannot be spoofed
+  - "Opened By" and "Last Order By" surfaced on the tables dashboard cards and as columns in the Open Tables report
+
+- **Offline Table Service**
+  - Tables can now be seated and held with no network. Previously the whole flow was online-only: both `get_tables` and `start_table_session` were plain server calls, so an offline cashier could not even list a table, let alone seat one
+  - The table list is cached in `localStorage` on each successful fetch and used as the fallback when the server is unreachable. Occupancy flags are deliberately not cached, since a stale "Occupied" badge would be worse than none
+  - A table seated offline gets a client-generated session id (`pos_offline_session_<uuid>`, distinct from the `pos_offline_<uuid>` used for offline invoices) and is created on the server later
+  - New `sync_offline_table_order` and `promote_offline_session` endpoints, plus a unique `offline_id` on `POS Table Session`. Keyed on that id, so replaying a sync finds the existing session and order instead of duplicating them — enforced at the database level, not just in code
+  - Offline seating and hold times are sent with the sync, so a synced table shows how long the guests have really been seated rather than appearing freshly served
+  - Offline-held orders sync on reconnect (and on a normal online load, in case the browser was closed before an earlier reconnect could run), then the local draft is deleted so each order exists in exactly one place
+  - If another cashier took the table while this terminal was offline, the sync reports a conflict and writes nothing: the local order is kept and the cashier is told, rather than silently splicing two parties' bills together
+  - Coming online mid-order promotes the local session to a real one on the next hold, so nothing has to be re-entered
 - **POS Customer Inline Entry in Payment Dialog**
   - Removed mandatory customer selection popup that blocked checkout when no customer was selected
   - Added Customer Name and Mobile Number fields inline in the Complete Payment dialog, above the Sales Person section
@@ -26,6 +231,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `ORDER BY modified DESC` and fixed price selection logic to ensure the most recently updated price is returned when multiple valid prices exist for the same item/price list/UOM (prevents older prices from overwriting newer ones)
 
 ### Changed
+- **Item Selector Opens on the Item Group Grid**
+  - The item selector now opens on the item group card grid at root level instead of jumping straight to the flat item list
+  - Typing a search or picking a group chip still goes straight to items; clearing the search returns to the grid
+  - The "All" tab and the grid's "Back to items" link both step past the grid to the flat list
+  - Falls through to the item list when the POS Profile exposes no item groups, so the grid can never be a dead end
 - **PaymentDialog.vue UI Refinements**
   - Removed numeric keypad section from payment dialog (desktop view)
   - Moved Sales Person selection from left column to top of right column, above payment methods

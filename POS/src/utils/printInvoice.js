@@ -105,11 +105,11 @@ export async function printInvoiceByName(invoiceName, printFormat = null, letter
  * formats that rely on Bootstrap layout classes may render differently.
  * Paper size and margins are controlled by the QZ Tray config in qzTray.js.
  */
-export async function silentPrintInvoice(invoiceName, printFormat = null) {
+export async function silentPrintInvoice(invoiceName, printFormat = null, doctype = "Sales Invoice") {
 	const format = printFormat || DEFAULT_PRINT_FORMAT
 
 	const result = await call("frappe.www.printview.get_html_and_style", {
-		doc: "Sales Invoice",
+		doc: doctype,
 		name: invoiceName,
 		print_format: format,
 		no_letterhead: 1,
@@ -140,7 +140,8 @@ export async function printWithSilentFallback(invoiceData, printFormat = null) {
 	if (!invoiceName) throw new Error("Invalid invoice data — missing name")
 
 	try {
-		await silentPrintInvoice(invoiceName, printFormat)
+		// This POS submits Sales Orders, so the doctype cannot be assumed
+		await silentPrintInvoice(invoiceName, printFormat, invoiceData.doctype || "Sales Invoice")
 		return { method: "silent", success: true }
 	} catch (err) {
 		log.warn("Silent print failed, falling back to browser:", err?.message || err)

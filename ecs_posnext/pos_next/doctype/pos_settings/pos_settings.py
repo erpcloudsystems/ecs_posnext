@@ -20,6 +20,15 @@ class POSSettings(Document):
 			if search_limit <= 0:
 				frappe.throw("Search Limit must be greater than 0")
 
+		# Idle thresholds only make sense as warning-then-late
+		if cint(self.require_table_and_guests):
+			warning = cint(self.table_idle_warning_minutes)
+			late = cint(self.table_idle_late_minutes)
+			if warning and late and late <= warning:
+				frappe.throw(
+					"'Idle Late (minutes)' must be greater than 'Idle Warning (minutes)'"
+				)
+
 		# Validate use_exact_amount cannot be enabled with credit sale or partial payment
 		if cint(self.use_exact_amount):
 			if cint(self.allow_credit_sale):

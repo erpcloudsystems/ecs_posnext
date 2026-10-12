@@ -1,5 +1,57 @@
 <template>
-	<div class="flex flex-col h-full bg-gray-50">
+	<div class="flex flex-col h-full bg-gray-50 relative">
+		<!--
+			Table-service gate. An opaque overlay inside this component's own root,
+			rather than a `v-show` on the component from the parent: this template
+			has three root nodes (this div, a Teleport and a dialog), and Vue cannot
+			apply a directive to a fragment - it warns "non-element root node" and
+			the items grid stays visible. Gating a real element here is what makes
+			it actually mandatory. z beats the z-[9999] sort dropdown below.
+		-->
+		<div
+			v-if="needsTable"
+			class="absolute inset-0 z-[10000] bg-gray-50 flex flex-col items-center justify-center p-6 text-center overflow-y-auto"
+		>
+			<div class="w-20 h-20 rounded-2xl bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center mb-4">
+				<svg class="w-10 h-10 text-emerald-600" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M4 10h16M6 10v9M18 10v9M3 10l1.5-4h15L21 10"/>
+				</svg>
+			</div>
+			<h3 class="text-lg font-bold text-gray-900 mb-1">
+				{{ __("Select a table to start") }}
+			</h3>
+			<p class="text-sm text-gray-500 max-w-xs mb-6">
+				{{ __("Choose the table and the number of guests, then the items will appear here.") }}
+			</p>
+			<button
+				@click="openTableDialog"
+				class="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 active:scale-[0.98] text-white text-base font-bold shadow-lg transition-all touch-manipulation"
+			>
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M4 10h16M6 10v9M18 10v9M3 10l1.5-4h15L21 10"/>
+				</svg>
+				{{ __("Select Table") }}
+			</button>
+
+			<button
+				@click="emit('show-tables')"
+				class="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors touch-manipulation"
+			>
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
+				</svg>
+				{{ __("View open tables") }}
+			</button>
+
+			<button
+				v-if="draftsCount > 0"
+				@click="emit('show-drafts')"
+				class="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors touch-manipulation"
+			>
+				{{ __("Offline held orders ({0})", [draftsCount]) }}
+			</button>
+		</div>
+
 		<!-- Navigation Header: Breadcrumb + Price List indicator -->
 		<div class="px-1.5 sm:px-3 pt-1.5 sm:pt-3 pb-1.5 sm:pb-2 bg-white border-b border-gray-200">
 			<div class="flex items-center gap-1 sm:gap-2 flex-wrap">
@@ -152,11 +204,11 @@
 					</svg>
 					{{ loadingMoreGroupCards ? __('Loading...') : __('Load more groups') }}
 				</button>
-				<p v-else-if="browsingGroups && currentGroupChildren.length > 0" class="text-[10px] text-gray-400">
+				<p v-else-if="currentGroupChildren.length > 0" class="text-[10px] text-gray-400">
 					{{ __('All groups loaded') }}
 				</p>
 				<button
-					v-if="browsingGroups"
+					v-if="browsingGroups || groupBreadcrumb.length === 0"
 					@click="itemStore.exitGroupBrowsing()"
 					class="text-[10px] sm:text-xs text-gray-500 hover:text-gray-700 font-medium transition-colors"
 				>
@@ -176,87 +228,7 @@
 			</div>
 		</div>
 
-		<!-- Item Group Tabs -->
-		<div class="flex items-center gap-1 px-1.5 sm:px-3 py-1.5 bg-white border-b border-gray-200">
-			<div class="flex items-center gap-1 overflow-x-auto scrollbar-hide flex-1 min-w-0">
-				<button
-					@click="itemStore.setSelectedItemGroup(null)"
-					:class="[
-						'px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0',
-						selectedItemGroup === null
-							? 'bg-blue-600 text-white'
-							: 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-					]"
-				>{{ __('All') }}</button>
-				<button
-					v-for="group in visibleGroupChips"
-					:key="group.item_group"
-					@click="itemStore.setSelectedItemGroup(group.item_group)"
-					:class="[
-						'px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0',
-						selectedItemGroup === group.item_group
-							? 'bg-blue-600 text-white'
-							: 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-					]"
-				>{{ __(group.item_group) }}</button>
-
-				<!-- Groups picked from the "more groups" picker -->
-				<span
-					v-for="group in pinnedItemGroups"
-					:key="`pinned-${group.item_group}`"
-					:class="[
-						'inline-flex items-center gap-1 ps-2.5 pe-1 py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0 border',
-						selectedItemGroup === group.item_group
-							? 'bg-indigo-600 text-white border-indigo-600'
-							: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-					]"
-				>
-					<button @click="itemStore.setSelectedItemGroup(group.item_group)">{{ __(group.item_group) }}</button>
-					<button
-						@click="itemStore.unpinItemGroup(group.item_group)"
-						class="p-0.5 rounded-full hover:bg-black/10 transition-colors"
-						:title="__('Remove {0}', [group.item_group])"
-						:aria-label="__('Remove {0}', [group.item_group])"
-					>
-						<svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-						</svg>
-					</button>
-				</span>
-
-				<button
-					v-if="hiddenGroupChipCount > 0"
-					@click="showAllGroupChips = true"
-					class="px-2 py-1 rounded-full bg-gray-50 text-gray-600 text-[10px] sm:text-xs font-medium whitespace-nowrap flex-shrink-0 border border-dashed border-gray-300 hover:bg-gray-100 transition-colors"
-					:title="__('Show all profile groups')"
-				>+{{ hiddenGroupChipCount }}</button>
-			</div>
-
-			<!-- Group discovery actions -->
-			<div class="flex items-center gap-1 flex-shrink-0 ps-1 border-s border-gray-200">
-				<button
-					@click="itemStore.openItemGroupPicker()"
-					class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[10px] sm:text-xs font-semibold hover:bg-indigo-100 active:bg-indigo-200 transition-colors touch-manipulation"
-					:title="__('Load more item groups')"
-				>
-					<svg class="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-					</svg>
-					<span class="hidden xs:inline">{{ __('More groups') }}</span>
-				</button>
-				<button
-					@click="itemStore.browseAllGroups()"
-					class="p-1.5 rounded-full text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors touch-manipulation"
-					:title="__('Browse groups as cards')"
-					:aria-label="__('Browse groups as cards')"
-				>
-					<svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
-					</svg>
-				</button>
-			</div>
-		</div>
-
+	
 		<!-- Search Bar with Barcode Scanner and View Controls -->
 		<div class="px-1.5 sm:px-3 py-1.5 sm:py-2 bg-white border-b border-gray-200">
 			<div class="flex items-center gap-1 sm:gap-2">
@@ -1046,6 +1018,20 @@
 		:uom="warehouseDialogItem.uom"
 		:company="warehouseDialogItem.company"
 	/>
+
+	<!--
+		Lives here, with the thing it gates, so item selection can never be
+		reached without a table.
+	-->
+	<TableGuestsDialog
+		v-model="showTableDialog"
+		:pos-profile="posProfile"
+		:pos-opening-shift="posOpeningShift"
+		:session="tableSession || null"
+		:current-table="tableNumber || null"
+		:current-guest-count="guestCount"
+		@confirmed="handleTableConfirmed"
+	/>
 </template>
 
 <script setup>
@@ -1053,6 +1039,7 @@ import LazyImage from "@/components/common/LazyImage.vue"
 import WarehouseAvailabilityDialog from "@/components/sale/WarehouseAvailabilityDialog.vue"
 import { useItemSearchStore } from "@/stores/itemSearch"
 import { usePOSSettingsStore } from "@/stores/posSettings"
+import TableGuestsDialog from "@/components/sale/TableGuestsDialog.vue"
 import { useStock } from "@/composables/useStock"
 import { useDialogState } from "@/composables/useDialogState"
 import { useSearchInput } from "@/composables/useSearchInput"
@@ -1078,9 +1065,67 @@ const props = defineProps({
 		type: String,
 		default: DEFAULT_CURRENCY,
 	},
+	// --- Table service gate ---
+	/** On for table-service profiles; off leaves this component unchanged. */
+	requireTable: { type: Boolean, default: false },
+	/** The order's POS Table Session. Empty means no table chosen yet. */
+	tableSession: { type: String, default: "" },
+	tableNumber: { type: String, default: "" },
+	guestCount: { type: Number, default: 0 },
+	posOpeningShift: { type: String, default: "" },
+	/** Offline held-order count, for the shortcut on the gate. */
+	draftsCount: { type: Number, default: 0 },
 })
 
-const emit = defineEmits(["item-selected"])
+const emit = defineEmits([
+	"item-selected",
+	"table-confirmed",
+	"show-tables",
+	"show-drafts",
+])
+
+// =============================================================================
+// Table service gate
+// =============================================================================
+
+const showTableDialog = ref(false)
+
+/** No table chosen yet on a table-service profile - nothing may be selected. */
+const needsTable = computed(() => props.requireTable && !props.tableSession)
+
+/**
+ * The gate opens the Open Tables screen rather than a separate picker: it shows
+ * the whole floor - free tables to seat, busy ones to go back to - and takes the
+ * guest count on the same screen. The small dialog stays for editing the table
+ * or guest count of an order already in progress, where the floor is irrelevant.
+ */
+function openTableDialog() {
+	if (needsTable.value) {
+		emit("show-tables")
+		return
+	}
+	showTableDialog.value = true
+}
+
+/**
+ * Hand the confirmation up rather than writing to the cart here. The parent
+ * owns the session lifecycle (offline seating, resuming a held order, settling),
+ * and duplicating any of that would be a second source of truth.
+ */
+function handleTableConfirmed(payload) {
+	emit("table-confirmed", payload)
+}
+
+// Auto-open so the choice is unavoidable rather than a button the cashier may
+// miss. Dismissing it lands back on the gate overlay, which is itself the gate,
+// so nothing is trapped - the sidebar, cart and held orders all stay reachable.
+watch(
+	needsTable,
+	(gated) => {
+		if (gated) emit("show-tables")
+	},
+	{ immediate: true },
+)
 
 // Use composables
 const { getStockStatus } = useStock()
@@ -1123,6 +1168,7 @@ const {
 	browsingGroups,
 	groupCardsHasMore,
 	loadingMoreGroupCards,
+	showRootItems,
 } = storeToRefs(itemStore)
 
 // Search input composable — owns search/scanner state, timers, concurrency
@@ -1461,6 +1507,14 @@ function selectItem(item, autoAdd = false) {
 		return false
 	}
 
+	// The overlay hides the grid, but this component's barcode scanner stays
+	// live behind it - so the gate is enforced at the emit itself too.
+	if (needsTable.value) {
+		showWarning(__("Select a table and the number of guests first"))
+		emit("show-tables")
+		return false
+	}
+
 	emit("item-selected", item, autoAdd)
 	return true
 }
@@ -1496,6 +1550,8 @@ defineExpose({
 	loadItemGroups: () => itemStore.loadItemGroups(),
 	loadMoreItems: () => itemStore.loadMoreItems(),
 	focusSearchInput,
+	// Used by the header chip to change table / guests mid-order
+	openTableDialog,
 })
 
 // Watch for view mode changes and rebind scroll listeners

@@ -244,6 +244,10 @@
 								v-if="roomDropdownOpen && roomResults.length > 0"
 								class="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto border border-amber-200 rounded-lg bg-white shadow-lg"
 							>
+								<p v-if="roomsAreStale"
+									class="px-3 py-1.5 text-[10px] text-amber-700 bg-amber-50 border-b border-amber-200">
+									{{ __("Protel unreachable - showing the last known in-house list") }}
+								</p>
 								<div
 									v-for="r in roomResults"
 									:key="r.name"
@@ -251,7 +255,7 @@
 									class="flex items-center gap-2 px-3 py-2 hover:bg-amber-50 cursor-pointer border-b border-amber-100 last:border-b-0"
 								>
 									<span class="text-xs font-medium text-gray-900">{{ r.room }}</span>
-									<span v-if="r.room_category" class="text-[10px] text-gray-500 ms-auto">{{ r.room_category }}</span>
+									<span v-if="r.guest_name" class="text-[10px] text-gray-600 ms-auto truncate max-w-[55%]">{{ r.guest_name }}</span>
 								</div>
 							</div>
 							<div
@@ -841,7 +845,7 @@
 						type="button"
 						@click="$emit('show-drafts')"
 						class="flex flex-col items-center justify-center p-3 sm:p-4 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 active:bg-purple-100 transition-colors shadow-sm hover:shadow touch-manipulation group"
-						:title="__('View draft invoices')"
+						:title="tableServiceMode ? __('View open tables and their orders') : __('View draft invoices')"
 					>
 						<div
 							class="w-9 h-9 sm:w-10 sm:h-10 bg-purple-50 rounded-full flex items-center justify-center mb-2 group-hover:bg-purple-100 transition-colors"
@@ -861,7 +865,7 @@
 							</svg>
 						</div>
 						<span class="text-[11px] sm:text-xs font-semibold text-gray-700">{{
-							__("Draft Invoices")
+							tableServiceMode ? __("Table Orders") : __("Draft Invoices")
 						}}</span>
 					</button>
 
@@ -1595,7 +1599,8 @@ async function handleProceedToPayment() {
 				const result = await cartStore.submitEmployeeLoan();
 				if (result) {
 					const orderName = result.order?.name || result.order?.message?.name;
-					uiStore.showStockEntrySuccess(result.stockEntry?.name);
+					// No Stock Entry when this profile does not issue stock
+					uiStore.showStockEntrySuccess(result.stockEntry?.name || orderName);
 					showSuccess(__("Sales Order {0} and Loan {1} created", [orderName, result.loan?.name]));
 					cartStore.clearCart();
 					cartStore.setEmployee(null);
@@ -1604,9 +1609,17 @@ async function handleProceedToPayment() {
 					employeeSalesMode.value = null;
 				}
 			} else {
-				const result = await cartStore.submitEmployeeIssue("Benefits");
+				const result = await cartStore.submitEmployeeBenefits();
 				if (result) {
-					uiStore.showStockEntrySuccess(result.name);
+					// A Material Issue only exists where the profile issues stock; name it
+					// when it does, since that is the movement the storekeeper looks for,
+					// and the Sales Order otherwise.
+					const orderName = result.name || result.message?.name;
+					if (result.pos_stock_entry) {
+						uiStore.showStockEntrySuccess(result.pos_stock_entry);
+					} else {
+						uiStore.showSuccess(orderName, cartStore.grandTotal, 0);
+					}
 					cartStore.clearCart();
 					cartStore.setEmployee(null);
 					cartStore.setSaleType("customer");
@@ -1638,6 +1651,15 @@ async function handleProceedToPayment() {
  * @prop {Array} warehouses - Available warehouses for item selection
  */
 const props = defineProps({
+	/**
+	 * Table service: held orders live on the server as table orders, not as local
+	 * drafts, so the "Draft Invoices" button opens the tables view instead. The
+	 * parent decides where it goes; this only relabels the button to match.
+	 */
+	tableServiceMode: {
+		type: Boolean,
+		default: false,
+	},
 	items: {
 		type: Array,
 		default: () => [],
@@ -1734,7 +1756,9 @@ const previousCustomer = ref(null); // Store previous customer for restore on bl
 // Room search state (Room doctype - hotel room-service, distinct from Table)
 const roomSearch = ref("");
 const roomDropdownOpen = ref(false);
-const roomResults = ref([]);
+const roomResults = ref([])
+// True when Protel could not be reached and the cached list is being shown
+const roomsAreStale = ref(false);
 let _roomSearchTimer = null;
 
 // Employee search state
@@ -2098,20 +2122,25 @@ function selectCustomer(cust) {
  */
 async function _searchRooms(query) {
 	try {
-		const filters = query && query.length >= 1
-			? [["room", "like", `%${query}%`], ["is_active", "=", 1]]
-			: [["is_active", "=", 1]];
-		const results = await call("frappe.client.get_list", {
-			doctype: "Room",
-			fields: ["name", "room", "room_category"],
-			filters,
-			limit_page_length: 0,
-			order_by: "room asc",
-		});
-		roomResults.value = results || [];
+		// Straight to Protel rather than the synced `is_active` flag: that only
+		// refreshes every 15 minutes, which is too slow in both directions - a guest
+		// who just checked in could not be charged, and one who just checked out
+		// still could. Falls back to the last synced list if Protel is unreachable,
+		// so the POS keeps working through an outage.
+		const result = await call(
+			"royal.royal.doctype.protel_settings.protel_settings.search_in_house_rooms",
+			{ search_term: query || null, limit: 100 },
+		)
+		roomResults.value = (result?.rooms || []).map((r) => ({
+			name: r.room,
+			room: r.room,
+			// Shown beside the number so the waiter can check it against the guest
+			guest_name: r.guest_name,
+		}))
+		roomsAreStale.value = Boolean(result?.stale)
 	} catch (err) {
-		log.error("Room search error:", err);
-		roomResults.value = [];
+		log.error("[InvoiceCart] Room search error:", err)
+		roomResults.value = []
 	}
 }
 

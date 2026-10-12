@@ -507,7 +507,112 @@ def _process_invoice(invoice, invoice_field, company_currency, cash_mode, paymen
     return transaction
 
 
-@frappe.whitelist()
+def _is_drawer_money(order):
+    """
+    Whether an order's money actually reaches the till.
+
+    A room charge goes to the guest's folio in Protel and an employee
+    Benefits/Loan sale is not paid at the counter either. Counting those as cash
+    would show a shortage on every shift exactly equal to them.
+    """
+    if order.get("room"):
+        return False
+
+    if (order.get("pos_sale_type") or "").strip() in ("Benefits", "Loan"):
+        return False
+
+    return True
+
+
+def _aggregate_pos_sales_orders(pos_opening_shift, taxes, payments, summary):
+    """
+    Add this shift's Sales Orders into the totals, taxes and reconciliation.
+
+    Returns a transaction row per order for the closing screen's list. Those rows
+    carry `sales_order`, not `sales_invoice`, and are for display only: the saved
+    child table links Sales Invoices and cannot hold an order.
+
+    Only orders whose money reaches the drawer are added to the expected amounts;
+    room charges and employee Benefits/Loan sales still count towards the shift's
+    sales figures, because they were sold, just not collected. They are counted
+    separately so the screen can say why the expected cash is lower than sales.
+    """
+    if not frappe.get_meta("Sales Order").has_field("posa_pos_opening_shift"):
+        return []
+
+    orders = frappe.get_all(
+        "Sales Order",
+        filters={"docstatus": 1, "posa_pos_opening_shift": pos_opening_shift},
+        fields=[
+            "name", "grand_total", "base_grand_total", "net_total", "base_net_total",
+            "total_qty", "room", "pos_sale_type", "customer", "customer_name",
+            "transaction_date", "currency", "conversion_rate",
+        ],
+        order_by="creation asc",
+    )
+
+    transactions = []
+
+    for order in orders:
+        base_grand_total = get_base_value(
+            order, "grand_total", "base_grand_total", order.conversion_rate
+        )
+        base_net_total = get_base_value(
+            order, "net_total", "base_net_total", order.conversion_rate
+        )
+        is_drawer_money = _is_drawer_money(order)
+
+        summary["grand_total"] += base_grand_total
+        summary["net_total"] += base_net_total
+        summary["total_quantity"] += flt(order.total_qty)
+        summary["sales_total"] += base_grand_total
+        summary["sales_count"] += 1
+
+        transactions.append(frappe._dict({
+            "sales_order": order.name,
+            "posting_date": order.transaction_date,
+            "grand_total": base_grand_total,
+            "transaction_currency": order.currency,
+            "transaction_amount": flt(order.grand_total),
+            "customer": order.customer_name or order.customer,
+            "room": order.room,
+            # Says on the row itself why an order did not add to the expected cash
+            "collected_at_till": 1 if is_drawer_money else 0,
+            "is_return": 0,
+            "return_against": None,
+        }))
+
+        # Tax belongs in the shift's tax total whoever ends up paying it
+        for tax in frappe.get_all(
+            "Sales Taxes and Charges",
+            filters={"parent": order.name, "parenttype": "Sales Order"},
+            fields=["account_head", "rate", "tax_amount", "base_tax_amount"],
+        ):
+            tax_amount = get_base_value(
+                tax, "tax_amount", "base_tax_amount", order.conversion_rate
+            )
+            if tax_amount:
+                _aggregate_tax(taxes, tax.account_head, tax.rate, tax_amount)
+
+        if not is_drawer_money:
+            summary["charged_total"] += base_grand_total
+            summary["charged_count"] += 1
+            continue
+
+        rows = frappe.get_all(
+            "POS Order Payment",
+            filters={"parent": order.name, "parenttype": "Sales Order"},
+            fields=["mode_of_payment", "amount", "base_amount"],
+        )
+
+        for row in rows:
+            amount = flt(row.base_amount) or flt(row.amount)
+            if amount:
+                _aggregate_payment(payments, row.mode_of_payment, amount)
+
+    return transactions
+
+
 def make_closing_shift_from_opening(opening_shift):
     opening_shift = json.loads(opening_shift)
     doctype = "Sales Invoice"
@@ -539,6 +644,8 @@ def make_closing_shift_from_opening(opening_shift):
         "grand_total": 0, "net_total": 0, "total_quantity": 0,
         "returns_total": 0, "returns_count": 0,
         "sales_total": 0, "sales_count": 0,
+        # Sold but not collected at the till - room charges and Benefits/Loan
+        "charged_total": 0, "charged_count": 0,
     }
 
     # Add opening balances to payments
@@ -555,6 +662,15 @@ def make_closing_shift_from_opening(opening_shift):
     for invoice in invoices:
         txn = _process_invoice(invoice, invoice_field, company_currency, cash_mode, payments, taxes, summary)
         pos_transactions.append(txn)
+
+    # Process POS Sales Orders
+    #
+    # This POS submits a Sales Order (plus a Stock Entry), not a Sales Invoice, so
+    # the loop above finds nothing and every total came out zero. The orders carry
+    # their own payment breakdown in `posa_payments`.
+    pos_transactions.extend(
+        _aggregate_pos_sales_orders(opening_shift.get("name"), taxes, payments, summary)
+    )
 
     # Process payment entries
     pos_payments_table = []
@@ -574,10 +690,16 @@ def make_closing_shift_from_opening(opening_shift):
     closing_shift.net_total = summary["net_total"]
     closing_shift.total_quantity = summary["total_quantity"]
 
-    # Set child tables (without return info - that's for display only)
+    # Set child tables (without return info - that's for display only).
+    # Sales Order rows are left out: the child table's link field points at Sales
+    # Invoice and would reject them.
     closing_shift.set("pos_transactions", [
-        {k: v for k, v in txn.items() if k not in ("is_return", "return_against")}
+        {
+            k: v for k, v in txn.items()
+            if k not in ("is_return", "return_against", "room", "collected_at_till")
+        }
         for txn in pos_transactions
+        if txn.get("sales_invoice") or txn.get("pos_invoice")
     ])
     closing_shift.set("payment_reconciliation", payments)
     closing_shift.set("taxes", taxes)
@@ -590,6 +712,10 @@ def make_closing_shift_from_opening(opening_shift):
         "returns_count": summary["returns_count"],
         "sales_total": summary["sales_total"],
         "sales_count": summary["sales_count"],
+        # Sold but never reached the drawer, which is the whole difference between
+        # gross sales and the expected cash the cashier is asked to count
+        "charged_total": summary["charged_total"],
+        "charged_count": summary["charged_count"],
         "pos_transactions": pos_transactions,  # Include return info for display
     })
 
@@ -599,6 +725,14 @@ def make_closing_shift_from_opening(opening_shift):
 @frappe.whitelist()
 def submit_closing_shift(closing_shift):
     closing_shift = json.loads(closing_shift)
+
+    # The screen is sent the Sales Order rows so it can list them, but the child
+    # table links Sales Invoices; sending them back must not fail the save.
+    closing_shift["pos_transactions"] = [
+        row for row in (closing_shift.get("pos_transactions") or [])
+        if row.get("sales_invoice") or row.get("pos_invoice")
+    ]
+
     closing_shift_doc = frappe.get_doc(closing_shift)
     closing_shift_doc.flags.ignore_permissions = True
     closing_shift_doc.save()

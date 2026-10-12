@@ -36,6 +36,9 @@ POS_SETTINGS_FIELDS = [
 	"allow_sales_order",
 	"allow_select_sales_order",
 	"create_only_sales_order",
+	"require_table_and_guests",
+	"table_idle_warning_minutes",
+	"table_idle_late_minutes",
 ]
 
 # Default POS Settings values
@@ -62,4 +65,7 @@ DEFAULT_POS_SETTINGS = {
 	"allow_sales_order": 0,
 	"allow_select_sales_order": 0,
 	"create_only_sales_order": 0,
+	"require_table_and_guests": 0,
+	"table_idle_warning_minutes": 15,
+	"table_idle_late_minutes": 30,
 }

@@ -1,6 +1,24 @@
 <template>
 	<!-- Icon-Only Sidebar - Hidden on Mobile, Visible on Desktop -->
 	<div class="hidden lg:flex w-16 flex-shrink-0 bg-white border-e border-gray-200 flex-col items-center py-4 flex flex-col gap-2">
+		<!-- Open Tables -->
+		<button
+			v-if="showTables"
+			@click="handleMenuClick('tables')"
+			:class="[
+				'w-12 h-12 rounded-lg flex items-center justify-center transition-all relative group',
+				activeMenu === 'tables'
+					? 'bg-emerald-100 text-emerald-600'
+					: 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+			]"
+			:title="__('Open Tables')"
+		>
+			<FeatherIcon name="grid" class="w-5 h-5" />
+			<div class="absolute start-full ms-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
+				{{ __('Open Tables') }}
+			</div>
+		</button>
+
 		<!-- Promotions -->
 		<button
 			@click="handleMenuClick('promotions')"
@@ -80,6 +98,11 @@
 <script setup>
 import { FeatherIcon } from "frappe-ui"
 import { ref } from "vue"
+
+defineProps({
+	/** Table service only - hidden for retail / take-away profiles. */
+	showTables: { type: Boolean, default: false },
+})
 
 const emit = defineEmits(["menu-clicked"])
 

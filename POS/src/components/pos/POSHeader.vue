@@ -60,6 +60,53 @@
 
 				<!-- Right Side: Controls -->
 				<div class="flex items-center gap-0.5 sm:gap-1 md:gap-2 flex-shrink-0">
+					<!-- Table & Guests (table-service profiles only) -->
+					<button
+						v-if="showTableInfo"
+						@click="$emit('table-click')"
+						class="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-lg border transition-colors touch-manipulation me-1"
+						:class="
+							tableNumber
+								? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100 active:bg-emerald-200'
+								: 'bg-amber-50 border-amber-300 hover:bg-amber-100 active:bg-amber-200 animate-pulse'
+						"
+						:title="
+							tableNumber
+								? __('Table {0} · {1} guests - click to change', [tableNumber, guestCount])
+								: __('Select a table to start the order')
+						"
+						:aria-label="
+							tableNumber
+								? __('Table {0}, {1} guests', [tableNumber, guestCount])
+								: __('Select a table')
+						"
+					>
+						<svg
+							class="w-4 h-4 flex-shrink-0"
+							:class="tableNumber ? 'text-emerald-600' : 'text-amber-600'"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							viewBox="0 0 24 24"
+						>
+							<path stroke-linecap="round" stroke-linejoin="round" d="M4 10h16M6 10v9M18 10v9M3 10l1.5-4h15L21 10"/>
+						</svg>
+						<template v-if="tableNumber">
+							<span class="text-xs sm:text-sm font-bold text-emerald-900 whitespace-nowrap">
+								{{ tableNumber }}
+							</span>
+							<span class="flex items-center gap-0.5 text-xs sm:text-sm font-semibold text-emerald-700 whitespace-nowrap">
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+								</svg>
+								{{ guestCount }}
+							</span>
+						</template>
+						<span v-else class="text-xs sm:text-sm font-semibold text-amber-800 whitespace-nowrap">
+							{{ __("Select Table") }}
+						</span>
+					</button>
+
 					<!-- WiFi/Offline Status -->
 					<button
 						@click="$emit('sync-click')"
@@ -292,6 +339,7 @@ const emit = defineEmits([
 	"menu-opened",
 	"menu-closed",
 	"clear-cache",
+	"table-click",
 ])
 
 function handleClearCacheClick() {
@@ -348,6 +396,19 @@ const props = defineProps({
 	isAnyDialogOpen: {
 		type: Boolean,
 		default: false,
+	},
+	/** Show the table/guests chip - on for table-service profiles only. */
+	showTableInfo: {
+		type: Boolean,
+		default: false,
+	},
+	tableNumber: {
+		type: String,
+		default: null,
+	},
+	guestCount: {
+		type: Number,
+		default: 0,
 	},
 	cacheSyncing: {
 		type: Boolean,

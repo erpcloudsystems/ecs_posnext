@@ -14,7 +14,7 @@ def get_customers(search_term="", pos_profile=None, limit=20, modified_since=Non
     Search customers for inline customer selection in POS.
 
     Args:
-        search_term (str): Search query (name, mobile, or customer ID)
+        search_term (str): Matched against customer ID, name, mobile and email
         pos_profile (str): POS Profile to filter by customer group
         limit (int): Maximum number of results to return
         modified_since (str): Fetch customers modified after this timestamp (ISO format)
@@ -55,10 +55,24 @@ def get_customers(search_term="", pos_profile=None, limit=20, modified_since=Non
             # Full fetch: only active customers
             filters["disabled"] = 0
 
+        # Search on the server. This used to be accepted and then ignored, which
+        # forced the POS to download every customer and filter them in the browser -
+        # fine for a handful, unusable once the list grows.
+        or_filters = None
+        if search_term and str(search_term).strip():
+            term = f"%{str(search_term).strip()}%"
+            or_filters = {
+                "name": ["like", term],
+                "customer_name": ["like", term],
+                "mobile_no": ["like", term],
+                "email_id": ["like", term],
+            }
+
         customer_limit = limit if limit not in (None, 0) else frappe.db.count("Customer", filters)
         result = frappe.get_all(
             "Customer",
             filters=filters,
+            or_filters=or_filters,
             fields=["name", "customer_name", "mobile_no", "email_id", "disabled", "customer_group"],
             limit_start=start,
             limit=customer_limit,
