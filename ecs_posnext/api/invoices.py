@@ -366,7 +366,9 @@ def _reapply_payment_amounts(invoice_doc, original_payments, doctype="Sales Invo
             continue
         amount = flt(p.get("amount") or 0)
         if amount > 0:
-            payment_amount_map[mode] = amount
+            # The cashier can add several entries for the same mode (e.g. 630 + 70
+            # cash); they collapse into one invoice row, so sum them.
+            payment_amount_map[mode] = flt(payment_amount_map.get(mode, 0) + amount)
 
     if not payment_amount_map:
         return
@@ -382,6 +384,63 @@ def _reapply_payment_amounts(invoice_doc, original_payments, doctype="Sales Invo
     if total_paid > 0:
         invoice_doc.db_set("paid_amount", total_paid, update_modified=False)
         invoice_doc.paid_amount = total_paid
+
+
+def _ensure_fully_paid(invoice_doc, original_payments, doctype="Sales Invoice"):
+    """
+    POS invoices must always be fully paid - partial payment is not supported.
+    If the payments fall short of the invoice total (all item rows, after
+    rounding), top up the payment row the cashier used so no outstanding is
+    left. The UI totals can drift from the server's (rounding, payment
+    merging), so the server makes the final adjustment.
+    """
+    if doctype != DOCTYPE_SALES_INVOICE or invoice_doc.get("is_return"):
+        return
+    if not invoice_doc.get("payments"):
+        return
+
+    precision = invoice_doc.precision("grand_total")
+    if cint(invoice_doc.get("disable_rounded_total")):
+        invoice_total = flt(invoice_doc.grand_total)
+    else:
+        invoice_total = flt(invoice_doc.rounded_total or invoice_doc.grand_total)
+
+    # Customer Credit is redeemed by a Journal Entry after submit, so it is not
+    # an invoice payment row but still covers part of the total.
+    customer_credit = sum(
+        flt(p.get("amount"))
+        for p in (original_payments or [])
+        if p.get("is_customer_credit") or p.get("mode_of_payment") == "Customer Credit"
+    )
+    covered = (
+        sum(flt(p.amount) for p in invoice_doc.payments)
+        + customer_credit
+        + flt(invoice_doc.get("write_off_amount"))
+        + flt(invoice_doc.get("total_advance"))
+        + (flt(invoice_doc.get("loyalty_amount")) if cint(invoice_doc.get("redeem_loyalty_points")) else 0)
+    )
+
+    unpaid = flt(invoice_total - covered, precision)
+    if unpaid <= 0:
+        return
+
+    # Top up the row with the largest amount (the mode the cashier used), else
+    # the profile's default mode, else the first row.
+    row = max(invoice_doc.payments, key=lambda p: flt(p.amount))
+    if flt(row.amount) <= 0:
+        row = next((p for p in invoice_doc.payments if cint(p.default)), invoice_doc.payments[0])
+
+    amount = flt(flt(row.amount) + unpaid, precision)
+    row.db_set("amount", amount, update_modified=False)
+    row.db_set("base_amount", flt(amount * flt(invoice_doc.conversion_rate or 1), precision), update_modified=False)
+    row.amount = amount
+    row.base_amount = flt(amount * flt(invoice_doc.conversion_rate or 1), precision)
+
+    paid = flt(sum(flt(p.amount) for p in invoice_doc.payments), precision)
+    invoice_doc.db_set("paid_amount", paid, update_modified=False)
+    invoice_doc.db_set("base_paid_amount", flt(paid * flt(invoice_doc.conversion_rate or 1), precision), update_modified=False)
+    invoice_doc.paid_amount = paid
+    invoice_doc.base_paid_amount = flt(paid * flt(invoice_doc.conversion_rate or 1), precision)
 
 
 def create_payment_entries_for_invoice(invoice_doc):
@@ -907,20 +966,23 @@ def update_invoice(data):
                 [
                     FIELD_ALLOW_USER_TO_EDIT_RATE,
                     FIELD_MAX_DISCOUNT_ALLOWED,
-                    FIELD_ALLOW_NEGATIVE_STOCK
+                    FIELD_ALLOW_NEGATIVE_STOCK,
+                    FIELD_DISABLE_ROUNDED_TOTAL,
                 ],
                 as_dict=True
             )
-            # disable_rounded_total is on POS Profile, not POS Settings
-            pos_profile_rounded = frappe.db.get_value(
-                DOCTYPE_POS_PROFILE,
-                pos_profile,
-                FIELD_DISABLE_ROUNDED_TOTAL
-            )
-            if pos_settings_cache:
-                pos_settings_cache[FIELD_DISABLE_ROUNDED_TOTAL] = pos_profile_rounded
-            else:
-                pos_settings_cache = {FIELD_DISABLE_ROUNDED_TOTAL: pos_profile_rounded}
+            # Rounding follows POS Settings (what the POS UI uses); fall back to
+            # the POS Profile when POS Settings has no value.
+            if not pos_settings_cache or pos_settings_cache.get(FIELD_DISABLE_ROUNDED_TOTAL) is None:
+                pos_profile_rounded = frappe.db.get_value(
+                    DOCTYPE_POS_PROFILE,
+                    pos_profile,
+                    FIELD_DISABLE_ROUNDED_TOTAL
+                )
+                if pos_settings_cache:
+                    pos_settings_cache[FIELD_DISABLE_ROUNDED_TOTAL] = pos_profile_rounded
+                else:
+                    pos_settings_cache = {FIELD_DISABLE_ROUNDED_TOTAL: pos_profile_rounded}
 
         # ========================================================================
         # DISCOUNT CALCULATION - CRITICAL LOGIC
@@ -1336,6 +1398,7 @@ def _get_pos_context(pos_profile):
             "auto_create_wallet",
             "loyalty_to_wallet",
             "return_validity_days",
+            FIELD_DISABLE_ROUNDED_TOTAL,
         ],
         as_dict=True,
     ) or {}
@@ -1346,8 +1409,13 @@ def _get_pos_context(pos_profile):
     except Exception:
         ctx["pos_profile_doc"] = None
 
-    # 3. disable_rounded_total lives on POS Profile, not POS Settings
-    if ctx["pos_profile_doc"]:
+    # 3. Rounding: the POS UI totals follow POS Settings.disable_rounded_total, so
+    # the invoice must use the same value, otherwise the server rounds (e.g.
+    # 150.7 -> 151) and the cashier's payment leaves a small outstanding.
+    # Fall back to the POS Profile when POS Settings has no value.
+    if ctx["pos_settings"].get(FIELD_DISABLE_ROUNDED_TOTAL) is not None:
+        ctx[FIELD_DISABLE_ROUNDED_TOTAL] = cint(ctx["pos_settings"].get(FIELD_DISABLE_ROUNDED_TOTAL))
+    elif ctx["pos_profile_doc"]:
         ctx[FIELD_DISABLE_ROUNDED_TOTAL] = cint(
             getattr(ctx["pos_profile_doc"], FIELD_DISABLE_ROUNDED_TOTAL, 1)
         )
@@ -1773,6 +1841,8 @@ def submit_invoice(invoice=None, data=None):
 
         # Re-apply payment amounts (ERPNext flushes them on save)
         _reapply_payment_amounts(invoice_doc, invoice.get("payments"), doctype)
+
+        _ensure_fully_paid(invoice_doc, invoice.get("payments"), doctype)
 
         invoice_doc.submit()
         invoice_submitted = True
