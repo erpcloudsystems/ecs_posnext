@@ -269,7 +269,7 @@
 				</div>
 			</div>
 			<!-- Price List Cards Grid -->
-			<div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+			<div v-else class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5 sm:gap-2">
 				<button
 					v-for="pl in displayPriceLists"
 					:key="pl.name"
@@ -313,12 +313,12 @@
 				</div>
 			</div>
 			<!-- Group Cards Grid -->
-			<div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+			<div v-else class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5 sm:gap-2">
 				<button
 					v-for="group in currentGroupChildren"
 					:key="group.item_group"
 					@click="itemStore.navigateToGroup(group)"
-					class="group relative flex flex-col items-center p-3 sm:p-4 rounded-xl border-2 border-gray-200 bg-white hover:border-indigo-400 hover:shadow-md active:scale-[0.98] transition-all duration-150 touch-manipulation"
+					class="group relative flex flex-col items-center p-2 sm:p-2.5 rounded-xl border-2 border-gray-200 bg-white hover:border-indigo-400 hover:shadow-md active:scale-[0.98] transition-all duration-150 touch-manipulation"
 				>
 					<!-- Group Image or Folder Icon -->
 					<div class="w-12 h-12 sm:w-14 sm:h-14 rounded-lg bg-indigo-50 flex items-center justify-center mb-2 group-hover:bg-indigo-100 transition-colors overflow-hidden">
@@ -385,7 +385,7 @@
 				class="flex-1 overflow-y-auto p-1.5 sm:p-3"
 				style="min-height: 0;"
 			>
-				<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-3">
+				<div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-1.5 sm:gap-2">
 					<div
 						v-for="item in displayedItems"
 						:key="item.item_code"
@@ -418,7 +418,7 @@
 						</div>
 
 						<!-- Item Image -->
-						<div class="relative w-full aspect-square mx-auto bg-gray-100 rounded-lg mb-1.5 sm:mb-2 overflow-hidden">
+						<div class="relative w-full aspect-[4/3] mx-auto bg-gray-100 rounded-md mb-1 overflow-hidden">
 							<!-- Image with conditional blur on hover -->
 							<div :class="[
 								'w-full h-full transition-all duration-300',
@@ -485,10 +485,10 @@
 
 						<!-- Item Details -->
 						<div class="min-w-0">
-							<h3 class="text-[12px] sm:text-xl font-semibold text-gray-900 truncate mb-1 leading-tight">
+							<h3 class="text-[11px] sm:text-sm font-semibold text-gray-900 line-clamp-2 mb-0.5 leading-tight" :title="item.item_name">
 								{{ item.item_name }}
 							</h3>
-							<p class="text-base sm:text-[10px] text-gray-500 leading-tight">
+							<p class="text-[11px] sm:text-xs text-gray-500 leading-tight truncate">
 									<span class="font-semibold text-blue-600">{{ formatCurrency(item.rate || item.price_list_rate || 0) }}</span>
 									<span class="text-gray-400">/ {{ item.uom || item.stock_uom || __('Nos', null, 'UOM') }}</span>
 							</p>

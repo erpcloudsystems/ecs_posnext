@@ -927,8 +927,8 @@
 									</div>
 
 									<!-- Combo Components -->
-									<div v-if="item.components?.length > 0" class="mt-1.5 space-y-1 pl-2 border-l-2 border-gray-200">
-										<div v-for="comp in item.components" :key="comp.item_code" class="text-[10px]">
+									<div v-if="item.components?.some(c => !c.is_fixed)" class="mt-1.5 space-y-1 pl-2 border-l-2 border-gray-200">
+										<div v-for="comp in item.components.filter(c => !c.is_fixed)" :key="comp.item_code" class="text-[10px]">
 											<div class="flex items-center gap-1">
 												<span class="font-bold text-gray-800">{{ comp.quantity }}x</span>
 												<span class="font-medium text-gray-700">{{ comp.item_name }}</span>
@@ -942,6 +942,8 @@
 												<span class="text-[8px] font-bold text-green-600 uppercase flex-shrink-0">{{ __("Add:") }}</span>
 												<span class="text-[8px] text-gray-500 leading-tight">{{ comp.selected_addons.map(a => a.item_name).join(", ") }}</span>
 											</div>
+											<!-- Nested combo picks -->
+											<ComboComponentsTree v-if="comp.components?.length" :components="comp.components" :level="1" class="ml-3 text-[10px]" />
 										</div>
 									</div>
 									<!-- Free Item Badge -->
@@ -1426,6 +1428,7 @@
  * IMPORTS
  * ============================================================================
  */
+import ComboComponentsTree from "@/components/common/ComboComponentsTree.vue"
 import { usePOSCartStore } from "@/stores/posCart";
 import { usePOSShiftStore } from "@/stores/posShift";
 import { usePOSSettingsStore } from "@/stores/posSettings";

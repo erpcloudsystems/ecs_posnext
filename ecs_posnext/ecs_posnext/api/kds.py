@@ -72,7 +72,7 @@ def _get_item_ingredients(item_code):
         items = frappe.get_all(
             "Product Bundle Item",
             filters={"parent": bundle},
-            fields=["item_code", "qty", "description"],
+            fields=["item_code", "qty", "description", "custom_is_fixed"],
         )
         for i in items:
             i["item_name"] = frappe.db.get_value("Item", i.item_code, "item_name") or i.item_code
@@ -391,6 +391,89 @@ def on_sales_invoice_cancel(doc, method=None):
         )
 
 
+def _format_component_options(comp):
+    """One readable line of what was picked for a component: section, variant
+    attributes and add-ons, e.g. "Drink · Size: Large · + Ice"."""
+    parts = []
+    if comp.get("section"):
+        parts.append(comp["section"])
+    for attr in comp.get("attributes") or []:
+        if isinstance(attr, dict) and attr.get("value"):
+            parts.append("{0}: {1}".format(attr.get("attribute"), attr.get("value")))
+    addons = [a.get("item_name") or a.get("item_code") for a in comp.get("selected_addons") or [] if isinstance(a, dict)]
+    if addons:
+        parts.append("+ " + ", ".join(addons))
+    return " · ".join(parts)
+
+
+def _split_fixed_ingredients(ingredients):
+    """Split recipe rows into (ingredients, fixed components).
+
+    A fixed recipe row (Product Bundle Item.custom_is_fixed) is a built-in part of
+    the meal — e.g. the fries in a meal — so the kitchen gets it as its own component
+    row at its own station instead of a line in the ingredient list.
+    """
+    plain, fixed = [], []
+    for ing in ingredients or []:
+        if isinstance(ing, dict) and cint(ing.get("custom_is_fixed")):
+            fixed.append({
+                "item_code": ing.get("item_code"),
+                "item_name": ing.get("item_name") or ing.get("item_code"),
+                "quantity": flt(ing.get("qty")) or 1,
+                "is_fixed": 1,
+            })
+        else:
+            plain.append(ing)
+    return plain, fixed
+
+
+def _append_component_rows(items_rows, components, combo_name, group_id, invoice_name,
+                           is_addition, added_at, level=1, parent_component="", factor=1):
+    """Flatten a (possibly nested) combo selection into KDS rows in display order.
+
+    Each row keeps the top-level combo name/group so existing screens still group
+    it under its order line; component_level / parent_component describe nesting.
+    Quantities inside a nested combo are multiplied by that combo's own quantity.
+    """
+    for comp in components or []:
+        if not isinstance(comp, dict):
+            continue
+        comp_code = comp.get("item_code") or ""
+        comp_station = _get_item_kds_station(comp_code)
+        removed_names = comp.get("removed_ingredient_names") or []
+        qty = flt(comp.get("quantity") or 1) * factor
+        nested_picks = comp.get("components") or []
+        all_ingredients, fixed_children = _split_fixed_ingredients(comp.get("ingredients") or [])
+        children = nested_picks or fixed_children
+        items_rows.append({
+            "item_code": comp_code,
+            "item_name": comp.get("item_name") or comp_code,
+            "kds_station": comp_station,
+            "qty": qty,
+            "is_special": 0,
+            "special_notes": comp.get("notes") or "",
+            # A nested combo with no station of its own is just a heading for its picks
+            "station_status": "Pending" if comp_station else "Ready",
+            "selected_components": "",
+            "ingredients": json.dumps(all_ingredients) if all_ingredients and not nested_picks else "",
+            "removed_ingredients": json.dumps(removed_names) if removed_names else "",
+            "is_component": 1,
+            "combo_item_name": combo_name,
+            "combo_group_id": group_id,
+            "component_level": level,
+            "parent_component": parent_component,
+            "component_options": _format_component_options(comp),
+            "is_addition": 1 if is_addition else 0,
+            "added_at": added_at,
+            "source_invoice": invoice_name,
+        })
+        if children:
+            _append_component_rows(
+                items_rows, children, combo_name, group_id, invoice_name, is_addition, added_at,
+                level=level + 1, parent_component=comp.get("item_name") or comp_code, factor=qty,
+            )
+
+
 def _build_kds_items_rows(doc, is_addition=False):
     """Build KDS Order Item rows from a Sales Invoice's items (expanding combo
     components). `is_addition` flags every row as having been added after the order
@@ -415,12 +498,16 @@ def _build_kds_items_rows(doc, is_addition=False):
         # several parents (duplicated items).
         group_id = "{0}::{1}".format(doc.name, item.idx)
 
+        # Fetch ingredients from Product Bundle (for standalone variant items); its
+        # fixed rows go to the kitchen as components of this line.
+        main_ingredients = [] if components else _get_item_ingredients(item.item_code)
+        main_ingredients, fixed_components = _split_fixed_ingredients(main_ingredients)
+        if not components:
+            components = fixed_components
+
         # Main item — if it has no station and has components, mark Ready immediately
         # (the components carry the actual station work)
         main_status = "Ready" if (not main_station and components) else "Pending"
-
-        # Fetch ingredients from Product Bundle (for standalone variant items)
-        main_ingredients = [] if components else _get_item_ingredients(item.item_code)
 
         # Convert removed_ingredients from item codes → item names using the ingredient list
         raw_removed = item.get("removed_ingredients") or ""
@@ -449,36 +536,17 @@ def _build_kds_items_rows(doc, is_addition=False):
             "is_component": 0,
             "combo_item_name": "",
             "combo_group_id": group_id,
+            "component_level": 0,
             "is_addition": 1 if is_addition else 0,
             "added_at": added_at,
             "source_invoice": doc.name,
         })
 
-        # Expand each component into its own KDS Order Item at its own station
-        for comp in components:
-            comp_code = comp.get("item_code") or ""
-            comp_station = _get_item_kds_station(comp_code)
-            comp_status = "Pending" if comp_station else "Ready"
-            removed_names = comp.get("removed_ingredient_names") or []
-            all_ingredients = comp.get("ingredients") or []
-            items_rows.append({
-                "item_code": comp_code,
-                "item_name": comp.get("item_name") or comp_code,
-                "kds_station": comp_station,
-                "qty": comp.get("quantity") or 1,
-                "is_special": 0,
-                "special_notes": comp.get("notes") or "",
-                "station_status": comp_status,
-                "selected_components": "",
-                "ingredients": json.dumps(all_ingredients) if all_ingredients else "",
-                "removed_ingredients": json.dumps(removed_names) if removed_names else "",
-                "is_component": 1,
-                "combo_item_name": item.item_name,
-                "combo_group_id": group_id,
-                "is_addition": 1 if is_addition else 0,
-                "added_at": added_at,
-                "source_invoice": doc.name,
-            })
+        # Expand each component into its own KDS Order Item at its own station;
+        # a nested combo's picks follow it one level deeper.
+        _append_component_rows(
+            items_rows, components, item.item_name, group_id, doc.name, is_addition, added_at
+        )
 
     return items_rows
 
@@ -683,6 +751,7 @@ def get_active_orders(branch=None):
                     "is_special", "special_notes", "station_status",
                     "selected_components", "ingredients", "removed_ingredients",
                     "is_component", "combo_item_name", "combo_group_id",
+                    "component_level", "parent_component", "component_options",
                     "is_addition", "added_at"],
             order_by="idx asc",
         )
@@ -764,6 +833,7 @@ def get_station_orders(station, branch=None):
                     "is_special", "special_notes", "station_status",
                     "selected_components", "ingredients", "removed_ingredients",
                     "is_component", "combo_item_name", "combo_group_id",
+                    "component_level", "parent_component", "component_options",
                     "is_addition", "added_at"],
             order_by="idx asc",
         )

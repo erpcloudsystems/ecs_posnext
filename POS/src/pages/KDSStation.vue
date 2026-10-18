@@ -121,7 +121,8 @@
                 </div>
                 <!-- Components for this station -->
                 <div class="ml-2 border-l-2 border-indigo-800 pl-3 space-y-3">
-                  <div v-for="(child, ci) in group.children" :key="child.name || ci">
+                  <div v-for="(child, ci) in group.children" :key="child.name || ci" :style="{ marginInlineStart: Math.max((child.component_level || 1) - 1, 0) * 1.25 + 'rem' }">
+                    <div v-if="child.parent_component" class="text-xs text-indigo-400">↳ {{ child.parent_component }}</div>
                     <div class="flex items-start justify-between gap-2">
                       <div class="flex-1">
                         <span v-if="child.is_addition" class="mr-2 text-xs text-white bg-sky-500 px-2 py-0.5 rounded font-black">NEW</span>
@@ -130,6 +131,7 @@
                       </div>
                       <span class="text-2xl font-bold text-yellow-300 shrink-0">×{{ child.qty }}</span>
                     </div>
+                    <div v-if="child.component_options" class="text-sm text-sky-300 ml-2">{{ child.component_options }}</div>
                     <!-- Ingredient list: active + removed -->
                     <template v-if="computeIngredients(child.ingredients, child.removed_ingredients).active.length || computeIngredients(child.ingredients, child.removed_ingredients).removed.length">
                       <ul class="mt-1.5 ml-2 space-y-0.5">

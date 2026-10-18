@@ -520,16 +520,22 @@ def get_live_orders(branch=None):
 	# Q5: Invoice item summary
 	item_rows = frappe.db.sql(
 		"""
-		SELECT parent, item_name, SUM(qty) AS qty
+		SELECT parent, item_name, SUM(qty) AS qty, custom_selected_components
 		FROM `tabSales Invoice Item`
 		WHERE parent IN %(names)s
-		GROUP BY parent, item_name
+		GROUP BY parent, item_name, custom_selected_components
+		ORDER BY parent, MIN(idx)
 		""",
 		{"names": invoice_names}, as_dict=True,
 	)
 	items_map = {}
 	for r in item_rows:
-		items_map.setdefault(r.parent, []).append({"item_name": r.item_name, "qty": flt(r.qty)})
+		# Combos with different picks stay on separate lines so their components can be shown
+		items_map.setdefault(r.parent, []).append({
+			"item_name": r.item_name,
+			"qty": flt(r.qty),
+			"custom_selected_components": r.custom_selected_components or "",
+		})
 
 	# Q6: Owner full names
 	owner_ids = list({inv["owner"] for inv in invoices})

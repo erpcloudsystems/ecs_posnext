@@ -36,3 +36,4 @@ ecs_posnext.patches.fix_addition_parent_order_link
 ecs_posnext.patches.sales_receipt_show_additions
 ecs_posnext.patches.add_cash_custody_accounts
 ecs_posnext.patches.seed_branch_expense_types
+ecs_posnext.patches.add_product_bundle_item_fixed_flag

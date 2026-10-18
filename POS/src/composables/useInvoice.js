@@ -964,36 +964,40 @@ export function useInvoice() {
 					(comp) => !removed.includes(comp.item_code),
 				)
 
-				activeComponents.forEach((comp) => {
-					const compQty = comp.quantity || comp.qty || 1
-					// If the component itself has ingredients (nested bundle), add those ingredients
-					if (comp.ingredients && comp.ingredients.length > 0) {
-						comp.ingredients.forEach((ing) => {
-							packedItems.push({
-								parent_item: item.item_code,
-								item_code: ing.item_code,
-								qty: (ing.qty || ing.quantity || 1) * compQty,
-								posa_row_id: rowId,
-								warehouse: ing.warehouse || comp.warehouse || item.warehouse,
-								uom: ing.uom || ing.stock_uom,
-								conversion_factor: 1.0,
-								rate: 0,
-							})
-						})
+				const pushRow = (row, qty, warehouse) => {
+					packedItems.push({
+						parent_item: item.item_code,
+						item_code: row.item_code,
+						qty, // per unit of the cart line; the server multiplies by its qty
+						posa_row_id: rowId,
+						warehouse: row.warehouse || warehouse || item.warehouse,
+						uom: row.uom || row.stock_uom,
+						conversion_factor: 1.0,
+						rate: 0,
+					})
+				}
+
+				// Walk the selection tree: a nested combo deducts its own picks, a
+				// recipe item deducts its ingredients (minus removed ones), anything
+				// else deducts itself. Bundles left unexpanded are expanded server-side.
+				const addComponent = (comp, factor) => {
+					const qty = (comp.quantity || comp.qty || 1) * factor
+					if (comp.components?.length) {
+						comp.components.forEach((child) => addComponent(child, qty))
+					} else if (comp.ingredients?.length) {
+						const removedIngs = comp.removed_ingredients || []
+						comp.ingredients
+							.filter((ing) => !removedIngs.includes(ing.item_code))
+							.forEach((ing) => pushRow(ing, (ing.qty || ing.quantity || 1) * qty, comp.warehouse))
 					} else {
-						// Regular component
-						packedItems.push({
-							parent_item: item.item_code,
-							item_code: comp.item_code,
-							qty: compQty, // Quantity per bundle unit
-							posa_row_id: rowId,
-							warehouse: comp.warehouse || item.warehouse,
-							uom: comp.uom || comp.stock_uom,
-							conversion_factor: 1.0,
-							rate: 0,
-						})
+						pushRow(comp, qty)
 					}
-				})
+					;(comp.selected_addons || []).forEach((addon) =>
+						pushRow(addon, (addon.qty || 1) * qty, comp.warehouse),
+					)
+				}
+
+				activeComponents.forEach((comp) => addComponent(comp, 1))
 			}
 		})
 		return packedItems

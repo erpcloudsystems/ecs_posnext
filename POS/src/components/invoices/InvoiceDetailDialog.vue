@@ -127,6 +127,7 @@
 								<div class="flex-1 min-w-0 text-center">
 									<div class="text-sm font-semibold text-gray-900">{{ item.item_name }}</div>
 									<div class="text-xs text-gray-500">{{ item.item_code }}</div>
+									<ComboComponentsTree :components="item.custom_selected_components" class="mt-1 text-start" />
 								</div>
 							</div>
 							<!-- Details Grid -->
@@ -167,6 +168,7 @@
 									<td class="px-4 py-3 text-center">
 										<div class="text-sm font-medium text-gray-900">{{ item.item_name }}</div>
 										<div class="text-xs text-gray-500">{{ item.item_code }}</div>
+										<ComboComponentsTree :components="item.custom_selected_components" class="mt-1 text-start inline-block" />
 									</td>
 									<td class="px-4 py-3 text-center text-sm text-gray-900">{{ item.quantity }}</td>
 									<td class="px-4 py-3 text-center text-sm text-gray-900">{{ formatCurrency(item.rate) }}</td>
@@ -276,6 +278,7 @@
 </template>
 
 <script setup>
+import ComboComponentsTree from "@/components/common/ComboComponentsTree.vue"
 import { useFormatters } from "@/composables/useFormatters"
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "@/utils/currency"
 import { getInvoiceStatusColor } from "@/utils/invoice"

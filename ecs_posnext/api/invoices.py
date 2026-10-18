@@ -761,6 +761,113 @@ def _apply_branch_warehouse(invoice_doc, branch):
         p_item.warehouse = branch_warehouse
 
 
+def _get_bundle_for(item_code):
+    """Product Bundle that defines what item_code deducts from stock.
+
+    A non-stock variant without its own bundle uses its template's recipe.
+    """
+    bundle = frappe.db.get_value("Product Bundle", {"new_item_code": item_code}, "name")
+    if bundle:
+        return bundle
+    variant_of, is_stock_item = frappe.get_cached_value("Item", item_code, ["variant_of", "is_stock_item"]) or (None, 0)
+    if variant_of and not is_stock_item:
+        return frappe.db.get_value("Product Bundle", {"new_item_code": variant_of}, "name")
+    return None
+
+
+def _add_missing_line_packed_items(invoice_doc):
+    """Give every invoice line that the POS sent no packed rows for a row of its own.
+
+    Stock is deducted from packed_items only (CustomSalesInvoice.get_item_list), so
+    without this a plain stock item, or a recipe item whose ingredients the POS did
+    not know, would deduct nothing. The bundle expansion later turns a recipe row
+    into its ingredients; a non-stock row is ignored by the stock ledger.
+    """
+    covered = {
+        cstr(p.get("posa_row_id"))
+        for p in invoice_doc.get("packed_items", [])
+        if p.get("posa_row_id")
+    }
+    for item in invoice_doc.get("items", []):
+        row_id = cstr(item.get("posa_row_id"))
+        if not item.item_code or (row_id and row_id in covered):
+            continue
+        if not row_id and any(p.get("parent_item") == item.item_code for p in invoice_doc.get("packed_items", [])):
+            continue
+        # Rows with a posa_row_id are per unit and get multiplied by the line qty below
+        invoice_doc.append("packed_items", {
+            "parent_item": item.item_code,
+            "item_code": item.item_code,
+            "qty": 1 if row_id else flt(item.qty),
+            "posa_row_id": row_id or None,
+            "warehouse": item.get("warehouse"),
+            "uom": item.get("stock_uom") or item.get("uom"),
+            "conversion_factor": 1.0,
+            "rate": 0,
+        })
+
+
+PACKAGING_ROW_PREFIX = "pkg:"
+
+
+def _get_item_packaging(item_code, order_type):
+    """Packaging rows configured on the item (or its template) for an order type.
+
+    The product editor keeps one "Takeaway / Delivery / Talabat" list, saved to both
+    packaging_takeaway and packaging_delivery; packaging_delivery is only read as a
+    fallback for items saved before the two were merged.
+    """
+    item = frappe.get_cached_doc("Item", item_code)
+    if order_type == "Dine In":
+        rows = item.get("packaging_dinein") or []
+    else:
+        rows = item.get("packaging_takeaway") or item.get("packaging_delivery") or []
+    if not rows and item.variant_of:
+        return _get_item_packaging(item.variant_of, order_type)
+    return rows
+
+
+def _append_packaging_items(invoice_doc):
+    """Issue each sold item's packaging from stock via packed_items.
+
+    Packed items are what the stock ledger reads (see CustomSalesInvoice.get_item_list)
+    and are never shown on KDS, which builds tickets from invoice items only.
+    """
+    # Drop rows from a previous save of this draft so they aren't doubled
+    for p_item in list(invoice_doc.get("packed_items", [])):
+        if cstr(p_item.get("posa_row_id")).startswith(PACKAGING_ROW_PREFIX):
+            invoice_doc.packed_items.remove(p_item)
+
+    order_type = invoice_doc.get("custom_order_type")
+    if not order_type or invoice_doc.get("is_return"):
+        return
+
+    for item in invoice_doc.get("items", []):
+        if not item.item_code or flt(item.qty) <= 0:
+            continue
+        for pkg in _get_item_packaging(item.item_code, order_type):
+            if not pkg.item_code:
+                continue
+            stock_uom = frappe.get_cached_value("Item", pkg.item_code, "stock_uom")
+            conversion_factor = 1.0
+            if pkg.uom and pkg.uom != stock_uom:
+                conversion_factor = flt(frappe.db.get_value(
+                    "UOM Conversion Detail",
+                    {"parent": pkg.item_code, "uom": pkg.uom},
+                    "conversion_factor",
+                )) or 1.0
+            invoice_doc.append("packed_items", {
+                "parent_item": item.item_code,
+                "item_code": pkg.item_code,
+                "qty": flt(pkg.qty or 1) * conversion_factor * flt(item.qty),
+                "uom": stock_uom,
+                "conversion_factor": 1.0,
+                "posa_row_id": PACKAGING_ROW_PREFIX + cstr(item.get("posa_row_id")),
+                "warehouse": item.get("warehouse"),
+                "rate": 0,
+            })
+
+
 def _prepare_invoice_doc(data):
     """
     Build and prepare an invoice document from POS data WITHOUT saving.
@@ -811,6 +918,8 @@ def _prepare_invoice_doc(data):
     else:
         invoice_doc = frappe.get_doc(data)
 
+    _add_missing_line_packed_items(invoice_doc)
+
     # Parity with posawesome2: Adjust packed items and handle removed ingredients
     if hasattr(invoice_doc, "packed_items") and invoice_doc.packed_items:
         items_to_remove = []
@@ -837,23 +946,25 @@ def _prepare_invoice_doc(data):
         for p_item in items_to_remove:
             invoice_doc.packed_items.remove(p_item)
 
+    # Must run before the bundle expansion below so packaging "kits" get expanded too.
+    _append_packaging_items(invoice_doc)
+
     # Recursively expand packed items that are themselves Product Bundles — e.g.
     # a variant selected inside a combo that has its own recipe/bundle. Its
     # bundle components are added to the packing list too (and nested bundles
-    # are expanded as well).
+    # are expanded as well). Every occurrence is expanded, so the same bundle in
+    # two lines or two combos is deducted twice; depth only guards against cycles.
     if hasattr(invoice_doc, "packed_items") and invoice_doc.packed_items:
-        _seen_bundles = set()
-        _queue = list(invoice_doc.packed_items)
+        _queue = [(p, 0) for p in invoice_doc.packed_items]
         while _queue:
-            p = _queue.pop(0)
-            bundle_name = frappe.db.get_value(
-                "Product Bundle", {"new_item_code": p.item_code}, "name"
-            )
-            if not bundle_name or bundle_name in _seen_bundles:
+            p, depth = _queue.pop(0)
+            if depth >= 10:
                 continue
-            _seen_bundles.add(bundle_name)
+            bundle_name = _get_bundle_for(p.item_code)
+            if not bundle_name:
+                continue
             try:
-                bundle = frappe.get_doc("Product Bundle", bundle_name)
+                bundle = frappe.get_cached_doc("Product Bundle", bundle_name)
             except Exception:
                 continue
             for b in bundle.items:
@@ -867,7 +978,7 @@ def _prepare_invoice_doc(data):
                     "conversion_factor": 1.0,
                     "rate": 0,
                 })
-                _queue.append(row)
+                _queue.append((row, depth + 1))
 
     pos_profile_doc = None
     if pos_profile:
@@ -2694,7 +2805,9 @@ def get_all_orders(date_from=None, date_to=None, limit=500, search=None, respect
 				qty,
 				rate,
 				amount,
-				uom
+				uom,
+				custom_selected_components,
+				removed_ingredients
 			FROM
 				`tabSales Invoice Item`
 			WHERE

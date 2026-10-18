@@ -238,9 +238,12 @@
 						<div>
 							<div class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{{ __('Items') }}</div>
 							<div v-for="(it, i) in (selectedOrder.items || [])" :key="i"
-								class="flex items-center justify-between py-1 border-b border-gray-700 last:border-0">
-								<span class="text-gray-200 text-sm">{{ it.item_name }}</span>
-								<span class="text-yellow-300 font-bold text-sm ml-2">×{{ it.qty }}</span>
+								class="py-1 border-b border-gray-700 last:border-0">
+								<div class="flex items-center justify-between">
+									<span class="text-gray-200 text-sm">{{ it.item_name }}</span>
+									<span class="text-yellow-300 font-bold text-sm ml-2">×{{ it.qty }}</span>
+								</div>
+								<ComboComponentsTree :components="it.custom_selected_components" dark class="mt-0.5" />
 							</div>
 						</div>
 
@@ -304,6 +307,7 @@
 </template>
 
 <script setup>
+import ComboComponentsTree from "@/components/common/ComboComponentsTree.vue"
 import { ref, computed, onMounted, onUnmounted, watch } from "vue"
 import { useRoute } from "vue-router"
 import { call } from "frappe-ui"

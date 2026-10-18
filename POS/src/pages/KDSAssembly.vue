@@ -230,8 +230,10 @@
                     >
                       <svg v-if="row.ready" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3.5"><polyline points="20 6 9 17 4 12"/></svg>
                     </span>
-                    <span class="text-neutral-200 flex-1 min-w-0 text-right leading-tight break-words whitespace-normal" dir="rtl" :class="{ 'line-through text-neutral-600': row.removed }">
-                      <span v-if="row.isAddition" class="inline-block bg-sky-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded mr-1 align-middle">NEW</span>{{ row.name }}
+                    <span class="text-neutral-200 flex-1 min-w-0 text-right leading-tight break-words whitespace-normal" dir="rtl" :class="{ 'line-through text-neutral-600': row.removed }" :style="{ paddingInlineStart: row.indent + 'rem' }">
+                      <span v-if="row.isAddition" class="inline-block bg-sky-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded mr-1 align-middle">NEW</span><span v-if="row.indent" class="text-indigo-400">↳ </span>{{ row.name }}
+                      <span v-if="row.options" class="block text-xs text-sky-300">{{ row.options }}</span>
+                      <span v-for="(ri, rix) in row.removedIngredients" :key="'cr'+rix" class="block text-xs text-red-400 line-through">✕ {{ ri.item_name || ri }}</span>
                     </span>
                     <span class="font-mono font-bold text-xs shrink-0" :class="row.ready ? 'text-emerald-400' : 'text-neutral-500'">{{ row.done }}/{{ row.total }}</span>
                   </div>
@@ -571,12 +573,18 @@ function componentRows(group) {
     return group.children.map((c) => {
       const total = fmtQty(c.qty)
       const ready = isReady(c)
-      return { name: c.item_name, total, done: ready ? total : 0, ready, note: c.special_notes || "", isAddition: !!c.is_addition }
+      return {
+        name: c.item_name, total, done: ready ? total : 0, ready, note: c.special_notes || "", isAddition: !!c.is_addition,
+        // Nested combo picks sit under their parent component
+        indent: Math.max((c.component_level || 1) - 1, 0) * 1.25,
+        options: c.component_options || "",
+        removedIngredients: parseRemoved(c.removed_ingredients),
+      }
     })
   }
   const total = fmtQty(group.qty)
   const ready = isReady(group)
-  return [{ name: group.item_name, total, done: ready ? total : 0, ready, note: "", isAddition: !!group.is_addition }]
+  return [{ name: group.item_name, total, done: ready ? total : 0, ready, note: "", isAddition: !!group.is_addition, indent: 0, options: "", removedIngredients: [] }]
 }
 function canMarkDone(order) {
   const items = order.items || []

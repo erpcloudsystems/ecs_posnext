@@ -1,7 +1,7 @@
 <template>
 	<Dialog v-model="isOpen" :options="{ title: dialogTitle, size: '5xl' }">
 		<template #body-content>
-			<div class="py-4 flex flex-col md:flex-row gap-6 max-h-[70vh] overflow-hidden">
+			<div class="py-2 flex flex-col md:flex-row gap-3 max-h-[80vh] overflow-hidden">
 				<!-- Left: Sections and Options -->
 				<div class="flex-1 overflow-y-auto pr-2 custom-scrollbar">
 					<div v-if="loading" class="flex items-center justify-center py-12">
@@ -9,7 +9,7 @@
 						<p class="ms-3 text-gray-500">{{ __('Loading combo details...') }}</p>
 					</div>
 
-					<div v-else-if="sections.length > 0" class="space-y-8 relative">
+					<div v-else-if="sections.length > 0" class="space-y-3 relative">
 						<!-- Group Variant Picker Overlay -->
 						<transition
 							enter-active-class="transition duration-200 ease-out"
@@ -20,10 +20,10 @@
 							leave-to-class="opacity-0 translate-y-4"
 						>
 							<div v-if="activeGroup" class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50" @click.self="activeGroup = null">
-								<div class="bg-white p-6 rounded-2xl shadow-2xl border border-gray-100 w-full max-w-2xl max-h-[85vh] overflow-y-auto">
-								<div class="flex items-center justify-between mb-6 sticky top-0 bg-white py-2 z-10">
+								<div class="bg-white p-4 rounded-2xl shadow-2xl border border-gray-100 w-full max-w-3xl max-h-[85vh] overflow-y-auto">
+								<div class="flex items-center justify-between mb-3 sticky top-0 bg-white py-1 z-10">
 									<div>
-										<h3 class="text-xl font-extrabold text-gray-900">{{ groupedSections[activeGroup.sectionIdx].groups[activeGroup.groupIdx].name }}</h3>
+										<h3 class="text-lg font-extrabold text-gray-900">{{ groupedSections[activeGroup.sectionIdx].groups[activeGroup.groupIdx].name }}</h3>
 										<!-- Selected / limit counter (always shown) -->
 										<p class="text-xs font-bold mt-1">
 											<span :class="groupSelectedTotal >= activeGroupQtyLimit ? 'text-green-600' : 'text-blue-600'">
@@ -51,19 +51,19 @@
 								</div>
 
 								<!-- Attribute Filters -->
-								<div v-if="activeGroupAttributes.length > 0" class="mb-10 space-y-8">
-									<div v-for="attr in activeGroupAttributes" :key="attr.name" class="bg-gray-50/50 p-4 rounded-2xl border border-gray-100">
-										<p class="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center">
+								<div v-if="activeGroupAttributes.length > 0" class="mb-3 space-y-2">
+									<div v-for="attr in activeGroupAttributes" :key="attr.name" class="bg-gray-50/50 p-2.5 rounded-xl border border-gray-100">
+										<p class="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center">
 											<span class="w-1.5 h-1.5 bg-blue-500 rounded-full me-2"></span>
 											{{ attr.name }}
 										</p>
-										<div class="flex flex-wrap gap-2.5">
+										<div class="flex flex-wrap gap-1.5">
 											<button 
 												v-for="val in attr.values" 
 												:key="val"
 												@click="selectAttribute(attr.name, val)"
 												:class="[
-													'px-5 py-2.5 rounded-xl text-sm font-bold border-2 transition-all duration-200',
+													'px-3 py-1.5 rounded-lg text-sm font-bold border-2 transition-all duration-200',
 													activeGroupFilters[attr.name] === val 
 														? 'border-blue-600 bg-blue-600 text-white shadow-lg scale-105' 
 														: 'border-white bg-white text-gray-600 hover:border-gray-200 hover:shadow-sm'
@@ -75,13 +75,13 @@
 									</div>
 								</div>
 								
-								<div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+								<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
 									<div
 										v-for="v in filteredVariants"
 										:key="v.item_code"
 										@click="!isVariantDisabled(v) && handleGroupVariantClick(sections[activeGroup.sectionIdx], v)"
 										:class="[
-											'p-5 rounded-2xl border-2 transition-all text-center flex flex-col items-center justify-center min-h-[100px]',
+											'p-2 rounded-xl border-2 transition-all text-center flex flex-col items-center justify-center min-h-[64px]',
 											isOptionSelected(v)
 												? 'border-blue-600 bg-blue-50 ring-4 ring-blue-100/50 cursor-pointer'
 												: isVariantDisabled(v)
@@ -90,12 +90,12 @@
 										]"
 									>
 										<p :class="['text-sm font-bold leading-tight', isOptionSelected(v) ? 'text-blue-700' : 'text-gray-800']">{{ v.variant_name }}</p>
-										<p :class="['text-[11px] mt-2 font-black', isOptionSelected(v) ? 'text-blue-600' : 'text-gray-500']">
+										<p :class="['text-[11px] mt-1 font-black', isOptionSelected(v) ? 'text-blue-600' : 'text-gray-500']">
 											{{ v.extra_price > 0 ? '+' + formatCurrency(v.extra_price) : __('Included') }}
 										</p>
 
 										<!-- Variant Selection Indicator -->
-										<div v-if="isOptionSelected(v)" class="mt-3 flex items-center gap-3" @click.stop>
+										<div v-if="isOptionSelected(v)" class="mt-1.5 flex items-center gap-1.5" @click.stop>
 											<div class="bg-blue-600 text-white rounded-full p-0.5">
 												<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
@@ -119,11 +119,11 @@
 							</div>
 						</transition>
 
-						<div v-for="(section, sIdx) in groupedSections" :key="sIdx" class="section-container bg-gray-50 rounded-xl p-4 border border-gray-100">
-							<div class="flex items-center justify-between mb-4 border-b border-gray-200 pb-2">
-								<div>
-									<h3 class="text-lg font-bold text-gray-900">{{ section.name }}</h3>
-									<div class="flex gap-2 mt-1">
+						<div v-for="(section, sIdx) in groupedSections" :key="sIdx" class="section-container bg-gray-50 rounded-xl p-2.5 border border-gray-100">
+							<div class="flex items-center justify-between mb-2 border-b border-gray-200 pb-1.5">
+								<div class="flex items-center gap-2 flex-wrap">
+									<h3 class="text-sm font-bold text-gray-900">{{ section.name }}</h3>
+									<div class="flex items-center gap-2">
 										<span v-if="section.is_required" class="px-2 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded-full uppercase tracking-wider">
 											{{ __('Required') }}
 										</span>
@@ -147,19 +147,19 @@
 									</div>
 								</div>
 								<div v-if="isSectionComplete(section)" class="text-green-600">
-									<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+									<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
 										<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
 									</svg>
 								</div>
 							</div>
 
-							<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+							<div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
 								<div
 									v-for="(group, gIdx) in section.groups"
 									:key="gIdx"
 									@click="!isTileDisabled(sections[sIdx], group) && handleGroupClick(sIdx, gIdx, group)"
 									:class="[
-										'relative group rounded-xl border-2 transition-all duration-200 overflow-hidden bg-white shadow-sm',
+										'relative group rounded-lg border-2 transition-all duration-200 overflow-hidden bg-white shadow-sm',
 										isGroupSelected(group)
 											? 'border-blue-600 ring-2 ring-blue-100 cursor-pointer'
 											: isTileDisabled(sections[sIdx], group)
@@ -168,7 +168,7 @@
 									]"
 								>
 									<!-- Selection Checkmark -->
-									<div v-if="isGroupSelected(group)" class="absolute top-2 right-2 z-10">
+									<div v-if="isGroupSelected(group)" class="absolute top-1 right-1 z-10">
 										<div class="bg-blue-600 text-white rounded-full p-0.5">
 											<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
@@ -176,15 +176,15 @@
 										</div>
 									</div>
 
-									<div class="aspect-square w-full bg-gray-100 flex items-center justify-center overflow-hidden">
+									<div class="h-16 w-full bg-gray-100 flex items-center justify-center overflow-hidden">
 										<img v-if="group.image" :src="group.image" class="w-full h-full object-cover" />
-										<svg v-else class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<svg v-else class="w-7 h-7 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
 										</svg>
 									</div>
 
-									<div class="p-3.5">
-										<p class="text-sm font-black text-gray-900 line-clamp-2 min-h-[2.5rem] uppercase tracking-tight">{{ group.name || group.item_name }}</p>
+									<div class="p-1.5">
+										<p class="text-xs font-bold text-gray-900 line-clamp-2 min-h-[2rem] leading-tight">{{ group.name || group.item_name }}</p>
 										
 										<!-- Variant Indicator -->
 										<div v-if="group.is_group" class="mt-1">
@@ -214,22 +214,22 @@
 											</div>
 										</div>
 
-										<div v-if="!group.is_group" class="flex items-center justify-between mt-2">
-											<span class="text-xs font-black text-blue-700">
+										<div v-if="!group.is_group" class="flex items-center justify-between gap-1 mt-1">
+											<span class="text-[11px] font-black text-blue-700 truncate">
 												{{ group.extra_price > 0 ? '+' + formatCurrency(group.extra_price) : __('Included') }}
 											</span>
 											
 											<!-- Quantity Control if section allows multi or item has qty > 1 -->
-											<div v-if="(section.max_qty > 1 || group.qty > 1) && isOptionSelected(group)" class="flex items-center gap-2" @click.stop>
-												<button @click="decreaseQty(group)" class="w-6 h-6 flex items-center justify-center bg-gray-100 rounded hover:bg-gray-200 active:scale-95 transition-all font-bold">-</button>
+											<div v-if="(section.max_qty > 1 || group.qty > 1) && isOptionSelected(group)" class="flex items-center gap-1 shrink-0" @click.stop>
+												<button @click="decreaseQty(group)" class="w-5 h-5 flex items-center justify-center bg-gray-100 rounded hover:bg-gray-200 active:scale-95 transition-all font-bold">-</button>
 												<span class="text-xs font-black w-4 text-center">{{ getOptionQty(group) }}</span>
-												<button @click="increaseQty(section, group)" class="w-6 h-6 flex items-center justify-center bg-blue-100 text-blue-600 rounded hover:bg-blue-200 active:scale-95 transition-all font-bold">+</button>
+												<button @click="increaseQty(section, group)" class="w-5 h-5 flex items-center justify-center bg-blue-100 text-blue-600 rounded hover:bg-blue-200 active:scale-95 transition-all font-bold">+</button>
 											</div>
 										</div>
 									</div>
 
 									<!-- Variant Selection Overlay if Template (Existing Logic) -->
-									<div v-if="group.has_variants && isOptionSelected(group)" class="border-t border-gray-100 p-2 bg-blue-50/50">
+									<div v-if="group.has_variants && isOptionSelected(group)" class="border-t border-gray-100 p-1 bg-blue-50/50">
 										<button 
 											@click.stop="openVariantSelector(group)"
 											class="w-full py-1 text-[10px] font-bold text-blue-700 bg-white border border-blue-200 rounded hover:bg-blue-50 transition-colors uppercase tracking-tight"
@@ -253,16 +253,16 @@
 				</div>
 
 				<!-- Right: Summary Sidebar -->
-				<div class="w-full md:w-72 bg-gray-50 rounded-2xl p-5 border border-gray-200 flex flex-col">
-					<div class="flex-1 overflow-y-auto mb-4 pr-1 custom-scrollbar">
-						<h4 class="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
+				<div class="w-full md:w-60 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col">
+					<div class="flex-1 overflow-y-auto mb-2 pr-1 custom-scrollbar">
+						<h4 class="text-sm font-bold text-gray-900 mb-2 flex items-center gap-2">
 							<svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
 							</svg>
 							{{ __('Your Selection') }}
 						</h4>
 						
-						<ul class="space-y-3">
+						<ul class="space-y-1.5">
 							<li v-if="selectedOptions.length === 0" class="text-xs text-gray-500 italic py-4 text-center">
 								{{ __('No items selected yet') }}
 							</li>
@@ -283,8 +283,8 @@
 						</ul>
 					</div>
 
-					<div class="pt-4 border-t border-gray-200 space-y-4">
-						<div class="space-y-1.5">
+					<div class="pt-2 border-t border-gray-200 space-y-2">
+						<div class="space-y-1">
 							<div class="flex justify-between items-center text-xs text-gray-500">
 								<span>{{ __('Base Price') }}</span>
 								<span>{{ formatCurrency(item?.rate || 0) }}</span>
@@ -381,6 +381,8 @@ const isOpen = computed({
 const loading = ref(false)
 const submitting = ref(false)
 const sections = ref([])
+// Combo components flagged Fixed: hidden from the cashier, always included
+const fixedOptions = ref([])
 const selections = ref({}) // key: item_code, value: selection object
 const comboQty = ref(1)
 
@@ -552,13 +554,22 @@ async function loadComboData() {
 	
 	loading.value = true
 	sections.value = []
+	fixedOptions.value = []
 	try {
 		const res = await call("ecs_posnext.api.items.get_combo_components", {
 			item_code: props.item.item_code,
 			pos_profile: props.posProfile,
 			price_list: props.priceList
 		})
-		sections.value = res?.message || res || []
+		// Fixed items are added automatically, so the cashier never sees them:
+		// keep them aside and drop sections that only contained fixed items.
+		const loaded = res?.message || res || []
+		fixedOptions.value = loaded.flatMap(section =>
+			section.options.filter(o => o.is_fixed).map(o => ({ ...o, section: section.name }))
+		)
+		sections.value = loaded
+			.map(section => ({ ...section, options: section.options.filter(o => !o.is_fixed) }))
+			.filter(section => section.options.length > 0)
 		
 		// Reset selections and apply defaults
 		selections.value = {}
@@ -578,6 +589,8 @@ async function loadComboData() {
 	} finally {
 		loading.value = false
 	}
+	// Nothing for the cashier to choose → add the combo with its fixed items straight away
+	if (sections.value.length === 0 && fixedOptions.value.length > 0) confirm()
 }
 
 // Watch for dialog open to load data
@@ -659,6 +672,9 @@ function getSelectedVariantInGroup(group) {
 function handleGroupClick(sIdx, gIdx, group) {
 	if (group.is_group) {
 		activeGroup.value = { sectionIdx: sIdx, groupIdx: gIdx }
+	} else if (group.is_combo) {
+		// The option is itself a combo → pick its own sections in a nested dialog
+		openNestedComboSelector(group)
 	} else if (group.has_variants || (group.addons && group.addons.length > 0)) {
 		// Items with variants or addons → open picker dialog
 		openVariantSelector(group)
@@ -709,7 +725,7 @@ function handleGroupVariantClick(section, variant) {
 	if (variant.has_variants) {
 		openVariantSelector(variant)
 		return
-	} else if (variant.is_bundle) {
+	} else if (variant.is_combo) {
 		openNestedComboSelector(variant)
 		return
 	}
@@ -929,12 +945,26 @@ const isValid = computed(() => {
 	return sections.value.every(section => isSectionComplete(section))
 })
 
+// Variant picker returns { attr: value }; combo options carry [{ attribute, value }]
+function toAttributeList(attrs) {
+	if (!attrs) return []
+	if (Array.isArray(attrs)) return attrs
+	return Object.entries(attrs).map(([attribute, value]) => ({ attribute, value }))
+}
+
 function confirm() {
 	if (!isValid.value) return
 	
+	const sectionOf = (code) => sections.value.find(s => s.options.some(o => o.item_code === code))?.name || ""
+	// Recursive shape: a nested combo carries its own picks in `components`
 	const components = selectedOptions.value.map(opt => ({
 		item_code: opt.selected_variant ? opt.selected_variant.item_code : opt.item_code,
 		item_name: opt.selected_variant ? opt.selected_variant.label : opt.item_name,
+		section: sectionOf(opt.item_code),
+		variant_of: opt.selected_variant ? opt.item_code : (opt.variant_of || ""),
+		attributes: toAttributeList(opt.selected_variant?.attributes || opt.attributes),
+		is_combo: opt.is_combo || 0,
+		components: opt.components || [],
 		quantity: opt.quantity,
 		extra_price: opt.extra_price,
 		is_standalone: opt.is_standalone,
@@ -946,6 +976,30 @@ function confirm() {
 		ingredients: opt.selected_variant?.ingredients || opt.ingredients || [],
 		notes: opt.selected_variant?.notes || ""
 	}))
+
+	// Fixed items, each with its configured quantity
+	fixedOptions.value.forEach(opt => {
+		components.push({
+			item_code: opt.item_code,
+			item_name: opt.item_name,
+			section: opt.section,
+			variant_of: opt.variant_of || "",
+			attributes: toAttributeList(opt.attributes),
+			is_combo: 0,
+			is_fixed: 1,
+			components: [],
+			quantity: opt.qty || 1,
+			extra_price: 0,
+			is_standalone: opt.is_standalone,
+			stock_uom: opt.stock_uom,
+			is_stock_item: opt.is_stock_item,
+			selected_addons: [],
+			removed_ingredients: [],
+			removed_ingredient_names: [],
+			ingredients: opt.ingredients || [],
+			notes: ""
+		})
+	})
 
 	const payload = {
 		type: "combo",

@@ -311,7 +311,7 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
 		if bundle:
 			bundle_items = frappe.get_all(
 				"Product Bundle Item",
-				fields=["item_code", "qty", "uom", "description", "show_in_pos"],
+				fields=["item_code", "qty", "uom", "description", "show_in_pos", "custom_is_fixed"],
 				filters={"parent": bundle}
 			)
 			# Add item_name to ingredients
@@ -581,6 +581,13 @@ def get_combo_components(item_code, pos_profile=None, price_list=None):
 
 		item_info_map = {i.name: i for i in item_info}
 
+		nested_combo_codes = set(frappe.get_all(
+			"Combo Component",
+			filters={"parent": ["in", child_item_codes], "parenttype": "Item"},
+			pluck="parent",
+			distinct=True,
+		))
+
 		# Group by section
 		sections = {}
 		for c in components:
@@ -613,20 +620,22 @@ def get_combo_components(item_code, pos_profile=None, price_list=None):
 						current_extra_price = p.get("price") or 0
 						break
 
-			# Get ingredients if it's a bundle
+			# Ingredients come from the option's Product Bundle (or, for a non-stock variant,
+			# its template's), whatever enabled_item_bundle says — this is what gets deducted.
 			ingredients = []
-			if info.get("enabled_item_bundle"):
-				bundle = frappe.db.get_value("Product Bundle", {"new_item_code": c.item_code}, "name")
-				if bundle:
-					bundle_items = frappe.get_all(
-						"Product Bundle Item",
-						fields=["item_code", "qty", "uom", "description", "show_in_pos"],
-						filters={"parent": bundle}
-					)
-					# Add item_name to ingredients
-					for bi in bundle_items:
-						bi["item_name"] = frappe.db.get_value("Item", bi.item_code, "item_name") or bi.item_code
-					ingredients = bundle_items
+			bundle = frappe.db.get_value("Product Bundle", {"new_item_code": c.item_code}, "name")
+			if not bundle and info.get("variant_of") and not info.get("is_stock_item"):
+				bundle = frappe.db.get_value("Product Bundle", {"new_item_code": info.get("variant_of")}, "name")
+			if bundle:
+				bundle_items = frappe.get_all(
+					"Product Bundle Item",
+					fields=["item_code", "qty", "uom", "description", "show_in_pos", "custom_is_fixed"],
+					filters={"parent": bundle}
+				)
+				# Add item_name to ingredients
+				for bi in bundle_items:
+					bi["item_name"] = frappe.db.get_value("Item", bi.item_code, "item_name") or bi.item_code
+				ingredients = bundle_items
 
 			# Get addons
 			addons = frappe.db.sql("""
@@ -654,10 +663,14 @@ def get_combo_components(item_code, pos_profile=None, price_list=None):
 				"template_name": template_names.get(info.get("variant_of")),
 				"attributes": attribute_map.get(c.item_code, []),
 				"is_bundle": info.get("enabled_item_bundle", 0),
+				# A nested combo: the option has its own combo sections to pick from
+				"is_combo": 1 if c.item_code in nested_combo_codes else 0,
 				"is_stock_item": info.get("is_stock_item", 0),
 				"qty": c.qty or 1,
 				"extra_price": current_extra_price,
 				"default_selected": c.default_selected,
+				# Fixed: added automatically, never shown for the cashier to pick
+				"is_fixed": getattr(c, "is_fixed", 0) or 0,
 				"is_standalone": c.is_standalone,
 				"show_bundle_in_pos": c.show_bundle_in_pos,
 				"ingredients": ingredients,
@@ -862,7 +875,7 @@ def get_item_variants(template_item, pos_profile=None, warehouse=None, price_lis
 			if bundle_name_map:
 				bundle_items = frappe.get_all(
 					"Product Bundle Item",
-					fields=["parent", "item_code", "qty", "uom", "description", "show_in_pos"],
+					fields=["parent", "item_code", "qty", "uom", "description", "show_in_pos", "custom_is_fixed"],
 					filters={"parent": ["in", list(bundle_name_map.keys())]}
 				)
 				

@@ -489,7 +489,10 @@
 											<tbody>
 												<tr v-for="(item, idx) in order.items" :key="idx" class="border-t border-gray-100">
 													<td class="py-1 text-gray-700">{{ item.item_code }}</td>
-													<td class="py-1 text-gray-600">{{ item.item_name }}</td>
+													<td class="py-1 text-gray-600">
+														{{ item.item_name }}
+														<ComboComponentsTree :components="item.custom_selected_components" class="mt-0.5" />
+													</td>
 													<td class="py-1 text-center text-gray-700">{{ item.qty }} {{ item.uom }}</td>
 													<td class="py-1 text-end text-gray-600">{{ formatNumber(item.rate) }}</td>
 													<td class="py-1 text-end text-gray-900 font-medium">{{ formatNumber(item.amount) }}</td>
@@ -508,7 +511,10 @@
 													<tbody>
 														<tr v-for="(item, idx) in sup.items" :key="idx" class="border-t border-gray-100">
 															<td class="py-1 text-gray-700">{{ item.item_code }}</td>
-															<td class="py-1 text-gray-600">{{ item.item_name }}</td>
+															<td class="py-1 text-gray-600">
+														{{ item.item_name }}
+														<ComboComponentsTree :components="item.custom_selected_components" class="mt-0.5" />
+													</td>
 															<td class="py-1 text-center text-gray-700">{{ item.qty }} {{ item.uom }}</td>
 															<td class="py-1 text-end text-gray-600">{{ formatNumber(item.rate) }}</td>
 															<td class="py-1 text-end text-gray-900 font-medium">{{ formatNumber(item.amount) }}</td>
@@ -1042,6 +1048,7 @@
 </template>
 
 <script setup>
+import ComboComponentsTree from "@/components/common/ComboComponentsTree.vue"
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue"
 import { useRouter } from "vue-router"
 import { call } from "@/utils/apiWrapper"

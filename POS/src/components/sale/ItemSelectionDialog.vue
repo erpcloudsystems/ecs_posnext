@@ -1,20 +1,20 @@
 <template>
 	<Dialog v-model="isOpen" :options="{ title: dialogTitle, size: '5xl' }">
 		<template #body-content>
-			<div class="py-4 px-2 flex flex-col md:flex-row gap-6 max-h-[75vh] overflow-hidden">
+			<div class="py-2 px-1 flex flex-col md:flex-row gap-3 max-h-[80vh] overflow-hidden">
 				<!-- Left Column: Selection Options -->
 				<div ref="scrollContainer" class="flex-1 overflow-y-auto pr-2 custom-scrollbar">
 					<!-- Item Header (Simplified) -->
-					<div v-if="item" class="mb-6 border-b border-gray-100 pb-4">
-						<div class="flex items-center gap-4">
-							<div class="w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0 border border-gray-200">
+					<div v-if="item" class="mb-3 border-b border-gray-100 pb-2">
+						<div class="flex items-center gap-3">
+							<div class="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0 border border-gray-200">
 								<img v-if="item.image" :src="item.image" loading="lazy" :alt="item.item_name" class="w-full h-full object-cover" />
 								<svg v-else class="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
 								</svg>
 							</div>
 							<div class="flex-1 text-start">
-								<h3 class="text-lg font-black text-gray-900 uppercase tracking-tight">{{ item.item_name }}</h3>
+								<h3 class="text-base font-black text-gray-900 tracking-tight">{{ item.item_name }}</h3>
 								<p class="text-xs text-gray-500 font-medium">{{ item.item_code }}</p>
 							</div>
 						</div>
@@ -27,18 +27,18 @@
 					</div>
 
 					<!-- Content Area -->
-					<div v-else-if="options.length > 0" class="flex flex-col gap-8 pb-4">
+					<div v-else-if="options.length > 0" class="flex flex-col gap-4 pb-2">
 						<!-- Variant/UOM Selection Section -->
-						<div v-if="mode === 'variant'" class="flex flex-col gap-6">
-							<div v-for="(values, attrName) in variantAttributesMap" :key="attrName" class="flex flex-col gap-3">
+						<div v-if="mode === 'variant'" class="flex flex-col gap-3">
+							<div v-for="(values, attrName) in variantAttributesMap" :key="attrName" class="flex flex-col gap-1.5">
 								<label class="text-sm font-black text-gray-400 uppercase tracking-widest text-start block px-1">{{ attrName }}</label>
-								<div class="flex flex-wrap gap-3">
+								<div class="flex flex-wrap gap-1.5">
 									<button
 										v-for="value in values"
 										:key="value"
 										@click="selectAttribute(attrName, value)"
 										:class="[
-											'px-6 py-3 rounded-xl border-2 text-sm font-bold transition-all duration-200',
+											'px-3 py-1.5 rounded-lg border-2 text-sm font-bold transition-all duration-200',
 											selectedAttributes[attrName] === value
 												? 'border-blue-600 bg-blue-600 text-white shadow-lg scale-105'
 												: 'border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:bg-blue-50/30'
@@ -50,7 +50,7 @@
 							</div>
 
 							<!-- Selected Variant Info -->
-							<div v-if="matchedVariant" class="p-4 bg-blue-50 rounded-xl border border-blue-100">
+							<div v-if="matchedVariant" class="p-2.5 bg-blue-50 rounded-xl border border-blue-100">
 								<div class="flex items-center justify-between">
 									<div class="text-start">
 										<p class="text-sm font-bold text-gray-900">{{ matchedVariant.label }}</p>
@@ -70,15 +70,15 @@
 						</div>
 
 						<!-- UOM Selection Section -->
-						<div v-else-if="mode === 'uom'" class="flex flex-col gap-6">
+						<div v-else-if="mode === 'uom'" class="flex flex-col gap-2">
 							<label class="block text-sm font-black text-gray-400 uppercase tracking-widest text-start px-1">{{ __('Unit of Measure') }}</label>
-							<div class="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+							<div class="grid gap-2 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 								<button
 									v-for="(option, index) in options"
 									:key="index"
 									@click="selectOption(option)"
 									:class="[
-										'px-6 py-5 rounded-2xl font-black text-sm transition-all duration-200 flex flex-col items-center justify-center min-h-[80px] border-2',
+										'px-2 py-2 rounded-xl font-black text-sm transition-all duration-200 flex flex-col items-center justify-center min-h-[56px] border-2',
 										selectedOption === option
 											? 'border-blue-600 bg-blue-600 text-white shadow-lg scale-105'
 											: 'bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50/30 border-gray-200 shadow-sm'
@@ -93,18 +93,18 @@
 						</div>
 
 						<!-- Ingredients Section -->
-						<div v-if="selectedOption?.ingredients?.length > 0" class="flex flex-col gap-3">
-							<div class="flex items-center justify-between border-b border-gray-100 pb-2">
+						<div v-if="removableIngredients.length > 0" class="flex flex-col gap-1.5">
+							<div class="flex items-center justify-between border-b border-gray-100 pb-1">
 								<label class="text-[11px] font-black text-gray-400 uppercase tracking-widest">{{ __('Ingredients') }}</label>
 								<span class="text-[10px] text-gray-400 font-bold italic">{{ __('Tap to remove') }}</span>
 							</div>
-							<div class="flex flex-wrap gap-2">
+							<div class="flex flex-wrap gap-1.5">
 								<button
-									v-for="ing in selectedOption.ingredients"
+									v-for="ing in removableIngredients"
 									:key="ing.item_code"
 									@click="toggleIngredient(ing.item_code)"
 									:class="[
-										'px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2 border-2',
+										'px-2.5 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 border-2',
 										isIngredientRemoved(ing.item_code)
 											? 'bg-gray-100 text-gray-400 border-gray-200 line-through opacity-60'
 											: 'bg-white text-gray-700 border-gray-100 hover:border-orange-200 hover:bg-orange-50'
@@ -119,24 +119,24 @@
 						</div>
 
 						<!-- Addons Section -->
-						<div v-if="availableAddons.length > 0" class="flex flex-col gap-4">
-							<label class="text-[11px] font-black text-gray-400 uppercase tracking-widest text-start px-1 border-b border-gray-100 pb-2">
+						<div v-if="availableAddons.length > 0" class="flex flex-col gap-1.5">
+							<label class="text-[11px] font-black text-gray-400 uppercase tracking-widest text-start px-1 border-b border-gray-100 pb-1">
 								{{ selectedOption?.addons_label || __('Add-ons') }}
 							</label>
-							<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+							<div class="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
 								<button
 									v-for="addon in availableAddons"
 									:key="addon.item_code"
 									@click="toggleAddon(addon)"
 									:class="[
-										'p-4 rounded-2xl text-start transition-all border-2 flex flex-col gap-1.5 shadow-sm',
+										'p-2 rounded-xl text-start transition-all border-2 flex flex-col gap-0.5 shadow-sm',
 										isAddonSelected(addon.item_code)
 											? 'border-blue-600 bg-blue-50 ring-2 ring-blue-100'
 											: 'border-gray-100 bg-white hover:border-blue-200'
 									]"
 								>
 									<div class="flex items-center justify-between">
-										<span class="text-sm font-black text-gray-900 line-clamp-1 uppercase tracking-tight">{{ addon.item_name }}</span>
+										<span class="text-xs font-bold text-gray-900 line-clamp-2 leading-tight">{{ addon.item_name }}</span>
 										<div v-if="isAddonSelected(addon.item_code)" class="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center shadow-sm">
 											<svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
@@ -168,15 +168,15 @@
 				</div>
 
 				<!-- Right Column: Summary Sidebar -->
-				<div v-if="!loading && options.length > 0" class="w-full md:w-80 bg-gray-50 rounded-2xl p-5 border border-gray-200 flex flex-col">
-					<h4 class="text-[11px] font-black text-gray-900 mb-4 flex items-center gap-2 uppercase tracking-widest border-b border-gray-200 pb-2">
+				<div v-if="!loading && options.length > 0" class="w-full md:w-64 bg-gray-50 rounded-xl p-3 border border-gray-200 flex flex-col">
+					<h4 class="text-[11px] font-black text-gray-900 mb-2 flex items-center gap-2 uppercase tracking-widest border-b border-gray-200 pb-1.5">
 						<svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
 						</svg>
 						{{ __('Your Selection') }}
 					</h4>
 
-					<div class="flex-1 overflow-y-auto mb-4 pr-1 custom-scrollbar space-y-4">
+					<div class="flex-1 overflow-y-auto mb-2 pr-1 custom-scrollbar space-y-2">
 						<!-- Selection Detail -->
 						<div v-if="selectedOption" class="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
 							<p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{{ mode === 'variant' ? __('Variant') : __('Unit') }}</p>
@@ -209,7 +209,7 @@
 							<label class="text-[10px] font-black text-gray-400 uppercase tracking-widest">{{ __('Special Instructions') }}</label>
 							<textarea
 								v-model="notes"
-								rows="3"
+								rows="2"
 								:placeholder="__('Add a note...')"
 								class="w-full rounded-xl border border-gray-200 bg-white p-3 text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none custom-scrollbar"
 							></textarea>
@@ -217,7 +217,7 @@
 					</div>
 
 					<!-- Bottom Sidebar: Qty and Price -->
-					<div class="pt-4 border-t border-gray-200 space-y-4">
+					<div class="pt-2 border-t border-gray-200 space-y-2">
 						<!-- Quantity Control -->
 						<div class="flex flex-col gap-2">
 							<label class="text-[10px] font-black text-gray-400 uppercase tracking-widest">{{ __('Quantity') }}</label>
@@ -229,7 +229,7 @@
 						</div>
 
 						<!-- Total Price Summary -->
-						<div class="bg-gray-900 rounded-2xl p-4 text-white shadow-lg border border-gray-800">
+						<div class="bg-gray-900 rounded-xl p-3 text-white shadow-lg border border-gray-800">
 							<div class="flex justify-between items-center mb-1.5">
 								<span class="text-[10px] text-gray-400 uppercase tracking-widest font-black">{{ __('Summary') }}</span>
 								<span class="text-[10px] text-gray-400 font-bold">{{ quantity }} × {{ formatCurrency(totalPrice) }}</span>
@@ -294,6 +294,10 @@ const isOpen = computed({
 const loading = ref(false)
 const options = ref([])
 const selectedOption = ref(null)
+// Fixed recipe rows are built-in parts of the meal: never offered for removal
+const removableIngredients = computed(() =>
+	(selectedOption.value?.ingredients || []).filter((ing) => !ing.custom_is_fixed)
+)
 const quantity = ref(1)
 const selectedAttributes = ref({}) // For variant attribute selection
 const selectedAddons = ref([])

@@ -14,6 +14,7 @@ declare module 'vue' {
     BatchSerialDialog: typeof import('./src/components/sale/BatchSerialDialog.vue')['default']
     CheckboxField: typeof import('./src/components/settings/CheckboxField.vue')['default']
     ClearCacheOverlay: typeof import('./src/components/common/ClearCacheOverlay.vue')['default']
+    ComboComponentsTree: typeof import('./src/components/common/ComboComponentsTree.vue')['default']
     ComboSelectionDialog: typeof import('./src/components/sale/ComboSelectionDialog.vue')['default']
     CountryCodeSelector: typeof import('./src/components/common/CountryCodeSelector.vue')['default']
     CouponDialog: typeof import('./src/components/sale/CouponDialog.vue')['default']

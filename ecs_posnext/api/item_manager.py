@@ -994,6 +994,7 @@ def upsert_product_bundle(new_item_code, items):
 			"uom": it.get("uom") or None,
 			"description": it.get("description") or it.get("item_name") or it.get("item_code"),
 			"show_in_pos": 1 if it.get("show_in_pos") else 0,
+			"custom_is_fixed": 1 if it.get("custom_is_fixed") else 0,
 		}
 		for it in items
 		if it.get("item_code")

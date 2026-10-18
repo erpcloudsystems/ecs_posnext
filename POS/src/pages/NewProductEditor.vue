@@ -390,6 +390,10 @@
 										<label v-if="!opt.has_variants" class="flex-shrink-0 cursor-pointer" :title="__('افتراضي')">
 											<input v-model="opt.default_selected" type="checkbox" class="toggle-cb"/>
 										</label>
+										<!-- Fixed item toggle -->
+										<label v-if="!opt.has_variants" class="flex items-center gap-1 flex-shrink-0 cursor-pointer text-[10px] text-gray-500" :title="__('ثابت: يُضاف تلقائياً بدون اختيار الكاشير، ويظهر في المطبخ ويُخصم من المخزون')">
+											<input v-model="opt.is_fixed" type="checkbox" class="toggle-cb"/>{{ __('ثابت') }}
+										</label>
 
 										<!-- Expand toggle for variant group -->
 										<button v-if="opt.has_variants" @click="opt.expanded=!opt.expanded"
@@ -465,6 +469,9 @@
 											class="flex items-center gap-2 px-3 py-2 border-b border-gray-50 last:border-0 hover:bg-gray-50">
 											<label class="flex-shrink-0 cursor-pointer" :title="__('افتراضي')">
 												<input v-model="vr.default_selected" type="checkbox" class="toggle-cb"/>
+											</label>
+											<label class="flex items-center gap-1 flex-shrink-0 cursor-pointer text-[10px] text-gray-500" :title="__('ثابت: يُضاف تلقائياً بدون اختيار الكاشير، ويظهر في المطبخ ويُخصم من المخزون')">
+												<input v-model="vr.is_fixed" type="checkbox" class="toggle-cb"/>{{ __('ثابت') }}
 											</label>
 											<span class="text-xs text-slate-700 font-medium flex-1 truncate min-w-0">{{ vr.item_name }}</span>
 											<!-- Lock group tag -->
@@ -615,6 +622,7 @@
 							<input v-model.number="ing.qty" type="number" min="0.01" step="0.01" class="form-input !py-1 text-xs w-20" dir="ltr"/>
 							<select v-model="ing.uom" class="form-input !py-1 text-xs w-24"><option v-for="u in uoms" :key="u.name" :value="u.name">{{ u.name }}</option></select>
 							<label class="flex items-center gap-1 text-[10px] whitespace-nowrap"><input v-model="ing.show_in_pos" type="checkbox" class="toggle-cb"/>POS</label>
+							<label class="flex items-center gap-1 text-[10px] whitespace-nowrap" :title="__('ثابت: جزء أساسي من الوجبة، لا يمكن للكاشير حذفه، ويظهر في المطبخ كمكوّن مستقل')"><input v-model="ing.custom_is_fixed" type="checkbox" class="toggle-cb"/>{{ __('ثابت') }}</label>
 							<button @click="recipe.ingredients.splice(i,1)" class="ms-auto p-1 text-red-500 hover:bg-red-50 rounded"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
 						</div>
 					</div>
@@ -826,11 +834,11 @@ const product = reactive({
 	standard_rate: 0, image: "", product_type: "standard",
 	custom_is_pos_item: true, custom_fast_sell: false,
 	attributes: [], variants: [], sections: [], addons: [], addons_label: "",
-	packaging_delivery: [], packaging_dinein: [], packaging_takeaway: [],
+	packaging_dinein: [], packaging_takeaway: [],
 	custom_item_classification: "",
 })
 
-const packagingOpen = reactive({ delivery: false, dinein: false, takeaway: false })
+const packagingOpen = reactive({ takeaway: false, dinein: false })
 const packagingItems = ref([])
 const packagingOptions = computed(() => packagingItems.value.map((pi) => ({
 	value: pi.item_code,
@@ -838,9 +846,9 @@ const packagingOptions = computed(() => packagingItems.value.map((pi) => ({
 	subtitle: pi.item_code,
 })))
 const packagingTypes = [
-	{ key: "delivery", label: "Delivery", icon: "\uD83D\uDE9A" },
-	{ key: "dinein", label: "Dine-in", icon: "\uD83C\uDF7D\uFE0F" },
-	{ key: "takeaway", label: "Takeaway", icon: "\uD83D\uDECD\uFE0F" },
+	// Takeaway, Delivery and Talabat share one list; it's saved to both packaging_takeaway and packaging_delivery (Talabat uses packaging_delivery).
+	{ key: "takeaway", label: "Takeaway / Delivery / Talabat", icon: "\uD83D\uDECD\uFE0F" },
+	{ key: "dinein", label: "Dine In", icon: "\uD83C\uDF7D\uFE0F" },
 ]
 
 const priceLists = ref([])
@@ -1023,7 +1031,7 @@ function resetEditor() {
 	product.product_type = "standard"; product.custom_is_pos_item = true; product.custom_fast_sell = false
 	product.attributes = []; product.variants = []; product.sections = []
 	product.addons = []; product.addons_label = ""
-	product.packaging_delivery = []; product.packaging_dinein = []; product.packaging_takeaway = []
+	product.packaging_dinein = []; product.packaging_takeaway = []
 	itemPrices.value = []
 }
 
@@ -1071,7 +1079,6 @@ function showMessage(msg, color = "success") {
 }
 
 function getPackagingList(key) {
-	if (key === "delivery") return product.packaging_delivery
 	if (key === "dinein") return product.packaging_dinein
 	return product.packaging_takeaway
 }
@@ -1377,7 +1384,7 @@ async function loadExistingBundle() {
 		recipe.bundle_name = res.message[0].name
 		const b = await frappeCall({ method: "frappe.client.get", args: { doctype: "Product Bundle", name: recipe.bundle_name } })
 		if (b.message && b.message.items) {
-			recipe.ingredients = b.message.items.map((r) => ({ item_code: r.item_code, item_name: r.description || r.item_code, qty: r.qty, uom: r.uom || "Unit", show_in_pos: r.show_in_pos !== 0 }))
+			recipe.ingredients = b.message.items.map((r) => ({ item_code: r.item_code, item_name: r.description || r.item_code, qty: r.qty, uom: r.uom || "Unit", show_in_pos: r.show_in_pos !== 0, custom_is_fixed: r.custom_is_fixed === 1 }))
 		}
 	}
 }
@@ -1399,7 +1406,7 @@ async function saveRecipe() {
 			method: "ecs_posnext.api.item_manager.upsert_product_bundle",
 			args: {
 				new_item_code: currentRecipeItem.value,
-				items: validItems.map((ing) => ({ item_code: ing.item_code, qty: ing.qty, uom: ing.uom, description: ing.item_name, show_in_pos: ing.show_in_pos ? 1 : 0 })),
+				items: validItems.map((ing) => ({ item_code: ing.item_code, qty: ing.qty, uom: ing.uom, description: ing.item_name, show_in_pos: ing.show_in_pos ? 1 : 0, custom_is_fixed: ing.custom_is_fixed ? 1 : 0 })),
 			},
 		})
 		recipe.bundle_name = res.message.name
@@ -1426,6 +1433,7 @@ async function duplicateRecipeToAllVariants() {
 		.map((ing) => ({
 			item_code: ing.item_code, qty: ing.qty, uom: ing.uom,
 			description: ing.item_name, show_in_pos: ing.show_in_pos ? 1 : 0,
+			custom_is_fixed: ing.custom_is_fixed ? 1 : 0,
 		}))
 	if (items.length === 0) { showMessage(__("أضف مكوّن صحيح واحد على الأقل"), "error"); return }
 	savingRecipe.value = true
@@ -1537,11 +1545,12 @@ async function loadProduct(id) {
 	product.product_type = item.enabled_item_bundle ? "combo" : "standard"
 	hasVariants.value = item.has_variants === 1
 
-	product.packaging_delivery = (item.packaging_delivery || []).map((p) => ({ item_code: p.item_code, qty: p.qty || 1 }))
 	product.packaging_dinein = (item.packaging_dinein || []).map((p) => ({ item_code: p.item_code, qty: p.qty || 1 }))
-	product.packaging_takeaway = (item.packaging_takeaway || []).map((p) => ({ item_code: p.item_code, qty: p.qty || 1 }))
+	// Takeaway / Delivery is one list; fall back to the delivery rows for items saved before the merge.
+	const takeawayRows = item.packaging_takeaway?.length ? item.packaging_takeaway : (item.packaging_delivery || [])
+	product.packaging_takeaway = takeawayRows.map((p) => ({ item_code: p.item_code, qty: p.qty || 1 }))
 	// Resolve bundle components for any packaging "kit" so they show nested.
-	for (const list of [product.packaging_delivery, product.packaging_dinein, product.packaging_takeaway]) {
+	for (const list of [product.packaging_dinein, product.packaging_takeaway]) {
 		for (const pkg of list) await onPackagingSelect(pkg)
 	}
 	product.addons = (item.custom_addons || []).map((a) => ({ item_code: a.item_code, item_name: a.item_name, price: a.price || 0 }))
@@ -1587,6 +1596,7 @@ async function loadComboSections(components) {
 			extra_price: c.extra_price || 0,
 			extra_prices: extraPricesArray,
 			default_selected: c.default_selected === 1,
+			is_fixed: c.is_fixed === 1,
 			qty: c.qty || 1,
 			locked_attributes: c.locked_attributes || "[]",
 			lock_group: c.lock_group || "",
@@ -1773,7 +1783,7 @@ async function saveSimpleItem() {
 		standard_rate: product.standard_rate, image: product.image,
 		custom_is_pos_item: product.custom_is_pos_item, custom_fast_sell: product.custom_fast_sell,
 		is_stock_item: 0, include_item_in_manufacturing: 0, enabled_item_bundle: 0,
-		packaging_delivery: product.packaging_delivery.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty })),
+		packaging_delivery: product.packaging_takeaway.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty })),
 		packaging_dinein: product.packaging_dinein.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty })),
 		packaging_takeaway: product.packaging_takeaway.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty })),
 		custom_addons: product.addons.filter((a) => a.item_code),
@@ -1800,7 +1810,7 @@ async function saveStandardWithVariants() {
 	for (const attr of product.attributes) await ensureAttributeExists(attr.attribute, attr.values)
 
 	const packagingPayload = {
-		packaging_delivery: product.packaging_delivery.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty })),
+		packaging_delivery: product.packaging_takeaway.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty })),
 		packaging_dinein: product.packaging_dinein.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty })),
 		packaging_takeaway: product.packaging_takeaway.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty })),
 	}
@@ -2049,12 +2059,12 @@ async function saveComboItem() {
 					if (vr.item_code) {
 						const ep = JSON.stringify(vr.extra_prices || [])
 						const la = JSON.stringify(opt.locked_attributes || [])
-						components.push({ section_name: sec.name, section_type: sec.section_type || "Component", is_required: sec.is_required ? 1 : 0, item_code: vr.item_code, min_qty: sec.min_qty || 0, max_qty: sec.max_qty || 1, default_selected: vr.default_selected ? 1 : 0, extra_price: vr.extra_price || 0, extra_prices: ep, qty: opt.qty || vr.qty || 1, is_standalone: 0, locked_attributes: la, lock_group: vr.lock_group || "" })
+						components.push({ section_name: sec.name, section_type: sec.section_type || "Component", is_required: sec.is_required ? 1 : 0, item_code: vr.item_code, min_qty: sec.min_qty || 0, max_qty: sec.max_qty || 1, default_selected: vr.default_selected ? 1 : 0, is_fixed: vr.is_fixed ? 1 : 0, extra_price: vr.extra_price || 0, extra_prices: ep, qty: opt.qty || vr.qty || 1, is_standalone: 0, locked_attributes: la, lock_group: vr.lock_group || "" })
 					}
 				}
 			} else if (opt.item_code) {
 				const ep = JSON.stringify(opt.extra_prices || [])
-				components.push({ section_name: sec.name, section_type: sec.section_type || "Component", is_required: sec.is_required ? 1 : 0, item_code: opt.item_code, min_qty: sec.min_qty || 0, max_qty: sec.max_qty || 1, default_selected: opt.default_selected ? 1 : 0, extra_price: opt.extra_price || 0, extra_prices: ep, qty: opt.qty || 1, is_standalone: 1 })
+				components.push({ section_name: sec.name, section_type: sec.section_type || "Component", is_required: sec.is_required ? 1 : 0, item_code: opt.item_code, min_qty: sec.min_qty || 0, max_qty: sec.max_qty || 1, default_selected: opt.default_selected ? 1 : 0, is_fixed: opt.is_fixed ? 1 : 0, extra_price: opt.extra_price || 0, extra_prices: ep, qty: opt.qty || 1, is_standalone: 1 })
 			}
 		}
 	}
@@ -2067,7 +2077,7 @@ async function saveComboItem() {
 		custom_is_pos_item: product.custom_is_pos_item, custom_fast_sell: product.custom_fast_sell,
 		is_stock_item: 0, include_item_in_manufacturing: 0, enabled_item_bundle: 1,
 		combo_components: components,
-		packaging_delivery: product.packaging_delivery.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty })),
+		packaging_delivery: product.packaging_takeaway.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty })),
 		packaging_dinein: product.packaging_dinein.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty })),
 		packaging_takeaway: product.packaging_takeaway.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty })),
 	}
