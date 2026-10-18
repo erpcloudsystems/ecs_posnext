@@ -10,6 +10,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, today
 
+DEFAULT_SALES_TAX_TEMPLATE = "VAT 15% - VIM"
+
 
 def before_insert(doc, method=None):
 	"""
@@ -41,6 +43,7 @@ def validate(doc, method=None):
 	validate_pos_opening_shift_open(doc)
 	validate_vim_entertainment_sale(doc)
 	apply_tax_inclusive(doc)
+	ensure_sales_taxes(doc)
 	auto_assign_loyalty_program_on_invoice(doc)
 	apply_bundle_selections(doc)
 
@@ -135,6 +138,50 @@ def apply_bundle_selections(doc):
 	for fieldname in ("seleceted_packed_items", "custom_selected_packed_items"):
 		if doc.meta.has_field(fieldname):
 			doc.set(fieldname, selected_rows)
+
+
+def ensure_sales_taxes(doc):
+	"""
+	Make sure every Sales Invoice carries its VAT exactly once.
+
+	- Drops duplicate tax rows (same charge type, account and rate), so VAT is never
+	  charged twice.
+	- If the taxes table is empty, fills it from the "VAT 15% - VIM" template, always as
+	  inclusive (the price already contains the VAT, so the grand total doesn't change).
+	  Returns made against an invoice are left as-is: they must mirror the original.
+	  Runs after apply_tax_inclusive so the added rows aren't switched back to exclusive.
+
+	Args:
+		doc: Sales Invoice document
+	"""
+	has_changes = False
+
+	seen = set()
+	kept = []
+	for tax in doc.get("taxes", []):
+		key = (tax.charge_type, tax.account_head, flt(tax.rate), tax.row_id)
+		if tax.charge_type != "Actual" and key in seen:
+			has_changes = True
+			continue
+		seen.add(key)
+		kept.append(tax)
+	if has_changes:
+		for idx, tax in enumerate(kept, start=1):
+			tax.idx = idx
+		doc.set("taxes", kept)
+
+	if not doc.get("taxes") and not (doc.get("is_return") and doc.get("return_against")):
+		if frappe.db.exists("Sales Taxes and Charges Template", DEFAULT_SALES_TAX_TEMPLATE):
+			from erpnext.controllers.accounts_controller import get_taxes_and_charges
+
+			doc.taxes_and_charges = DEFAULT_SALES_TAX_TEMPLATE
+			for tax in get_taxes_and_charges("Sales Taxes and Charges Template", DEFAULT_SALES_TAX_TEMPLATE) or []:
+				tax["included_in_print_rate"] = 1
+				doc.append("taxes", tax)
+			has_changes = True
+
+	if has_changes:
+		doc.calculate_taxes_and_totals()
 
 
 def apply_tax_inclusive(doc):

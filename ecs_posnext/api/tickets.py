@@ -27,6 +27,20 @@ SUBSCRIPTION_ITEM_CODES = [
 ]
 
 
+def is_start_date_enabled():
+    """Membership Settings switch: ask for a start date on Renew / Upgrade, or always start today."""
+    # Off until Membership Settings has the field (doctype not reloaded yet)
+    if not frappe.get_meta("Membership Settings").has_field("enable_subscription_start_date"):
+        return False
+    return bool(cint(frappe.db.get_single_value("Membership Settings", "enable_subscription_start_date")))
+
+
+@frappe.whitelist()
+def get_start_date_enabled():
+    """Whether Renew / Upgrade should ask for a start date (Membership Settings)."""
+    return is_start_date_enabled()
+
+
 def _get_or_create_renewal_item():
     """Dedicated renewal service item (no Ticket Settings → no new ticket generated)."""
     if frappe.db.exists("Item", RENEWAL_ITEM_CODE):
@@ -443,6 +457,7 @@ def renew_ticket(
     mode_of_payment=None,
     extend_days=None,
     pos_opening_shift=None,
+    start_date=None,
 ):
     """Recharge the SAME ticket: extend validity + add uses, billed as a paid invoice.
 
@@ -451,8 +466,9 @@ def renew_ticket(
          renewal service item (no Ticket Settings, so no new ticket is generated).
       2. On the existing ticket: add `added_uses` to global_maximum_usage and
          remaining_usage, and extend valid_to by (extend_days or the item's
-         Ticket Settings number_of_days), measured from the later of today / current
-         expiry.
+         Ticket Settings number_of_days), measured from the later of start_date
+         (default today) / current expiry.
+      3. Build the renewal's revenue schedule from that same start.
     """
     added_uses = int(added_uses)
     amount = flt(amount)
@@ -462,6 +478,10 @@ def renew_ticket(
         frappe.throw(_("Renewal amount must be greater than zero"))
     if not pos_profile:
         frappe.throw(_("POS Profile is required"))
+    today_date = getdate(today())
+    start_date = getdate((is_start_date_enabled() and start_date) or today_date)
+    if start_date < today_date:
+        frappe.throw(_("Start date cannot be in the past"))
 
     ticket = frappe.get_doc("Ticket", ticket_name)
     if ticket.get("is_frozen"):
@@ -514,15 +534,15 @@ def renew_ticket(
         days = frappe.db.get_value(
             "Ticket Settings", ticket.ticket_settings, "number_of_days"
         )
-    # Renewal restarts the validity window today and extends valid_to by `days`
-    # from the later of today / current expiry (so an active ticket is topped up,
-    # an expired one is revived from today).
-    today_date = getdate(today())
-    ticket.valid_from = today_date
+    # The renewed period starts at the later of start_date / current expiry, so an
+    # active ticket is topped up without losing days and an expired one is revived
+    # from start_date. A still-valid ticket stays usable today.
+    still_valid = ticket.valid_to and getdate(ticket.valid_to) >= today_date
+    ticket.valid_from = today_date if still_valid else start_date
+    base = start_date
+    if ticket.valid_to and getdate(ticket.valid_to) > base:
+        base = getdate(ticket.valid_to)
     if days:
-        base = today_date
-        if ticket.valid_to and getdate(ticket.valid_to) > base:
-            base = getdate(ticket.valid_to)
         ticket.valid_to = add_days(base, int(days))
 
     # Keep a history of every invoice raised against this ticket.
@@ -535,6 +555,7 @@ def renew_ticket(
             "added_uses": added_uses,
         },
     )
+    ticket.number_of_renewals = sum(1 for r in ticket.sales_invoices if r.type == "Renewal")
 
     ticket.flags.ignore_permissions = True
     ticket.save(ignore_permissions=True)
@@ -546,6 +567,15 @@ def renew_ticket(
     )
     frappe.db.commit()
 
+    # Renewal revenue is deferred like a subscription's, starting with the renewed period
+    frappe.enqueue(
+        "ecs_vim_ticket.ecs_vim_ticket.doctype.subscription_revenue_schedule.subscription_revenue_schedule.generate_renewal_revenue_schedule",
+        sales_invoice_name=draft.get("name"),
+        start_date=str(base),
+        queue="short",
+        timeout=120,
+    )
+
     return {
         "ticket": ticket_name,
         "renewal_invoice": draft.get("name"),
@@ -555,6 +585,7 @@ def renew_ticket(
         "remaining_usage": ticket.remaining_usage,
         "used_free_wristband": ticket.used_free_wristband,
         "remaining_free_wristband": ticket.remaining_free_wristband,
+        "number_of_renewals": ticket.number_of_renewals,
     }
 
 
@@ -683,6 +714,7 @@ def upgrade_ticket_subscription(
     pos_profile=None,
     mode_of_payment=None,
     pos_opening_shift=None,
+    start_date=None,
 ):
     """Upgrade a subscription ticket to a different membership plan.
 
@@ -704,6 +736,9 @@ def upgrade_ticket_subscription(
         frappe.throw(_("This ticket is not a subscription ticket and cannot be upgraded"))
     if not ticket.vendor:
         frappe.throw(_("This ticket has no customer to upgrade"))
+    start_date = getdate((is_start_date_enabled() and start_date) or today())
+    if start_date < getdate(today()):
+        frappe.throw(_("Start date cannot be in the past"))
 
     item = frappe.get_cached_doc("Item", item_code)
     rate = _get_subscription_item_rate(item_code, pos_profile)
@@ -713,6 +748,7 @@ def upgrade_ticket_subscription(
     subscription = frappe.new_doc("Daz Yearly Subscription")
     subscription.customer = ticket.vendor
     subscription.company = company
+    subscription.subscription_start_date = start_date
     subscription.append(
         "items",
         {

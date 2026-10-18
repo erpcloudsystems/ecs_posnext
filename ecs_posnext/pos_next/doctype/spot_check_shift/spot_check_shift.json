@@ -5,7 +5,7 @@
  "engine": "InnoDB",
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-04 12:00:00.000000",
+ "modified": "2026-10-18 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "POS Next",
  "owner": "Administrator",
@@ -40,9 +40,7 @@
    "fieldname": "status",
    "fieldtype": "Data",
    "label": "Status",
-   "in_list_view": 1,
-   "read_only": 1,
-   "columns": 1
+   "read_only": 1
   },
   {
    "fieldname": "period_start_date",
@@ -67,12 +65,26 @@
    "columns": 1
   },
   {
-   "fieldname": "total_qty",
-   "fieldtype": "Float",
-   "label": "Total Qty",
+   "fieldname": "loyalty",
+   "fieldtype": "Currency",
+   "label": "Loyalty",
    "read_only": 1,
    "in_list_view": 1,
    "columns": 1
+  },
+  {
+   "fieldname": "bank_transfer",
+   "fieldtype": "Currency",
+   "label": "Bank Transfer",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "total_qty",
+   "fieldtype": "Float",
+   "label": "Total Qty",
+   "read_only": 1
   },
   {
    "fieldname": "total_invoices",
@@ -98,6 +110,8 @@
   "period_start_date",
   "cash",
   "credit",
+  "loyalty",
+  "bank_transfer",
   "total_qty",
   "total_invoices",
   "grand_total"

@@ -353,6 +353,9 @@ def search_by_barcode(barcode, pos_profile):
 		# Get POS Profile details
 		pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
 
+		if item_code in _get_excluded_item_codes(pos_profile_doc):
+			frappe.throw(_("Item {0} is not available in this POS Profile").format(item_code))
+
 		# Validate POS Profile has required fields
 		if not pos_profile_doc.warehouse:
 			frappe.throw(_("Warehouse not set in POS Profile {0}").format(pos_profile))
@@ -595,6 +598,10 @@ def get_item_variants(template_item, pos_profile):
 				fn.Coalesce(Item.custom_company, "").isin([pos_profile_doc.company, ""])
 			)
 
+		excluded_items = _get_excluded_item_codes(pos_profile_doc)
+		if excluded_items:
+			query = query.where(Item.name.notin(excluded_items))
+
 		variants = query.run(as_dict=True)
 
 		# If no variants found, return empty with helpful message
@@ -806,6 +813,11 @@ def _exclude_item_groups(conditions, params, groups):
 		params.extend(groups)
 
 
+def _get_excluded_item_codes(pos_profile_doc):
+	"""Item codes listed in the POS Profile's custom_pos_exclude_items table (hidden from POS)."""
+	return list({row.item_code for row in (pos_profile_doc.get("custom_pos_exclude_items") or []) if row.item_code})
+
+
 def _build_item_base_conditions(pos_profile_doc, item_group=None, exclude_variants=True, hide_unavailable=False, warehouse=None):
 	"""Build base SQL conditions for POS item search with hierarchical item group support.
 
@@ -842,6 +854,11 @@ def _build_item_base_conditions(pos_profile_doc, item_group=None, exclude_varian
 		placeholders = ", ".join(["%s"] * len(profile_groups))
 		conditions.append(f"i.item_group IN ({placeholders})")
 		where_params.extend(profile_groups)
+
+	excluded_items = _get_excluded_item_codes(pos_profile_doc)
+	if excluded_items:
+		conditions.append(f"i.name NOT IN ({', '.join(['%s'] * len(excluded_items))})")
+		where_params.extend(excluded_items)
 
 	extra_joins = ""
 	join_params = []

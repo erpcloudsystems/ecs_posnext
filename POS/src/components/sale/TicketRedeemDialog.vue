@@ -215,10 +215,15 @@
 									<option v-for="m in paymentMethods" :key="m" :value="m">{{ __(m) }}</option>
 								</select>
 							</div>
+							<div v-if="askStartDate">
+								<label class="block text-[10px] text-gray-500 mb-0.5">{{ __("Start Date") }}</label>
+								<input v-model="t._renewStart" type="date" :min="todayStr"
+									class="h-9 px-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500" />
+							</div>
 							<button
 								type="button"
 								class="h-9 px-4 text-xs font-semibold rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
-								:disabled="t._busy || !t._renewUses || t._renewUses < 1 || !t._renewAmount || t._renewAmount <= 0"
+								:disabled="t._busy || !t._renewUses || t._renewUses < 1 || !t._renewAmount || t._renewAmount <= 0 || !validStart(t._renewStart)"
 								@click="confirmRenew(t, false)"
 							>
 								{{ t._busy ? __("Processing...") : __("Renew") }}
@@ -226,7 +231,7 @@
 							<button
 								type="button"
 								class="h-9 px-4 text-xs font-semibold rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
-								:disabled="t._busy || !t._renewUses || t._renewUses < 1 || !t._renewAmount || t._renewAmount <= 0"
+								:disabled="t._busy || !t._renewUses || t._renewUses < 1 || !t._renewAmount || t._renewAmount <= 0 || !validStart(t._renewStart)"
 								@click="confirmRenew(t, true)"
 							>
 								{{ t._busy ? __("Processing...") : __("Renew & Print") }}
@@ -244,10 +249,15 @@
 									<option v-for="p in subscriptionPlans" :key="p.value" :value="p.value">{{ __(p.label) }}</option>
 								</select>
 							</div>
+							<div v-if="askStartDate">
+								<label class="block text-[10px] text-gray-500 mb-0.5">{{ __("Start Date") }}</label>
+								<input v-model="t._upgradeStart" type="date" :min="todayStr"
+									class="h-9 px-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500" />
+							</div>
 							<button
 								type="button"
 								class="h-9 px-4 text-xs font-semibold rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
-								:disabled="t._busy || !t._upgradeItem"
+								:disabled="t._busy || !t._upgradeItem || !validStart(t._upgradeStart)"
 								@click="confirmUpgrade(t)"
 							>
 								{{ t._busy ? __("Processing...") : __("Upgrade") }}
@@ -494,6 +504,28 @@ const displayedTickets = computed(() =>
 	activeTab.value === "active" ? activeTickets.value : expiredTickets.value,
 )
 
+// Local YYYY-MM-DD (toISOString would shift to UTC); renewal/upgrade can start today or later
+const todayStr = computed(() => {
+	const d = new Date()
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+})
+
+// Membership Settings switch; when off, renew/upgrade start today and no date is asked
+const askStartDate = ref(false)
+
+async function loadStartDateEnabled() {
+	try {
+		const res = await call("ecs_posnext.api.tickets.get_start_date_enabled")
+		askStartDate.value = !!(res?.message ?? res)
+	} catch (e) {
+		askStartDate.value = false
+	}
+}
+
+function validStart(date) {
+	return !askStartDate.value || (!!date && date >= todayStr.value)
+}
+
 function decorate(rows) {
 	return (rows || [])
 		.map((t) => ({
@@ -504,6 +536,8 @@ function decorate(rows) {
 			_renewUses: 1,
 			_renewAmount: Number(t.rate) || 0,
 			_renewMop: props.paymentMethods[0] || "",
+			_renewStart: todayStr.value,
+			_upgradeStart: todayStr.value,
 			_upgradeItem: subscriptionPlanValues.find((v) => v !== t.item) || subscriptionPlanValues[0],
 			_busy: false,
 			_wristbands: [],
@@ -662,6 +696,7 @@ async function doRenew(t, print) {
 			pos_profile: props.posProfile,
 			mode_of_payment: t._renewMop || undefined,
 			pos_opening_shift: props.posOpeningShift,
+			start_date: askStartDate.value ? t._renewStart : undefined,
 		})
 		const data = res?.message || res
 		showSuccess(
@@ -705,6 +740,7 @@ async function doUpgrade(t) {
 			item_code: t._upgradeItem,
 			pos_profile: props.posProfile,
 			pos_opening_shift: props.posOpeningShift,
+			start_date: askStartDate.value ? t._upgradeStart : undefined,
 		})
 		showSuccess(__("Upgraded {0} to a new subscription", [t.name]))
 		await refresh()
@@ -831,6 +867,7 @@ watch(
 	() => props.modelValue,
 	(open) => {
 		if (open) {
+			loadStartDateEnabled()
 			nextTick(() => setTimeout(() => searchInput.value?.focus(), 100))
 		} else {
 			query.value = ""

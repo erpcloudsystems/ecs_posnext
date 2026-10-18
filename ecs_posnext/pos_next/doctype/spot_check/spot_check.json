@@ -5,7 +5,7 @@
  "engine": "InnoDB",
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-04 12:00:00.000000",
+ "modified": "2026-10-18 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "POS Next",
  "owner": "Administrator",
@@ -83,6 +83,18 @@
    "read_only": 1
   },
   {
+   "fieldname": "total_loyalty",
+   "fieldtype": "Currency",
+   "label": "Total Loyalty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_bank_transfer",
+   "fieldtype": "Currency",
+   "label": "Total Bank Transfer",
+   "read_only": 1
+  },
+  {
    "fieldname": "column_break_summary",
    "fieldtype": "Column Break"
   },
@@ -102,6 +114,18 @@
    "fieldname": "grand_total",
    "fieldtype": "Currency",
    "label": "Total Grand Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_payments",
+   "fieldtype": "Section Break",
+   "label": "Mode of Payments"
+  },
+  {
+   "fieldname": "payments",
+   "fieldtype": "Table",
+   "label": "Mode of Payments",
+   "options": "Spot Check Payment",
    "read_only": 1
   },
   {
@@ -126,10 +150,14 @@
   "section_break_summary",
   "total_cash",
   "total_credit",
+  "total_loyalty",
+  "total_bank_transfer",
   "column_break_summary",
   "total_qty",
   "total_invoices",
   "grand_total",
+  "section_break_payments",
+  "payments",
   "section_break_shifts",
   "shifts"
  ]

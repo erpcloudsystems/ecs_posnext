@@ -1978,6 +1978,21 @@ function handleProceedToPayment() {
 		return;
 	}
 
+	// A Sales Order forced by an item (item-level default customer) takes no
+	// payment at the register: create it straight away, skipping the dialog.
+	if (
+		!cartStore.reservationSalesOrder &&
+		(cartStore.salesOrderFromItem ||
+			cartStore.invoiceItems.some((i) => i.custom_customer_default))
+	) {
+		handlePaymentCompleted({
+			payments: [],
+			paid_amount: 0,
+			delivery_date: new Date().toISOString().split("T")[0],
+		});
+		return;
+	}
+
 	uiStore.showPaymentDialog = true;
 }
 

@@ -1,5 +1,5 @@
 <template>
-  <Dialog v-model="open" :options="{ title: __('Close POS Shift mahmoud'), size: '4xl' }">
+  <Dialog v-model="open" :options="{ title: __('Close POS Shift'), size: '4xl' }">
     <template #body-content>
       <div class="flex flex-col gap-3 md:gap-6">
         <div v-if="closingDataResource.loading" class="text-center py-8 md:py-12">
@@ -501,11 +501,37 @@
           </div>
 
           <!-- Submit/Close button (only shown in entry mode) -->
-          <Button v-if="!showSuccessReport" variant="solid" theme="blue" @click="submitClosing"
+          <Button v-if="!showSuccessReport" variant="solid" theme="blue" @click="showConfirm = true"
             :loading="submitResource.loading" :disabled="!canSubmit">
             {{ submitResource.loading ? __('Closing Shift...') : __('Close Shift') }}
           </Button>
         </div>
+      </div>
+    </template>
+  </Dialog>
+
+  <!-- Confirm the entered closing amounts before submitting -->
+  <Dialog v-model="showConfirm" :options="{ title: __('Are you sure?'), size: 'md' }">
+    <template #body-content>
+      <p class="text-start text-sm text-gray-600 mb-3">
+        {{ __('You are about to close the shift with the following amounts:') }}
+      </p>
+      <div v-if="closingData?.payment_reconciliation" class="border border-gray-200 rounded-lg divide-y divide-gray-200">
+        <div v-for="payment in closingData.payment_reconciliation" :key="payment.mode_of_payment"
+          class="flex justify-between items-center px-3 py-2 text-sm">
+          <span class="text-start text-gray-700">{{ payment.mode_of_payment }}</span>
+          <span class="font-semibold text-gray-900">{{ formatCurrency(Number.parseFloat(payment.closing_amount) || 0) }}</span>
+        </div>
+        <div class="flex justify-between items-center px-3 py-2 text-sm bg-gray-50">
+          <span class="text-start font-semibold text-gray-900">{{ __('Total') }}</span>
+          <span class="font-bold text-gray-900">{{ formatCurrency(getTotalActual) }}</span>
+        </div>
+      </div>
+    </template>
+    <template #actions>
+      <div class="flex justify-end gap-2 w-full">
+        <Button variant="subtle" @click="showConfirm = false">{{ __('No') }}</Button>
+        <Button variant="solid" theme="blue" @click="confirmClosing">{{ __('Yes, Close Shift') }}</Button>
       </div>
     </template>
   </Dialog>
@@ -642,6 +668,13 @@ const canSubmit = computed(() => {
 			payment.closing_amount !== "",
 	)
 })
+
+const showConfirm = ref(false)
+
+function confirmClosing() {
+	showConfirm.value = false
+	submitClosing()
+}
 
 async function submitClosing() {
 	if (!closingData.value) return
