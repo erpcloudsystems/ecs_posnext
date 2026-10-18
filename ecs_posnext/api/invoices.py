@@ -868,6 +868,60 @@ def _append_packaging_items(invoice_doc):
             })
 
 
+def _fill_missing_packed_items(invoice_doc):
+    """Add Product Bundle rows for non-combo lines that arrived without any packed items.
+
+    Quantities are final (already multiplied by the line qty), and ingredients listed
+    in the line's removed_ingredients are skipped. Nested bundles are expanded later
+    by the recursive pass in _prepare_invoice_doc.
+    """
+    from ecs_posnext.api.items import _get_bundle_ingredients
+
+    covered = {p.get("posa_row_id") for p in invoice_doc.get("packed_items", []) if p.get("posa_row_id")}
+
+    for item in invoice_doc.get("items", []):
+        if item.get("custom_selected_components"):
+            continue  # combos: components come from the client's selection
+        if item.get("posa_row_id") and item.posa_row_id in covered:
+            continue
+        # Already given a row of its own by _add_missing_line_packed_items
+        if not item.get("posa_row_id") and any(
+            p.get("parent_item") == item.item_code for p in invoice_doc.get("packed_items", [])
+        ):
+            continue
+
+        ingredients = _get_bundle_ingredients(item.item_code)
+        if not ingredients:
+            continue
+
+        removed = []
+        if item.get("removed_ingredients"):
+            try:
+                removed = json.loads(item.removed_ingredients)
+                if not isinstance(removed, list):
+                    removed = []
+            except (ValueError, TypeError):
+                removed = []
+
+        if not item.get("posa_row_id"):
+            item.posa_row_id = "row-srv-{0}".format(frappe.generate_hash(length=10))
+        covered.add(item.posa_row_id)
+
+        for ing in ingredients:
+            if ing.item_code in removed:
+                continue
+            invoice_doc.append("packed_items", {
+                "parent_item": item.item_code,
+                "item_code": ing.item_code,
+                "qty": flt(ing.qty) * flt(item.qty),
+                "posa_row_id": item.posa_row_id,
+                "warehouse": item.get("warehouse"),
+                "uom": ing.uom or frappe.db.get_value("Item", ing.item_code, "stock_uom"),
+                "conversion_factor": 1.0,
+                "rate": 0,
+            })
+
+
 def _prepare_invoice_doc(data):
     """
     Build and prepare an invoice document from POS data WITHOUT saving.
@@ -945,6 +999,12 @@ def _prepare_invoice_doc(data):
         # Remove the filtered components from packed_items
         for p_item in items_to_remove:
             invoice_doc.packed_items.remove(p_item)
+
+    # Safety net: ERPNext's update_packing_list is disabled (CustomSalesInvoice), so the
+    # packing list is only what the client sends. A line whose recipe the client didn't
+    # load (offline cache, older item payload) would otherwise reach stock with no
+    # ingredients consumed — build its rows from the Product Bundle here.
+    _fill_missing_packed_items(invoice_doc)
 
     # Must run before the bundle expansion below so packaging "kits" get expanded too.
     _append_packaging_items(invoice_doc)

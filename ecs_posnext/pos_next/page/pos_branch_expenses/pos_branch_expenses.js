@@ -14,20 +14,19 @@ frappe.pages["pos-branch-expenses"].on_page_load = function (wrapper) {
 		options: [],
 		change: () => load(),
 	});
-	const from_field = page.add_field({
-		fieldname: "from_date",
-		label: __("From"),
+	// The page only ever shows today: a branch expense is recorded on the day the cash
+	// leaves the safe, so a date the user could move would only hide what they just did.
+	const date_field = page.add_field({
+		fieldname: "posting_date",
+		label: __("Date"),
 		fieldtype: "Date",
-		default: frappe.datetime.month_start(),
-		change: () => load(),
+		default: frappe.datetime.get_today(),
+		read_only: 1,
 	});
-	const to_field = page.add_field({
-		fieldname: "to_date",
-		label: __("To"),
-		fieldtype: "Date",
-		default: frappe.datetime.month_end(),
-		change: () => load(),
-	});
+	date_field.set_value(frappe.datetime.get_today());
+	// A page field renders a plain input, so `read_only` alone still lets the datepicker
+	// open — lock the input itself.
+	date_field.$input.prop("disabled", true).attr("readonly", true);
 
 	page.set_primary_action(__("New Expense"), () => open_expense_dialog(), "add");
 	page.add_menu_item(__("Refresh"), () => load());
@@ -60,8 +59,8 @@ frappe.pages["pos-branch-expenses"].on_page_load = function (wrapper) {
 			frappe.call("ecs_posnext.api.branch_expense.get_branch_expense_state", { pos_profile }),
 			frappe.call("ecs_posnext.api.branch_expense.list_expenses", {
 				pos_profile,
-				from_date: from_field.get_value(),
-				to_date: to_field.get_value(),
+				from_date: today(),
+				to_date: today(),
 			}),
 		])
 			.then(([s, l]) => {
@@ -79,7 +78,7 @@ frappe.pages["pos-branch-expenses"].on_page_load = function (wrapper) {
 			<div class="row" style="margin-bottom:16px">
 				${card(__("Branch Safe Balance"), money(info.branch_safe_balance), info.branch_safe_account || __("Not configured"), "blue")}
 				${card(__("Spent Today"), money(info.spent_today), info.pos_profile, "orange")}
-				${card(__("Spent in Range"), money(listing.total), `${from_field.get_value()} → ${to_field.get_value()}`, "red")}
+				${card(__("Expenses Today"), listing.expenses.length, frappe.datetime.str_to_user(today()), "red")}
 			</div>
 		`);
 
@@ -101,7 +100,7 @@ frappe.pages["pos-branch-expenses"].on_page_load = function (wrapper) {
 		}
 
 		if (!listing.expenses.length) {
-			$body.append(empty(__("No expenses recorded in this period.")));
+			$body.append(empty(__("No expenses recorded today.")));
 			return;
 		}
 
@@ -207,7 +206,8 @@ frappe.pages["pos-branch-expenses"].on_page_load = function (wrapper) {
 					fieldname: "posting_date",
 					label: __("Date"),
 					fieldtype: "Date",
-					default: frappe.datetime.get_today(),
+					default: today(),
+					read_only: 1,
 					reqd: 1,
 				},
 				{ fieldtype: "Section Break" },
@@ -235,7 +235,7 @@ frappe.pages["pos-branch-expenses"].on_page_load = function (wrapper) {
 						amount: values.amount,
 						description: values.description,
 						receipt: values.receipt,
-						posting_date: values.posting_date,
+						posting_date: today(),
 					},
 					freeze: true,
 					freeze_message: __("Posting expense..."),
@@ -266,6 +266,10 @@ frappe.pages["pos-branch-expenses"].on_page_load = function (wrapper) {
 					<div class="text-muted small">${frappe.utils.escape_html(sub || "")}</div>
 				</div>
 			</div>`;
+	}
+
+	function today() {
+		return frappe.datetime.get_today();
 	}
 
 	function empty(msg) {

@@ -999,72 +999,29 @@ def _stamp_pos_links(pe, opening_shift):
 		pe.custom_pos_business_day = cs.pos_business_day
 
 
-def _is_shift_open(opening_shift):
-	"""Delegates to the canonical helper in api.cashier_shift (single definition of
-	"a shift that can still take money")."""
-	from ecs_posnext.api.cashier_shift import is_opening_shift_open
-
-	return is_opening_shift_open(opening_shift)
-
-
-def _open_shift_for_profile(pos_profile, prefer_user=None):
-	from ecs_posnext.api.cashier_shift import open_shift_for_profile
-
-	return open_shift_for_profile(pos_profile, prefer_user=prefer_user)
-
-
 def _resolve_shift_for_invoice(assignment_doc):
 	"""Return the POS Opening Shift name to stamp on the Payment Entry.
 
-	The shift must be the one open AT COLLECTION TIME — that is the drawer the cash
-	physically lands in. The shift stamped on the Delivery Assignment is the DISPATCH-time
-	shift, which is NOT the same thing: an order that leaves near the end of a shift and
-	is collected after the handover would book its cash into a shift that has already been
-	counted and submitted. Nothing recomputes such a closing (compute_cash_figures filters
-	strictly by reference_no and only runs when the drawer is counted), so the money would
-	silently vanish from both reconciliations — absent from the closed shift's expected
-	cash AND invisible to the shift that actually holds it.
+	The collection belongs to the user who is collecting — the one sending this
+	request — so the cash lands in their own open drawer. Neither the dispatch-time
+	shift on the Delivery Assignment nor the invoice's shift is used: either may belong
+	to someone else (the dispatcher who assigned the order, the Call Center agent who
+	took it) or already be counted and closed.
 
-	Priority:
-	  1. Shift on the Delivery Assignment — only while it is still open
-	  2. The shift currently open on that same POS Profile (preferring the collecting user)
-	  3. The invoice's own opening shift — only while it is still open
-	  4. Current user's open shift
+	Returns None when the collecting user has no open shift; the caller refuses then.
 	"""
+	from ecs_posnext.api.cashier_shift import is_opening_shift_open
+
 	user = frappe.session.user
-
-	stamped = assignment_doc.shift
-	if _is_shift_open(stamped):
-		return stamped
-
-	# The branch whose drawer this cash belongs to. Derived from the stamped shift rather
-	# than the invoice: a Call Center invoice carries the Call Center profile, which holds
-	# no physical drawer, while the cash lands in the branch that dispatched the order.
-	pos_profile = (
-		frappe.db.get_value("POS Opening Shift", stamped, "pos_profile") if stamped else None
-	)
-
-	inv_shift = None
-	if assignment_doc.order_reference:
-		inv_shift = frappe.db.get_value(
-			"Sales Invoice", assignment_doc.order_reference, "posa_pos_opening_shift"
-		)
-	if not pos_profile and inv_shift:
-		pos_profile = frappe.db.get_value("POS Opening Shift", inv_shift, "pos_profile")
-
-	current = _open_shift_for_profile(pos_profile, prefer_user=user)
-	if current:
-		return current
-
-	if _is_shift_open(inv_shift):
-		return inv_shift
-
-	# Last resort: current user's open shift on any profile.
-	return frappe.db.get_value(
+	for name in frappe.get_all(
 		"POS Opening Shift",
-		{"user": user, "status": "Open", "docstatus": 1},
-		"name",
-	) or None
+		filters={"user": user, "status": "Open", "docstatus": 1},
+		order_by="period_start_date desc",
+		pluck="name",
+	):
+		if is_opening_shift_open(name):
+			return name
+	return None
 
 
 def _create_cod_payment_entries(assignment_doc, payments=None):
@@ -1084,12 +1041,12 @@ def _create_cod_payment_entries(assignment_doc, payments=None):
 	# Resolve shift — mandatory for the PE to appear in POS Closing Shift
 	shift = _resolve_shift_for_invoice(assignment_doc)
 	if not shift:
-		# Never fall back to a closed shift: cash booked there is lost to every
-		# reconciliation. Refuse instead, so the branch opens a drawer first.
+		# Never fall back to another user's or a closed shift: cash booked there is lost
+		# to every reconciliation. Refuse instead, so the collector opens a drawer first.
 		frappe.throw(_(
-			"Cannot record COD payment for {0}: no OPEN POS Opening Shift found for this "
-			"branch. Open a shift and retry — the collection must land in the drawer that "
-			"is actually receiving the cash."
+			"Cannot record COD payment for {0}: you have no OPEN POS Opening Shift. Open "
+			"your shift and retry — the collection lands in the drawer of the user "
+			"collecting it."
 		).format(assignment_doc.name))
 
 	# Save shift back onto the assignment if it was missing

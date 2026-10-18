@@ -443,7 +443,13 @@ def _append_component_rows(items_rows, components, combo_name, group_id, invoice
         removed_names = comp.get("removed_ingredient_names") or []
         qty = flt(comp.get("quantity") or 1) * factor
         nested_picks = comp.get("components") or []
-        all_ingredients, fixed_children = _split_fixed_ingredients(comp.get("ingredients") or [])
+        # The client often sends an empty list for a component's recipe — read it
+        # from the component's Product Bundle so the station still sees it.
+        raw_ingredients = comp.get("ingredients") or ([] if nested_picks else _get_item_ingredients(comp_code))
+        if not removed_names and comp.get("removed_ingredients"):
+            code_to_name = {i["item_code"]: i.get("item_name", i["item_code"]) for i in raw_ingredients}
+            removed_names = [code_to_name.get(c, c) for c in comp.get("removed_ingredients")]
+        all_ingredients, fixed_children = _split_fixed_ingredients(raw_ingredients)
         children = nested_picks or fixed_children
         items_rows.append({
             "item_code": comp_code,

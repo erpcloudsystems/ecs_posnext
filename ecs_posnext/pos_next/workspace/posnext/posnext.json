@@ -34,7 +34,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-17 12:03:03.716584",
+ "modified": "2026-09-24 05:28:54.320065",
  "modified_by": "mahmoud.k.it@hotmail.com",
  "module": "POS Next",
  "name": "POSNext",
@@ -45,7 +45,7 @@
  "quick_lists": [],
  "roles": [
   {
-   "role": "POSNext Supervisor"
+   "role": "System Manager"
   }
  ],
  "sequence_id": 3.0,
@@ -183,29 +183,6 @@
    "doc_view": "List",
    "label": "Pos Coupon",
    "link_to": "POS Coupon",
-   "stats_filter": "[]",
-   "type": "DocType"
-  },
-  {
-   "color": "Grey",
-   "doc_view": "List",
-   "label": "Branch Expenses",
-   "link_to": "pos-branch-expenses",
-   "type": "Page"
-  },
-  {
-   "color": "Grey",
-   "doc_view": "List",
-   "label": "POS Branch Expense",
-   "link_to": "POS Branch Expense",
-   "stats_filter": "[]",
-   "type": "DocType"
-  },
-  {
-   "color": "Grey",
-   "doc_view": "List",
-   "label": "POS Cash Transfer",
-   "link_to": "POS Cash Transfer",
    "stats_filter": "[]",
    "type": "DocType"
   }

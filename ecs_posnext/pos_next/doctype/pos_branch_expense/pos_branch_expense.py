@@ -79,6 +79,7 @@ class POSBranchExpense(Document):
 
 	def _post_journal_entry(self):
 		company_currency = frappe.get_cached_value("Company", self.company, "default_currency")
+		branch = self._branch()
 		je = frappe.new_doc("Journal Entry")
 		je.voucher_type = "Cash Entry"
 		je.company = self.company
@@ -90,19 +91,32 @@ class POSBranchExpense(Document):
 			(self.expense_account, flt(self.amount), 0),
 			(self.paid_from, 0, flt(self.amount)),
 		):
-			je.append(
-				"accounts",
-				{
-					"account": account,
-					"debit_in_account_currency": debit,
-					"credit_in_account_currency": credit,
-					"account_currency": company_currency,
-				},
-			)
+			row = {
+				"account": account,
+				"debit_in_account_currency": debit,
+				"credit_in_account_currency": credit,
+				"account_currency": company_currency,
+			}
+			if branch:
+				row["branch"] = branch
+			je.append("accounts", row)
+		if branch and je.meta.has_field("branch"):
+			je.branch = branch
 		je.flags.ignore_permissions = True
 		je.insert(ignore_permissions=True)
 		je.submit()
 		self.db_set("journal_entry", je.name)
+
+	def _branch(self):
+		"""The branch this expense belongs to, as an accounting dimension value.
+
+		Empty unless Branch is registered as an Accounting Dimension (see the
+		`add_branch_accounting_dimension` patch) — without it there is no `branch`
+		field on the Journal Entry rows to fill, and setting one would be rejected.
+		"""
+		if not frappe.get_meta("Journal Entry Account").has_field("branch"):
+			return None
+		return frappe.db.get_value("POS Profile", self.pos_profile, "branch") or None
 
 	def _log(self, action):
 		from ecs_posnext.api.business_day import log_pos_event

@@ -305,21 +305,37 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
 
 	res["item_uoms"] = uoms
 
-	# Add bundle ingredients if enabled
-	if item_data.get("enabled_item_bundle"):
-		bundle = frappe.db.get_value("Product Bundle", {"new_item_code": item_code}, "name")
-		if bundle:
-			bundle_items = frappe.get_all(
-				"Product Bundle Item",
-				fields=["item_code", "qty", "uom", "description", "show_in_pos", "custom_is_fixed"],
-				filters={"parent": bundle}
-			)
-			# Add item_name to ingredients
-			for bi in bundle_items:
-				bi["item_name"] = frappe.db.get_value("Item", bi.item_code, "item_name") or bi.item_code
-			res["ingredients"] = bundle_items
+	# Add recipe ingredients (Product Bundle). Not gated on enabled_item_bundle: that
+	# flag marks a combo, while a recipe can exist on any item.
+	ingredients = _get_bundle_ingredients(item_code)
+	if ingredients:
+		res["ingredients"] = ingredients
 
 	return res
+
+
+def _get_bundle_ingredients(item_code, template_fallback=True):
+	"""Return the Product Bundle (recipe) rows for an item, falling back to its
+	variant template's bundle (unless template_fallback is off). Empty list when
+	neither has one."""
+	if not item_code:
+		return []
+	bundle = frappe.db.get_value("Product Bundle", {"new_item_code": item_code, "disabled": 0}, "name")
+	if not bundle and template_fallback:
+		variant_of = frappe.db.get_value("Item", item_code, "variant_of")
+		if variant_of:
+			bundle = frappe.db.get_value("Product Bundle", {"new_item_code": variant_of, "disabled": 0}, "name")
+	if not bundle:
+		return []
+	bundle_items = frappe.get_all(
+		"Product Bundle Item",
+		fields=["item_code", "qty", "uom", "description", "show_in_pos", "custom_is_fixed"],
+		filters={"parent": bundle},
+		order_by="idx asc",
+	)
+	for bi in bundle_items:
+		bi["item_name"] = frappe.db.get_value("Item", bi.item_code, "item_name") or bi.item_code
+	return bundle_items
 
 
 @frappe.whitelist()
@@ -622,20 +638,9 @@ def get_combo_components(item_code, pos_profile=None, price_list=None):
 
 			# Ingredients come from the option's Product Bundle (or, for a non-stock variant,
 			# its template's), whatever enabled_item_bundle says — this is what gets deducted.
-			ingredients = []
-			bundle = frappe.db.get_value("Product Bundle", {"new_item_code": c.item_code}, "name")
-			if not bundle and info.get("variant_of") and not info.get("is_stock_item"):
-				bundle = frappe.db.get_value("Product Bundle", {"new_item_code": info.get("variant_of")}, "name")
-			if bundle:
-				bundle_items = frappe.get_all(
-					"Product Bundle Item",
-					fields=["item_code", "qty", "uom", "description", "show_in_pos", "custom_is_fixed"],
-					filters={"parent": bundle}
-				)
-				# Add item_name to ingredients
-				for bi in bundle_items:
-					bi["item_name"] = frappe.db.get_value("Item", bi.item_code, "item_name") or bi.item_code
-				ingredients = bundle_items
+			ingredients = _get_bundle_ingredients(
+				c.item_code, template_fallback=not info.get("is_stock_item")
+			)
 
 			# Get addons
 			addons = frappe.db.sql("""
@@ -855,10 +860,8 @@ def get_item_variants(template_item, pos_profile=None, warehouse=None, price_lis
 		""", (template_item,), as_dict=True)
 
 		# Get ingredients for all variants if they are bundles, or fallback to template
-		bundle_variant_codes = [v["item_code"] for v in variants if template_info.get("item_group")== 'السندوتشات']
-		search_bundle_codes = list(bundle_variant_codes)
-		if template_info.get("enabled_item_bundle"):
-			search_bundle_codes.append(template_item)
+		# Every variant and the template itself may carry a recipe — not only sandwiches.
+		search_bundle_codes = [v["item_code"] for v in variants] + [template_item]
 
 		ingredients_map = {}
 		template_ingredients = []
