@@ -979,6 +979,8 @@
 		v-model="showCardApproval"
 		:pos-profile="posProfile"
 		:card-amounts="cardAmounts"
+		:approved-charges="cardCharges"
+		@charge-approved="(charge) => cardCharges.push(charge)"
 		@approved="onCardApproved"
 	/>
 </template>
@@ -2201,6 +2203,7 @@ watch(show, (newVal) => {
 	if (newVal) {
 		// Reset state when dialog opens (but NOT customerBalance - it's pre-fetched)
 		paymentEntries.value = []
+		cardCharges.value = []
 		customAmount.value = ""
 		numpadClear()
 		mobileCustomAmount.value = ""
@@ -2708,6 +2711,11 @@ function onDiscountAuthorized() {
 // ---- Credit card (Geidea Web ECR) approval + Tabby ----
 const showCardApproval = ref(false)
 const cardApproved = ref(false)
+// Every charge the terminal has approved during this payment session, as
+// { approval_code, amount }. Kept apart from cardApproved so a Retry, Cancel or
+// edit of another card's amount reuses these instead of charging the card again.
+// Reset only when the payment dialog opens for a new payment.
+const cardCharges = ref([])
 // Whether this POS Profile has an active card terminal. Only then is the
 // terminal-approval flow enforced; otherwise card payments complete normally.
 const hasCardTerminal = ref(false)

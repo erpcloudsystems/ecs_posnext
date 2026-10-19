@@ -326,7 +326,8 @@ class POSClosingShift(Document):
                     if amount
                 ]
 
-            base_total = flt(detail.expected_amount) - flt(detail.opening_amount)
+            # expected_amount excludes the opening float
+            base_total = flt(detail.expected_amount)
 
             mode_summaries.append(
                 frappe._dict(
@@ -485,7 +486,7 @@ def _aggregate_payment(payments, mode_of_payment, amount, opening_amount=0):
     payments.append(frappe._dict({
         "mode_of_payment": mode_of_payment,
         "opening_amount": opening_amount,
-        "expected_amount": flt(amount) + opening_amount,
+        "expected_amount": flt(amount),
     }))
 
 
@@ -583,13 +584,13 @@ def make_closing_shift_from_opening(opening_shift):
         "sales_total": 0, "sales_count": 0,
     }
 
-    # Add opening balances to payments
+    # Add opening balances to payments (shown only; not part of the expected amount)
     for detail in opening_shift.get("balance_details", []):
         opening_amount = flt(detail.get("amount"))
         payments.append(frappe._dict({
             "mode_of_payment": detail.get("mode_of_payment"),
             "opening_amount": opening_amount,
-            "expected_amount": opening_amount,
+            "expected_amount": 0,
         }))
 
     # Process invoices

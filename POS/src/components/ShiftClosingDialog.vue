@@ -827,10 +827,8 @@ const getTotalDifference = computed(() => {
 })
 
 function getSalesForPayment(payment) {
-	return (
-		Number.parseFloat(payment.expected_amount || 0) -
-		Number.parseFloat(payment.opening_amount || 0)
-	)
+	// expected_amount already excludes the opening float
+	return Number.parseFloat(payment.expected_amount || 0)
 }
 
 function getShiftDuration() {
