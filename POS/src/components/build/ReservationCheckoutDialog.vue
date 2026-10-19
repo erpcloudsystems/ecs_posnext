@@ -223,6 +223,12 @@ async function applyCoupon() {
 		const coupon = validation.coupon
 		const code = couponCode.value.toUpperCase()
 		const restriction = coupon.item_restriction
+		// Amount-based Gift Cards redeem against their remaining balance, not their
+		// original face value (same rule as the main POS CouponDialog).
+		const giftCardAmount =
+			coupon.coupon_type === "Gift Card" && coupon.discount_type === "Amount"
+				? coupon.balance_amount
+				: coupon.discount_amount
 
 		if (restriction) {
 			// Coupon scoped to specific item codes or item groups - discount only the
@@ -250,7 +256,7 @@ async function applyCoupon() {
 
 			const discountObj = {
 				percentage: coupon.discount_type === "Percentage" ? coupon.discount_percentage : 0,
-				amount: coupon.discount_type === "Amount" ? coupon.discount_amount : 0,
+				amount: coupon.discount_type === "Amount" ? giftCardAmount : 0,
 			}
 			let discountAmount = calculateDiscountAmount(discountObj, matchSubtotal)
 			if (coupon.max_amount && discountAmount > coupon.max_amount) {
@@ -280,7 +286,7 @@ async function applyCoupon() {
 
 			const discountObj = {
 				percentage: coupon.discount_type === "Percentage" ? coupon.discount_percentage : 0,
-				amount: coupon.discount_type === "Amount" ? coupon.discount_amount : 0,
+				amount: coupon.discount_type === "Amount" ? giftCardAmount : 0,
 			}
 			let discountAmount = calculateDiscountAmount(discountObj, store.total)
 			if (coupon.max_amount && discountAmount > coupon.max_amount) {

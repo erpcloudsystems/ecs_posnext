@@ -25,6 +25,16 @@ class POSCoupon(Document):
         # The customer is optional: a Gift Card without one can be redeemed by
         # any customer, one with a customer is locked to that customer.
         if self.coupon_type == "Gift Card":
+            # A Gift Card given only a Remaining Balance (no percentage / amount of
+            # its own) is an Amount card worth that balance.
+            if (
+                flt(self.balance_amount) > 0
+                and not flt(self.discount_amount)
+                and not (self.discount_type == "Percentage" and flt(self.discount_percentage))
+            ):
+                self.discount_type = "Amount"
+                self.discount_amount = self.balance_amount
+
             if self.discount_type != "Amount":
                 # Balance tracking only makes sense for a fixed monetary value.
                 # Percentage-based gift cards (e.g. referral rewards) keep the
@@ -35,7 +45,16 @@ class POSCoupon(Document):
         if not self.discount_type:
             frappe.throw(_("Discount Type is required"))
 
-        if self.discount_type == "Percentage":
+        if (
+            self.pos_offer
+            and self.discount_type in ("Percentage", "Amount")
+            and not flt(self.discount_percentage)
+            and not flt(self.discount_amount)
+        ):
+            # posawesome-style coupon: the discount comes from the linked POS Offer,
+            # so it has no percentage / amount of its own (discount_type is just the default).
+            pass
+        elif self.discount_type == "Percentage":
             if not self.discount_percentage:
                 frappe.throw(_("Discount Percentage is required"))
             if flt(self.discount_percentage) <= 0 or flt(self.discount_percentage) > 100:
@@ -57,8 +76,19 @@ class POSCoupon(Document):
         # Amount) and is only ever reduced by redemptions from here on, so only
         # seed it when the card is first created. Percentage-based gift cards
         # have no fixed value to track, so they fall back to maximum_use above.
-        if self.coupon_type == "Gift Card" and self.discount_type == "Amount" and self.is_new():
-            self.balance_amount = self.discount_amount
+        # A card that was never redeemed is (re)seeded too when its value or type
+        # is edited, or it has no balance yet (e.g. switched from Percentage).
+        if self.coupon_type == "Gift Card" and self.discount_type == "Amount":
+            never_redeemed = not cint(self.used)
+            if self.is_new() or (
+                never_redeemed
+                and (
+                    not flt(self.balance_amount)
+                    or self.has_value_changed("discount_amount")
+                    or self.has_value_changed("discount_type")
+                )
+            ):
+                self.balance_amount = self.discount_amount
 
         # Minimum amount validation
         if self.min_amount and flt(self.min_amount) < 0:
@@ -207,6 +237,24 @@ def apply_coupon_discount(coupon, cart_total, net_total=None):
         "discount_percentage": coupon.discount_percentage if coupon.discount_type == "Percentage" else None,
         "apply_on": coupon.apply_on
     }
+
+
+def validate_gift_card_balance(coupon, discount_amount, tolerance=0.01):
+    """Refuse a redemption larger than an Amount Gift Card's remaining balance.
+
+    The POS caps the discount at the balance when the card is applied, but the
+    balance can drop in the meantime (e.g. the same card used on another till).
+    """
+    if not coupon or coupon.get("coupon_type") != "Gift Card" or coupon.get("discount_type") != "Amount":
+        return
+    if flt(discount_amount) > flt(coupon.get("balance_amount")) + flt(tolerance):
+        frappe.throw(
+            _("Gift Card {0} has only {1} remaining, but {2} was applied. Please re-apply the coupon.").format(
+                coupon.get("coupon_code"),
+                frappe.format_value(coupon.get("balance_amount"), {"fieldtype": "Currency"}),
+                frappe.format_value(discount_amount, {"fieldtype": "Currency"}),
+            )
+        )
 
 
 def increment_coupon_usage(coupon_code, discount_amount=0):

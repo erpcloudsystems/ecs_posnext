@@ -21,6 +21,18 @@ frappe.ui.form.on("POS Coupon", {
 	coupon_type: function (frm) {
 		if (frm.doc.__islocal === 1) {
 			frm.trigger("make_coupon_code");
+			// Gift Cards carry a monetary balance, so default them to Amount
+			// instead of the doctype's default "Percentage".
+			if (frm.doc.coupon_type == "Gift Card" && frm.doc.discount_type == "Percentage") {
+				frm.set_value("discount_type", "Amount");
+			}
+		}
+	},
+	balance_amount: function (frm) {
+		// A Gift Card filled in by its balance alone is an Amount card worth that much.
+		if (frm.doc.coupon_type == "Gift Card" && frm.doc.balance_amount > 0 && !frm.doc.discount_amount) {
+			frm.set_value("discount_type", "Amount");
+			frm.set_value("discount_amount", frm.doc.balance_amount);
 		}
 	},
 	make_coupon_code: function (frm) {

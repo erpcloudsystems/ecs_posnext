@@ -111,10 +111,16 @@
 									</span>
 								</div>
 								<!-- Percentage Select: 0% to 100% in steps of 10 -->
+								<!-- A grand-total coupon / gift card owns the additional discount;
+								     picking a % here would overwrite it (and its balance deduction). -->
+								<p v-if="couponOwnsAdditionalDiscount" class="text-[11px] text-orange-700 mb-1">
+									{{ __('Coupon {0} applied - remove it to use a checkout discount', [cartStore.appliedCoupon.code || cartStore.appliedCoupon.name]) }}
+								</p>
 								<select
 									v-model.number="localAdditionalDiscount"
 									@change="handleAdditionalDiscountChange"
-									class="w-full h-9 px-3 text-sm font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer"
+									:disabled="couponOwnsAdditionalDiscount"
+									class="w-full h-9 px-3 text-sm font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
 								>
 									<option v-for="pct in [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]" :key="pct" :value="pct">{{ pct }}%</option>
 								</select>
@@ -1311,7 +1317,9 @@ watch(
 
 // Handle Enter key from numpad keyboard input
 function handleNumpadEnter(value) {
-	if (value > 0 && lastSelectedMethod.value) {
+	// Fully paid: Enter completes the sale; never re-add the stale numpad value
+	// (that used to post the same card payment twice, e.g. SINV-26-331165)
+	if (value > 0 && lastSelectedMethod.value && remainingAmount.value > 0) {
 		numpadAddPayment()
 	} else if (
 		remainingAmount.value === 0 &&
@@ -1888,6 +1896,32 @@ const changeAmount = computed(() => {
 	return change > 0 ? roundCurrency(change) : 0
 })
 
+// Non-cash payments give no change. When the payable total drops after they were
+// entered (checkout discount, coupon, loyalty redemption), trim them back to the
+// new total, last entry first — otherwise the card is charged the pre-discount
+// amount (e.g. SINV-26-328920: paid 129 on a 116.10 invoice).
+watch(payableTotal, (payable) => {
+	const isNonCash = (entry) =>
+		!isCashPaymentMethod(
+			paymentMethods.value.find((m) => m.mode_of_payment === entry.mode_of_payment),
+		)
+	const nonCashTotal = paymentEntries.value
+		.filter(isNonCash)
+		.reduce((sum, entry) => sum + (entry.amount || 0), 0)
+	let excess = roundCurrency(nonCashTotal - payable)
+	if (excess <= 0) return
+
+	for (let i = paymentEntries.value.length - 1; i >= 0 && excess > 0; i--) {
+		const entry = paymentEntries.value[i]
+		if (!isNonCash(entry)) continue
+		const cut = Math.min(entry.amount || 0, excess)
+		entry.amount = roundCurrency((entry.amount || 0) - cut)
+		excess = roundCurrency(excess - cut)
+		if (entry.amount <= 0) paymentEntries.value.splice(i, 1)
+	}
+	showInfo(__("Total changed: non-cash payments adjusted to {0}", [formatCurrency(payable)]))
+})
+
 // ===========================================
 // Write-Off Logic
 // When enabled, allows small remaining amounts to be written off
@@ -2442,6 +2476,18 @@ function addCustomPayment(method, amount) {
 	let amt = Number.parseFloat(amount)
 	if (!amt || amt <= 0) return
 
+	// Non-cash methods give no change: block duplicates / overpayment
+	if (!isCashPaymentMethod(method)) {
+		if (remainingAmount.value <= 0) {
+			showInfo(__("Invoice fully paid. No additional payment needed."))
+			numpadClear()
+			return
+		}
+		if (amt > remainingAmount.value) {
+			amt = remainingAmount.value
+		}
+	}
+
 	let isPartialWalletPayment = false
 
 	// Wallet payment validation: limit to available balance
@@ -2511,6 +2557,8 @@ function addCustomPayment(method, amount) {
 
 	log.debug("[PaymentDialog] Payment added, new entries:", paymentEntries.value)
 	customAmount.value = ""
+	numpadClear()
+	mobileCustomAmount.value = ""
 
 	// If this was a partial wallet payment, switch to another payment method
 	if (isPartialWalletPayment) {
@@ -2861,8 +2909,20 @@ function getMethodTotal(methodName) {
 		.reduce((sum, entry) => sum + (entry.amount || 0), 0)
 }
 
+// A grand-total coupon (incl. gift cards) stores its amount in the same
+// additionalDiscount the checkout % writes to (loyalty / item-scoped coupons
+// don't touch it).
+const couponOwnsAdditionalDiscount = computed(() => {
+	const coupon = cartStore.appliedCoupon
+	return !!coupon && !["loyalty", "items"].includes(coupon.scope)
+})
+
 // Additional discount handlers
 function handleAdditionalDiscountChange() {
+	if (couponOwnsAdditionalDiscount.value) {
+		localAdditionalDiscount.value = 0
+		return
+	}
 	let discountValue = localAdditionalDiscount.value
 
 	// A discount above the allowed limit is NOT clamped — it is permitted but will
@@ -2893,11 +2953,9 @@ watch(
 			// props.additionalDiscount is an AMOUNT shared with grand-total coupons:
 			// convert it back to the checkout % and ignore it when a coupon put it
 			// there (loyalty / item-scoped coupons don't touch it).
-			const coupon = cartStore.appliedCoupon
-			const couponOwnsAmount = coupon && !["loyalty", "items"].includes(coupon.scope)
 			const amount = Number(props.additionalDiscount) || 0
 			localAdditionalDiscount.value =
-				!couponOwnsAmount && amount > 0 && discountBase.value > 0
+				!couponOwnsAdditionalDiscount.value && amount > 0 && discountBase.value > 0
 					? Math.round((amount / discountBase.value) * 100)
 					: 0
 		}

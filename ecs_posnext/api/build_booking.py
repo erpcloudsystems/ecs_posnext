@@ -363,6 +363,15 @@ def create_booking(
 				row["discount_percentage"] = flt(combined_pct, 2)
 				row["rate"] = flt(row["price_list_rate"] * (1 - combined_pct / 100), 2)
 
+	if coupon_doc:
+		from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import validate_gift_card_balance
+		validate_gift_card_balance(
+			coupon_doc,
+			sum((flt(row["price_list_rate"]) - flt(row["rate"])) * flt(row["qty"]) for row in item_rows),
+			# rates are rounded to 2 decimals per unit
+			tolerance=0.01 * sum(flt(row["qty"]) for row in item_rows) + 0.01,
+		)
+
 	# Note: so_dict never sets "coupon_code" - Sales Order.coupon_code is a Link
 	# to the native "Coupon Code" doctype, not our "POS Coupon" doctype, so
 	# setting it here would fail Link validation on insert() against a code
@@ -378,7 +387,12 @@ def create_booking(
 	if coupon_code and frappe.db.table_exists("POS Coupon"):
 		try:
 			from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import increment_coupon_usage
-			increment_coupon_usage(coupon_code)
+			# The only row discounts on a booking come from the coupon, so what
+			# it redeemed is the gap between list price and the final rate.
+			redeemed = sum(
+				(flt(row["price_list_rate"]) - flt(row["rate"])) * flt(row["qty"]) for row in item_rows
+			)
+			increment_coupon_usage(coupon_code, max(redeemed, 0))
 		except Exception as e:
 			frappe.log_error(
 				title="Failed to increment coupon usage",

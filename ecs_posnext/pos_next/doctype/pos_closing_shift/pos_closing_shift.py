@@ -633,6 +633,7 @@ def make_closing_shift_from_opening(opening_shift):
         "sales_total": summary["sales_total"],
         "sales_count": summary["sales_count"],
         "pos_transactions": pos_transactions,  # Include return info for display
+        "loyalty_mode_of_payment": _get_loyalty_mode_of_payment(),
     })
 
     return result

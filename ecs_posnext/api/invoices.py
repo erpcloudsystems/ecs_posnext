@@ -1150,6 +1150,9 @@ def update_invoice(data):
                 if coupon_doc and coupon_doc.get("apply_on"):
                     invoice_doc.apply_discount_on = coupon_doc.apply_on
 
+                from ecs_posnext.pos_next.doctype.pos_coupon.pos_coupon import validate_gift_card_balance
+                validate_gift_card_balance(coupon_doc, invoice_doc.discount_amount)
+
         if not invoice_doc.get("items"):
             frappe.throw(_("Cannot save invoice with no items"))
 
