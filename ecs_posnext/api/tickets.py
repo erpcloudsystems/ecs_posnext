@@ -447,35 +447,52 @@ def redeem_ticket(
 # Renew (recharge the same ticket + paid invoice) — NEW
 # ---------------------------------------------------------------------------
 
+# Uses a renewal adds to the ticket (fixed; not editable at the POS)
+RENEWAL_ADDED_USES = 1
+
+
+def _get_renewal_rate(item_code, pos_profile):
+    return _get_subscription_item_rate(item_code, pos_profile) if item_code else 0
+
+
+@frappe.whitelist()
+def get_renewal_rates(item_codes, pos_profile=None):
+    """Current renewal price per ticket item, shown read-only in the Renew section."""
+    if isinstance(item_codes, str):
+        item_codes = json.loads(item_codes)
+    return {
+        "added_uses": RENEWAL_ADDED_USES,
+        "rates": {code: _get_renewal_rate(code, pos_profile) for code in set(item_codes or []) if code},
+    }
+
 
 @frappe.whitelist()
 def renew_ticket(
     ticket_name,
-    added_uses,
-    amount,
     pos_profile,
+    added_uses=None,
+    amount=None,
     mode_of_payment=None,
     extend_days=None,
     pos_opening_shift=None,
     start_date=None,
+    approval_codes=None,
 ):
     """Recharge the SAME ticket: extend validity + add uses, billed as a paid invoice.
 
+    The cashier cannot set the price or uses: a renewal always adds
+    RENEWAL_ADDED_USES and bills the ticket item's current Item Price
+    (`amount` is only the price the POS showed/charged, checked against it).
+
     Steps:
-      1. Create + submit a paid POS Sales Invoice for `amount` using a dedicated
+      1. Create + submit a paid POS Sales Invoice for that price using a dedicated
          renewal service item (no Ticket Settings, so no new ticket is generated).
-      2. On the existing ticket: add `added_uses` to global_maximum_usage and
+      2. On the existing ticket: add the uses to global_maximum_usage and
          remaining_usage, and extend valid_to by (extend_days or the item's
          Ticket Settings number_of_days), measured from the later of start_date
          (default today) / current expiry.
       3. Build the renewal's revenue schedule from that same start.
     """
-    added_uses = int(added_uses)
-    amount = flt(amount)
-    if added_uses <= 0:
-        frappe.throw(_("Added uses must be greater than zero"))
-    if amount <= 0:
-        frappe.throw(_("Renewal amount must be greater than zero"))
     if not pos_profile:
         frappe.throw(_("POS Profile is required"))
     today_date = getdate(today())
@@ -487,6 +504,18 @@ def renew_ticket(
     if ticket.get("is_frozen"):
         reason = ticket.get("frozen_reason")
         frappe.throw(_("This ticket is frozen and cannot be renewed") + (f": {reason}" if reason else ""))
+
+    added_uses = RENEWAL_ADDED_USES
+    price = _get_renewal_rate(ticket.item, pos_profile)
+    if price <= 0:
+        frappe.throw(_("No selling price found for {0}").format(ticket.item))
+    # The POS charged (possibly on the card terminal) the price it showed; refuse
+    # to bill a different one if the Item Price changed since the search.
+    if amount is not None and flt(amount) != price:
+        frappe.throw(
+            _("Renewal price changed to {0}. Search the ticket again and retry.").format(price)
+        )
+    amount = price
 
     pos_profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
 
@@ -512,6 +541,7 @@ def renew_ticket(
         ],
         "remarks": _("Ticket renewal for {0}").format(ticket_name),
     }
+    _set_approval_codes(invoice_data, approval_codes)
     draft = update_invoice(invoice_data)
     invoice_data["name"] = draft.get("name")
     _submit_invoice_sync(invoice=invoice_data, data={})
@@ -594,6 +624,25 @@ def renew_ticket(
 # ---------------------------------------------------------------------------
 
 
+def _set_approval_codes(invoice_data, approval_codes):
+    """Put Geidea terminal approvals ([{approval_code, amount}]) on an invoice dict."""
+    approvals = json.loads(approval_codes) if isinstance(approval_codes, str) else (approval_codes or [])
+    approvals = [a for a in approvals if a.get("approval_code")]
+    if approvals:
+        invoice_data["custom_approval_code"] = ", ".join(a["approval_code"] for a in approvals)
+        invoice_data["custom_approval_codes"] = [
+            {"approval_code": a["approval_code"], "amount": flt(a.get("amount"))} for a in approvals
+        ]
+
+
+@frappe.whitelist()
+def get_subscription_plan_rate(item_code, pos_profile=None):
+    """Price an upgrade will bill, so the POS can charge it on the card terminal first."""
+    if item_code not in SUBSCRIPTION_ITEM_CODES:
+        frappe.throw(_("{0} is not a valid subscription plan").format(item_code))
+    return _get_subscription_item_rate(item_code, pos_profile)
+
+
 def _get_subscription_item_rate(item_code, pos_profile):
     """Selling price for a membership item, taken from Item Price.
 
@@ -634,7 +683,14 @@ def _get_subscription_item_rate(item_code, pos_profile):
 
 
 def _create_pos_upgrade_invoice(
-    subscription, item_code, rate, pos_profile, mode_of_payment, pos_opening_shift, ticket_name
+    subscription,
+    item_code,
+    rate,
+    pos_profile,
+    mode_of_payment,
+    pos_opening_shift,
+    ticket_name,
+    approval_codes=None,
 ):
     """Bill an upgrade as a normal paid POS invoice and link it to the subscription.
 
@@ -679,6 +735,7 @@ def _create_pos_upgrade_invoice(
         ],
         "remarks": _("Subscription upgrade for ticket {0}").format(ticket_name),
     }
+    _set_approval_codes(invoice_data, approval_codes)
     draft = update_invoice(invoice_data)
     invoice_name = draft.get("name")
     invoice_data["name"] = invoice_name
@@ -715,6 +772,7 @@ def upgrade_ticket_subscription(
     mode_of_payment=None,
     pos_opening_shift=None,
     start_date=None,
+    approval_codes=None,
 ):
     """Upgrade a subscription ticket to a different membership plan.
 
@@ -781,6 +839,7 @@ def upgrade_ticket_subscription(
             mode_of_payment,
             pos_opening_shift,
             ticket_name,
+            approval_codes,
         )
         # Revenue schedule is built from the invoice, so it can only run now
         frappe.enqueue(

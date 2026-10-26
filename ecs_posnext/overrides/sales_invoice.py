@@ -9,6 +9,7 @@ Handles wallet payments that require party information for Receivable accounts.
 
 import frappe
 from frappe.utils import cint, flt
+from erpnext.accounts.doctype.pricing_rule.utils import get_applied_pricing_rules
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
 from erpnext.accounts.utils import get_account_currency
 
@@ -52,6 +53,23 @@ class CustomSalesInvoice(SalesInvoice):
 	party information in the GL entry. This override adds party_type and party
 	for wallet payment methods marked with is_wallet_payment.
 	"""
+
+	def set_missing_item_details(self, for_validate=False):
+		"""
+		Clear an empty pricing_rules ("[]") before ERPNext re-checks it.
+
+		For an item that only matches rules it doesn't qualify for (e.g. the
+		coupon-based "Pricing Rule for nachos"), ERPNext stores pricing_rules
+		as the string "[]". On validate that string is truthy, so ERPNext calls
+		remove_pricing_rule_for_item(), which resets discount_percentage and
+		rate - wiping a manual item discount given in the POS (e.g.
+		SINV-26-335398 saved Nachos at 18 instead of the discounted rate).
+		"""
+		if cint(self.is_pos):
+			for item in self.get("items"):
+				if item.get("pricing_rules") and not get_applied_pricing_rules(item.pricing_rules):
+					item.pricing_rules = ""
+		super().set_missing_item_details(for_validate=for_validate)
 
 	def make_pos_gl_entries(self, gl_entries):
 		"""

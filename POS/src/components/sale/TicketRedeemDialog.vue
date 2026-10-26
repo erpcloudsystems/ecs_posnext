@@ -201,19 +201,13 @@
 						<div class="flex flex-wrap items-end gap-3">
 							<div>
 								<label class="block text-[10px] text-gray-500 mb-0.5">{{ __("Add uses") }}</label>
-								<input v-model.number="t._renewUses" type="number" min="1" max="1" @input="syncRenewAmount(t)"
-									class="w-24 h-9 px-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500" />
+								<input :value="t._renewUses" type="number" readonly tabindex="-1"
+									class="w-24 h-9 px-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-700 focus:outline-none" />
 							</div>
 							<div>
 								<label class="block text-[10px] text-gray-500 mb-0.5">{{ __("Amount") }}</label>
-								<input v-model.number="t._renewAmount" type="number" min="0" step="0.01"
-									class="w-28 h-9 px-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500" />
-							</div>
-							<div>
-								<label class="block text-[10px] text-gray-500 mb-0.5">{{ __("Payment") }}</label>
-								<select v-model="t._renewMop" class="h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-amber-500">
-									<option v-for="m in paymentMethods" :key="m" :value="m">{{ __(m) }}</option>
-								</select>
+								<input :value="t._renewAmount" type="number" readonly tabindex="-1"
+									class="w-28 h-9 px-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-700 focus:outline-none" />
 							</div>
 							<div v-if="askStartDate">
 								<label class="block text-[10px] text-gray-500 mb-0.5">{{ __("Start Date") }}</label>
@@ -284,6 +278,12 @@
 				<p class="text-sm text-gray-600">
 					{{ __("Are you sure you want to renew this subscription?") }}
 				</p>
+				<div v-if="ticketToRenew" class="mt-3">
+					<label class="block text-[10px] text-gray-500 mb-0.5">{{ __("Payment") }}</label>
+					<select v-model="ticketToRenew._renewMop" class="w-full h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-amber-500">
+						<option v-for="m in paymentMethods" :key="m" :value="m">{{ __(m) }}</option>
+					</select>
+				</div>
 			</div>
 		</template>
 		<template #actions>
@@ -291,7 +291,7 @@
 				<Button class="flex-1" variant="subtle" @click="showRenewConfirm = false">
 					{{ __("Cancel") }}
 				</Button>
-				<Button class="flex-1" variant="solid" theme="amber" @click="proceedRenew">
+				<Button class="flex-1" variant="solid" theme="amber" :disabled="paymentMethods.length > 0 && !ticketToRenew?._renewMop" @click="proceedRenew">
 					{{ __("Renew") }}
 				</Button>
 			</div>
@@ -308,6 +308,18 @@
 				<p class="text-sm text-gray-600">
 					{{ __("Are you sure you want to upgrade this customer to {0}?", [upgradePlanLabel]) }}
 				</p>
+				<div v-if="ticketToUpgrade" class="mt-3 space-y-2">
+					<p class="text-sm text-gray-700">
+						{{ __("Amount") }}:
+						<span class="font-semibold">{{ upgradeRateLoading ? "..." : formatCurrency(ticketToUpgrade._upgradeRate, currency) }}</span>
+					</p>
+					<div>
+						<label class="block text-[10px] text-gray-500 mb-0.5">{{ __("Payment") }}</label>
+						<select v-model="ticketToUpgrade._upgradeMop" class="w-full h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-purple-500">
+							<option v-for="m in paymentMethods" :key="m" :value="m">{{ __(m) }}</option>
+						</select>
+					</div>
+				</div>
 			</div>
 		</template>
 		<template #actions>
@@ -315,7 +327,7 @@
 				<Button class="flex-1" variant="subtle" @click="showUpgradeConfirm = false">
 					{{ __("Cancel") }}
 				</Button>
-				<Button class="flex-1" variant="solid" theme="purple" @click="proceedUpgrade">
+				<Button class="flex-1" variant="solid" theme="purple" :disabled="upgradeRateLoading || (paymentMethods.length > 0 && !ticketToUpgrade?._upgradeMop)" @click="proceedUpgrade">
 					{{ __("Upgrade") }}
 				</Button>
 			</div>
@@ -411,6 +423,16 @@
 		:count="shiftStore.attendanceCount"
 		@save="handleSaveAttendance"
 	/>
+
+	<!-- Credit card terminal approval (Geidea Web ECR) for a renewal or upgrade -->
+	<CardApprovalDialog
+		v-model="showCardApproval"
+		:pos-profile="posProfile"
+		:card-amounts="cardRequest ? [cardRequest.amount] : []"
+		:approved-charges="cardRequest?.charges || []"
+		@charge-approved="(charge) => cardRequest?.charges.push(charge)"
+		@approved="onCardApproved"
+	/>
 </template>
 
 <script setup>
@@ -422,6 +444,8 @@ import { parseError } from "@/utils/errorHandler"
 import { usePOSSettingsStore } from "@/stores/posSettings"
 import { usePOSShiftStore } from "@/stores/posShift"
 import AttendanceDialog from "@/components/sale/AttendanceDialog.vue"
+import CardApprovalDialog from "@/components/sale/CardApprovalDialog.vue"
+import { formatCurrency } from "@/utils/currency"
 import { printInvoiceByName, printWithSilentFallback } from "@/utils/printInvoice"
 
 const props = defineProps({
@@ -450,6 +474,13 @@ const searchInput = ref(null)
 const showRenewConfirm = ref(false)
 const ticketToRenew = ref(null)
 const renewShouldPrint = ref(false)
+const showCardApproval = ref(false)
+// Pending terminal charge: { amount, charges, onApproved(approvals) }
+const cardRequest = ref(null)
+const upgradeRateLoading = ref(false)
+// Whether this POS Profile has an active Geidea terminal; only then must a
+// credit-card renewal be approved on the terminal (same rule as PaymentDialog).
+const hasCardTerminal = ref(false)
 const showWristbandConfirm = ref(false)
 const ticketForWristband = ref(null)
 const wristbandSerial = ref("")
@@ -533,11 +564,18 @@ function decorate(rows) {
 			_redeemQty: t.remaining_usage > 0 ? 1 : 0,
 			_attend_event: !!t.attend_event,
 			_booklet: !!t.booklet,
+			// Fixed by the server (loadRenewalRates); not editable at the POS
 			_renewUses: 1,
-			_renewAmount: Number(t.rate) || 0,
+			_renewAmount: 0,
 			_renewMop: props.paymentMethods[0] || "",
 			_renewStart: todayStr.value,
+			// Terminal charges already approved for this renewal, kept so a
+			// Retry or a failed renew call never charges the card twice.
+			_cardCharges: [],
 			_upgradeStart: todayStr.value,
+			_upgradeMop: props.paymentMethods[0] || "",
+			_upgradeRate: 0,
+			_upgradeCardCharges: [],
 			_upgradeItem: subscriptionPlanValues.find((v) => v !== t.item) || subscriptionPlanValues[0],
 			_busy: false,
 			_wristbands: [],
@@ -546,11 +584,24 @@ function decorate(rows) {
 		.sort((a, b) => String(b.valid_to || "").localeCompare(String(a.valid_to || "")))
 }
 
-function syncRenewAmount(t) {
-	// Suggest amount = rate * added uses (cashier can still override).
-	t._renewAmount = Number(
-		((Number(t.rate) || 0) * (Number(t._renewUses) || 0)).toFixed(2),
-	)
+// Renewal price = the ticket item's current Item Price, uses = server's fixed value
+async function loadRenewalRates(rows) {
+	const items = [...new Set(rows.filter((t) => t.show_renew && t.item).map((t) => t.item))]
+	if (!items.length) return
+	try {
+		const res = await call("ecs_posnext.api.tickets.get_renewal_rates", {
+			item_codes: JSON.stringify(items),
+			pos_profile: props.posProfile,
+		})
+		const data = res?.message ?? res
+		for (const t of rows) {
+			if (!t.show_renew) continue
+			t._renewUses = data?.added_uses || 1
+			t._renewAmount = Number(data?.rates?.[t.item]) || 0
+		}
+	} catch (e) {
+		console.error("get_renewal_rates failed", e)
+	}
 }
 
 async function runSearch() {
@@ -574,6 +625,7 @@ async function runSearch() {
 		}
 		tickets.value = decorate(rows)
 		loadWristbands(tickets.value)
+		loadRenewalRates(tickets.value)
 	} catch (e) {
 		console.error("Ticket search failed", e)
 		showError(parseError(e).message || __("Ticket search failed"))
@@ -676,29 +728,74 @@ function confirmRenew(t, print = false) {
 	showRenewConfirm.value = true
 }
 
-async function proceedRenew() {
-	showRenewConfirm.value = false
-	if (ticketToRenew.value) {
-		await doRenew(ticketToRenew.value, renewShouldPrint.value)
-		ticketToRenew.value = null
-		renewShouldPrint.value = false
+async function loadCardTerminal() {
+	if (!props.posProfile) {
+		hasCardTerminal.value = false
+		return
+	}
+	try {
+		const res = await call("ecs_posnext.api.payments.has_card_terminal", {
+			pos_profile: props.posProfile,
+		})
+		hasCardTerminal.value = Boolean(res?.message ?? res)
+	} catch (e) {
+		console.error("has_card_terminal failed", e)
+		hasCardTerminal.value = false
 	}
 }
 
-async function doRenew(t, print) {
+// "Credit Card ..." methods only — NOT "Credit Sales" / "Credit for ..." (on-account credit).
+function isCardMethod(name) {
+	return (name || "").toLowerCase().includes("credit card")
+}
+
+async function proceedRenew() {
+	showRenewConfirm.value = false
+	const t = ticketToRenew.value
+	if (!t) return
+	// Gate: credit-card renewals must be approved on the terminal first.
+	if (hasCardTerminal.value && isCardMethod(t._renewMop)) {
+		requestCardApproval(Number(t._renewAmount), t._cardCharges, (approvals) =>
+			finishRenew(t, approvals),
+		)
+		return
+	}
+	await finishRenew(t)
+}
+
+function requestCardApproval(amount, charges, onApproved) {
+	cardRequest.value = { amount, charges, onApproved }
+	showCardApproval.value = true
+}
+
+function onCardApproved(approvals) {
+	showCardApproval.value = false
+	const req = cardRequest.value
+	cardRequest.value = null
+	req?.onApproved(approvals)
+}
+
+async function finishRenew(t, approvals) {
+	await doRenew(t, renewShouldPrint.value, approvals)
+	ticketToRenew.value = null
+	renewShouldPrint.value = false
+}
+
+async function doRenew(t, print, approvals) {
 	if (t._busy) return
 	t._busy = true
 	try {
 		const res = await call("ecs_posnext.api.tickets.renew_ticket", {
 			ticket_name: t.name,
-			added_uses: t._renewUses,
 			amount: t._renewAmount,
 			pos_profile: props.posProfile,
 			mode_of_payment: t._renewMop || undefined,
 			pos_opening_shift: props.posOpeningShift,
 			start_date: askStartDate.value ? t._renewStart : undefined,
+			approval_codes: approvals?.length ? JSON.stringify(approvals) : undefined,
 		})
 		const data = res?.message || res
+		t._cardCharges = []
 		showSuccess(
 			__("Renewed {0}: +{1} uses, valid to {2}", [
 				t.name,
@@ -718,20 +815,45 @@ async function doRenew(t, print) {
 	}
 }
 
-function confirmUpgrade(t) {
+async function confirmUpgrade(t) {
 	ticketToUpgrade.value = t
 	showUpgradeConfirm.value = true
+	// Price shown in the confirmation and charged on the card terminal.
+	upgradeRateLoading.value = true
+	try {
+		const res = await call("ecs_posnext.api.tickets.get_subscription_plan_rate", {
+			item_code: t._upgradeItem,
+			pos_profile: props.posProfile,
+		})
+		t._upgradeRate = Number(res?.message ?? res) || 0
+	} catch (e) {
+		console.error("get_subscription_plan_rate failed", e)
+		t._upgradeRate = 0
+	} finally {
+		upgradeRateLoading.value = false
+	}
 }
 
 async function proceedUpgrade() {
 	showUpgradeConfirm.value = false
-	if (ticketToUpgrade.value) {
-		await doUpgrade(ticketToUpgrade.value)
-		ticketToUpgrade.value = null
+	const t = ticketToUpgrade.value
+	if (!t) return
+	// Gate: credit-card upgrades must be approved on the terminal first.
+	if (hasCardTerminal.value && isCardMethod(t._upgradeMop) && t._upgradeRate > 0) {
+		requestCardApproval(t._upgradeRate, t._upgradeCardCharges, (approvals) =>
+			finishUpgrade(t, approvals),
+		)
+		return
 	}
+	await finishUpgrade(t)
 }
 
-async function doUpgrade(t) {
+async function finishUpgrade(t, approvals) {
+	await doUpgrade(t, approvals)
+	ticketToUpgrade.value = null
+}
+
+async function doUpgrade(t, approvals) {
 	if (t._busy) return
 	t._busy = true
 	try {
@@ -740,8 +862,11 @@ async function doUpgrade(t) {
 			item_code: t._upgradeItem,
 			pos_profile: props.posProfile,
 			pos_opening_shift: props.posOpeningShift,
+			mode_of_payment: t._upgradeMop || undefined,
 			start_date: askStartDate.value ? t._upgradeStart : undefined,
+			approval_codes: approvals?.length ? JSON.stringify(approvals) : undefined,
 		})
+		t._upgradeCardCharges = []
 		showSuccess(__("Upgraded {0} to a new subscription", [t.name]))
 		await refresh()
 	} catch (e) {
@@ -868,6 +993,7 @@ watch(
 	(open) => {
 		if (open) {
 			loadStartDateEnabled()
+			loadCardTerminal()
 			nextTick(() => setTimeout(() => searchInput.value?.focus(), 100))
 		} else {
 			query.value = ""

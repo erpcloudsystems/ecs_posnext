@@ -75,16 +75,14 @@ class SpotCheck(Document):
 
 
 def get_shifts(pos_profile, date):
-	"""Submitted opening shifts of the profile that were active on the given date."""
+	"""Submitted opening shifts of the profile that were opened on the given date."""
 	return frappe.db.sql(
 		"""
 		select os.name, os.user, os.status, os.period_start_date
 		from `tabPOS Opening Shift` os
-		left join `tabPOS Closing Shift` cs on cs.name = os.pos_closing_shift and cs.docstatus = 1
 		where os.docstatus = 1
 			and os.pos_profile = %(pos_profile)s
-			and date(os.period_start_date) <= %(date)s
-			and (os.status = 'Open' or date(coalesce(cs.period_end_date, os.period_start_date)) >= %(date)s)
+			and date(os.period_start_date) = %(date)s
 		order by os.period_start_date
 		""",
 		{"pos_profile": pos_profile, "date": date},
