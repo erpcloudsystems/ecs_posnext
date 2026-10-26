@@ -52,6 +52,52 @@ class CustomSalesInvoice(SalesInvoice):
 	party information in the GL entry. This override adds party_type and party
 	for wallet payment methods marked with is_wallet_payment.
 	"""
+	def set_pos_fields(self, for_validate=False):
+		"""Keep the payment amounts the cashier actually entered.
+
+		ERPNext 15.124 changed `update_multi_mode_option()` to clear the payments
+		table on every `set_missing_values()` call made without `for_validate`, and
+		refill it from the POS Profile with rows that carry no amount. The POS builds
+		the invoice from the cashier's payload and then calls `set_missing_values()`,
+		so those amounts were wiped, `calculate_paid_amount()` summed zeros, and every
+		POS invoice came out Unpaid.
+
+		`set_pos_fields` is the only path that reaches `update_multi_mode_option` for a
+		Sales Invoice, so restoring here covers every caller rather than one call site.
+
+		The rows are put back only when ERPNext actually dropped them: if it leaves
+		amounts in place (an older build, or a different code path) its result stands,
+		and an invoice that arrives with no payments at all — a draft save — is left
+		alone so the profile's default modes are still filled in as before.
+		"""
+		incoming = [
+			{
+				"mode_of_payment": row.mode_of_payment,
+				"amount": flt(row.amount),
+				"base_amount": flt(row.base_amount),
+				"account": row.account,
+				"type": row.type,
+				"default": row.default,
+			}
+			for row in (self.get("payments") or [])
+		]
+
+		pos = super().set_pos_fields(for_validate)
+
+		# Nothing was paid on the way in — nothing to protect.
+		if not any(row["amount"] for row in incoming):
+			return pos
+
+		# ERPNext kept the amounts — leave its result untouched.
+		if any(flt(row.amount) for row in (self.get("payments") or [])):
+			return pos
+
+		self.set("payments", [])
+		for row in incoming:
+			self.append("payments", row)
+
+		return pos
+
 	def update_packing_list(self):
 		pass
 	
