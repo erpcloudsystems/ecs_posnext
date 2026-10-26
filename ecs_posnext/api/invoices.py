@@ -1088,7 +1088,15 @@ def update_invoice(data):
         frappe.flags.ignore_account_permission = True
 
         # Populate missing fields (company, currency, accounts, etc.)
+        # ERPNext >= 15.12x resets payments to the POS Profile's modes (all
+        # zero) on every set_missing_values() call, even when payments are
+        # already set. Keep the cashier's payments across the call.
+        entered_payments = [
+            p.as_dict(no_default_fields=True) for p in invoice_doc.get("payments") or []
+        ]
         invoice_doc.set_missing_values()
+        if entered_payments:
+            invoice_doc.set("payments", entered_payments)
 
         # Calculate totals and apply discounts (with rounding disabled)
         invoice_doc.calculate_taxes_and_totals()
