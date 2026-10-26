@@ -8,6 +8,8 @@ __pycache__
 
 # Build artifacts
 pos_next/public/pos/
+ecs_posnext/public/pos/
+ecs_posnext/www/pos.html
 pos_next/www/
 yarn.lock
 package-lock.json
