@@ -34,7 +34,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-24 05:28:54.320065",
+ "modified": "2026-10-21 06:54:47.925285",
  "modified_by": "mahmoud.k.it@hotmail.com",
  "module": "POS Next",
  "name": "POSNext",
@@ -48,7 +48,7 @@
    "role": "System Manager"
   }
  ],
- "sequence_id": 3.0,
+ "sequence_id": 4.0,
  "shortcuts": [
   {
    "color": "Grey",

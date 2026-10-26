@@ -464,6 +464,56 @@
 			</div>
 		</div>
 
+		<!-- Reject Delivery Return Request Dialog -->
+		<div v-if="returnRejectDialog.show" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+			<div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+				<div class="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+					<div class="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center flex-shrink-0">
+						<svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+						</svg>
+					</div>
+					<div>
+						<h3 class="text-base font-bold text-gray-900">{{ __("Reject Return Request") }}</h3>
+						<p class="text-xs text-gray-500 mt-0.5">{{ returnRejectDialog.request?.custom_number_order || returnRejectDialog.request?.sales_invoice }}</p>
+					</div>
+				</div>
+				<div class="px-6 py-5 space-y-4">
+					<p class="text-sm text-gray-600">{{ __("The order is left untouched. This reason is shown back on the dispatcher card so the order can be assigned again.") }}</p>
+					<div>
+						<label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{{ __("Reject Reason") }}</label>
+						<textarea
+							v-model="returnRejectDialog.reason"
+							rows="3"
+							:placeholder="__('Why is this return being rejected?')"
+							class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-400 focus:border-red-400 outline-none resize-none transition-all"
+						></textarea>
+						<p v-if="returnRejectDialog.error" class="text-xs text-red-600 mt-1.5">{{ returnRejectDialog.error }}</p>
+					</div>
+				</div>
+				<div class="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3 bg-gray-50">
+					<button
+						@click="returnRejectDialog.show = false"
+						:disabled="returnRejectDialog.loading"
+						class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-50"
+					>
+						{{ __("Cancel") }}
+					</button>
+					<button
+						@click="confirmRejectReturnRequest"
+						:disabled="returnRejectDialog.loading"
+						class="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50"
+					>
+						<svg v-if="returnRejectDialog.loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+						</svg>
+						{{ __("Confirm Reject") }}
+					</button>
+				</div>
+			</div>
+		</div>
+
 		<!-- Password Confirmation Dialog -->
 		<div v-if="showPasswordDialog" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="cancelDelete">
 			<div class="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
@@ -771,6 +821,7 @@ const orderTypeFilter = ref("all")
 const showPaymentDialog = ref(false)
 const isSubmittingSuccess = ref(false)
 const rejectDialog = ref({ show: false, order: null, reason: "", loading: false })
+const returnRejectDialog = ref({ show: false, request: null, reason: "", loading: false, error: "" })
 const posProfile = ref(null)
 // Cancel flow (mirrors AllOrders)
 const orderToDelete = ref(null)
@@ -1043,26 +1094,37 @@ async function finaliseReturnRequestApproval() {
 	}
 }
 
+// Ask WHY — the reason is shown back on the dispatcher card when it re-enables.
+// This used frappe.prompt, which only exists in Frappe's desk bundle; the POS SPA
+// never loads it, so the optional call silently did nothing and the button looked
+// dead. Use the app's own dialog, like the other reject flows on this page.
 function rejectReturnRequest(r) {
 	if (returnBusy.value) return
-	// Ask WHY — the reason is shown back on the dispatcher card when it re-enables.
-	window.frappe?.prompt?.(
-		[{ fieldname: "reason", label: __("Reject Reason"), fieldtype: "Small Text", reqd: 1 }],
-		async (values) => {
-			returnBusy.value = r.name
-			try {
-				await call("ecs_posnext.api.return_request.reject_delivery_return_request", { name: r.name, reason: values.reason })
-				returnRequests.value = returnRequests.value.filter((x) => x.name !== r.name)
-				window.frappe?.show_alert?.({ message: __("Rejected"), indicator: "orange" })
-			} catch (e) {
-				window.frappe?.show_alert?.({ message: e.message || __("Failed to reject"), indicator: "red" })
-			} finally {
-				returnBusy.value = null
-			}
-		},
-		__("Reject Return Request"),
-		__("Reject"),
-	)
+	returnRejectDialog.value = { show: true, request: r, reason: "", loading: false, error: "" }
+}
+
+async function confirmRejectReturnRequest() {
+	const r = returnRejectDialog.value.request
+	if (!r) return
+	const reason = (returnRejectDialog.value.reason || "").trim()
+	if (!reason) {
+		returnRejectDialog.value.error = __("Please enter a reason.")
+		return
+	}
+	returnRejectDialog.value.error = ""
+	returnRejectDialog.value.loading = true
+	returnBusy.value = r.name
+	try {
+		await call("ecs_posnext.api.return_request.reject_delivery_return_request", { name: r.name, reason })
+		returnRequests.value = returnRequests.value.filter((x) => x.name !== r.name)
+		returnRejectDialog.value.show = false
+		window.frappe?.show_alert?.({ message: __("Rejected"), indicator: "orange" })
+	} catch (e) {
+		returnRejectDialog.value.error = e.message || __("Failed to reject")
+	} finally {
+		returnRejectDialog.value.loading = false
+		returnBusy.value = null
+	}
 }
 
 // Approve flow: manager password → approve (creates the return) → wastage dialog with

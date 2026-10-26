@@ -23,6 +23,7 @@ FIELD_ITEM_CODE = "item_code"
 FIELD_DISCOUNT_PERCENTAGE = "discount_percentage"
 FIELD_ALLOW_USER_TO_EDIT_RATE = "allow_user_to_edit_rate"
 FIELD_MAX_DISCOUNT_ALLOWED = "max_discount_allowed"
+FIELD_ALLOW_ADDITIONAL_DISCOUNT = "allow_user_to_edit_additional_discount"
 FIELD_DISABLE_ROUNDED_TOTAL = "disable_rounded_total"
 FIELD_ALLOW_NEGATIVE_STOCK = "allow_negative_stock"
 
@@ -164,6 +165,124 @@ def validate_manual_rate_edit(item, pos_profile=None, pos_settings_cache=None):
                     item_code, discount_pct, max_discount
                 )
             }
+
+    return {"valid": True}
+
+
+def get_discount_eligible_total(invoice_doc):
+    """Order total the invoice-level additional discount is measured against.
+
+    Every line counts except items flagged `custom_not_included`, which mirrors the
+    base the POS payment dialog uses (`discountEligibleSubtotal`). The flag is read
+    from the Item master rather than the request, so a crafted payload cannot widen
+    the base to slip a bigger discount through.
+    """
+    items = invoice_doc.get("items") or []
+    item_codes = list({item.get(FIELD_ITEM_CODE) for item in items if item.get(FIELD_ITEM_CODE)})
+
+    excluded = set()
+    if item_codes and frappe.get_meta("Item").has_field("custom_not_included"):
+        excluded = set(
+            frappe.get_all(
+                "Item",
+                filters={"name": ["in", item_codes], "custom_not_included": 1},
+                pluck="name",
+            )
+        )
+
+    total = 0.0
+    for item in items:
+        if item.get(FIELD_ITEM_CODE) in excluded:
+            continue
+        # A manually edited line is worth what the cashier set it to; everything else
+        # is measured at catalog price. Same rule as the dialog, so both sides agree.
+        if cint(item.get(FIELD_IS_RATE_MANUALLY_EDITED) or 0):
+            rate = flt(item.get(FIELD_RATE) or 0)
+        else:
+            rate = flt(item.get(FIELD_PRICE_LIST_RATE) or 0) or flt(item.get(FIELD_RATE) or 0)
+        total += flt(rate) * flt(item.get("qty") or 0)
+
+    return flt(total, 2)
+
+
+def validate_additional_discount(
+    invoice_doc, pos_profile=None, pos_settings_cache=None, existing_discount=0
+):
+    """Validate the invoice-level additional discount against POS Settings.
+
+    Two separate rules, in order:
+
+    1. `allow_user_to_edit_additional_discount` gates the feature. Where it is off
+       the discount is simply not available — the profile may not introduce one or
+       raise an existing one. (It may keep or reduce what is already on a draft, so
+       editing an order that was discounted elsewhere never dead-ends.)
+    2. `max_discount_allowed` caps what an enabled profile may give. The cap is a
+       percentage, so a fixed-amount discount is checked against what that percentage
+       is worth on this order — a 30% cap means the amount may not exceed 30% of the
+       discount-eligible total, and both entry methods in the payment dialog hit the
+       same ceiling.
+
+    Both are re-checked here because the client can be bypassed.
+
+    Returns a dict with 'valid' and, when invalid, a 'message'.
+    """
+    discount_amount = flt(invoice_doc.get("discount_amount") or 0)
+
+    # Nothing given away (a return carries a negative discount) — nothing to check.
+    if discount_amount <= 0:
+        return {"valid": True}
+
+    if not pos_profile:
+        return {"valid": True}
+
+    pos_settings = pos_settings_cache
+    if pos_settings is None or FIELD_ALLOW_ADDITIONAL_DISCOUNT not in pos_settings:
+        pos_settings = frappe.db.get_value(
+            DOCTYPE_POS_SETTINGS,
+            {"pos_profile": pos_profile},
+            [FIELD_MAX_DISCOUNT_ALLOWED, FIELD_ALLOW_ADDITIONAL_DISCOUNT],
+            as_dict=True,
+        )
+
+    # A profile with no POS Settings record falls to the field default, which is off.
+    allowed = cint((pos_settings or {}).get(FIELD_ALLOW_ADDITIONAL_DISCOUNT) or 0)
+    if not allowed and discount_amount - flt(existing_discount or 0) > 0.01:
+        return {
+            "valid": False,
+            "message": _(
+                "Additional discount is not enabled for POS Profile {0}."
+            ).format(pos_profile),
+        }
+
+    max_discount = flt((pos_settings or {}).get(FIELD_MAX_DISCOUNT_ALLOWED) or 0)
+    if max_discount <= 0:
+        return {"valid": True}  # no cap configured
+
+    eligible_total = get_discount_eligible_total(invoice_doc)
+    if eligible_total <= 0:
+        return {
+            "valid": False,
+            "message": _("A discount of {0} cannot be applied: no discountable items on this order.").format(
+                frappe.format_value(discount_amount, {"fieldtype": "Currency"})
+            ),
+        }
+
+    max_amount = flt(eligible_total * max_discount / 100, 2)
+
+    # The client rounds to 2 decimals; allow that much slack before rejecting.
+    if discount_amount - max_amount > 0.01:
+        applied_pct = flt(discount_amount / eligible_total * 100, 2)
+        return {
+            "valid": False,
+            "message": _(
+                "Additional discount of {0} is {1}% of the order, which exceeds the maximum allowed discount of {2}% ({3})."
+            ).format(
+                frappe.format_value(discount_amount, {"fieldtype": "Currency"}),
+                applied_pct,
+                max_discount,
+                frappe.format_value(max_amount, {"fieldtype": "Currency"}),
+            ),
+        }
 
     return {"valid": True}
 
@@ -964,6 +1083,10 @@ def _prepare_invoice_doc(data):
 
     if name:
         invoice_doc = frappe.get_doc(doctype, name)
+        # What was already saved on this draft, read before `update` overwrites it.
+        # A profile without the additional-discount permission may keep or lower an
+        # existing discount, so editing an order discounted elsewhere still works.
+        existing_discount = flt(invoice_doc.get("discount_amount") or 0)
         # Clear child tables to prevent duplicating lines when updating draft invoice
         invoice_doc.set("items", [])
         invoice_doc.set("payments", [])
@@ -971,6 +1094,7 @@ def _prepare_invoice_doc(data):
         invoice_doc.update(data)
     else:
         invoice_doc = frappe.get_doc(data)
+        existing_discount = 0.0
 
     _add_missing_line_packed_items(invoice_doc)
 
@@ -1208,7 +1332,8 @@ def _prepare_invoice_doc(data):
             [
                 FIELD_ALLOW_USER_TO_EDIT_RATE,
                 FIELD_MAX_DISCOUNT_ALLOWED,
-                FIELD_ALLOW_NEGATIVE_STOCK
+                FIELD_ALLOW_NEGATIVE_STOCK,
+                FIELD_ALLOW_ADDITIONAL_DISCOUNT
             ],
             as_dict=True
         )
@@ -1261,6 +1386,16 @@ def _prepare_invoice_doc(data):
                         item.pricing_rules = ",".join(str(r) for r in rules_list)
                 except (json.JSONDecodeError, TypeError):
                     item.pricing_rules = ""
+
+    # The payment dialog clamps the additional discount to max_discount_allowed, for
+    # both the percentage and the amount input. Re-check it here: the client can be
+    # bypassed, and this runs after price_list_rate is settled above, so the base the
+    # cap is measured against matches what the dialog showed the cashier.
+    discount_validation = validate_additional_discount(
+        invoice_doc, pos_profile, pos_settings_cache, existing_discount
+    )
+    if not discount_validation.get("valid"):
+        frappe.throw(discount_validation.get("message"))
 
     # Set invoice flags BEFORE calculations
     if doctype == "Sales Invoice":

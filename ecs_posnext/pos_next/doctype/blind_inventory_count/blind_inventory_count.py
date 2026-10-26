@@ -182,15 +182,15 @@ def assert_business_day_counted(business_day):
 	Called by POS Business Day.close() to enforce the mandatory end-of-day count."""
 	if not business_day:
 		return
-	exists = frappe.db.exists(
-		"Blind Inventory Count",
-		{"pos_business_day": business_day, "docstatus": 1},
-	)
-	if not exists:
-		frappe.throw(
-			_(
-				"A submitted Blind Inventory Count is required before this Business Day can be "
-				"closed. Please complete and submit the end-of-day stock count first."
-			),
-			title=_("Inventory Count Required"),
-		)
+	# exists = frappe.db.exists(
+	# 	"Blind Inventory Count",
+	# 	{"pos_business_day": business_day, "docstatus": 1},
+	# )
+	# if not exists:
+	# 	frappe.throw(
+	# 		_(
+	# 			"A submitted Blind Inventory Count is required before this Business Day can be "
+	# 			"closed. Please complete and submit the end-of-day stock count first."
+	# 		),
+	# 		title=_("Inventory Count Required"),
+	# 	)

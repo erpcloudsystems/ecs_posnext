@@ -278,6 +278,8 @@ const loadingAddressZones = ref(false)
 const zoneSearch = ref("")
 const zoneOpen = ref(false)
 const zoneDropdownRef = ref(null)
+// Existing Address being edited (edit mode), so saving updates it instead of adding one
+const editAddressName = ref("")
 
 const filteredZones = computed(() => {
 	const q = zoneSearch.value.trim().toLowerCase()
@@ -463,12 +465,12 @@ const createCustomerResource = createResource({
 	},
 })
 
+// Updates the primary Contact (mobile/email) and the existing Address server-side
 const updateCustomerResource = createResource({
-	url: "frappe.client.set_value",
+	url: "ecs_posnext.api.customers.update_customer",
 	makeParams: () => ({
-		doctype: "Customer",
-		name: props.customer?.name,
-		fieldname: {
+		customer: props.customer?.name,
+		data: {
 			customer_name: customerData.value.customer_name,
 			customer_group: customerData.value.customer_group || "Individual",
 			territory: customerData.value.territory || "Egypt",
@@ -478,6 +480,9 @@ const updateCustomerResource = createResource({
 			gender: customerData.value.gender || "",
 			birthday: customerData.value.birthday || null,
 		},
+		address: showAddressFields.value && addressData.value.custom_street
+			? { ...addressData.value, name: editAddressName.value || null }
+			: null,
 	}),
 	onSuccess: (data) => {
 		showSuccess(__("Customer {0} updated successfully", [data.customer_name]))
@@ -542,6 +547,8 @@ const loadDialogData = async () => {
 	} else {
 		selectedCountryCode.value = "+20"
 	}
+
+	if (isEditMode.value && showAddressFields.value) await loadEditAddress()
 }
 
 const checkPermissions = async () => {
@@ -614,7 +621,40 @@ async function loadAddressZones(city) {
 	}
 }
 
+/** Edit mode: pre-fill the delivery address from the customer's existing Address */
+async function loadEditAddress() {
+	try {
+		const list = await call("ecs_posnext.api.customers.get_customer_addresses", {
+			customer: props.customer.name,
+		})
+		const addr = (list || []).find((a) => a.is_shipping_address)
+			|| (list || []).find((a) => a.is_primary_address)
+			|| (list || [])[0]
+		if (!addr) return
+
+		if (!addressCities.value.length) await loadAddressCities()
+		editAddressName.value = addr.name
+		addressData.value.city = addr.city || ""
+		// Let the city watcher (which clears the zone) run before restoring it
+		await nextTick()
+		await loadAddressZones(addr.city)
+		Object.assign(addressData.value, {
+			territory: addr.territory || "",
+			custom_street: addr.custom_street || "",
+			custom_building_name: addr.custom_building_name || "",
+			custom_floor: addr.custom_floor || "",
+			custom_apartment: addr.custom_apartment || "",
+			custom_mark: addr.custom_mark || "",
+		})
+		const zone = addressZones.value.find((z) => z.name === addr.territory)
+		zoneSearch.value = zone?.territory_name || addr.territory || ""
+	} catch (e) {
+		log.error("Error loading customer address", e)
+	}
+}
+
 function resetAddressData() {
+	editAddressName.value = ""
 	Object.assign(addressData.value, {
 		city: "", territory: "", custom_street: "", custom_building_name: "",
 		custom_floor: "", custom_apartment: "", custom_mark: "",

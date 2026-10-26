@@ -118,6 +118,147 @@ def create_customer(customer_name, mobile_no=None, email_id=None, customer_group
     return customer.as_dict()
 
 
+@frappe.whitelist()
+def update_customer(customer, data, address=None):
+    """
+    Update a customer from the POS edit dialog.
+
+    Customer.mobile_no / email_id are fetched from the primary Contact, so the
+    phone and email are written to that Contact. The delivery address (if sent)
+    updates the customer's existing Address instead of inserting a new one.
+
+    Args:
+        customer (str): Customer ID
+        data (dict): Customer fields (customer_name, mobile_no, email_id, ...)
+        address (dict): Optional address fields; "name" targets a specific Address
+
+    Returns:
+        dict: Updated customer document
+    """
+    data = frappe.parse_json(data) or {}
+    address = frappe.parse_json(address) if address else None
+
+    doc = frappe.get_doc("Customer", customer)
+    doc.check_permission("write")
+
+    mobile_no = (data.get("mobile_no") or "").strip()
+    email_id = (data.get("email_id") or "").strip()
+
+    if doc.customer_primary_contact:
+        _update_primary_contact(doc.customer_primary_contact, mobile_no, email_id)
+
+    for field in ("customer_name", "customer_group", "territory", "custom_other_mobile_no", "gender", "birthday"):
+        if field in data:
+            doc.set(field, data.get(field) or None)
+    # Kept in sync with the Contact; if there is no Contact yet, ERPNext
+    # creates one from these values in Customer.on_update.
+    doc.mobile_no = mobile_no
+    doc.email_id = email_id
+    doc.save()
+
+    if address and address.get("custom_street"):
+        _upsert_customer_address(doc, address)
+
+    return doc.as_dict()
+
+
+def _update_primary_contact(contact_name, mobile_no, email_id):
+    contact = frappe.get_doc("Contact", contact_name)
+    changed = False
+
+    if (contact.mobile_no or "") != mobile_no:
+        primary = next((p for p in contact.phone_nos if p.is_primary_mobile_no), None)
+        existing = next((p for p in contact.phone_nos if p.phone == mobile_no), None)
+        if not mobile_no:
+            if primary:
+                primary.is_primary_mobile_no = 0
+        elif existing:
+            if primary and primary is not existing:
+                primary.is_primary_mobile_no = 0
+            existing.is_primary_mobile_no = 1
+        elif primary:
+            primary.phone = mobile_no
+        else:
+            contact.append("phone_nos", {"phone": mobile_no, "is_primary_mobile_no": 1})
+        contact.mobile_no = mobile_no
+        changed = True
+
+    if email_id and (contact.email_id or "") != email_id:
+        primary = next((e for e in contact.email_ids if e.is_primary), None)
+        if primary:
+            primary.email_id = email_id
+        else:
+            contact.append("email_ids", {"email_id": email_id, "is_primary": 1})
+        contact.email_id = email_id
+        changed = True
+
+    if changed:
+        contact.save(ignore_permissions=True)
+
+
+def _get_customer_address_name(customer_doc, address_name=None):
+    linked = frappe.get_all(
+        "Address",
+        filters=[
+            ["Dynamic Link", "link_doctype", "=", "Customer"],
+            ["Dynamic Link", "link_name", "=", customer_doc.name],
+            ["disabled", "=", 0],
+        ],
+        fields=["name", "is_primary_address", "is_shipping_address"],
+        order_by="`tabAddress`.modified desc",
+    )
+    names = [a.name for a in linked]
+    if address_name in names:
+        return address_name
+    if customer_doc.customer_primary_address in names:
+        return customer_doc.customer_primary_address
+    for flag in ("is_shipping_address", "is_primary_address"):
+        match = next((a.name for a in linked if a.get(flag)), None)
+        if match:
+            return match
+    return names[0] if names else None
+
+
+def _upsert_customer_address(customer_doc, address):
+    parts = [
+        address.get("custom_street"),
+        address.get("custom_building_name"),
+        f"Floor {address.get('custom_floor')}" if address.get("custom_floor") else "",
+        f"Apt {address.get('custom_apartment')}" if address.get("custom_apartment") else "",
+    ]
+    values = {
+        "address_line1": ", ".join(p for p in parts if p),
+        "address_line2": address.get("custom_mark") or "",
+        "city": address.get("city"),
+        "territory": address.get("territory"),
+        "custom_street": address.get("custom_street"),
+        "custom_building_name": address.get("custom_building_name") or "",
+        "custom_floor": address.get("custom_floor") or "",
+        "custom_apartment": address.get("custom_apartment") or "",
+        "custom_mark": address.get("custom_mark") or "",
+    }
+
+    address_name = _get_customer_address_name(customer_doc, address.get("name"))
+    if address_name:
+        addr = frappe.get_doc("Address", address_name)
+        addr.update(values)
+        addr.save(ignore_permissions=True)
+    else:
+        addr = frappe.get_doc(
+            {
+                "doctype": "Address",
+                "address_title": customer_doc.customer_name,
+                "address_type": "Shipping",
+                "is_primary_address": 1,
+                "is_shipping_address": 1,
+                "links": [{"link_doctype": "Customer", "link_name": customer_doc.name}],
+                **values,
+            }
+        )
+        addr.insert(ignore_permissions=True)
+    return addr.name
+
+
 def get_default_loyalty_program(company):
     """
     Get the default loyalty program for a company.

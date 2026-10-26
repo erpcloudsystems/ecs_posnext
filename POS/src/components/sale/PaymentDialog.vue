@@ -376,15 +376,54 @@
 										-{{ formatCurrency(calculatedAdditionalDiscount) }}
 									</span>
 								</div>
-								<!-- Percentage Select: 0% to 100% in steps of 10 -->
-								<select
-									v-model.number="localAdditionalDiscount"
-									@change="handleAdditionalDiscountChange"
-									:disabled="!!cartStore.resumedInvoiceName"
-									class="w-full h-9 px-3 text-sm font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer disabled:bg-gray-50 disabled:text-orange-600/70 disabled:cursor-not-allowed"
-								>
-									<option v-for="pct in getDiscountOptions(localAdditionalDiscount)" :key="pct" :value="pct">{{ pct }}%</option>
-								</select>
+								<div class="flex items-center gap-1.5">
+									<!-- Input method: preset percentage steps, or a straight amount -->
+									<div class="flex h-9 flex-shrink-0 rounded-lg border border-orange-300 bg-white overflow-hidden">
+										<button
+											type="button"
+											@click="setAdditionalDiscountType('percentage')"
+											:disabled="discountLocked"
+											class="w-9 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+											:class="additionalDiscountType === 'percentage' ? 'bg-orange-500 text-white' : 'text-orange-700 hover:bg-orange-50'"
+										>%</button>
+										<button
+											type="button"
+											@click="setAdditionalDiscountType('amount')"
+											:disabled="discountLocked"
+											class="w-9 border-s border-orange-300 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+											:class="additionalDiscountType === 'amount' ? 'bg-orange-500 text-white' : 'text-orange-700 hover:bg-orange-50'"
+										>{{ currencySymbol }}</button>
+									</div>
+									<!-- Percentage Select: 0% to 100% in steps of 10 -->
+									<select
+										v-if="additionalDiscountType === 'percentage'"
+										v-model.number="localAdditionalDiscount"
+										@change="handleAdditionalDiscountChange"
+										:disabled="discountLocked"
+										class="flex-1 min-w-0 h-9 px-3 text-sm font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 cursor-pointer disabled:bg-gray-50 disabled:text-orange-600/70 disabled:cursor-not-allowed"
+									>
+										<option v-for="pct in getDiscountOptions(localAdditionalDiscount)" :key="pct" :value="pct">{{ pct }}%</option>
+									</select>
+									<!-- Amount input -->
+									<input
+										v-else
+										v-model.number="localAdditionalDiscountAmount"
+										@change="handleAdditionalDiscountAmountChange"
+										@blur="handleAdditionalDiscountAmountChange"
+										@keyup.enter="handleAdditionalDiscountAmountChange"
+										type="number"
+										inputmode="decimal"
+										min="0"
+										step="any"
+										:max="maxDiscountAmount > 0 ? maxDiscountAmount : discountBase"
+										:disabled="discountLocked"
+										:placeholder="__('Discount amount')"
+										class="flex-1 min-w-0 h-9 px-3 text-sm font-semibold text-orange-700 bg-white border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:bg-gray-50 disabled:text-orange-600/70 disabled:cursor-not-allowed"
+									/>
+								</div>
+								<p v-if="additionalDiscountType === 'amount' && maxDiscountAmount > 0" class="mt-1 text-[11px] text-orange-600/80">
+									{{ __("Max") }} {{ formatCurrency(maxDiscountAmount) }} ({{ settingsStore.maxDiscountAllowed }}%)
+								</p>
 							</div>
 							<!-- Subtotal -->
 							<div class="flex items-center justify-between text-sm">
@@ -1647,9 +1686,12 @@ function numpadAddPayment() {
 	}
 }
 
-// Additional discount state
-const localAdditionalDiscount = ref(0)
-const additionalDiscountType = "percentage"
+// Additional discount state. The cashier enters either a percentage (preset steps)
+// or a straight amount — everything downstream (the parent, the cart store, the
+// invoice) has always dealt in an amount, so the type only picks the input method.
+const localAdditionalDiscount = ref(0)       // percentage, when type is "percentage"
+const localAdditionalDiscountAmount = ref(0) // amount, when type is "amount"
+const additionalDiscountType = ref("percentage")
 
 const paymentMethodsResource = createResource({
 	url: "ecs_posnext.api.pos_profile.get_payment_methods",
@@ -2108,7 +2150,24 @@ const discountBase = computed(
 	() => props.discountEligibleSubtotal ?? props.subtotal,
 )
 
+// The row stays visible when a discount is already on the order so the cashier can
+// see it, but a profile without the permission may not change it — only Call Center
+// has the feature switched on, and the server enforces the same rule.
+const discountLocked = computed(
+	() => !!cartStore.resumedInvoiceName || !settingsStore.allowAdditionalDiscount,
+)
+
+// The cap is configured as a percentage, so an amount entry is measured against
+// what that percentage is worth on this order.
+const maxDiscountAmount = computed(() => {
+	if (!settingsStore.maxDiscountAllowed || settingsStore.maxDiscountAllowed <= 0) return 0
+	return roundCurrency((discountBase.value * settingsStore.maxDiscountAllowed) / 100)
+})
+
 const calculatedAdditionalDiscount = computed(() => {
+	if (additionalDiscountType.value === "amount") {
+		return roundCurrency(localAdditionalDiscountAmount.value || 0)
+	}
 	return roundCurrency(
 		(discountBase.value * localAdditionalDiscount.value) / 100,
 	)
@@ -2957,6 +3016,11 @@ function getDiscountOptions(currentVal) {
 
 // Additional discount handlers
 function handleAdditionalDiscountChange() {
+	if (additionalDiscountType.value === "amount") {
+		handleAdditionalDiscountAmountChange()
+		return
+	}
+
 	let discountValue = localAdditionalDiscount.value
 
 	// Clamp to max allowed
@@ -2986,7 +3050,59 @@ function handleAdditionalDiscountChange() {
 	const discountAmount = roundCurrency(
 		(discountBase.value * discountValue) / 100,
 	)
+	localAdditionalDiscountAmount.value = discountAmount
 	emit("update-additional-discount", discountAmount)
+}
+
+function handleAdditionalDiscountAmountChange() {
+	let amount = Number(localAdditionalDiscountAmount.value) || 0
+
+	if (amount < 0) amount = 0
+
+	// Never discount more than the order is worth.
+	if (amount > discountBase.value) {
+		amount = roundCurrency(discountBase.value)
+		showWarning(__("Discount cannot exceed {0}", [formatCurrency(discountBase.value)]))
+	}
+
+	// Same cap as the percentage input, expressed in currency.
+	if (maxDiscountAmount.value > 0 && amount > maxDiscountAmount.value) {
+		amount = maxDiscountAmount.value
+		showWarning(
+			__("Maximum allowed discount is {0}% ({1})", [
+				settingsStore.maxDiscountAllowed,
+				formatCurrency(maxDiscountAmount.value),
+			]),
+		)
+	}
+
+	amount = roundCurrency(amount)
+	localAdditionalDiscountAmount.value = amount
+	// Keep the percentage view in step, so switching back shows the same discount.
+	localAdditionalDiscount.value =
+		discountBase.value > 0 ? (amount * 100) / discountBase.value : 0
+	emit("update-additional-discount", amount)
+}
+
+// Switching the input method keeps the discount that is already applied.
+function setAdditionalDiscountType(type) {
+	if (additionalDiscountType.value === type) return
+	additionalDiscountType.value = type
+	if (type === "amount") {
+		localAdditionalDiscountAmount.value = roundCurrency(
+			(discountBase.value * (localAdditionalDiscount.value || 0)) / 100,
+		)
+		handleAdditionalDiscountAmountChange()
+	} else {
+		// Back to the preset steps: snap to the nearest one that does not increase
+		// the discount, so the cashier never silently gives away more.
+		const amount = Number(localAdditionalDiscountAmount.value) || 0
+		const pct = discountBase.value > 0 ? (amount * 100) / discountBase.value : 0
+		const steps = getDiscountOptions(undefined)
+		const allowed = steps.filter((s) => s <= pct + 0.0001)
+		localAdditionalDiscount.value = allowed.length ? allowed[allowed.length - 1] : 0
+		handleAdditionalDiscountChange()
+	}
 }
 
 // Watch for dialog open to sync additional discount from parent
@@ -2996,11 +3112,23 @@ watch(
 		if (isOpen) {
 			// Only sync when dialog opens, not continuously
 			if (props.additionalDiscount && discountBase.value > 0) {
-				localAdditionalDiscount.value = Math.round(
-					(props.additionalDiscount * 100) / discountBase.value,
+				const amount = roundCurrency(props.additionalDiscount)
+				const pct = (amount * 100) / discountBase.value
+				localAdditionalDiscountAmount.value = amount
+				localAdditionalDiscount.value = pct
+				// Rounding the percentage used to change the discount on reopen (an
+				// amount of 37.50 on a 500 base came back as 8% = 40.00). Show it as
+				// a percentage only when it lands exactly on one of the preset steps;
+				// otherwise open in amount mode, which reproduces it exactly.
+				additionalDiscountType.value = getDiscountOptions(undefined).some(
+					(s) => Math.abs(s - pct) < 0.0001,
 				)
+					? "percentage"
+					: "amount"
 			} else {
 				localAdditionalDiscount.value = 0
+				localAdditionalDiscountAmount.value = 0
+				additionalDiscountType.value = "percentage"
 			}
 		}
 	},
