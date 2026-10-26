@@ -26,7 +26,36 @@ def validate(doc, method=None):
 	"""
 	apply_tax_inclusive(doc)
 	auto_assign_loyalty_program_on_invoice(doc)
+	apply_kitchen_screen_routing(doc)
 	auto_complete_fridge_items(doc)
+
+
+def apply_kitchen_screen_routing(doc):
+	"""Send items to a branch-specific kitchen screen.
+
+	Kitchen Screen Routing rules map (branch, item group) to an item class,
+	overriding the Item master's class for that branch only — e.g. crepe is
+	made at the bar in one branch and in the kitchen in another. Runs before
+	auto_complete_fridge_items so a routed class is the one checked there.
+	"""
+	if not doc.get("branch") or not doc.get("items"):
+		return
+
+	rules = {
+		row.item_group: row.item_class
+		for row in frappe.get_all(
+			"Kitchen Screen Routing Rule",
+			filters={"parenttype": "Kitchen Screen Routing", "branch": doc.branch},
+			fields=["item_group", "item_class"],
+		)
+	}
+	if not rules:
+		return
+
+	for item in doc.items:
+		item_class = rules.get(item.get("item_group"))
+		if item_class:
+			item.custom_item_class = item_class
 
 
 def auto_complete_fridge_items(doc):

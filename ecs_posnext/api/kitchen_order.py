@@ -41,6 +41,19 @@ def get_orders(status=None, fromDelivery=False):
     if hide_pickup:
         so_type_filter += " AND t.custom_so_type NOT IN ('Pickup', 'Pick Up')"
 
+    # Limit to the screen user's branches. frappe.db.sql below ignores User
+    # Permissions, so the Branch permission has to be applied explicitly.
+    # Users without a Branch permission (e.g. Administrator) see all branches.
+    params = {}
+    permitted_branches = frappe.get_all(
+        "User Permission",
+        filters={"user": frappe.session.user, "allow": "Branch"},
+        pluck="for_value",
+    )
+    if permitted_branches:
+        so_type_filter += " AND t.branch IN %(branches)s"
+        params["branches"] = tuple(permitted_branches)
+
     items_class_str = "', '".join(items_class_names)
     status_placeholders = "', '".join(status_list)
 
@@ -87,7 +100,7 @@ def get_orders(status=None, fromDelivery=False):
             t.name DESC
     """
 
-    rows = frappe.db.sql(query, as_dict=True)
+    rows = frappe.db.sql(query, params, as_dict=True)
 
     # Batch-fetch table numbers
     invoice_ids = list(set([row["invoice_id"] for row in rows]))
