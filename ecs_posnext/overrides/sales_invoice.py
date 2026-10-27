@@ -8,9 +8,10 @@ Handles wallet payments that require party information for Receivable accounts.
 """
 
 import frappe
+from frappe import _
 from frappe.utils import cint, flt
 from erpnext.accounts.doctype.pricing_rule.utils import get_applied_pricing_rules
-from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
+from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice, get_total_in_party_account_currency
 from erpnext.accounts.utils import get_account_currency
 
 def _get_post_change_gl_entries_setting():
@@ -71,6 +72,27 @@ class CustomSalesInvoice(SalesInvoice):
 					item.pricing_rules = ""
 		super().set_missing_item_details(for_validate=for_validate)
 
+	def before_submit(self):
+		super().before_submit()
+		self.validate_not_partly_paid()
+
+	def validate_not_partly_paid(self):
+		"""Block submitting an invoice that would come out "Partly Paid" (same rule as set_status)."""
+		if cint(self.is_return):
+			return
+
+		outstanding_amount = flt(self.outstanding_amount, self.precision("outstanding_amount"))
+		total = get_total_in_party_account_currency(self)
+		if 0 < outstanding_amount < total:
+			frappe.throw(
+				_("Partial payment is not allowed. Paid {0} of {1}, outstanding {2}. Please pay the full amount.").format(
+					frappe.format_value(total - outstanding_amount, currency=self.currency),
+					frappe.format_value(total, currency=self.currency),
+					frappe.format_value(outstanding_amount, currency=self.currency),
+				),
+				title=_("Partly Paid Invoice"),
+			)
+
 	def make_pos_gl_entries(self, gl_entries):
 		"""
 		Override to add party information for wallet payment accounts.
@@ -87,6 +109,10 @@ class CustomSalesInvoice(SalesInvoice):
 					payment_mode.base_amount -= flt(self.change_amount)
 
 				if payment_mode.base_amount:
+					against_voucher = self.name
+					if self.is_return and self.return_against and not self.update_outstanding_for_self:
+						against_voucher = self.return_against
+
 					# POS, make payment entries
 					# Credit entry to debit_to (customer receivable)
 					gl_entries.append(
@@ -100,9 +126,7 @@ class CustomSalesInvoice(SalesInvoice):
 								"credit_in_account_currency": payment_mode.base_amount
 								if self.party_account_currency == self.company_currency
 								else payment_mode.amount,
-								"against_voucher": self.return_against
-								if cint(self.is_return) and self.return_against
-								else self.name,
+								"against_voucher": against_voucher,
 								"against_voucher_type": self.doctype,
 								"cost_center": self.cost_center,
 							},
