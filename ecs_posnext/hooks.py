@@ -221,13 +221,15 @@ doc_events = {
 		"on_submit": [
 			"ecs_posnext.realtime_events.emit_stock_update_event",
 			"ecs_posnext.api.wallet.process_loyalty_to_wallet",
-			"ecs_posnext.api.sales_invoice_hooks.create_gift_card_coupons"
+			"ecs_posnext.api.sales_invoice_hooks.create_gift_card_coupons",
+			"ecs_posnext.api.sales_invoice_hooks.clear_sales_order_links"
 		],
 		"on_cancel": [
 			"ecs_posnext.realtime_events.emit_stock_update_event",
 			"ecs_posnext.api.sales_invoice_hooks.cancel_payment_entries_on_cancel",
 			"ecs_posnext.api.sales_invoice_hooks.restore_coupon_usage_on_cancel",
-			"ecs_posnext.api.sales_invoice_hooks.disable_gift_card_coupons_on_cancel"
+			"ecs_posnext.api.sales_invoice_hooks.disable_gift_card_coupons_on_cancel",
+			"ecs_posnext.api.sales_invoice_hooks.clear_sales_order_links"
 		],
 		"after_insert": "ecs_posnext.realtime_events.emit_invoice_created_event"
 	},

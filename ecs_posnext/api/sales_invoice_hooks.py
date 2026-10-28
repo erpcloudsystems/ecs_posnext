@@ -302,6 +302,32 @@ def before_cancel(doc, method=None):
 		)
 
 
+def clear_sales_order_links(doc, method=None):
+	"""
+	On Cancel (any invoice) / On Submit (return invoice) hook for Sales Invoice.
+	Unlink the invoice from its Sales Order: clear each item's sales_order and the
+	header's extended_order_no, so a cancelled or returned invoice no longer shows up
+	as the reservation's invoice / deposit.
+
+	Runs after ERPNext's own on_submit / on_cancel, which still needs these links to
+	update the Sales Order's billed % and reserved qty. so_detail is kept so the
+	Sales Order item's billed amount stays correct.
+
+	Args:
+		doc: Sales Invoice document
+		method: Hook method name ("on_submit" or "on_cancel")
+	"""
+	if method == "on_submit" and not doc.get("is_return"):
+		return
+
+	for item in doc.get("items", []):
+		if item.get("sales_order"):
+			item.db_set("sales_order", None, update_modified=False)
+
+	if doc.get("extended_order_no"):
+		doc.db_set("extended_order_no", None, update_modified=False)
+
+
 def restore_coupon_usage_on_cancel(doc, method=None):
 	"""
 	Restore POS Coupon usage when a Sales Invoice that redeemed one is cancelled.
