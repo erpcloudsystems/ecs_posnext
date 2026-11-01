@@ -723,6 +723,22 @@
 						<p class="text-sm text-blue-600">{{ __('Select a payment method to continue') }}</p>
 					</div>
 
+					<!-- Cash received: quick amounts; anything above the due amount shows as Change Due -->
+					<div v-if="cashTenderOptions.length" class="mt-2 mb-2">
+						<div class="text-[11px] font-medium text-gray-500 mb-1">{{ __('Cash Received') }}</div>
+						<div class="flex flex-wrap gap-2">
+							<button
+								v-for="amt in cashTenderOptions"
+								:key="amt"
+								type="button"
+								@click="addCustomPayment(lastSelectedMethod, amt)"
+								class="h-10 px-4 text-sm font-semibold rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100"
+							>
+								{{ formatCurrency(amt) }}
+							</button>
+						</div>
+					</div>
+
 					<!-- Mobile Payment Section - Dynamic & Responsive -->
 					<div class="lg:hidden flex flex-col" :class="isSmallMobile ? 'gap-1' : 'gap-1.5'">
 						<!-- Mobile Custom Input -->
@@ -1896,6 +1912,18 @@ const remainingAmount = computed(() => {
 const changeAmount = computed(() => {
 	const change = totalPaid.value - payableTotal.value
 	return change > 0 ? roundCurrency(change) : 0
+})
+
+// Quick "cash received" amounts for the selected cash method: the due amount rounded up,
+// then the next round notes above it. Paying more than due shows as Change Due.
+const cashTenderOptions = computed(() => {
+	const due = remainingAmount.value
+	if (!due || !isCashPaymentMethod(lastSelectedMethod.value)) return []
+	// Mixed cash + non-cash in exact amount mode can't overpay, so no change to offer
+	if (isExactAmountModeActive.value && hasNonCashPayment.value) return []
+	const options = [10, 50, 100, 200, 500].map((note) => Math.ceil(due / note) * note)
+	options.unshift(Math.ceil(due))
+	return [...new Set(options)].sort((a, b) => a - b).slice(0, 5)
 })
 
 // Non-cash payments give no change. When the payable total drops after they were
