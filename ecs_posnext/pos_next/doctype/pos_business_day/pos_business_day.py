@@ -9,7 +9,6 @@ from frappe.utils import flt, now_datetime
 from ecs_posnext.api.business_day import (
 	collected_on_original,
 	get_business_day_window,
-	get_profile_day_settings,
 	log_pos_event,
 )
 
@@ -18,16 +17,43 @@ NON_CLOSED_STATES = ("Open", "Closing Required", "Closing Overdue", "Ready to Cl
 
 class POSBusinessDay(Document):
 	def validate(self):
+		if self.is_new():
+			self._block_while_previous_day_open()
 		self._enforce_single_open_day()
 
-	def _enforce_single_open_day(self):
-		"""At most one non-Closed POS Business Day per (POS Profile, business date).
+	def _block_while_previous_day_open(self):
+		"""A new POS Business Day cannot be opened while the branch still has an unclosed one.
 
-		A prior day left unclosed (e.g. yesterday "Closing Overdue") does NOT block
-		today's day — only two days for the SAME date are disallowed. Blocking a new
-		open until the previous day is closed is governed separately by the
-		`custom_block_new_pos_opening_until_prev_closed` profile setting.
+		Enforced here (not only in `get_or_create_for`) so it holds for every insert path —
+		POS opening, invoice stamping, Desk, REST / `frappe.client.insert`. Existing open
+		days are never closed automatically; the user must close them first.
 		"""
+		if self.status == "Closed" or not self.pos_profile:
+			return
+		prev = frappe.db.get_all(
+			"POS Business Day",
+			filters={"pos_profile": self.pos_profile, "status": ["in", NON_CLOSED_STATES]},
+			fields=["name", "business_date", "status"],
+			order_by="business_date asc",
+			limit=1,
+		)
+		if prev:
+			prev = prev[0]
+			frappe.throw(
+				_(
+					"Cannot open a new POS Business Day for {0}: the previous Business Day {1} "
+					"({2}) is still {3}. Close it before opening a new one."
+				).format(
+					frappe.bold(self.pos_profile),
+					frappe.utils.get_link_to_form("POS Business Day", prev.name),
+					frappe.utils.formatdate(prev.business_date),
+					frappe.bold(_(prev.status)),
+				),
+				title=_("Previous Business Day Still Open"),
+			)
+
+	def _enforce_single_open_day(self):
+		"""At most one non-Closed POS Business Day per (POS Profile, business date)."""
 		if self.status == "Closed":
 			return
 		existing = frappe.db.get_all(
@@ -319,27 +345,7 @@ def get_or_create_for(pos_profile, at_datetime=None, company=None, opened_by=Non
 			title=_("Business Day Closed"),
 		)
 
-	# Optionally block opening a new day while a PRIOR day is still unclosed.
-	settings = get_profile_day_settings(pos_profile)
-	if settings.get("custom_block_new_pos_opening_until_prev_closed"):
-		prior = frappe.db.get_all(
-			"POS Business Day",
-			filters={
-				"pos_profile": pos_profile,
-				"business_date": ["<", window.business_date],
-				"status": ["in", NON_CLOSED_STATES],
-			},
-			fields=["name", "business_date"],
-			order_by="business_date desc",
-			limit=1,
-		)
-		if prior:
-			frappe.throw(
-				_("Previous POS Business Day {0} ({1}) for {2} is not closed yet.").format(
-					prior[0].name, prior[0].business_date, frappe.bold(pos_profile)
-				)
-			)
-
+	# Opening while a previous day is still unclosed is blocked in POSBusinessDay.validate.
 	company = company or frappe.db.get_value("POS Profile", pos_profile, "company")
 	doc = frappe.get_doc(
 		{
