@@ -12,6 +12,7 @@ import {
 } from "@/utils/stockValidator"
 import { offlineState } from "@/utils/offline/offlineState"
 import { getCachedItem } from "@/utils/offline"
+import { roundCurrency } from "@/utils/currency"
 import { useToast } from "@/composables/useToast"
 import { defineStore } from "pinia"
 import { computed, nextTick, ref, toRaw, watch } from "vue"
@@ -472,6 +473,62 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		}
 	}
 
+	// Order total excluding delivery — what a Delivery Charge Rule's minimum order amount
+	// is checked against (the server checks the same: grand total without the delivery row).
+	const orderAmountExDelivery = computed(
+		() => (grandTotal.value || 0) - (deliveryCharge.value?.rate || 0),
+	)
+
+	// Mirror of ecs_posnext.api.delivery_charge_rules.apply_rule / pick_rule. Rules arrive
+	// already filtered by date/day/time/branch/profile/zone and sorted by priority.
+	function applyDeliveryRule(baseRate, rule) {
+		if (rule.discount_type === "Free Delivery") return 0
+		if (rule.discount_type === "Discount Amount") {
+			return Math.max(roundCurrency(baseRate - (rule.discount_amount || 0)), 0)
+		}
+		if (rule.discount_type === "Discount Percentage") {
+			const pct = Math.min(Math.max(rule.discount_percentage || 0, 0), 100)
+			return Math.max(roundCurrency((baseRate * (100 - pct)) / 100), 0)
+		}
+		return baseRate
+	}
+
+	function pickDeliveryRule(baseRate, rules, orderAmount) {
+		const eligible = (rules || []).filter(
+			(r) => orderAmount >= (r.min_order_amount || 0),
+		)
+		if (!eligible.length || baseRate <= 0) return { rule: null, rate: baseRate }
+		const top = Math.max(...eligible.map((r) => r.priority || 0))
+		let best = null
+		let bestRate = baseRate
+		for (const r of eligible.filter((r) => (r.priority || 0) === top)) {
+			const rate = applyDeliveryRule(baseRate, r)
+			if (!best || rate < bestRate) {
+				best = r
+				bestRate = rate
+			}
+		}
+		return { rule: best, rate: bestRate }
+	}
+
+	// Re-pick the rule as the cart changes (e.g. crossing a minimum order amount)
+	watch(orderAmountExDelivery, (amount) => {
+		const charge = deliveryCharge.value
+		if (!charge || charge.is_dummy || !charge.rules?.length) return
+		const { rule, rate } = pickDeliveryRule(charge.base_rate || 0, charge.rules, amount)
+		if (rate !== charge.rate || rule?.name !== charge.applied_rule?.name) {
+			deliveryCharge.value = { ...charge, rate, applied_rule: rule }
+		}
+	})
+
+	// Rules can be branch-specific — re-fetch when the Call Center switches target branch
+	watch(effectiveBranch, () => {
+		const charge = deliveryCharge.value
+		if (charge?.territory && !charge.is_dummy) {
+			setDeliveryCharge(charge.territory)
+		}
+	})
+
 	async function setDeliveryCharge(territory) {
 		if (!territory) {
 			deliveryCharge.value = null
@@ -493,6 +550,9 @@ export const usePOSCartStore = defineStore("posCart", () => {
 				{
 					territory,
 					pos_profile: selectedBranchProfile.value || posProfile.value,
+					branch: effectiveBranch.value,
+					order_pos_profile: posProfile.value,
+					order_amount: orderAmountExDelivery.value,
 				},
 			)
 			if (response) {
@@ -551,13 +611,24 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			return
 		}
 
-		const result = await baseSubmitInvoice(
-			targetDoctype.value,
-			deliveryDate.value,
-			writeOffAmount.value,
-			orderType.value,
-			forceSubmit,
-		)
+		let result
+		try {
+			result = await baseSubmitInvoice(
+				targetDoctype.value,
+				deliveryDate.value,
+				writeOffAmount.value,
+				orderType.value,
+				forceSubmit,
+			)
+		} catch (error) {
+			// The server re-validates Delivery Charge Rules on save; if an offer expired
+			// meanwhile, refresh the charge so the cashier sees the correct total on retry.
+			const charge = deliveryCharge.value
+			if (charge?.territory && !charge.is_dummy) {
+				await setDeliveryCharge(charge.territory)
+			}
+			throw error
+		}
 		// Reset write-off amount after successful submission
 		if (result) {
 			writeOffAmount.value = 0

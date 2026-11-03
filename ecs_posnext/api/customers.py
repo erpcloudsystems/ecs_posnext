@@ -5,6 +5,7 @@ Handles customer search, creation, and management for POS operations
 
 import frappe
 from frappe import _
+from frappe.utils import flt
 
 
 @frappe.whitelist()
@@ -437,16 +438,23 @@ def get_branches():
     )
 
 @frappe.whitelist()
-def get_delivery_charge_for_territory(territory, pos_profile=None):
+def get_delivery_charge_for_territory(territory, pos_profile=None, branch=None, order_pos_profile=None, order_amount=0):
     """
     Get the delivery charge details for a given territory.
     
     Args:
         territory (str): Territory name
         pos_profile (str, optional): POS Profile name to get specific rate
+        branch (str, optional): Target branch, for matching Delivery Charge Rules
+        order_pos_profile (str, optional): POS Profile the order is taken on, for matching
+            Delivery Charge Rules (defaults to pos_profile)
+        order_amount (float, optional): Order total excluding delivery, for the rules'
+            minimum order amount
         
     Returns:
-        dict: {name, rate, label, shipping_account, cost_center} or None
+        dict: {name, rate, base_rate, rules, applied_rule, label, shipping_account, cost_center}
+            or None. `rate` is the charge after the best applicable Delivery Charge Rule;
+            `rules` lets the POS re-pick the rule as the cart total changes.
     """
     if not territory:
         return None
@@ -483,10 +491,25 @@ def get_delivery_charge_for_territory(territory, pos_profile=None):
         if free_delivery:
             rate = 0
 
+    from ecs_posnext.api.delivery_charge_rules import get_active_rules, pick_rule
+
+    base_rate = flt(rate)
+    rules = []
+    if base_rate > 0:
+        rules = get_active_rules(
+            charge_doc.name,
+            branch=branch,
+            pos_profile=order_pos_profile or pos_profile,
+        )
+    applied_rule, rate = pick_rule(base_rate, rules, order_amount)
+
     return {
         "name": charge_doc.name,
         "label": charge_doc.label,
         "rate": rate,
+        "base_rate": base_rate,
+        "rules": rules,
+        "applied_rule": applied_rule,
         "free_delivery": free_delivery,
         "territory": territory,
         "shipping_account": charge_doc.shipping_account,

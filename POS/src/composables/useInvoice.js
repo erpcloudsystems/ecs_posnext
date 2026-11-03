@@ -1179,6 +1179,7 @@ export function useInvoice() {
 					custom_delivery_note: cartStore.deliveryNote || null,
 					posa_delivery_charges: deliveryCharge.value?.name,
 					posa_delivery_charges_rate: deliveryCharge.value?.rate,
+					posa_delivery_charges_base_rate: deliveryCharge.value?.base_rate,
 					territory: deliveryCharge.value?.territory,
 					branch: cartStore.selectedBranch || null,
 					custom_table_number: cartStore.selectedTable || null,

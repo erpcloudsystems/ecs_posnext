@@ -1318,6 +1318,11 @@
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
 						</svg>
 						<span class="font-medium">{{ cartStore.deliveryCharge.label || __("Delivery Charge") }}</span>
+						<span
+							v-if="cartStore.deliveryCharge.applied_rule"
+							class="px-1.5 py-0.5 rounded bg-green-50 text-green-700 text-[10px] font-semibold"
+							:title="__('Delivery Charge Rule')"
+						>{{ cartStore.deliveryCharge.applied_rule.title }}</span>
 						<button 
 							@click="cartStore.setDeliveryCharge(null)"
 							class="text-red-400 hover:text-red-600 transition-colors ml-1"
@@ -1329,8 +1334,12 @@
 						</button>
 					</div>
 					<span
+						v-if="cartStore.deliveryCharge.applied_rule && cartStore.deliveryCharge.base_rate > cartStore.deliveryCharge.rate"
+						class="line-through text-gray-400 ms-auto me-1"
+					>{{ formatCurrency(cartStore.deliveryCharge.base_rate) }}</span>
+					<span
 						class="font-bold text-center min-w-[60px]"
-						:class="(cartStore.deliveryCharge.free_delivery || !cartStore.deliveryCharge.rate) ? 'text-green-600' : 'text-gray-900'"
+						:class="(cartStore.deliveryCharge.free_delivery || !cartStore.deliveryCharge.rate || cartStore.deliveryCharge.applied_rule) ? 'text-green-600' : 'text-gray-900'"
 					>{{
 						(cartStore.deliveryCharge.free_delivery || !cartStore.deliveryCharge.rate)
 							? __("Free")
