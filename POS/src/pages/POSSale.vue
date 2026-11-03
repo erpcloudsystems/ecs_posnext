@@ -329,7 +329,8 @@
 								:warehouses="profileWarehouses"
 								@update-quantity="cartStore.updateItemQuantity"
 								@remove-item="
-									(itemCode, uom) => cartStore.removeItem(itemCode, uom)
+									(itemCode, uom, rowId) =>
+										cartStore.removeItem(itemCode, uom, rowId)
 								"
 								@select-customer="handleCustomerSelected"
 								@create-customer="handleCreateCustomer"
@@ -2096,6 +2097,7 @@ async function handlePaymentCompleted(paymentData) {
 				posa_pos_opening_shift: cartStore.posOpeningShift,
 				customer: customerValue || shiftStore.profileCustomer,
 				items: preparedItems,
+				posa_offers: cartStore.buildOfferDetails(cartStore.invoiceItems),
 				payments: JSON.parse(JSON.stringify(cartStore.payments)),
 				sales_team: JSON.parse(JSON.stringify(cartStore.salesTeam || [])),
 				grand_total: cartStore.grandTotal,

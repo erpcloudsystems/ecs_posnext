@@ -334,9 +334,16 @@ export function useInvoice() {
 	// Actions
 	function addItem(item, quantity = 1) {
 		const itemUom = item.uom || item.stock_uom
-		const existingItem = invoiceItems.value.find(
-			(i) => i.item_code === item.item_code && i.uom === itemUom,
-		)
+		// POS Offer free lines (posa_is_offer) always stay on their own row and
+		// never absorb paid quantity: ecs_vim's GL split reads them per row.
+		const existingItem = item.posa_is_offer
+			? null
+			: invoiceItems.value.find(
+					(i) =>
+						i.item_code === item.item_code &&
+						i.uom === itemUom &&
+						!i.posa_is_offer,
+				)
 
 		if (existingItem) {
 			// Store old values before update for incremental cache adjustment
@@ -410,6 +417,11 @@ export function useInvoice() {
 				// "this sale must be a Sales Order" rule can be re-checked at submit
 				// time without another server round trip.
 				custom_customer_default: item.custom_customer_default || null,
+				// POS Offer (Give Product) linkage, posawesome field names
+				posa_is_offer: item.posa_is_offer || 0,
+				posa_row_id: item.posa_row_id || null,
+				posa_offer_name: item.posa_offer_name || null,
+				is_free_item: item.is_free_item || 0,
 			}
 			console.log(
 				"[DEBUG addItem]",
@@ -437,21 +449,32 @@ export function useInvoice() {
 	}
 
 	/**
+	 * Line matcher for cart operations. A POS Offer free line (posa_is_offer) shares
+	 * its item_code with a paid line of the same item, so it is matched only by its
+	 * posa_row_id; item_code/uom lookups only ever hit paid lines.
+	 */
+	function isTargetLine(line, itemCode, uom = null, rowId = null) {
+		if (rowId) return line.posa_row_id === rowId
+		return (
+			!line.posa_is_offer &&
+			line.item_code === itemCode &&
+			(!uom || line.uom === uom)
+		)
+	}
+
+	/**
 	 * Removes an item from the invoice
 	 * @param {string} itemCode - The item code to remove
 	 * @param {string|null} uom - Optional UOM to match when same item exists with different UOMs.
 	 *                            If provided, only removes the item with matching item_code AND uom.
 	 *                            If null, removes the first item matching item_code.
+	 * @param {string|null} rowId - posa_row_id of a POS Offer free line. When given, only
+	 *                              that line is removed; otherwise free lines are never touched.
 	 */
-	function removeItem(itemCode, uom = null) {
-		let itemToRemove
-		if (uom) {
-			itemToRemove = invoiceItems.value.find(
-				(i) => i.item_code === itemCode && i.uom === uom,
-			)
-		} else {
-			itemToRemove = invoiceItems.value.find((i) => i.item_code === itemCode)
-		}
+	function removeItem(itemCode, uom = null, rowId = null) {
+		const itemToRemove = invoiceItems.value.find((i) =>
+			isTargetLine(i, itemCode, uom, rowId),
+		)
 
 		if (itemToRemove) {
 			// Update cache incrementally (subtract removed item values)
@@ -472,15 +495,9 @@ export function useInvoice() {
 			}
 		}
 
-		if (uom) {
-			invoiceItems.value = invoiceItems.value.filter(
-				(i) => !(i.item_code === itemCode && i.uom === uom),
-			)
-		} else {
-			invoiceItems.value = invoiceItems.value.filter(
-				(i) => i.item_code !== itemCode,
-			)
-		}
+		invoiceItems.value = invoiceItems.value.filter(
+			(i) => !isTargetLine(i, itemCode, uom, rowId),
+		)
 	}
 
 	/**
@@ -490,16 +507,12 @@ export function useInvoice() {
 	 * @param {string|null} uom - Optional UOM to match when same item exists with different UOMs.
 	 *                            If provided, only updates the item with matching item_code AND uom.
 	 *                            If null, updates the first item matching item_code.
+	 * @param {string|null} rowId - posa_row_id of a POS Offer free line (see removeItem).
 	 */
-	function updateItemQuantity(itemCode, quantity, uom = null) {
-		let item
-		if (uom) {
-			item = invoiceItems.value.find(
-				(i) => i.item_code === itemCode && i.uom === uom,
-			)
-		} else {
-			item = invoiceItems.value.find((i) => i.item_code === itemCode)
-		}
+	function updateItemQuantity(itemCode, quantity, uom = null, rowId = null) {
+		const item = invoiceItems.value.find((i) =>
+			isTargetLine(i, itemCode, uom, rowId),
+		)
 
 		if (item) {
 			// Store old values before update for incremental cache adjustment
@@ -548,7 +561,7 @@ export function useInvoice() {
 	}
 
 	function updateItemRate(itemCode, rate, isManualEdit = false) {
-		const item = invoiceItems.value.find((i) => i.item_code === itemCode)
+		const item = invoiceItems.value.find((i) => isTargetLine(i, itemCode))
 		if (item) {
 			// Store old values before update for incremental cache adjustment
 			// Use effective rate (manually edited rate or price_list_rate)
@@ -593,7 +606,7 @@ export function useInvoice() {
 	}
 
 	function updateItemDiscount(itemCode, discountPercentage) {
-		const item = invoiceItems.value.find((i) => i.item_code === itemCode)
+		const item = invoiceItems.value.find((i) => isTargetLine(i, itemCode))
 		if (item) {
 			// Validate discount percentage (0-100)
 			let validDiscount = Number.parseFloat(discountPercentage) || 0
@@ -885,7 +898,18 @@ export function useInvoice() {
 	 * @returns {Array} Items formatted for ERPNext Sales Invoice
 	 */
 	function formatItemsForSubmission(items) {
-		return items.map((item) => ({
+		// POS Offer free lines go first: ecs_vim's make_item_gl_entries books each
+		// free line at its offer's rate_give_item and deducts the running total from
+		// the qualifying item, which must therefore come after its free lines.
+		const ordered = [
+			...items.filter((i) => i.posa_is_offer),
+			...items.filter((i) => !i.posa_is_offer),
+		]
+		// Only link free lines still in the cart (the cashier may have deleted one).
+		const liveRowIds = new Set(
+			ordered.filter((i) => i.posa_is_offer).map((i) => i.posa_row_id),
+		)
+		return ordered.map((item) => ({
 			item_code: item.item_code,
 			item_name: item.item_name,
 			qty: item.quantity || item.qty || 1,
@@ -902,7 +926,30 @@ export function useInvoice() {
 			// Manual rate edit tracking for audit logging
 			is_rate_manually_edited: item.is_rate_manually_edited || 0,
 			original_rate: item.original_rate || null,
+			// POS Offer linkage (read by ecs_vim's GL split)
+			posa_row_id: item.posa_row_id || undefined,
+			posa_is_offer: item.posa_is_offer ? 1 : 0,
+			posa_offers: JSON.stringify(
+				(item.posa_offers || []).filter((r) => liveRowIds.has(r)),
+			),
 		}))
+	}
+
+	/**
+	 * Build the Sales Invoice `posa_offers` table (POS Offer Detail) from the
+	 * applied Give Product free lines in the cart.
+	 */
+	function buildOfferDetails(items) {
+		return items
+			.filter((i) => i.posa_is_offer && i.posa_offer_name)
+			.map((i) => ({
+				offer_name: i.posa_offer_name,
+				row_id: i.posa_row_id,
+				offer: "Give Product",
+				give_item: i.item_code,
+				give_item_row_id: i.posa_row_id,
+				offer_applied: 1,
+			}))
 	}
 
 	function addPayment(payment) {
@@ -981,6 +1028,7 @@ export function useInvoice() {
 			posa_pos_opening_shift: posOpeningShift.value,
 			customer: customer.value?.name || customer.value,
 			items: formatItemsForSubmission(rawItems),
+			posa_offers: buildOfferDetails(rawItems),
 			payments: rawPayments.map((p) => ({
 				mode_of_payment: p.mode_of_payment,
 				amount: p.amount,
@@ -1058,6 +1106,7 @@ export function useInvoice() {
 					posa_pos_opening_shift: posOpeningShift.value,
 					customer: customer.value?.name || customer.value,
 					items: formatItemsForSubmission(rawItems),
+					posa_offers: buildOfferDetails(rawItems),
 					payments: rawPayments.map((p) => ({
 						mode_of_payment: p.mode_of_payment,
 						amount: p.amount,
@@ -1187,6 +1236,7 @@ export function useInvoice() {
 					posa_pos_opening_shift: posOpeningShift.value,
 					customer: customer.value?.name || customer.value,
 					items: formatItemsForSubmission(rawItems),
+					posa_offers: buildOfferDetails(rawItems),
 					payments: rawPayments.map((p) => ({
 						mode_of_payment: p.mode_of_payment,
 						amount: p.amount,
@@ -1513,6 +1563,7 @@ export function useInvoice() {
 		recalculateItem,
 		rebuildIncrementalCache,
 		formatItemsForSubmission,
+		buildOfferDetails,
 		resolveUomPricing,
 
 		// Resources

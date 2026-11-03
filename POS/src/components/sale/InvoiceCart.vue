@@ -851,7 +851,7 @@
 			<div v-else class="flex flex-col gap-0.5 sm:gap-1">
 				<div
 					v-for="(item, index) in sortedItems"
-					:key="item.item_code + '-' + (item.uom || '')"
+					:key="item.posa_row_id || item.item_code + '-' + (item.uom || '')"
 					@click="openEditDialog(item)"
 					class="bg-white border border-gray-200 rounded-md p-1.5 sm:p-2 hover:border-blue-300 hover:shadow-md transition-all duration-200 active:scale-[0.99] cursor-pointer group"
 				>
@@ -915,6 +915,14 @@
 										</svg>
 										{{ __("+{0} FREE", [item.free_qty]) }}
 									</span>
+									<!-- POS Offer Free Line Badge -->
+									<span
+										v-if="item.posa_is_offer"
+										class="inline-flex items-center px-1.5 py-0.5 bg-green-600 text-white rounded-full text-[9px] font-bold flex-shrink-0"
+										:title="item.posa_offer_name"
+									>
+										{{ __("FREE") }}
+									</span>
 									<!-- Discount Badge -->
 									<div
 										v-if="item.discount_amount && item.discount_amount > 0"
@@ -940,7 +948,7 @@
 								</div>
 								<button
 									type="button"
-									@click.stop="$emit('remove-item', item.item_code, item.uom)"
+									@click.stop="$emit('remove-item', item.item_code, item.uom, item.posa_row_id)"
 									class="text-gray-400 hover:text-red-600 active:text-red-700 transition-colors flex-shrink-0 p-0.5 -m-0.5 touch-manipulation active:scale-90"
 									:aria-label="__('Remove {0}', [item.item_name])"
 									:title="__('Remove item')"
@@ -1005,7 +1013,7 @@
 										<button
 											type="button"
 											@click.stop="decrementQuantity(item)"
-											:disabled="item.is_resolved_barcode"
+											:disabled="item.is_resolved_barcode || item.posa_is_offer"
 											:class="[
 												'w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center font-bold transition-colors touch-manipulation border-e',
 												item.is_resolved_barcode
@@ -1037,7 +1045,7 @@
 											@keydown.enter="$event.target.blur()"
 											type="text"
 											inputmode="decimal"
-											:disabled="item.is_resolved_barcode"
+											:disabled="item.is_resolved_barcode || item.posa_is_offer"
 											:class="[
 												'w-16 sm:w-20 h-6 sm:h-7 text-center border-0 text-xs sm:text-sm font-bold focus:outline-none',
 												item.is_resolved_barcode
@@ -1050,7 +1058,7 @@
 										<button
 											type="button"
 											@click.stop="incrementQuantity(item)"
-											:disabled="item.is_resolved_barcode"
+											:disabled="item.is_resolved_barcode || item.posa_is_offer"
 											:class="[
 												'w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center font-bold transition-colors touch-manipulation border-s',
 												item.is_resolved_barcode
@@ -1082,7 +1090,7 @@
 											type="button"
 											@click="toggleUomDropdown(item.item_code, item.uom)"
 											:disabled="
-												item.is_resolved_barcode || !item.item_uoms || item.item_uoms.length === 0
+												item.is_resolved_barcode || item.posa_is_offer || !item.item_uoms || item.item_uoms.length === 0
 											"
 											:class="[
 												'h-6 sm:h-7 text-[10px] sm:text-xs font-bold rounded ps-2 pe-5 transition-all touch-manipulation flex items-center justify-center min-w-[45px]',
@@ -1454,7 +1462,7 @@ const props = defineProps({
  */
 const emit = defineEmits([
 	"update-quantity", // (itemCode, newQty, uom?) - Update item quantity
-	"remove-item", // (itemCode, uom?) - Remove item from cart
+	"remove-item", // (itemCode, uom?, rowId?) - Remove item from cart (rowId: POS Offer free line)
 	"select-customer", // (customer) - Select/change customer
 	"edit-customer", // (customer) - Open edit customer dialog
 	"create-customer", // (searchText) - Open create customer dialog
@@ -1921,8 +1929,8 @@ function getSmartStep(quantity) {
  * @param {Object} item - Cart item to increment
  */
 function incrementQuantity(item) {
-	// Prevent editing resolved barcode items
-	if (item.is_resolved_barcode) return
+	// Prevent editing resolved barcode items and POS Offer free lines
+	if (item.is_resolved_barcode || item.posa_is_offer) return
 
 	const step = getSmartStep(item.quantity)
 	const newQty = Math.round((item.quantity + step) * 10000) / 10000
@@ -1936,8 +1944,8 @@ function incrementQuantity(item) {
  * @param {Object} item - Cart item to decrement
  */
 function decrementQuantity(item) {
-	// Prevent editing resolved barcode items
-	if (item.is_resolved_barcode) return
+	// Prevent editing resolved barcode items and POS Offer free lines
+	if (item.is_resolved_barcode || item.posa_is_offer) return
 
 	const step = getSmartStep(item.quantity)
 	const newQty = Math.round((item.quantity - step) * 10000) / 10000
@@ -1959,8 +1967,8 @@ function decrementQuantity(item) {
  */
 
 function updateQuantity(item, value) {
-	// Prevent editing resolved barcode items
-	if (item.is_resolved_barcode) return
+	// Prevent editing resolved barcode items and POS Offer free lines
+	if (item.is_resolved_barcode || item.posa_is_offer) return
 
 	const qty = Number.parseFloat(value)
 
@@ -1983,6 +1991,7 @@ function updateQuantity(item, value) {
  * @param {Object} item - Cart item that lost focus
  */
 function handleQuantityBlur(item) {
+	if (item.posa_is_offer) return
 	// When user leaves the input field, round and validate
 	if (!item.quantity || item.quantity <= 0) {
 		// If quantity is 0 or invalid, remove the item
@@ -2037,6 +2046,8 @@ async function selectUom(item, newUom) {
  * @param {Object} item - Cart item to edit
  */
 function openEditDialog(item) {
+	// POS Offer free lines are fixed by the offer (qty, rate 0)
+	if (item.posa_is_offer) return
 	selectedItem.value = { ...item }
 	showEditDialog.value = true
 }

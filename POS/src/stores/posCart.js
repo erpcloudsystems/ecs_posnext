@@ -125,6 +125,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		recalculateItem,
 		rebuildIncrementalCache,
 		formatItemsForSubmission,
+		buildOfferDetails,
 	} = useInvoice()
 
 	const offersStore = usePOSOffersStore()
@@ -644,6 +645,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			// Find matching cart item by item_code and uom
 			const cartItem = invoiceItems.value.find(
 				(item) =>
+					!item.posa_is_offer &&
 					item.item_code === freeItem.item_code &&
 					(item.uom || item.stock_uom) === (freeItem.uom || freeItem.stock_uom),
 			)
@@ -1387,7 +1389,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			// Free item is a specific different item
 			// Find if the free item is already in the cart
 			const freeItemInCart = invoiceItems.value.find(
-				(item) => item.item_code === freeItemCode,
+				(item) => !item.posa_is_offer && item.item_code === freeItemCode,
 			)
 
 			if (freeItemInCart) {
@@ -1488,7 +1490,10 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	 */
 	function findCartItem(itemCode, uom = null) {
 		return invoiceItems.value.find(
-			(item) => item.item_code === itemCode && (!uom || item.uom === uom),
+			(item) =>
+				!item.posa_is_offer &&
+				item.item_code === itemCode &&
+				(!uom || item.uom === uom),
 		)
 	}
 
@@ -1502,6 +1507,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 	function findItemWithUom(itemCode, targetUom, excludeItem = null) {
 		return invoiceItems.value.find(
 			(item) =>
+				!item.posa_is_offer &&
 				item.item_code === itemCode &&
 				item.uom === targetUom &&
 				item !== excludeItem,
@@ -2047,6 +2053,7 @@ export const usePOSCartStore = defineStore("posCart", () => {
 		applyOffersResource,
 		buildOfferEvaluationPayload,
 		formatItemsForSubmission,
+		buildOfferDetails,
 
 		// Sales Order feature
 		targetDoctype,

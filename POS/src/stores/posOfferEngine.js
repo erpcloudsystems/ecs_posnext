@@ -22,6 +22,16 @@ function num(v) {
 	return Number.isFinite(n) ? n : 0
 }
 
+// 20-char row id, same shape as posawesome's makeid(20).
+function makeRowId() {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+	let id = ""
+	for (let i = 0; i < 20; i++) {
+		id += chars.charAt(Math.floor(Math.random() * chars.length))
+	}
+	return id
+}
+
 // Hardcoded special offer (ported from posawesome Invoice.vue): this offer only
 // applies when the customer counts as an "employee".
 const EMPLOYEE_OFFER_NAME = "30% discount for employees"
@@ -72,7 +82,8 @@ export const usePOSOfferEngineStore = defineStore("posOfferEngine", () => {
 	}
 
 	function matchingItems(offer) {
-		const items = snapshot.value.items || []
+		// Free lines added by a Give Product offer never qualify for an offer.
+		const items = (snapshot.value.items || []).filter((i) => !i.posa_is_offer)
 		switch (offer.apply_on) {
 			case "Transaction":
 				return items
@@ -207,19 +218,31 @@ export const usePOSOfferEngineStore = defineStore("posOfferEngine", () => {
 			})
 		} else if (offer.offer === "Give Product") {
 			const giveCode = offer.give_item || offer.apply_item_code
-			if (giveCode) {
+			const qualifying = matchingItems(offer)[0]
+			if (giveCode && qualifying) {
+				// The free line is always sold at 0. rate_give_item is NOT a selling
+				// price: ecs_vim's make_item_gl_entries uses it to move that much income
+				// from the qualifying item to the free item's income account.
+				const rowId = makeRowId()
 				cart.addItem(
 					{
 						item_code: giveCode,
 						item_name: giveCode,
-						rate: num(offer.rate_give_item),
-						price_list_rate: num(offer.rate_give_item),
+						rate: 0,
+						price_list_rate: 0,
 						uom: offer.uom,
-						is_free_item: !num(offer.rate_give_item),
+						is_free_item: 1,
+						posa_is_offer: 1,
+						posa_row_id: rowId,
+						posa_offer_name: offer.name,
 					},
 					num(offer.given_qty) || 1,
 					true,
 				)
+				// Newest first: ecs_vim matches the qualifying line's posa_offers[0]
+				// against the last free line it booked (free lines are submitted
+				// first, in cart order).
+				qualifying.posa_offers = [rowId, ...(qualifying.posa_offers || [])]
 			}
 		} else if (offer.offer === "Item Price") {
 			// Item-level discount on matching items.
@@ -248,7 +271,26 @@ export const usePOSOfferEngineStore = defineStore("posOfferEngine", () => {
 
 	function removePosOffer(offer) {
 		const cart = usePOSCartStore()
-		if (offer.offer === "Grand Total") {
+		if (offer.offer === "Give Product") {
+			// Drop the offer's free lines and unlink them from the qualifying line,
+			// otherwise ecs_vim would book their income with nothing to deduct it from.
+			const rowIds = new Set(
+				cart.invoiceItems
+					.filter((i) => i.posa_is_offer && i.posa_offer_name === offer.name)
+					.map((i) => i.posa_row_id),
+			)
+			if (rowIds.size) {
+				cart.invoiceItems = cart.invoiceItems.filter(
+					(i) => !rowIds.has(i.posa_row_id),
+				)
+				cart.invoiceItems.forEach((i) => {
+					if (i.posa_offers?.length) {
+						i.posa_offers = i.posa_offers.filter((r) => !rowIds.has(r))
+					}
+				})
+				cart.rebuildIncrementalCache?.()
+			}
+		} else if (offer.offer === "Grand Total") {
 			cart.removeDiscountFromCart?.()
 		} else if (offer.offer === "Cashback") {
 			cart.bonusCashbackPercentage = Math.max(
@@ -270,13 +312,22 @@ export const usePOSOfferEngineStore = defineStore("posOfferEngine", () => {
 		return appliedPosOffers.value.includes(offer.name)
 	}
 
-	// Auto-apply eligible auto offers that aren't applied yet.
-	// SAFETY: "Give Product" offers are NOT auto-applied — adding free items to the
-	// cart automatically (financial impact) requires an explicit cashier action via
-	// the offers dialog. Only discount-type offers auto-apply.
+	// Auto-apply eligible auto offers that aren't applied yet (posawesome parity:
+	// "Give Product" offers with Auto Apply add their free item automatically).
+	// The isApplied guard keeps a Give Product from being re-added on every cart
+	// change; appliedPosOffers resets when the cart is emptied.
 	function applyAutoOffers() {
+		// Release Give Product offers whose qualifying item left the cart.
+		posOffers.value.forEach((o) => {
+			if (
+				o.offer === "Give Product" &&
+				isApplied(o) &&
+				!checkEligibility(o).eligible
+			) {
+				removePosOffer(o)
+			}
+		})
 		autoOffers.value.forEach((o) => {
-			if (o.offer === "Give Product") return
 			if (!isApplied(o)) applyPosOffer(o)
 		})
 	}

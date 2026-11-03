@@ -93,6 +93,28 @@ class CustomSalesInvoice(SalesInvoice):
 				title=_("Partly Paid Invoice"),
 			)
 
+	def make_item_gl_entries(self, gl_entries):
+		"""
+		Book POS Offer (Give Product) free items at their offer's rate_give_item.
+
+		ecs_vim's CustomSalesInvoice implements this split (free item's income
+		account gets rate_give_item net of VAT, deducted from the qualifying item),
+		but this class replaces ecs_vim's in override_doctype_class, so delegate to
+		it for invoices carrying POS Offer free lines.
+		"""
+		if (
+			any(cint(item.get("posa_is_offer")) for item in self.get("items"))
+			and self.get("posa_offers")
+			and "ecs_vim" in frappe.get_installed_apps()
+		):
+			from ecs_vim.doctype_triggers.accounting.sales_invoice.override_sales_invoice import (
+				CustomSalesInvoice as VimSalesInvoice,
+			)
+
+			return VimSalesInvoice.make_item_gl_entries(self, gl_entries)
+
+		return super().make_item_gl_entries(gl_entries)
+
 	def make_pos_gl_entries(self, gl_entries):
 		"""
 		Override to add party information for wallet payment accounts.
