@@ -1041,6 +1041,63 @@ def _fill_missing_packed_items(invoice_doc):
             })
 
 
+def _apply_delivery_charge_rule(invoice_doc):
+    """Re-resolve the Delivery Charge Rule for this invoice and set the final delivery charge.
+
+    Runs after totals are calculated with the zone's undiscounted charge in place, so the
+    order amount (grand total excluding delivery) is known for the rule's minimum. Throws
+    when the result differs from what the POS showed: the cashier collected payment for
+    that total, so silently changing it would leave the invoice over- or under-paid.
+    """
+    from ecs_posnext.api.delivery_charge_rules import resolve_delivery_charge
+
+    base_rate = flt(invoice_doc.flags.get("delivery_charge_base_rate"))
+    charge_name = invoice_doc.get("posa_delivery_charges")
+    if not base_rate or not charge_name:
+        return
+
+    row = next((t for t in invoice_doc.get("taxes", []) if t.description == charge_name), None)
+    if not row:
+        return
+
+    order_amount = flt(invoice_doc.grand_total) - flt(row.tax_amount)
+    rule, final_rate = resolve_delivery_charge(
+        base_rate,
+        charge_name,
+        branch=invoice_doc.get("branch"),
+        pos_profile=invoice_doc.get("pos_profile"),
+        order_amount=order_amount,
+    )
+
+    client_rate = flt(invoice_doc.flags.get("client_delivery_charge_rate"))
+    if abs(flt(final_rate) - client_rate) > 0.01:
+        frappe.throw(
+            _(
+                "The delivery charge for this order is now {0} (the POS showed {1}) because the "
+                "delivery offer changed or no longer applies. Please re-select the delivery address "
+                "and review the total."
+            ).format(
+                frappe.format_value(final_rate, {"fieldtype": "Currency"}, currency=invoice_doc.currency),
+                frappe.format_value(client_rate, {"fieldtype": "Currency"}, currency=invoice_doc.currency),
+            ),
+            title=_("Delivery Charge Changed"),
+        )
+
+    invoice_doc.posa_delivery_charges_rate = final_rate
+    if flt(final_rate) == flt(row.tax_amount):
+        return
+
+    if rule:
+        frappe.logger().info(
+            f"Delivery Charge Rule {rule['name']} applied: {charge_name} {base_rate} -> {final_rate}"
+        )
+    if flt(final_rate) > 0:
+        row.tax_amount = final_rate
+    else:
+        invoice_doc.taxes = [t for t in invoice_doc.taxes if t.description != charge_name]
+    invoice_doc.calculate_taxes_and_totals()
+
+
 def _prepare_invoice_doc(data):
     """
     Build and prepare an invoice document from POS data WITHOUT saving.
@@ -1247,6 +1304,14 @@ def _prepare_invoice_doc(data):
     delivery_charge_rate = flt(data.get("posa_delivery_charges_rate"))
     passed_territory = data.get("territory")
 
+    # posa_delivery_charges_rate is the charge AFTER any Delivery Charge Rule the POS
+    # applied. The zone's undiscounted rate is booked first and the rule is re-resolved
+    # server-side once totals are known (_apply_delivery_charge_rule), so an expired or
+    # out-of-scope offer can't reach the invoice. Older clients don't send a base rate.
+    client_delivery_charge_rate = delivery_charge_rate
+    if data.get("posa_delivery_charges_base_rate") not in (None, ""):
+        delivery_charge_rate = flt(data.get("posa_delivery_charges_base_rate"))
+
     # An addition never re-charges delivery. Pressing "+" on an order bills the extra items
     # on a SEPARATE invoice, and the POS sends the same order context with it — including
     # the delivery charge the customer already paid on the original. Charging it again bills
@@ -1293,6 +1358,9 @@ def _prepare_invoice_doc(data):
             
             # Recalculate totals
             invoice_doc.calculate_taxes_and_totals()
+
+            invoice_doc.flags.delivery_charge_base_rate = delivery_charge_rate
+            invoice_doc.flags.client_delivery_charge_rate = client_delivery_charge_rate
             
         except Exception as e:
             frappe.log_error(f"Error applying delivery charge: {str(e)}", "Delivery Charge Error")
@@ -1422,6 +1490,7 @@ def _prepare_invoice_doc(data):
 
     # Calculate totals and apply discounts
     invoice_doc.calculate_taxes_and_totals()
+    _apply_delivery_charge_rule(invoice_doc)
     if invoice_doc.grand_total is None:
         invoice_doc.grand_total = 0.0
     if invoice_doc.base_grand_total is None:
@@ -3257,7 +3326,12 @@ def convert_order_type(invoice_name, order_type, territory=None):
 	if order_type == "Delivery":
 		if not territory:
 			frappe.throw(_("Please select a delivery zone to convert this order to Delivery."))
-		new_charge = get_delivery_charge_for_territory(territory, invoice_doc.pos_profile)
+		new_charge = get_delivery_charge_for_territory(
+			territory,
+			invoice_doc.pos_profile,
+			branch=invoice_doc.get("branch"),
+			order_amount=old_grand_total - flt(removed_row.tax_amount if removed_row else 0),
+		)
 		if not new_charge:
 			frappe.throw(_("No delivery charge is configured for zone {0}.").format(territory))
 
