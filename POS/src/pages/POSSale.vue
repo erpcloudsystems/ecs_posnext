@@ -127,21 +127,6 @@
 						</svg>
 						<span>{{ __("Return Invoice") }}</span>
 					</button>
-					<button
-						v-if="canSeeCashManagement"
-						@click="router.push({ name: 'CashManagement' })"
-						class="w-full text-start px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 transition-colors border-t border-gray-100 mt-1"
-					>
-						<svg
-							class="w-5 h-5 text-blue-600"
-							fill="none"
-							stroke="currentColor"
-							viewBox="0 0 24 24"
-						>
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-						</svg>
-						<span>{{ __("Cash Transfer") }}</span>
-					</button>
 				</template>
 				<template #additional-actions>
 					
@@ -1026,10 +1011,6 @@ const itemStore = useItemSearchStore();
 const stockStore = useStockStore();
 const customerSearchStore = useCustomerSearchStore();
 const bootstrapStore = useBootstrapStore();
-// Cash Management is only for Branch Managers and System Managers.
-const canSeeCashManagement = computed(
-	() => bootstrapStore.hasRole("Bransh Manager") || bootstrapStore.hasRole("System Manager")
-);
 // Note: settingsStore is an alias to posSettingsStore (same Pinia store singleton)
 const settingsStore = posSettingsStore;
 

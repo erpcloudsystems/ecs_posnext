@@ -45,11 +45,6 @@ const routes = [
 		component: () => import("@/pages/Complaints.vue"),
 	},
 	{
-		name: "CashManagement",
-		path: "/cash-management",
-		component: () => import("@/pages/CashManagement.vue"),
-	},
-	{
 		name: "Dispatcher",
 		path: "/dispatcher",
 		component: () => import("@/pages/Dispatcher.vue"),
@@ -122,18 +117,6 @@ router.beforeEach((to, from, next) => {
 			if (bs.hasRole("Cashier")) return next({ name: "POSSale" })
 		} catch {
 			// Store not ready yet — allow navigation; ManagementSlider already hides the link
-		}
-	}
-	// Global Cash Management is only for Branch Managers and System Managers.
-	if (to.name === "CashManagement") {
-		try {
-			const { useBootstrapStore } = require("@/stores/bootstrap")
-			const bs = useBootstrapStore()
-			if (!bs.hasRole("Bransh Manager") && !bs.hasRole("System Manager")) {
-				return next({ name: "POSSale" })
-			}
-		} catch {
-			// Store not ready — allow; the backend still enforces access.
 		}
 	}
 	next()
