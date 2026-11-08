@@ -153,7 +153,29 @@ fixtures = [
 				"in",
 				[
 					"POS Next Receipt",
-					"Cashier Closing Small Paper"
+					"Cashier Closing Small Paper",
+					"Barcode"
+				]
+			]
+		]
+	},
+	# Site edits to standard workspaces (and new workspaces created under core modules).
+	# Kept here so the frappe / erpnext / hrms repos stay clean; fixtures are imported
+	# after the apps' own JSON on every migrate, so these versions win.
+	{
+		"dt": "Workspace",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"Accounting", "Assets", "Build", "Buying", "CRM", "ERPNext Integrations",
+					"ERPNext Settings", "Employee Lifecycle", "Expense Claims", "Financial Reports",
+					"HR", "Home", "Integrations", "Item Guide", "Leaves",
+					"Maintenance Dept", "Manufacturing", "Payables", "Payroll", "Performance",
+					"Projects", "Quality", "Receivables", "Recruitment", "Salary Payout", "Selling",
+					"Shift & Attendance", "Stock", "Support", "Tax & Benefits", "Tools",
+					"Users", "Website", "Welcome Workspace"
 				]
 			]
 		]
