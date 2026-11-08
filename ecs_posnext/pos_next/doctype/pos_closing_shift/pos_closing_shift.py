@@ -195,6 +195,9 @@ class POSClosingShift(Document):
         )
 
     def delete_draft_invoices(self):
+        # Disabled: it deleted other users' open table orders on shift close
+        return
+
         if frappe.get_value("POS Profile", self.pos_profile, "posa_allow_delete"):
             doctype = "Sales Invoice"
             data = frappe.db.sql(

@@ -568,6 +568,7 @@ import {
 	getCachedUnpaidSummary,
 } from "@/utils/offline/sync"
 import { logger } from "@/utils/logger"
+import { getTableNo, loadTableNames } from "@/utils/tableNames"
 
 const log = logger.create("InvoiceManagement")
 const { showSuccess, showError } = useToast()
@@ -982,10 +983,10 @@ function calculateDraftTotal(items) {
 
 function getTableDisplay(draft) {
 	if (draft.table_numbers && draft.table_numbers.length > 0) {
-		return draft.table_numbers.join(", ")
+		return draft.table_numbers.map(getTableNo).join(", ")
 	}
 	if (draft.table_number) {
-		return draft.table_number
+		return getTableNo(draft.table_number)
 	}
 	return ""
 }
@@ -994,6 +995,7 @@ function getTableDisplay(draft) {
 onMounted(() => {
 	// Load saved filter presets from localStorage
 	filterStore.loadSavedFiltersFromStorage()
+	loadTableNames()
 
 	if (show.value) {
 		loadUnpaidInvoices()

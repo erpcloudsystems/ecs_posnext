@@ -104,6 +104,7 @@ import {
 } from "@/utils/currency"
 import { call } from "@/utils/apiWrapper"
 import { printInvoiceCustom } from "@/utils/printInvoice"
+import { getTableNo, loadTableNames } from "@/utils/tableNames"
 import { useToast } from "@/composables/useToast"
 import { usePOSShiftStore } from "@/stores/posShift"
 import { Button, Dialog } from "frappe-ui"
@@ -155,6 +156,7 @@ onUnmounted(() => {
 
 async function loadDrafts() {
 	try {
+		loadTableNames()
 		const openingShift = shiftStore.currentShift?.name
 		if (!openingShift) {
 			drafts.value = []
@@ -237,10 +239,10 @@ function calculateTotal(items) {
 
 function getTableDisplay(draft) {
 	if (draft.table_numbers && draft.table_numbers.length > 0) {
-		return draft.table_numbers.join(", ")
+		return draft.table_numbers.map(getTableNo).join(", ")
 	}
 	if (draft.table_number) {
-		return draft.table_number
+		return getTableNo(draft.table_number)
 	}
 	return ""
 }

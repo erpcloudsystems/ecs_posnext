@@ -1911,7 +1911,12 @@ def cleanup_old_drafts(pos_profile=None, max_age_hours=24):
     """
     Clean up old draft invoices to prevent stock reservation issues.
     Deletes drafts older than max_age_hours (default 24 hours).
+
+    Disabled: it deleted other users' open table orders. Kept as a no-op so
+    already-loaded POS clients that still call it don't error.
     """
+    return {"deleted": 0, "message": "Draft cleanup is disabled"}
+
     from datetime import datetime, timedelta
 
     doctype = "Sales Invoice"
