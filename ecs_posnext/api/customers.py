@@ -740,16 +740,18 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
         limit=5
     )
 
-    # Coupons — total count + the customer's unused coupons (used = 0)
+    # Coupons — total count + the customer's unused coupons (used = 0).
+    # Coupons are issued as POS Coupon (not ERPNext Coupon Code).
     coupons = []
     coupons_total = 0
     coupons_unused = 0
     try:
-        coupons_total = frappe.db.count("Coupon Code", {"customer": customer})
-        coupons_unused = frappe.db.count("Coupon Code", {"customer": customer, "used": 0})
+        unused_filters = {"customer": customer, "used": 0, "disabled": 0}
+        coupons_total = frappe.db.count("POS Coupon", {"customer": customer})
+        coupons_unused = frappe.db.count("POS Coupon", unused_filters)
         coupons = frappe.get_all(
-            "Coupon Code",
-            filters={"customer": customer, "used": 0},
+            "POS Coupon",
+            filters=unused_filters,
             fields=["name", "coupon_code", "pricing_rule", "valid_from", "valid_upto"],
             order_by="valid_upto desc",
             limit=50,
