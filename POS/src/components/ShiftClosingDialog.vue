@@ -251,7 +251,7 @@
                     <div class="w-40 md:w-48">
                       <Input :id="`payment-${idx}`" :modelValue="payment.closing_amount"
                         @update:modelValue="(value) => updateClosingAmount(payment, value)" type="number" step="10"
-                        min="0" placeholder="0.00" :disabled="submitResource.loading || isLoyaltyPayment(payment)"
+                        min="0" placeholder="0.00" :disabled="submitResource.loading || isAutoMatchedPayment(payment)"
                         :aria-label="__('Enter actual amount for {0}', [payment.mode_of_payment])"
                         class="text-base md:text-lg text-center font-semibold" />
                     </div>
@@ -333,7 +333,7 @@
                       </label>
                       <Input :modelValue="payment.closing_amount"
                         @update:modelValue="(value) => updateClosingAmount(payment, value)" type="number" step="0.01"
-                        min="0" placeholder="0.00" :disabled="showSuccessReport || submitResource.loading || isLoyaltyPayment(payment)"
+                        min="0" placeholder="0.00" :disabled="showSuccessReport || submitResource.loading || isAutoMatchedPayment(payment)"
                         :aria-label="`Enter actual amount for ${payment.mode_of_payment}`"
                         class="text-base md:text-lg" />
                       <div class="text-xs text-gray-500 mt-0.5 md:mt-1 hidden sm:block">
@@ -616,8 +616,8 @@ async function loadClosingData() {
 			data.payment_reconciliation = data.payment_reconciliation.map((payment) =>
 				reactive({
 					...payment,
-					// Loyalty redemptions aren't counted by the cashier: actual always equals expected
-					closing_amount: isLoyaltyPayment(payment, data)
+					// Loyalty redemptions and bank transfers aren't counted by the cashier: actual always equals expected
+					closing_amount: isAutoMatchedPayment(payment, data)
 						? (payment.expected_amount ?? 0)
 						: (payment.closing_amount ?? payment.expected_amount ?? 0),
 					difference: 0,
@@ -643,9 +643,11 @@ async function loadClosingData() {
 	}
 }
 
-function isLoyaltyPayment(payment, data = closingData.value) {
+// Loyalty redemptions and bank transfers aren't counted by the cashier: actual always equals expected
+function isAutoMatchedPayment(payment, data = closingData.value) {
 	const loyaltyMode = data?.loyalty_mode_of_payment || "Loyalty"
-	return payment?.mode_of_payment === loyaltyMode
+	const bankTransferMode = data?.bank_transfer_mode_of_payment || "Bank Transfer"
+	return [loyaltyMode, bankTransferMode].includes(payment?.mode_of_payment)
 }
 
 function calculateDifference(payment) {
@@ -656,7 +658,7 @@ function calculateDifference(payment) {
 
 // New function to handle closing amount updates with proper reactivity
 function updateClosingAmount(payment, value) {
-	payment.closing_amount = isLoyaltyPayment(payment) ? payment.expected_amount : value
+	payment.closing_amount = isAutoMatchedPayment(payment) ? payment.expected_amount : value
 	calculateDifference(payment)
 }
 

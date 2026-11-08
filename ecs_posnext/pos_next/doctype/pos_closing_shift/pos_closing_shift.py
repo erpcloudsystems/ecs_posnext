@@ -12,6 +12,9 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint, flt
 
+# Bank transfers aren't counted by the cashier: closing always matches expected (like loyalty)
+BANK_TRANSFER_MODE_OF_PAYMENT = "Bank Transfer"
+
 
 def get_base_value(doc, fieldname, base_fieldname=None, conversion_rate=None):
     """Return the value for a field in company currency."""
@@ -90,10 +93,10 @@ class POSClosingShift(Document):
         # update the difference values in Payment Reconciliation child table
         # get default precision for site
         precision = frappe.get_cached_value("System Settings", None, "currency_precision") or 3
-        loyalty_mode = _get_loyalty_mode_of_payment()
+        auto_matched_modes = {_get_loyalty_mode_of_payment(), BANK_TRANSFER_MODE_OF_PAYMENT} - {None, ""}
         for d in self.payment_reconciliation:
-            # Loyalty redemptions aren't counted by the cashier: closing always matches expected
-            if loyalty_mode and d.mode_of_payment == loyalty_mode:
+            # Loyalty redemptions and bank transfers aren't counted by the cashier: closing always matches expected
+            if d.mode_of_payment in auto_matched_modes:
                 d.closing_amount = d.expected_amount
             d.difference = +flt(d.closing_amount, precision) - flt(d.expected_amount, precision)
 
@@ -635,6 +638,7 @@ def make_closing_shift_from_opening(opening_shift):
         "sales_count": summary["sales_count"],
         "pos_transactions": pos_transactions,  # Include return info for display
         "loyalty_mode_of_payment": _get_loyalty_mode_of_payment(),
+        "bank_transfer_mode_of_payment": BANK_TRANSFER_MODE_OF_PAYMENT,
     })
 
     return result
