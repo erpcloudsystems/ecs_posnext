@@ -236,9 +236,12 @@ doc_events = {
 	"POS Profile": {
 		"on_update": [
 			"ecs_posnext.realtime_events.emit_pos_profile_updated_event",
-			"ecs_posnext.patches.v1_15_0.item_child_links_ignore_user_permissions.on_pos_profile_update",
+			"ecs_posnext.permissions.on_pos_profile_update",
 		]
-	}
+	},
+	"User Permission": {
+		"after_insert": "ecs_posnext.permissions.on_user_permission_insert",
+	},
 }
 
 # Scheduled Tasks
