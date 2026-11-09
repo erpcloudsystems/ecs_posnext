@@ -50,6 +50,20 @@ function cleanErrorMessage(rawMessage) {
 }
 
 /**
+ * From parsed _server_messages, return the one describing the actual error:
+ * the last message raised with the exception, else the last non-alert one.
+ */
+function pickErrorMessage(serverMessages) {
+	if (!Array.isArray(serverMessages) || serverMessages.length === 0) return null
+	const objects = serverMessages.filter((m) => m && typeof m === "object")
+	const raised = objects.filter((m) => m.raise_exception)
+	if (raised.length) return raised[raised.length - 1]
+	const nonAlerts = objects.filter((m) => !m.alert)
+	if (nonAlerts.length) return nonAlerts[nonAlerts.length - 1]
+	return objects[objects.length - 1] || null
+}
+
+/**
  * Parse error and return structured error information
  * @param {Error} error - The error object from API call
  * @returns {Object} - Structured error information
@@ -87,26 +101,36 @@ export function parseError(error) {
 		context.title = __("Server Error")
 	}
 
-	// Extract primary message
-	if (
+	// Extract primary message.
+	// The server may send informational alerts (e.g. ERPNext's "Payment methods
+	// refreshed. Please review before proceeding.") before the real error, and
+	// frappe.throw always appends its message last - so pick the actual error,
+	// not the first message, otherwise every failure shows the same alert.
+	let serverMessages = null
+	if (error._server_messages) {
+		try {
+			serverMessages = JSON.parse(error._server_messages).map((m) =>
+				typeof m === "string" ? JSON.parse(m) : m,
+			)
+		} catch (parseError) {
+			console.error("Error parsing _server_messages:", parseError)
+		}
+	}
+
+	const errorMessage = pickErrorMessage(serverMessages)
+	if (errorMessage) {
+		context.message = cleanErrorMessage(
+			errorMessage.message || errorMessage.title,
+		)
+		if (errorMessage.title) context.title = errorMessage.title
+	} else if (
 		error.messages &&
 		Array.isArray(error.messages) &&
 		error.messages.length > 0
 	) {
-		context.message = cleanErrorMessage(error.messages[0])
-	} else if (error._server_messages) {
-		try {
-			const serverMessages = JSON.parse(error._server_messages)
-			if (serverMessages && serverMessages.length > 0) {
-				const firstMessage = JSON.parse(serverMessages[0])
-				context.message = cleanErrorMessage(
-					firstMessage.message || firstMessage.title,
-				)
-				if (firstMessage.title) context.title = firstMessage.title
-			}
-		} catch (parseError) {
-			console.error("Error parsing _server_messages:", parseError)
-		}
+		context.message = cleanErrorMessage(
+			error.messages[error.messages.length - 1],
+		)
 	} else if (error.message) {
 		context.message = cleanErrorMessage(error.message)
 	}

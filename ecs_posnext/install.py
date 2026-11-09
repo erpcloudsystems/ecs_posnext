@@ -46,6 +46,15 @@ def after_migrate():
 		# Setup default print format
 		setup_default_print_format(quiet=True)
 
+		# Re-apply on every migrate: custom/fixture sync (which runs before
+		# after_migrate) resets ignore_user_permissions on Custom Fields, and
+		# branch-restricted cashiers then hit a PermissionError when submitting.
+		from ecs_posnext.patches.v1_15_0.item_child_links_ignore_user_permissions import (
+			ensure_item_child_links_ignore_user_permissions,
+		)
+
+		ensure_item_child_links_ignore_user_permissions()
+
 		# Clear cache
 		frappe.clear_cache()
 		frappe.db.commit()

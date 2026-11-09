@@ -7,6 +7,10 @@ RESTRICTED_LINKS = ("Account", "Branch", "Warehouse", "Cost Center")
 
 
 def execute():
+	ensure_item_child_links_ignore_user_permissions()
+
+
+def ensure_item_child_links_ignore_user_permissions():
 	"""Let branch-restricted cashiers read Items during POS invoicing.
 
 	ERPNext's get_item_details calls item.check_permission("read"), and Frappe
@@ -15,15 +19,36 @@ def execute():
 	Warehouse or Cost Center is therefore unreadable to a restricted cashier,
 	and update_invoice / submit_invoice fail with a PermissionError on Item.
 
-	Property Setters are used for custom fields too: migrate re-syncs Custom
-	Field rows from app installs and fixtures, which resets the flag on them.
+	Runs on every migrate (after_migrate), not only once as a patch: migrate
+	re-syncs Custom Field rows from app custom/*.json files and fixtures, which
+	resets their ignore_user_permissions flag, and patches run before that sync.
+	The decision is based on an existing Property Setter, not on the current
+	meta value, because a Custom Field that has the flag set right now will
+	lose it on the next migrate.
 	"""
+	changed = False
 	for doctype in CHILD_DOCTYPES:
 		if not frappe.db.exists("DocType", doctype):
 			continue
 
 		for field in frappe.get_meta(doctype).get_link_fields():
-			if field.options not in RESTRICTED_LINKS or field.ignore_user_permissions:
+			if field.options not in RESTRICTED_LINKS:
+				continue
+
+			# Standard fields that already ignore user permissions keep the flag
+			# from core JSON; only Custom Fields get reset by migrate.
+			if field.ignore_user_permissions and not field.get("is_custom_field"):
+				continue
+
+			if frappe.db.exists(
+				"Property Setter",
+				{
+					"doc_type": doctype,
+					"field_name": field.fieldname,
+					"property": "ignore_user_permissions",
+					"value": "1",
+				},
+			):
 				continue
 
 			make_property_setter(
@@ -34,7 +59,10 @@ def execute():
 				"Check",
 				validate_fields_for_doctype=False,
 			)
+			changed = True
 
-		frappe.clear_cache(doctype=doctype)
+		if changed:
+			frappe.clear_cache(doctype=doctype)
 
-	frappe.clear_cache(doctype="Item")
+	if changed:
+		frappe.clear_cache(doctype="Item")
