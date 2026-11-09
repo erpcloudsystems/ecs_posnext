@@ -129,6 +129,7 @@
 							<div>
 								<p class="text-[10px] text-gray-500">{{ profile.last_order.date }} · {{ profile.last_order.order_type || 'Pickup' }}</p>
 								<p class="text-xs font-bold text-gray-800">{{ formatCurrency(profile.last_order.grand_total) }}</p>
+								<p v-if="profile.last_order.additions?.length" class="text-[10px] text-indigo-600">{{ __("Includes additions") }}: {{ profile.last_order.additions.join(", ") }}</p>
 							</div>
 							<button
 								type="button"

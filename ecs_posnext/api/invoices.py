@@ -823,27 +823,26 @@ def validate_return_items(original_invoice_name, return_items, doctype="Sales In
 # ==========================================
 
 
-def _apply_cost_center_from_opening_shift(invoice_doc):
+def _apply_cost_center(invoice_doc):
     """
-    Set the invoice Cost Center from the POS Profile linked to its POS Opening Shift.
+    Set the invoice Cost Center from the POS Profile of the branch that fulfils it.
 
-    The opening shift determines which branch/profile actually fulfils the order
-    (e.g. Call Center orders route to the target branch's shift), so that shift's
-    POS Profile carries the correct accounting Cost Center — not necessarily the
-    ordering POS Profile on the invoice. The resolved cost center is applied to the
-    header and propagated to every item so the whole invoice posts consistently.
+    A Call Center order keeps the Call Center's own opening shift, so that shift's
+    profile put every target branch's sale on Smouha - M while its stock, business
+    day and kitchen were Sidi Beshr's. The branch (Target Branch, or the profile's
+    own branch) decides; the opening shift's profile is only the fallback for an
+    invoice with no branch. Applied to the header and every item so the whole
+    invoice posts consistently.
     """
-    opening_shift = invoice_doc.get("posa_pos_opening_shift")
-    if isinstance(opening_shift, dict):
-        opening_shift = opening_shift.get("name")
-    if not opening_shift:
-        return
+    cost_center = _get_branch_cost_center(invoice_doc.get("branch"))
 
-    shift_profile = frappe.db.get_value("POS Opening Shift", opening_shift, "pos_profile")
-    if not shift_profile:
-        return
+    if not cost_center:
+        opening_shift = invoice_doc.get("posa_pos_opening_shift")
+        if isinstance(opening_shift, dict):
+            opening_shift = opening_shift.get("name")
+        shift_profile = opening_shift and frappe.db.get_value("POS Opening Shift", opening_shift, "pos_profile")
+        cost_center = shift_profile and frappe.db.get_value("POS Profile", shift_profile, "cost_center")
 
-    cost_center = frappe.db.get_value("POS Profile", shift_profile, "cost_center")
     if not cost_center:
         return
 
@@ -858,6 +857,15 @@ def _get_branch_warehouse(branch):
         return None
     return frappe.db.get_value(
         "POS Profile", {"branch": branch, "disabled": 0}, "warehouse"
+    )
+
+
+def _get_branch_cost_center(branch):
+    """Cost Center of the POS Profile that belongs to this branch."""
+    if not branch:
+        return None
+    return frappe.db.get_value(
+        "POS Profile", {"branch": branch, "disabled": 0}, "cost_center"
     )
 
 
@@ -1488,6 +1496,10 @@ def _prepare_invoice_doc(data):
     if invoice_doc.get("branch"):
         _apply_branch_warehouse(invoice_doc, invoice_doc.branch)
 
+    # Same reason for the cost center: set_pos_fields() stamps the ordering profile's
+    # (Call Center → Smouha - M) onto the header and lines.
+    _apply_cost_center(invoice_doc)
+
     # Calculate totals and apply discounts
     invoice_doc.calculate_taxes_and_totals()
     _apply_delivery_charge_rule(invoice_doc)
@@ -1986,9 +1998,6 @@ def submit_invoice(invoice=None, data=None):
         # Build and prepare invoice doc
         invoice_doc, pos_profile_doc = _prepare_invoice_doc(invoice)
 
-        # Cost Center follows the POS Profile linked to the invoice's POS Opening Shift
-        _apply_cost_center_from_opening_shift(invoice_doc)
-
         # Invoice follows the Business Day; stamp it + the owning cashier shift, and
         # enforce the sales cut-off (no-op unless business-day control is enabled).
         from ecs_posnext.api.business_day import apply_business_day_to_invoice
@@ -2206,6 +2215,14 @@ def submit_invoice(invoice=None, data=None):
             return_source = (data.get("return_source") or invoice.get("return_source") or "User")
             if invoice_doc.meta.has_field("custom_return_source"):
                 invoice_doc.custom_return_source = return_source
+            # Audit: the manager whose password approved the return, and when. Set before
+            # submit so additions returned with a whole order (order_chain) inherit it.
+            if invoice_doc.meta.has_field("custom_cancelled_by_manager"):
+                invoice_doc.custom_cancelled_by_manager = (
+                    data.get("cancelled_by_manager") or invoice.get("cancelled_by_manager") or None
+                )
+            if invoice_doc.meta.has_field("custom_cancel_time"):
+                invoice_doc.custom_cancel_time = frappe.utils.now_datetime()
             branch_approved = bool(data.get("branch_approved") or invoice.get("branch_approved"))
             from ecs_posnext.ecs_posnext.api.kds import assert_return_within_grace
             assert_return_within_grace(invoice_doc.get("return_against"), branch_approved)

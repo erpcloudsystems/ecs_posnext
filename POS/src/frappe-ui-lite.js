@@ -10,8 +10,13 @@ export { default as LoadingIndicator } from "../node_modules/frappe-ui/src/compo
 export { default as TextInput } from "../node_modules/frappe-ui/src/components/TextInput/TextInput.vue"
 export { default as Card } from "../node_modules/frappe-ui/src/components/Card.vue"
 
-export { default as call } from "../node_modules/frappe-ui/src/utils/call.js"
-export { frappeRequest } from "../node_modules/frappe-ui/src/utils/frappeRequest.js"
+// call / frappeRequest throw errors whose message is the API URL; wrap them so every
+// screen gets the server's own text (see utils/readableError.js).
+import _call from "../node_modules/frappe-ui/src/utils/call.js"
+import { frappeRequest as _frappeRequest } from "../node_modules/frappe-ui/src/utils/frappeRequest.js"
+import { withReadableErrors } from "./utils/readableError.js"
+export const call = withReadableErrors(_call)
+export const frappeRequest = withReadableErrors(_frappeRequest)
 export { default as pageMetaPlugin } from "../node_modules/frappe-ui/src/utils/pageMeta.ts"
 export { getConfig, setConfig } from "../node_modules/frappe-ui/src/utils/config.ts"
 export {

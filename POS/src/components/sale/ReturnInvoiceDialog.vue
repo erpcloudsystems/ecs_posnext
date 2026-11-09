@@ -794,6 +794,9 @@ const props = defineProps({
 	// Who is making the return — "User" (cashier / All Orders) or "Call Center" — used
 	// for the KDS returned-order alarm label.
 	returnSource: { type: String, default: "User" },
+	// Manager whose password approved this return (All Orders cancel flow) — saved on
+	// the return as custom_cancelled_by_manager for the audit trail.
+	approvedManager: { type: String, default: null },
 })
 
 const emit = defineEmits(["update:modelValue", "return-created"])
@@ -1151,6 +1154,7 @@ const createReturnResource = createResource({
 			data: JSON.stringify({
 				return_source: props.returnSource || "User",
 				branch_approved: branchApproved.value ? 1 : 0,
+				cancelled_by_manager: props.approvedManager || null,
 			}),
 		}
 		lastReturnParams = params

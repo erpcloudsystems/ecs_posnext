@@ -30,12 +30,19 @@ app_license = "agpl-3.0"
 _asset_version = get_build_version()
 
 # include js, css files in header of desk.html
+app_include_css = f"/assets/ecs_posnext/css/mumo-desk-theme.css?v={_asset_version}"
 # app_include_css = f"/assets/ecs_posnext/css/ecs_posnext.css?v={_asset_version}"
 # app_include_js = f"/assets/ecs_posnext/js/ecs_posnext.js?v={_asset_version}"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/ecs_posnext/css/ecs_posnext.css"
 # web_include_js = "/assets/ecs_posnext/js/ecs_posnext.js"
+
+# Mumo branding: favicon and splash screen for desk and website
+website_context = {
+	"favicon": "/assets/ecs_posnext/images/mumo/favicon-32.png",
+	"splash_image": "/assets/ecs_posnext/images/mumo/mumo-mark.png",
+}
 
 # include custom scss in every website theme (without file extension ".scss")
 # website_theme_scss = "ecs_posnext/public/scss/website"
@@ -140,7 +147,11 @@ fixtures = [
 					"Sales Invoice-custom_pos_cashier_shift",
 					"Payment Entry-custom_pos_business_day",
 					"Payment Entry-custom_pos_cashier_shift",
-					"Sales Invoice-custom_return_source"
+					"Sales Invoice-custom_return_source",
+					"Sales Invoice-custom_cancelled_by_manager",
+					"Sales Invoice-custom_cancel_time",
+					"Stock Entry-custom_wastage_invoice",
+					"Stock Entry-custom_wastage_reason"
 				]
 			]
 		]

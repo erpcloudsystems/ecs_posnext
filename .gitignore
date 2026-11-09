@@ -64,6 +64,7 @@ dev-dist/
 *.png
 !docs/screenshots/*.png
 !docs/screenshots/*.gif
+!ecs_posnext/public/images/mumo/*.png
 .playwright-mcp/*
 TODO.md
 .claude/settings.json

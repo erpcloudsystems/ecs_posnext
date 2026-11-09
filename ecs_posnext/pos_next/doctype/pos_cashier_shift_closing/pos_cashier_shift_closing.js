@@ -37,6 +37,14 @@ frappe.ui.form.on("POS Cashier Shift Closing", {
 	},
 });
 
+// Actual Credit is the sum of the per-payment-method amounts (card, wallet, …).
+frappe.ui.form.on("POS Cashier Shift Closing Credit", {
+	amount(frm) {
+		const total = (frm.doc.credit_counts || []).reduce((sum, row) => sum + (row.amount || 0), 0);
+		frm.set_value("actual_credit", total);
+	},
+});
+
 // Recompute the counted total live as denominations are entered.
 DENOMS.forEach((f) => {
 	frappe.ui.form.on("POS Cashier Shift Closing", f, (frm) => {

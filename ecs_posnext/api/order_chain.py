@@ -254,7 +254,11 @@ def return_additions_with_order(doc, method=None):
 			ret.update_outstanding_for_self = 0
 			# Stamp the shift doing the return, not the one that sold the addition: the
 			# refund leaves TODAY's drawer, so that is the shift whose cash it must move.
-			for field in ("posa_pos_opening_shift", "custom_pos_business_day", "custom_pos_cashier_shift"):
+			# The manager who approved the order's return approved its additions too.
+			for field in (
+				"posa_pos_opening_shift", "custom_pos_business_day", "custom_pos_cashier_shift",
+				"custom_cancelled_by_manager", "custom_cancel_time",
+			):
 				if ret.meta.has_field(field) and doc.get(field):
 					ret.set(field, doc.get(field))
 			ret.flags.ignore_permissions = True

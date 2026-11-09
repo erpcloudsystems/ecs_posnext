@@ -467,14 +467,30 @@ def prepare_cashier_shift_closing(pos_cashier_shift):
 
 
 @frappe.whitelist()
-def submit_cashier_shift_closing(pos_cashier_shift_closing, counts=None, actual_credit=0, difference_reason=None):
-	"""Post the counted cash + actual credit, compute + reveal reconciliation, and submit."""
+def submit_cashier_shift_closing(
+	pos_cashier_shift_closing, counts=None, actual_credit=0, difference_reason=None, actual_amounts=None
+):
+	"""Post the counted cash + actual non-cash amounts, compute + reveal reconciliation, and submit.
+
+	``actual_amounts`` is {mode_of_payment: amount} for each non-cash mode. ``actual_credit``
+	(a single total) is only accepted when the shift has one non-cash mode.
+	"""
 	counts = frappe.parse_json(counts) if isinstance(counts, str) else (counts or {})
+	actual_amounts = frappe.parse_json(actual_amounts) if isinstance(actual_amounts, str) else (actual_amounts or {})
 	doc = frappe.get_doc("POS Cashier Shift Closing", pos_cashier_shift_closing)
 	for denom in ("cash_200_egp", "cash_100_egp", "cash_50_egp", "cash_20_egp", "cash_10_egp", "cash_5_egp", "cash_1_egp"):
 		if denom in counts:
 			doc.set(denom, counts.get(denom) or 0)
-	doc.actual_credit = flt(actual_credit)
+	if actual_amounts:
+		rows = {r.mode_of_payment: r for r in doc.get("credit_counts") or []}
+		for mode, amount in actual_amounts.items():
+			if mode in rows:
+				rows[mode].amount = flt(amount)
+			else:
+				doc.append("credit_counts", {"mode_of_payment": mode, "amount": flt(amount)})
+		doc.actual_credit = sum(flt(r.amount) for r in doc.credit_counts)
+	else:
+		doc.actual_credit = flt(actual_credit)
 	doc.cash_counted = 1  # submitting through the API means the count was entered
 	if difference_reason:
 		doc.difference_reason = difference_reason

@@ -29,10 +29,58 @@ class POSCashierShiftClosing(Document):
 		# Blind close: the shift figures + expected cash are computed ONLY after the
 		# drawer has been counted. "Counted" is an explicit flag, NOT "amount > 0" — an
 		# empty drawer is a legitimate count of 0 and must be closeable.
+		self._ensure_credit_rows()
 		if self.cash_counted:
 			self._populate_from_shift()
+			self._ensure_credit_rows()
 			self.calculate_reconciliation()
 		self.set_status()
+
+	def _ensure_credit_rows(self):
+		"""One Actual Non-Cash row per non-cash mode (card, wallet, …), entered separately.
+
+		Card and wallet settle into different bank accounts, so each mode is reconciled on
+		its own. Before the count only the profile's modes are listed (no amounts — the
+		close stays blind); after the count any other non-cash mode the shift took is added.
+		"""
+		modes = []
+		profile = self.pos_profile or (
+			self.pos_cashier_shift and frappe.db.get_value("POS Cashier Shift", self.pos_cashier_shift, "pos_profile")
+		)
+		if profile:
+			modes += frappe.get_all(
+				"POS Payment Method",
+				filters={"parent": profile, "parenttype": "POS Profile"},
+				pluck="mode_of_payment",
+				order_by="idx",
+			)
+		modes += [row.mode_of_payment for row in self.get("payment_reconciliation") or []]
+
+		existing = {row.mode_of_payment for row in self.get("credit_counts") or []}
+		for mode in modes:
+			if mode and mode not in existing and not self._is_cash_mode(mode):
+				self.append("credit_counts", {"mode_of_payment": mode, "amount": 0})
+				existing.add(mode)
+
+		# Legacy entry (API / drafts from before the split): a single total can only be
+		# attributed when there is exactly one non-cash mode.
+		rows = self.get("credit_counts") or []
+		if flt(self.actual_credit) and not any(flt(r.amount) for r in rows):
+			if len(rows) == 1:
+				rows[0].amount = flt(self.actual_credit)
+			elif rows and not self._is_call_center():
+				frappe.throw(
+					_("Enter the actual amount for each non-cash payment method ({0}) separately.").format(
+						", ".join(r.mode_of_payment for r in rows)
+					),
+					title=_("Actual Non-Cash per Payment Method"),
+				)
+		if rows:
+			self.actual_credit = sum(flt(r.amount) for r in rows)
+
+	@staticmethod
+	def _is_cash_mode(mode):
+		return frappe.get_cached_value("Mode of Payment", mode, "type") == "Cash"
 
 	def _populate_from_shift(self):
 		"""Pull opening cash, POS cash sales, call-center cash, refunds and the linked
@@ -120,24 +168,32 @@ class POSCashierShiftClosing(Document):
 		self.overage = self.difference if self.difference > 0 else 0
 
 		# Expected Credit = everything the shift took on non-cash (card / bank / wallet)
-		# modes. The supervisor enters Actual Credit (from the card terminal / bank) and
-		# we reconcile it as a single figure, mirroring the cash side.
-		expected_credit = 0
+		# modes. The supervisor enters the actual amount of EACH non-cash mode (card from
+		# the card machine report, wallet from the bank app); each row is reconciled
+		# against its own amount, and Actual Credit is their sum.
+		expected_by_mode = {}
 		for row in self.get("payment_reconciliation") or []:
-			mtype = frappe.get_cached_value("Mode of Payment", row.mode_of_payment, "type")
+			if not self._is_cash_mode(row.mode_of_payment):
+				expected_by_mode[row.mode_of_payment] = flt(row.expected_amount)
+		if is_cc:
+			# Actual = Expected for every mode on a Call Center shift.
+			for credit in self.get("credit_counts") or []:
+				credit.amount = expected_by_mode.get(credit.mode_of_payment, 0)
+		actual_by_mode = {}
+		for credit in self.get("credit_counts") or []:
+			actual_by_mode[credit.mode_of_payment] = actual_by_mode.get(credit.mode_of_payment, 0) + flt(credit.amount)
+
+		for row in self.get("payment_reconciliation") or []:
 			if is_cc:
-				# Actual = Expected for every mode on a Call Center shift.
 				row.closing_amount = flt(row.expected_amount)
-			elif mtype == "Cash":
+			elif self._is_cash_mode(row.mode_of_payment):
 				row.closing_amount = flt(self.actual_counted_cash)
 			else:
-				if not row.closing_amount:
-					row.closing_amount = flt(self.actual_credit)
-			if mtype != "Cash":
-				expected_credit += flt(row.expected_amount)
+				row.closing_amount = actual_by_mode.get(row.mode_of_payment, 0)
 			row.difference = flt(row.closing_amount) - flt(row.expected_amount)
 
-		self.expected_credit = expected_credit
+		self.expected_credit = sum(expected_by_mode.values())
+		self.actual_credit = sum(actual_by_mode.values())
 		if is_cc:
 			self.actual_credit = flt(self.expected_credit)
 		self.credit_difference = flt(self.actual_credit) - flt(self.expected_credit)

@@ -447,8 +447,8 @@
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 10l2-6h14l2 6M3 10v10a1 1 0 001 1h16a1 1 0 001-1V10" />
 												</svg>
 											</button>
-											<!-- Pay Outstanding -->
-											<button v-if="order.outstanding_amount > 0" @click="payOrder(order)" class="p-1.5 text-green-600 hover:text-green-800 hover:bg-green-50 rounded-lg transition-colors" :title="__('Pay Outstanding')">
+											<!-- Pay Outstanding — whole order, additions included: a paid order can still owe on an addition -->
+											<button v-if="(order.chain_outstanding ?? order._combined_outstanding ?? order.outstanding_amount) > 0" @click="payOrder(order)" class="p-1.5 text-green-600 hover:text-green-800 hover:bg-green-50 rounded-lg transition-colors" :title="__('Pay Outstanding')">
 												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
 												</svg>
@@ -747,8 +747,8 @@
 						<!-- Stock Entry Type Selection -->
 						<div class="flex items-center gap-6 pb-2">
 							<label class="flex items-center gap-2 text-sm cursor-pointer group">
-								<input type="radio" v-model="wastageStockEntryType" value="Consumptions" class="w-4 h-4 text-amber-600 focus:ring-amber-500 border-gray-300" />
-								<span class="text-gray-700 group-hover:text-gray-900 transition-colors font-medium">{{ __("Consumptions") }}</span>
+								<input type="radio" v-model="wastageStockEntryType" value="هالك" class="w-4 h-4 text-amber-600 focus:ring-amber-500 border-gray-300" />
+								<span class="text-gray-700 group-hover:text-gray-900 transition-colors font-medium">{{ __("Wastage (هالك)") }}</span>
 							</label>
 							<label class="flex items-center gap-2 text-sm cursor-pointer group">
 								<input type="radio" v-model="wastageStockEntryType" value="Loaded" class="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300" />
@@ -779,6 +779,17 @@
 									</button>
 								</div>
 							</div>
+						</div>
+
+						<!-- Wastage reason (required) — saved on the stock entry -->
+						<div class="space-y-2 pb-2">
+							<label class="block text-xs font-bold text-gray-600 uppercase tracking-wider">{{ __("Wastage Reason") }} <span class="text-red-500">*</span></label>
+							<textarea
+								v-model="wastageReason"
+								rows="2"
+								:placeholder="__('Why is this order wasted?')"
+								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+							></textarea>
 						</div>
 
 						<p class="text-sm text-gray-600">{{ __("Select items to return to stock. Unselected items will be marked as wastage.") }}</p>
@@ -822,7 +833,7 @@
 						</button>
 						<button 
 							@click="confirmWastageItems" 
-							:disabled="wastageStockEntryType === 'Loaded' && !selectedEmployee"
+							:disabled="(wastageStockEntryType === 'Loaded' && !selectedEmployee) || !wastageReason.trim()"
 							class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
 						>
 							{{ __("Confirm") }}
@@ -1041,6 +1052,7 @@
 			:pos-opening-shift="shiftStore.currentShift?.name || posOpeningShift?.name || posOpeningShift"
 			:currency="returnTarget?.currency || shiftStore.profileCurrency"
 			:preselected-invoice="returnPreselected"
+			:approved-manager="approvedManager"
 			return-source="User"
 			@return-created="handleReturnInvoiceCreated"
 		/>
@@ -1213,7 +1225,8 @@ const wastageTargetInvoice = ref(null) // the created RETURN invoice name
 const showWastageQuestion = ref(false)
 const showWastageItems = ref(false)
 const wastageItems = ref([])
-const wastageStockEntryType = ref("Loaded")
+const wastageStockEntryType = ref("هالك")
+const wastageReason = ref("")
 const selectedEmployee = ref(null)
 const employees = ref([])
 const employeeSearch = ref("")
@@ -1698,7 +1711,7 @@ async function submitPayment() {
 		fetchOrders()
 	} catch (error) {
 		console.error("Payment failed:", error)
-		window.frappe?.show_alert?.({ message: __("Payment failed"), indicator: "red" })
+		window.frappe?.show_alert?.({ message: error?.message || __("Payment failed"), indicator: "red" })
 	} finally {
 		isSubmitting.value = false
 	}
@@ -1793,7 +1806,8 @@ async function loadOrderItemsForWastage() {
 			warehouse: i.warehouse || "",
 			selected: false,
 		}))
-		wastageStockEntryType.value = "Consumptions"
+		wastageStockEntryType.value = "هالك"
+		wastageReason.value = ""
 		selectedEmployee.value = null
 		showWastageItems.value = true
 	} catch (error) {
@@ -1852,19 +1866,21 @@ async function confirmWastageItems() {
 				stock_entry_type: wastageStockEntryType.value,
 				employee: selectedEmployee.value,
 				cancelled_by_manager: approvedManager.value,
+				reason: wastageReason.value.trim(),
 			})
 			window.frappe?.show_alert?.({ message: __("Wastage stock entry created."), indicator: "green" })
 		}
 		fetchOrders()
 	} catch (error) {
 		console.error("Wastage failed:", error)
-		window.frappe?.show_alert?.({ message: __("Error creating wastage stock entry."), indicator: "red" })
+		window.frappe?.show_alert?.({ message: error?.message || __("Error creating wastage stock entry."), indicator: "red" })
 	} finally {
 		wastageItems.value = []
 		orderToDelete.value = null
 		wastageTargetInvoice.value = null
 		approvedManager.value = null
-		wastageStockEntryType.value = "Loaded"
+		wastageStockEntryType.value = "هالك"
+		wastageReason.value = ""
 		selectedEmployee.value = null
 	}
 }
@@ -1884,6 +1900,7 @@ async function proceedWithCancellation(isWastage, itemsToReturn = [], wastageIte
 			employee: selectedEmployee.value,
 			cancelled_by_manager: approvedManager.value,
 			pos_opening_shift: shiftName,
+			wastage_reason: wastageReason.value.trim(),
 		})
 
 		let msg = __("Return created successfully.")
@@ -1897,12 +1914,13 @@ async function proceedWithCancellation(isWastage, itemsToReturn = [], wastageIte
 		fetchOrders()
 	} catch (error) {
 		console.error("Return failed:", error)
-		window.frappe?.show_alert?.({ message: __("Error creating return."), indicator: "red" })
+		window.frappe?.show_alert?.({ message: error?.message || __("Error creating return."), indicator: "red" })
 	} finally {
 		wastageItems.value = []
 		orderToDelete.value = null
 		approvedManager.value = null
-		wastageStockEntryType.value = "Consumptions"
+		wastageStockEntryType.value = "هالك"
+		wastageReason.value = ""
 		selectedEmployee.value = null
 	}
 }

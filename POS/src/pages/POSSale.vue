@@ -1717,6 +1717,8 @@ function handleReorder(items) {
 	if (!items || items.length === 0) return
 	let added = 0
 	for (const orderItem of items) {
+		// Never reorder a negative (returned) or empty line
+		if (!(parseFloat(orderItem.qty) > 0)) continue
 		try {
 			// Try to enrich from store if available (for stock qty, image, etc.)
 			const storeItem = itemStore.allItems?.find(i => i.item_code === orderItem.item_code) || {}

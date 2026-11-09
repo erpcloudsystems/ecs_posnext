@@ -25,6 +25,9 @@ def after_install():
 		# Setup default print format for POS Profiles
 		setup_default_print_format()
 
+		# Stock Entry Type that POS wastage is booked under
+		setup_wastage_stock_entry_type()
+
 		# Clear cache to ensure changes take effect
 		frappe.clear_cache()
 		frappe.db.commit()
@@ -45,6 +48,9 @@ def after_migrate():
 	try:
 		# Setup default print format
 		setup_default_print_format(quiet=True)
+
+		# Stock Entry Type that POS wastage is booked under
+		setup_wastage_stock_entry_type()
 
 		# Clear cache
 		frappe.clear_cache()
@@ -108,6 +114,13 @@ def setup_default_print_format(quiet=False):
 			title="Default Print Format Setup Error",
 			message=frappe.get_traceback()
 		)
+
+
+def setup_wastage_stock_entry_type():
+	"""Create the "هالك" Stock Entry Type used by POS wastage, if missing."""
+	from ecs_posnext.api.kitchen_order import ensure_wastage_stock_entry_type
+
+	ensure_wastage_stock_entry_type()
 
 
 def log_message(message, level="info", indent=0):

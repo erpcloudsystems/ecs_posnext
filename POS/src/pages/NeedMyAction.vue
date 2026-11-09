@@ -569,7 +569,7 @@
 					<div class="flex items-center gap-6 pb-2">
 						<label class="flex items-center gap-2 text-sm cursor-pointer">
 							<input type="radio" v-model="wastageStockEntryType" value="Consumptions" class="w-4 h-4 text-amber-600" />
-							<span class="font-medium">{{ __("Consumptions") }}</span>
+							<span class="font-medium">{{ __("Wastage (هالك)") }}</span>
 						</label>
 						<label class="flex items-center gap-2 text-sm cursor-pointer">
 							<input type="radio" v-model="wastageStockEntryType" value="Loaded" class="w-4 h-4 text-blue-600" />

@@ -584,10 +584,12 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
     elif cust.get("custom_black_list") or cust.get("custom_is_blacklist") == "Yes":
         customer_type = "Blacklist"
 
-    # Actual total orders count from Sales Invoices
+    # Actual total orders count from Sales Invoices. A return is a refund, not an order,
+    # and an addition ("+" supplement) is part of the order it was added to.
     total_count_result = frappe.db.sql("""
         SELECT COUNT(*) as cnt FROM `tabSales Invoice`
         WHERE customer = %s AND docstatus = 1
+          AND IFNULL(is_return, 0) = 0 AND IFNULL(custom_parent_order, '') = ''
     """, customer, as_dict=True)
     actual_total_orders = int(total_count_result[0].cnt if total_count_result else 0)
 
@@ -599,6 +601,17 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
     except Exception:
         pass
 
+    # What counts as the customer's "last order": a normal sale that was paid. A return
+    # (credit note, negative qty) was being shown and reordered as negative lines; an
+    # unpaid / fully returned order or a lone addition ("+" supplement) is not one either.
+    last_order_filters = {
+        "customer": customer,
+        "docstatus": 1,
+        "is_return": 0,
+        "status": "Paid",
+        "custom_parent_order": ["is", "not set"],
+    }
+
     # Branch-specific stats (when branch provided)
     branch_total_orders = 0
     last_order_in_branch = None
@@ -606,22 +619,24 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
         branch_count = frappe.db.sql("""
             SELECT COUNT(*) as cnt FROM `tabSales Invoice`
             WHERE customer = %s AND branch = %s AND docstatus = 1
+              AND IFNULL(is_return, 0) = 0 AND IFNULL(custom_parent_order, '') = ''
         """, (customer, branch), as_dict=True)
         branch_total_orders = int(branch_count[0].cnt if branch_count else 0)
 
         last_branch_inv = frappe.get_all(
             "Sales Invoice",
-            filters={"customer": customer, "branch": branch, "docstatus": 1},
+            filters={**last_order_filters, "branch": branch},
             fields=["name", "posting_date", "grand_total", "currency", "custom_order_type"],
             order_by="posting_date desc, creation desc",
             limit=1
         )
         if last_branch_inv:
             bi = last_branch_inv[0]
+            from ecs_posnext.api.order_chain import live_additions
             last_order_in_branch = {
                 "invoice_name": bi.name,
                 "date": str(bi.posting_date),
-                "grand_total": bi.grand_total,
+                "grand_total": flt(bi.grand_total) + sum(flt(a.grand_total) for a in live_additions(bi.name)),
                 "currency": bi.currency,
                 "order_type": bi.custom_order_type,
             }
@@ -630,33 +645,42 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
     last_order = None
     last_invoice = frappe.get_all(
         "Sales Invoice",
-        filters={"customer": customer, "docstatus": 1},
+        filters=last_order_filters,
         fields=["name", "posting_date", "grand_total", "currency", "custom_order_type", "branch"],
         order_by="posting_date desc, creation desc",
         limit=1
     )
     if last_invoice:
         inv = last_invoice[0]
-        # Get items from last order with full details for reorder
-        last_order_items = frappe.get_all(
-            "Sales Invoice Item",
-            filters={"parent": inv.name},
-            fields=["item_code", "item_name", "qty", "rate", "amount", "uom", "stock_uom",
-                     "conversion_factor", "price_list_rate", "warehouse", "batch_no",
-                     "serial_no", "item_group", "brand", "description",
-                     "posa_row_id"],
-            order_by="idx"
-        )
+        # The order as the customer knows it: the original plus every addition ("+")
+        # still standing on it (a returned addition is left out).
+        from ecs_posnext.api.order_chain import live_additions
+        additions = live_additions(inv.name)
+        order_invoices = [inv.name] + [a.name for a in additions]
 
-        # Get packed items (Product Bundle components) from the invoice
-        packed_items = frappe.get_all(
-            "Packed Item",
-            filters={"parent": inv.name},
-            fields=["parent_item", "item_code", "item_name", "qty", "uom",
-                     "warehouse", "conversion_factor", "rate", "posa_row_id",
-                     "parent_detail_docname"],
-            order_by="idx"
-        )
+        # Get items from last order with full details for reorder, order first then
+        # each addition in the order it was made
+        last_order_items, packed_items = [], []
+        for invoice_name in order_invoices:
+            last_order_items += frappe.get_all(
+                "Sales Invoice Item",
+                filters={"parent": invoice_name, "qty": [">", 0]},  # never hand back a negative line
+                fields=["item_code", "item_name", "qty", "rate", "amount", "uom", "stock_uom",
+                         "conversion_factor", "price_list_rate", "warehouse", "batch_no",
+                         "serial_no", "item_group", "brand", "description",
+                         "posa_row_id"],
+                order_by="idx"
+            )
+
+            # Get packed items (Product Bundle components) from the invoice
+            packed_items += frappe.get_all(
+                "Packed Item",
+                filters={"parent": invoice_name},
+                fields=["parent_item", "item_code", "item_name", "qty", "uom",
+                         "warehouse", "conversion_factor", "rate", "posa_row_id",
+                         "parent_detail_docname"],
+                order_by="idx"
+            )
 
         # Group packed items by posa_row_id for matching to parent items
         packed_by_row = {}
@@ -719,10 +743,11 @@ def get_customer_profile(customer, pos_profile=None, branch=None):
         last_order = {
             "invoice_name": inv.name,
             "date": inv.posting_date,
-            "grand_total": inv.grand_total,
+            "grand_total": flt(inv.grand_total) + sum(flt(a.grand_total) for a in additions),
             "currency": inv.currency,
             "order_type": inv.custom_order_type,
             "branch": inv.branch or "",
+            "additions": [a.custom_number_order or a.name for a in additions],
             "items": last_order_items,
             "packed_items": packed_items
         }

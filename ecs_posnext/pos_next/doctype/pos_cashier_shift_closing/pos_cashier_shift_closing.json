@@ -31,6 +31,7 @@
   "cash_5_egp",
   "cash_1_egp",
   "actual_counted_cash",
+  "credit_counts",
   "actual_credit",
   "cash_counted",
   "section_cash_movement",
@@ -213,7 +214,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Count the physical drawer and enter the notes/coins, then the total credit/card actually received. Expected figures are revealed only after you save.",
+   "description": "Count the physical drawer and enter the notes/coins, then the actual amount of each card / wallet payment method. Expected figures are revealed only after you save.",
    "fieldname": "section_count",
    "fieldtype": "Section Break",
    "label": "Blind Cash Count (EGP)"
@@ -273,11 +274,19 @@
    "read_only": 1
   },
   {
+   "description": "Enter the actual amount for each non-cash payment method separately: card from the card machine report, wallet from the bank app.",
+   "fieldname": "credit_counts",
+   "fieldtype": "Table",
+   "label": "Actual Non-Cash (per Payment Method)",
+   "options": "POS Cashier Shift Closing Credit"
+  },
+  {
    "default": "0",
-   "description": "Total credit/card/wallet actually received this shift, from the card terminal / bank.",
+   "description": "Sum of the Actual Non-Cash amounts entered per payment method.",
    "fieldname": "actual_credit",
    "fieldtype": "Currency",
-   "label": "Actual Credit (Card / Bank)"
+   "label": "Actual Credit (Card / Bank)",
+   "read_only": 1
   },
   {
    "default": "0",
@@ -429,7 +438,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-07-22 13:00:51.017542",
+ "modified": "2026-11-08 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "POS Next",
  "name": "POS Cashier Shift Closing",

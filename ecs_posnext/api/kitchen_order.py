@@ -125,38 +125,10 @@ def cancel_sales_invoice_with_wastage(sales_invoice, is_wastage=False, items_to_
     # Create Stock Entry for wastage items
     if has_wastage_items:
         try:
-            stock_entry = frappe.new_doc("Stock Entry")
-            stock_entry.stock_entry_type = stock_entry_type  # Consumptions or Loaded
-            stock_entry.posting_date = nowdate()
-            stock_entry.set_posting_time = 1
-            stock_entry.company = company
-            
-            # Add custom field for wastage type if exists
-            if hasattr(stock_entry, 'custom_wastedge_type'):
-                stock_entry.custom_wastedge_type = stock_entry_type
-            
-            # Add reference to sales invoice
-            if hasattr(stock_entry, 'custom_wastedge_reference'):
-                stock_entry.custom_wastedge_reference = sales_invoice
-
-            # add employee
-            if employee:
-                stock_entry.custom_empolyee = employee
-            
-            # Add wastage items
-            for item in wastage_items:
-                if flt(item.get("qty", 0)) > 0:
-                    stock_entry.append("items", {
-                        "item_code": item.get("item_code"),
-                        "qty": item.get("qty"),
-                        "uom": item.get("uom", "Nos"),
-                        "s_warehouse": item.get("warehouse") or default_warehouse,
-                    })
-            
-            if stock_entry.items:
-                stock_entry.insert()
-                stock_entry.submit()
-                wastage_stock_entry_name = stock_entry.name
+            # Shared helper: هالك type, the branch's cost center, linked to this invoice.
+            wastage_stock_entry_name = _create_wastage_stock_entry(
+                company, default_warehouse, wastage_items, stock_entry_type, employee, sales_invoice
+            )
 
         except Exception as e:
             frappe.log_error(title="Wastage Stock Entry Error", message=str(e))
@@ -220,27 +192,86 @@ def cancel_sales_invoice_with_wastage(sales_invoice, is_wastage=False, items_to_
     }
 
 
-def _create_wastage_stock_entry(company, default_warehouse, wastage_items, stock_entry_type, employee, reference):
+# Stock Entry Type wasted food is booked under. The POS still sends "Consumptions" (the
+# old label) from some screens, so that is mapped here; "Loaded" (charged to an
+# employee) keeps its own type.
+WASTAGE_STOCK_ENTRY_TYPE = "هالك"
+
+
+def ensure_wastage_stock_entry_type():
+    """Create the wastage Stock Entry Type (a Material Issue) if the site lacks it."""
+    if not frappe.db.exists("Stock Entry Type", WASTAGE_STOCK_ENTRY_TYPE):
+        frappe.get_doc({
+            "doctype": "Stock Entry Type",
+            "name": WASTAGE_STOCK_ENTRY_TYPE,
+            "purpose": "Material Issue",
+        }).insert(ignore_permissions=True)
+    return WASTAGE_STOCK_ENTRY_TYPE
+
+
+def _invoice_cost_center_and_branch(invoice):
+    """The branch an invoice belongs to and that branch's cost center.
+
+    Without this the stock entry fell back to the company default (Main - M), so the
+    branch's wastage was booked against head office.
+    """
+    if not invoice:
+        return None, None
+    inv = frappe.db.get_value(
+        "Sales Invoice", invoice, ["company", "branch", "cost_center", "pos_profile"], as_dict=True
+    )
+    if not inv:
+        return None, None
+    profile = (
+        frappe.db.get_value("POS Profile", inv.pos_profile, ["cost_center", "branch"], as_dict=True)
+        if inv.pos_profile else None
+    ) or frappe._dict()
+    branch = inv.branch or profile.branch
+    cost_center = None
+    if branch:
+        # Branch first: a Call Center order carries the Call Center profile's cost
+        # center (Smouha) even when the El Agamy kitchen made — and wasted — the food.
+        cost_center = (
+            frappe.db.get_value(
+                "POS Profile", {"branch": branch, "company": inv.company, "disabled": 0}, "cost_center"
+            )
+            or frappe.db.get_value("Cost Center", {"branch": branch, "company": inv.company}, "name")
+            or frappe.db.get_value("Cost Center", {"cost_center_name": branch, "company": inv.company}, "name")
+        )
+    return cost_center or inv.cost_center or profile.cost_center, branch
+
+
+def _create_wastage_stock_entry(company, default_warehouse, wastage_items, stock_entry_type, employee, reference, reason=None):
     """Create + submit a stock entry that consumes wasted items out of stock.
 
-    Returns the stock entry name, or None if nothing was created.
+    `reference` is the (return) invoice the wastage came from: the entry is linked to
+    it and booked on its branch's cost center. Returns the stock entry name, or None
+    if nothing was created.
     """
     rows = [w for w in (wastage_items or []) if flt(w.get("qty", 0)) > 0]
     if not rows:
         return None
     if stock_entry_type == "Loaded" and not employee:
         frappe.throw(_("Please select an employee"))
+    if stock_entry_type != "Loaded":
+        stock_entry_type = ensure_wastage_stock_entry_type()
+
+    reason = (reason or "").strip()
+    cost_center, branch = _invoice_cost_center_and_branch(reference)
 
     se = frappe.new_doc("Stock Entry")
-    se.stock_entry_type = stock_entry_type  # Consumptions / Loaded
+    se.stock_entry_type = stock_entry_type  # هالك / Loaded
     se.posting_date = nowdate()
     se.set_posting_time = 1
     se.company = company
-    if hasattr(se, "custom_wastedge_type"):
-        se.custom_wastedge_type = stock_entry_type
-    if hasattr(se, "custom_wastedge_reference"):
-        se.custom_wastedge_reference = reference
-    if employee and hasattr(se, "custom_empolyee"):
+    if branch and se.meta.has_field("branch"):
+        se.branch = branch
+    if se.meta.has_field("custom_wastage_invoice"):
+        se.custom_wastage_invoice = reference
+    if reason and se.meta.has_field("custom_wastage_reason"):
+        se.custom_wastage_reason = reason
+    se.remarks = " — ".join(filter(None, [_("Wastage from {0}").format(reference) if reference else None, reason]))
+    if employee and se.meta.has_field("custom_empolyee"):
         se.custom_empolyee = employee
     for item in rows:
         se.append("items", {
@@ -248,6 +279,7 @@ def _create_wastage_stock_entry(company, default_warehouse, wastage_items, stock
             "qty": item.get("qty"),
             "uom": item.get("uom", "Nos"),
             "s_warehouse": item.get("warehouse") or default_warehouse,
+            "cost_center": cost_center,
         })
     if not se.items:
         return None
@@ -268,6 +300,7 @@ def return_sales_invoice_with_wastage(
     cancelled_by_manager=None,
     pos_opening_shift=None,
     return_reason=None,
+    wastage_reason=None,
 ):
     """Forward-only reversal: create a Return / Credit Note (NOT a cancel) on the
     CURRENT open shift, with the same wastage + manager-approval capabilities the
@@ -323,6 +356,10 @@ def return_sales_invoice_with_wastage(
     ret.update_stock = original.update_stock
     if return_reason:
         ret.remarks = return_reason
+    # Audit: who approved this return and when. Set before submit so the additions that
+    # follow a whole-order return (order_chain.return_additions_with_order) inherit it.
+    ret.custom_cancelled_by_manager = cancelled_by_manager or None
+    ret.custom_cancel_time = now_datetime()
 
     ret.flags.ignore_permissions = True
     ret.run_method("set_missing_values")
@@ -351,16 +388,11 @@ def return_sales_invoice_with_wastage(
     if is_wastage:
         default_warehouse = (original.items[0].warehouse if original.items else None) or \
             frappe.db.get_single_value("Stock Settings", "default_warehouse")
+        # Link the wastage to the RETURN it came from, not the original sale.
         wastage_se = _create_wastage_stock_entry(
-            original.company, default_warehouse, wastage_items, stock_entry_type, employee, sales_invoice
+            original.company, default_warehouse, wastage_items, stock_entry_type, employee, ret.name,
+            reason=wastage_reason or return_reason,
         )
-
-    if cancelled_by_manager:
-        try:
-            frappe.db.set_value("Sales Invoice", ret.name, "custom_cancelled_by_manager",
-                                cancelled_by_manager, update_modified=False)
-        except Exception:
-            frappe.log_error(title="Record Return Manager Error", message=frappe.get_traceback())
 
     log_pos_event(
         action="Return",
@@ -878,7 +910,7 @@ def get_drivers_by_branch(branch=None):
 
 
 @frappe.whitelist()
-def create_wastage_stock_entry_for_invoice(sales_invoice, wastage_items, stock_entry_type="Consumptions", employee=None, cancelled_by_manager=None):
+def create_wastage_stock_entry_for_invoice(sales_invoice, wastage_items, stock_entry_type="Consumptions", employee=None, cancelled_by_manager=None, reason=None):
     """Create ONLY a wastage consumption stock entry for items that were returned.
 
     Used by All Orders after the ReturnInvoiceDialog has already created the credit-note
@@ -890,7 +922,8 @@ def create_wastage_stock_entry_for_invoice(sales_invoice, wastage_items, stock_e
     default_warehouse = (doc.items[0].warehouse if doc.items else None) or \
         frappe.db.get_single_value("Stock Settings", "default_warehouse")
     se = _create_wastage_stock_entry(
-        doc.company, default_warehouse, wastage_items, stock_entry_type, employee, sales_invoice
+        doc.company, default_warehouse, wastage_items, stock_entry_type, employee, sales_invoice,
+        reason=reason,
     )
     if cancelled_by_manager:
         try:
