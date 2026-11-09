@@ -234,7 +234,10 @@ doc_events = {
 		"after_insert": "ecs_posnext.realtime_events.emit_invoice_created_event"
 	},
 	"POS Profile": {
-		"on_update": "ecs_posnext.realtime_events.emit_pos_profile_updated_event"
+		"on_update": [
+			"ecs_posnext.realtime_events.emit_pos_profile_updated_event",
+			"ecs_posnext.patches.v1_15_0.item_child_links_ignore_user_permissions.on_pos_profile_update",
+		]
 	}
 }
 

@@ -48,12 +48,13 @@ def after_migrate():
 
 		# Re-apply on every migrate: custom/fixture sync (which runs before
 		# after_migrate) resets ignore_user_permissions on Custom Fields, and
-		# branch-restricted cashiers then hit a PermissionError when submitting.
+		# branch-restricted cashiers then hit a PermissionError when submitting
+		# (reading the Item or their own POS Profile).
 		from ecs_posnext.patches.v1_15_0.item_child_links_ignore_user_permissions import (
-			ensure_item_child_links_ignore_user_permissions,
+			ensure_pos_permission_setup,
 		)
 
-		ensure_item_child_links_ignore_user_permissions()
+		ensure_pos_permission_setup()
 
 		# Clear cache
 		frappe.clear_cache()
