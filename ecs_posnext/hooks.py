@@ -135,11 +135,10 @@ fixtures = [
 
 # Installation
 # ------------
-before_migrate = "ecs_posnext.custom_docperm.snapshot_custom_docperm"
 
 # before_install = "ecs_posnext.install.before_install"
 after_install = "ecs_posnext.install.after_install"
-after_migrate = [ "ecs_posnext.custom_docperm.restore_permissions","ecs_posnext.install.after_migrate"]
+after_migrate = ["ecs_posnext.install.after_migrate"]
 
 # Uninstallation
 # ------------
@@ -242,7 +241,6 @@ scheduler_events = {
 		"ecs_posnext.tasks.branding_monitor.monitor_branding_integrity",
 	],
 	"daily": [
-		"ecs_posnext.custom_docperm.snapshot_custom_docperm",
 		"ecs_posnext.tasks.cleanup_expired_promotions.cleanup_expired_promotions",
 		"ecs_posnext.tasks.branding_monitor.validate_all_active_sessions",
 	],
