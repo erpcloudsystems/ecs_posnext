@@ -263,7 +263,9 @@ const defaultCustomerGroup = computed(() => {
 	const profile = (props.posProfile || "").toUpperCase()
 	if (profile.includes("JED")) return "Jeddah"
 	if (profile.includes("RUH")) return "Riyadh"
-	return "Individual"
+	// Unknown region: send nothing and let the backend pick a valid
+	// (non-group) Customer Group. "Individual" is a group on VIM.
+	return ""
 })
 
 const currentCountryCode = computed(() => {
@@ -398,6 +400,7 @@ const createCustomerResource = createResource({
 		mobile_no: customerData.value.mobile_no || "",
 		email_id: customerData.value.email_id || "",
 		tax_id: customerData.value.tax_id || "",
+		pos_profile: props.posProfile || "",
 	}),
 	onSuccess: (data) => {
 		showSuccess(__("Customer {0} created successfully", [data.customer_name]))
@@ -417,7 +420,8 @@ const updateCustomerResource = createResource({
 		name: props.customer?.name,
 		fieldname: {
 			customer_name: customerData.value.customer_name,
-			customer_group: customerData.value.customer_group || defaultCustomerGroup.value,
+			customer_group:
+				customerData.value.customer_group || props.customer?.customer_group || defaultCustomerGroup.value,
 			territory: customerData.value.territory || __("All Territories"),
 			mobile_no: customerData.value.mobile_no || "",
 			email_id: customerData.value.email_id || "",
