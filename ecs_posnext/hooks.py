@@ -298,7 +298,9 @@ doc_events = {
 		"validate": [
 			"ecs_posnext.api.sales_invoice_hooks.validate",
 			"ecs_posnext.api.wallet.validate_wallet_payment",
-			"ecs_posnext.api.business_day.guard_closed_business_day"
+			"ecs_posnext.api.business_day.guard_closed_business_day",
+			# Cash refunds must sit on the branch's open cashier shift (blocks if none).
+			"ecs_posnext.api.business_day.bind_cash_refund_on_validate"
 		],
 		"before_cancel": [
 			"ecs_posnext.api.business_day.block_closed_period_invoice_cancel",

@@ -2856,65 +2856,80 @@ SEARCH_LOOKBACK_DAYS = 730
 
 
 @frappe.whitelist()
-def get_all_orders(date_from=None, date_to=None, limit=500, search=None, respect_dates=None):
+def get_all_orders(
+	date_from=None,
+	date_to=None,
+	limit=500,
+	search=None,
+	respect_dates=None,
+	filters=None,
+	page=None,
+	page_length=50,
+	sort_field=None,
+	sort_dir=None,
+	with_options=None,
+):
 	"""
 	Get all Sales Invoices across all branches for the All Orders page.
 
-	Enforces date range security: if the current user is NOT in All Orders Settings,
-	the date range is forced to the POS Profile shift range (ignoring client params).
+	Every filter, the sort and the paging run on the SERVER. Earlier the page loaded
+	only the latest 500 rows and filtered them in the browser, so e.g. Miami + Delivery
+	over 90 days showed a few dozen orders out of ~2,000.
+
+	Date range security: a user NOT in All Orders Settings is always limited to the
+	dates of their shift (client-supplied dates are ignored).
 
 	Args:
-		date_from: Start date (YYYY-MM-DD). Only used if user has date permission.
-		date_to: End date (YYYY-MM-DD). Only used if user has date permission.
-		limit: Maximum number of invoices to return (default 500)
-		search: Optional text (order #, customer name/number, mobile). When given, the
-			search runs server-side across the user's FULL allowed date range — so a
-			customer's older orders are found, not just those in the current window.
+		date_from / date_to: Date range (YYYY-MM-DD). Only honoured for users allowed
+			to pick dates.
+		search: Free text (order #, customer, mobile, branch, driver...). Without an
+			explicit date range (respect_dates) it looks back SEARCH_LOOKBACK_DAYS.
+		filters: dict / JSON of screen filters — invoice_name, customer, status,
+			pos_source, branch, order_type, invoice_type, order_number, driver,
+			unique_number.
+		page: 1-based page number. When given, returns {rows, total, page,
+			page_length[, options]}; when omitted, returns the legacy flat list capped
+			at `limit` (kept for any older client still loaded in a browser).
+		page_length: Orders per page (1..500).
+		sort_field / sort_dir: One of name, customer_name, posting_date, branch,
+			grand_total; asc / desc.
+		with_options: Also return the dropdown options (statuses, branches, order
+			types) for the whole date window, not just the current page.
 
-	Returns:
-		List of invoices with basic details and items
+	Paging is over ORDERS: an addition (supplement invoice) is not a row of its own —
+	it is returned together with its parent order on the same page, so the screen can
+	nest it. A text filter that matches an addition brings back its parent order.
 	"""
+	if isinstance(filters, str):
+		filters = json.loads(filters or "{}")
+	f = frappe._dict(filters or {})
 	search = (search or "").strip()
-	# Check user permission for date selection
+	customer_term = cstr(f.get("customer")).strip()
+	paged = page not in (None, "", 0, "0")
+
+	# ── Date window (enforced server-side) ───────────────────────────────────────
 	user = frappe.session.user
 	can_select = False
-
+	max_days = 0
 	try:
 		settings = frappe.get_single("All Orders Settings")
 		for row in settings.user_date_ranges or []:
 			if row.user == user:
 				can_select = True
+				max_days = cint(row.days)
 				break
 	except Exception:
 		pass
 
-	use_shift_datetime = False
+	from frappe.utils import add_days
 
 	if can_select:
-		# User is allowed to pick dates — use provided or default to today
-		if not date_from:
-			date_from = nowdate()
-		if not date_to:
-			date_to = nowdate()
-
-		# Enforce max days limit server-side
-		max_days = 0
-		try:
-			settings = frappe.get_single("All Orders Settings")
-			for row in settings.user_date_ranges or []:
-				if row.user == user:
-					max_days = cint(row.days)
-					break
-		except Exception:
-			pass
-
-		from frappe.utils import add_days
-
-		# A bare customer lookup (searching WITHOUT having picked a date range) looks across
-		# a broad history window so a customer's older orders are found. But once the user
-		# has EXPLICITLY set a date range (respect_dates), the search must stay INSIDE that
-		# range — otherwise the date filter appears to stop working when you type a search.
-		if search and not cint(respect_dates):
+		date_from = date_from or nowdate()
+		date_to = date_to or nowdate()
+		# A bare customer lookup (no explicit date range) looks across a broad history
+		# window so a customer's older orders are found. Once the user has EXPLICITLY
+		# set a date range (respect_dates), the search stays INSIDE that range.
+		if (search or customer_term) and not cint(respect_dates):
 			date_from = add_days(nowdate(), -SEARCH_LOOKBACK_DAYS)
 			date_to = nowdate()
 		elif max_days > 0:
@@ -2922,158 +2937,328 @@ def get_all_orders(date_from=None, date_to=None, limit=500, search=None, respect
 			if str(date_from) < earliest:
 				date_from = earliest
 	else:
+		# Not allowed to pick dates: always the shift's dates (what the screen shows
+		# them), whatever the client sent.
 		shift_start, shift_end = _get_user_shift_date_range()
+		date_from = str(shift_start)[:10]
+		date_to = str(shift_end)[:10]
 
-	# Branch Access Control: Call Center sees everything, others see their branch
+	params = {"date_from": date_from, "date_to": date_to}
+
+	# ── Visibility (who may see what) ────────────────────────────────────────────
+	# Branch Access Control: Call Center sees everything, others see their branch.
 	branch, is_call_center = _get_user_branch_filter_info()
-	branch_cond = ""
-	branch_params = {}
+	visibility = ["si.posting_date BETWEEN %(date_from)s AND %(date_to)s", "si.docstatus != 2"]
 	if not is_call_center:
-		branch_cond = " AND si.branch = %(user_branch)s "
-		branch_params["user_branch"] = branch or "___NONE___"
+		visibility.append("si.branch = %(user_branch)s")
+		params["user_branch"] = branch or "___NONE___"
 
-	# Order-type visibility: only Call Center users/roles can see Talabat &
-	# Delivery orders; everyone else has them hidden.
+	# Order-type visibility: only Call Center users/roles can see Talabat & Delivery.
 	cc_roles = {"CallCenterAgent", "Call center supervisor", "Call center manager", "System Manager"}
 	has_cc_role = bool(cc_roles & set(frappe.get_roles(user)))
-	order_type_cond = ""
 	if not (is_call_center or has_cc_role):
-		order_type_cond = " AND IFNULL(si.custom_order_type, '') NOT IN ('Talabat', 'Delivery') "
+		visibility.append("IFNULL(si.custom_order_type, '') NOT IN ('Talabat', 'Delivery')")
 
 	# Hide return credit notes and fully-returned originals from the All Orders list.
 	# Return credit notes carry mixed DB statuses (Return / Unpaid / Overdue) — the
 	# "Return" label is derived from is_return — so filter on the flag, not the status.
-	status_cond = " AND IFNULL(si.is_return, 0) = 0 AND IFNULL(si.status, '') != 'Credit Note Issued' "
+	visibility.append("IFNULL(si.is_return, 0) = 0")
+	visibility.append("IFNULL(si.status, '') != 'Credit Note Issued'")
 
-	# Server-side search (order #, customer name/number, mobile) across the full window.
-	search_cond = ""
+	# ── Screen filters ───────────────────────────────────────────────────────────
+	conds = []
+
+	def like(key, value):
+		params[key] = f"%{value}%"
+
+	# Text filters can match the order itself OR one of its additions (so typing an
+	# addition's number finds the order it belongs to). `{a}` is the table alias.
+	text_parts = []
 	if search:
-		search_cond = """ AND (
-			si.name LIKE %(search)s
-			OR si.custom_number_order LIKE %(search)s
-			OR si.contact_mobile LIKE %(search)s
-			OR si.customer_name LIKE %(search)s
-			OR cust.mobile_no LIKE %(search)s
-			OR cust.custom_other_mobile_no LIKE %(search)s
-			OR si.custom_unique_talbat_number LIKE %(search)s
-		) """
-		branch_params["search"] = f"%{search}%"
+		like("search", search)
+		text_parts.append(
+			"""(
+			{a}.name LIKE %(search)s
+			OR {a}.custom_number_order LIKE %(search)s
+			OR {a}.contact_mobile LIKE %(search)s
+			OR {a}.customer LIKE %(search)s
+			OR {a}.customer_name LIKE %(search)s
+			OR {a}.pos_profile LIKE %(search)s
+			OR {a}.branch LIKE %(search)s
+			OR {a}.driver LIKE %(search)s
+			OR {a}.custom_unique_talbat_number LIKE %(search)s
+			OR EXISTS (SELECT 1 FROM `tabCustomer` sc WHERE sc.name = {a}.customer
+				AND (sc.mobile_no LIKE %(search)s OR sc.custom_other_mobile_no LIKE %(search)s))
+		)"""
+		)
+	if f.get("invoice_name"):
+		like("f_invoice_name", cstr(f.invoice_name).strip())
+		text_parts.append("{a}.name LIKE %(f_invoice_name)s")
+	if f.get("order_number"):
+		like("f_order_number", cstr(f.order_number).strip())
+		text_parts.append("({a}.custom_number_order LIKE %(f_order_number)s OR {a}.name LIKE %(f_order_number)s)")
+	if f.get("unique_number"):
+		like("f_unique_number", cstr(f.unique_number).strip())
+		text_parts.append("{a}.custom_unique_talbat_number LIKE %(f_unique_number)s")
+	for part in text_parts:
+		# Uncorrelated IN-subquery (materialised once) over the same date window — a
+		# correlated EXISTS on the unindexed custom_parent_invoice would scan per row.
+		# The second subquery covers older additions linked only by order number
+		# (same day & branch, label = order label + "-n").
+		conds.append(
+			"""({own}
+			OR si.name IN (SELECT ts.custom_parent_invoice FROM `tabSales Invoice` ts
+				WHERE ts.posting_date >= %(date_from)s AND ts.docstatus != 2
+				AND IFNULL(ts.custom_parent_invoice, '') != '' AND {sub})
+			OR (si.custom_number_order, si.posting_date, IFNULL(si.branch, '')) IN (
+				SELECT SUBSTRING_INDEX(ts.custom_number_order, '-',
+					CHAR_LENGTH(ts.custom_number_order) - CHAR_LENGTH(REPLACE(ts.custom_number_order, '-', ''))),
+					ts.posting_date, IFNULL(ts.branch, '')
+				FROM `tabSales Invoice` ts
+				WHERE ts.posting_date >= %(date_from)s AND ts.docstatus != 2
+				AND IFNULL(ts.custom_parent_invoice, '') = ''
+				AND (CHAR_LENGTH(IFNULL(ts.custom_number_order, ''))
+					- CHAR_LENGTH(REPLACE(IFNULL(ts.custom_number_order, ''), '-', ''))) >= 2
+				AND {sub}))""".format(own=part.format(a="si"), sub=part.format(a="ts"))
+		)
 
-	# A search is a targeted customer lookup — return every match, no row cap.
-	limit_clause = "" if search else "LIMIT %(limit)s"
+	if customer_term:
+		like("f_customer", customer_term)
+		conds.append(
+			"""(si.customer_name LIKE %(f_customer)s OR si.customer LIKE %(f_customer)s
+			OR cust.mobile_no LIKE %(f_customer)s OR cust.custom_other_mobile_no LIKE %(f_customer)s)"""
+		)
+	if f.get("status"):
+		params["f_status"] = f.status
+		conds.append(f"{DISPLAY_STATUS_SQL} = %(f_status)s")
+	if f.get("pos_source") == "call_center":
+		conds.append("si.pos_profile = 'Call Center'")
+	elif f.get("pos_source") == "cashier":
+		conds.append("IFNULL(si.pos_profile, '') != 'Call Center'")
+	if f.get("branch"):
+		params["f_branch"] = f.branch
+		conds.append("si.branch = %(f_branch)s")
+	if f.get("order_type"):
+		params["f_order_type"] = f.order_type
+		conds.append("si.custom_order_type = %(f_order_type)s")
+	if f.get("invoice_type") == "return":
+		conds.append("IFNULL(si.is_return, 0) = 1")
+	elif f.get("invoice_type") == "regular":
+		conds.append("IFNULL(si.is_return, 0) = 0")
+	if f.get("driver"):
+		params["f_driver"] = f.driver
+		conds.append("si.driver = %(f_driver)s")
 
-	# Build the query based on whether we're using datetime or date filtering
-	if use_shift_datetime:
-		# Shift-based: use TIMESTAMP for precise time filtering
-		invoices = frappe.db.sql("""
-			SELECT
-				si.name,
-				si.customer,
-				si.customer_name,
-				si.posting_date,
-				si.posting_time,
-				si.grand_total,
-				si.net_total,
-				si.paid_amount,
-				si.outstanding_amount,
-				si.status,
-				si.docstatus,
-				si.is_return,
-				si.return_against,
-				si.is_pos,
-				si.pos_profile,
-				si.currency,
-				si.custom_order_type,
-				si.custom_number_order,
-				si.custom_parent_invoice,
-				si.custom_parent_order,
-				si.custom_receipt_number,
-				si.custom_third_party_referance_number,
-				si.custom_unique_talbat_number,
-				si.branch,
-				si.driver,
-				si.owner,
-				COALESCE(si.custom_is_rejected, 0) AS custom_is_rejected,
-				si.custom_payment_type,
-				si.custom_rejection_reason,
-				COALESCE(cust.mobile_no, '') AS mobile_no,
-				COALESCE(cust.custom_other_mobile_no, '') AS other_mobile_no,
-				ko.status AS kds_status
-			FROM
-				`tabSales Invoice` si
+	if not paged:
+		# Legacy flat list (older client): same filters, capped, newest first.
+		where = " AND ".join(visibility + conds)
+		limit_clause = "" if search else "LIMIT %(limit)s"
+		params["limit"] = cint(limit) or 500
+		invoices = frappe.db.sql(
+			f"""SELECT {ALL_ORDERS_FIELDS}
+			FROM `tabSales Invoice` si
 				LEFT JOIN `tabCustomer` cust ON cust.name = si.customer
 				LEFT JOIN `tabKDS Order` ko ON ko.sales_invoice = si.name
-			WHERE
-				TIMESTAMP(si.posting_date, si.posting_time) BETWEEN %(shift_start)s AND %(shift_end)s
-				AND si.docstatus != 2
-				{branch_cond}{order_type_cond}{status_cond}{search_cond}
-			ORDER BY
-				si.posting_date DESC,
-				si.posting_time DESC,
-				si.creation DESC
-			{limit_clause}
-		""".format(branch_cond=branch_cond, order_type_cond=order_type_cond, status_cond=status_cond, search_cond=search_cond, limit_clause=limit_clause), {
-			"shift_start": shift_start,
-			"shift_end": shift_end,
-			"limit": cint(limit),
-			**branch_params
-		}, as_dict=True)
+			WHERE {where}
+			ORDER BY si.posting_date DESC, si.posting_time DESC, si.creation DESC
+			{limit_clause}""",
+			params,
+			as_dict=True,
+		)
+		return _enrich_all_orders(invoices)
+
+	# ── Paged: one row per ORDER ─────────────────────────────────────────────────
+	# An addition is linked by custom_parent_invoice; older ones only by order number
+	# (parent "M-62" → addition "M-62-7", same branch & day). Neither is a row of its own.
+	top_level = [
+		"IFNULL(si.custom_parent_invoice, '') = ''",
+		"""NOT (
+			(CHAR_LENGTH(IFNULL(si.custom_number_order, '')) - CHAR_LENGTH(REPLACE(IFNULL(si.custom_number_order, ''), '-', ''))) >= 2
+			AND EXISTS (
+				SELECT 1 FROM `tabSales Invoice` lp
+				WHERE lp.posting_date = si.posting_date
+				  AND IFNULL(lp.branch, '') = IFNULL(si.branch, '')
+				  AND lp.docstatus != 2 AND lp.name != si.name
+				  AND lp.custom_number_order = SUBSTRING_INDEX(
+					si.custom_number_order, '-',
+					CHAR_LENGTH(si.custom_number_order) - CHAR_LENGTH(REPLACE(si.custom_number_order, '-', ''))
+				  )
+			)
+		)""",
+	]
+	where = " AND ".join(visibility + top_level + conds)
+	base_from = """FROM `tabSales Invoice` si
+		LEFT JOIN `tabCustomer` cust ON cust.name = si.customer"""
+
+	page = max(1, cint(page))
+	page_length = min(max(1, cint(page_length) or 50), 500)
+	params["page_length"] = page_length
+	params["offset"] = (page - 1) * page_length
+
+	direction = "ASC" if cstr(sort_dir).lower() == "asc" else "DESC"
+	sort_columns = {
+		"name": "si.name",
+		"customer_name": "si.customer_name",
+		"branch": "si.branch",
+		"grand_total": "si.grand_total",
+	}
+	if sort_field in sort_columns:
+		order_by = f"{sort_columns[sort_field]} {direction}, si.posting_date DESC, si.posting_time DESC, si.creation DESC"
 	else:
-		# Date-based: use posting_date for privileged users who pick dates
-		invoices = frappe.db.sql("""
-			SELECT
-				si.name,
-				si.customer,
-				si.customer_name,
-				si.posting_date,
-				si.posting_time,
-				si.grand_total,
-				si.net_total,
-				si.paid_amount,
-				si.outstanding_amount,
-				si.status,
-				si.docstatus,
-				si.is_return,
-				si.return_against,
-				si.is_pos,
-				si.pos_profile,
-				si.currency,
-				si.custom_order_type,
-				si.custom_number_order,
-				si.custom_parent_invoice,
-				si.custom_parent_order,
-				si.custom_receipt_number,
-				si.custom_third_party_referance_number,
-				si.custom_unique_talbat_number,
-				si.branch,
-				si.driver,
-				si.owner,
-				COALESCE(si.custom_is_rejected, 0) AS custom_is_rejected,
-				si.custom_payment_type,
-				si.custom_rejection_reason,
-				COALESCE(cust.mobile_no, '') AS mobile_no,
-				COALESCE(cust.custom_other_mobile_no, '') AS other_mobile_no,
-				ko.status AS kds_status
-			FROM
-				`tabSales Invoice` si
+		order_by = f"si.posting_date {direction}, si.posting_time {direction}, si.creation {direction}"
+
+	total = frappe.db.sql(f"SELECT COUNT(*) {base_from} WHERE {where}", params)[0][0]
+
+	names = [
+		r[0]
+		for r in frappe.db.sql(
+			f"SELECT si.name {base_from} WHERE {where} ORDER BY {order_by} LIMIT %(page_length)s OFFSET %(offset)s",
+			params,
+		)
+	]
+
+	rows = []
+	if names:
+		# The page's orders, in page order, plus their additions (any filter-matching
+		# or not — they belong to the order), so the screen can nest them.
+		params["page_names"] = tuple(names)
+		parents = frappe.db.sql(
+			f"""SELECT {ALL_ORDERS_FIELDS}
+			FROM `tabSales Invoice` si
 				LEFT JOIN `tabCustomer` cust ON cust.name = si.customer
 				LEFT JOIN `tabKDS Order` ko ON ko.sales_invoice = si.name
-			WHERE
-				si.posting_date BETWEEN %(date_from)s AND %(date_to)s
-				AND si.docstatus != 2
-				{branch_cond}{order_type_cond}{status_cond}{search_cond}
-			ORDER BY
-				si.posting_date DESC,
-				si.posting_time DESC,
-				si.creation DESC
-			{limit_clause}
-		""".format(branch_cond=branch_cond, order_type_cond=order_type_cond, status_cond=status_cond, search_cond=search_cond, limit_clause=limit_clause), {
-			"date_from": date_from,
-			"date_to": date_to,
-			"limit": cint(limit),
-			**branch_params
-		}, as_dict=True)
+			WHERE si.name IN %(page_names)s""",
+			params,
+			as_dict=True,
+		)
+		position = {n: i for i, n in enumerate(names)}
+		parents.sort(key=lambda r: position.get(r.name, 0))
 
+		# Additions are never dated before their order, so bound the scan by the page's
+		# earliest order date (uses the posting_date index; the link column has none).
+		supp_visibility = " AND ".join(c for c in visibility if "posting_date" not in c)
+		params["supp_from"] = min(p.posting_date for p in parents)
+		select_supp = f"""SELECT {ALL_ORDERS_FIELDS}
+			FROM `tabSales Invoice` si
+				LEFT JOIN `tabCustomer` cust ON cust.name = si.customer
+				LEFT JOIN `tabKDS Order` ko ON ko.sales_invoice = si.name
+			WHERE {supp_visibility}
+			  AND si.name NOT IN %(page_names)s"""
+		supplements = frappe.db.sql(
+			f"""{select_supp}
+			  AND si.posting_date >= %(supp_from)s
+			  AND si.custom_parent_invoice IN %(page_names)s
+			ORDER BY si.posting_date, si.posting_time, si.creation""",
+			params,
+			as_dict=True,
+		)
+
+		# Older additions linked only by order number: same branch & day, label is the
+		# order's label plus one more "-n" segment (M-62 → M-62-7).
+		parent_by_label = {
+			(p.posting_date, p.branch or "", p.custom_number_order): p
+			for p in parents
+			if p.custom_number_order
+		}
+		if parent_by_label:
+			params["page_dates"] = tuple({k[0] for k in parent_by_label})
+			for s in frappe.db.sql(
+				f"""{select_supp}
+				  AND si.posting_date IN %(page_dates)s
+				  AND IFNULL(si.custom_parent_invoice, '') = ''
+				  AND (CHAR_LENGTH(IFNULL(si.custom_number_order, ''))
+				       - CHAR_LENGTH(REPLACE(IFNULL(si.custom_number_order, ''), '-', ''))) >= 2
+				ORDER BY si.posting_date, si.posting_time, si.creation""",
+				params,
+				as_dict=True,
+			):
+				label = s.custom_number_order.rsplit("-", 1)[0]
+				if (s.posting_date, s.branch or "", label) in parent_by_label:
+					supplements.append(s)
+
+		rows = _enrich_all_orders(parents + supplements)
+
+	out = {"rows": rows, "total": cint(total), "page": page, "page_length": page_length}
+
+	if cint(with_options):
+		# Dropdown options for the whole window the user can see (not just this page).
+		vis = " AND ".join(visibility)
+		out["options"] = {
+			"statuses": [
+				r[0]
+				for r in frappe.db.sql(
+					f"SELECT DISTINCT {DISPLAY_STATUS_SQL} FROM `tabSales Invoice` si WHERE {vis} ORDER BY 1", params
+				)
+				if r[0]
+			],
+			"branches": [
+				r[0]
+				for r in frappe.db.sql(
+					f"SELECT DISTINCT si.branch FROM `tabSales Invoice` si WHERE {vis} AND IFNULL(si.branch, '') != '' ORDER BY 1",
+					params,
+				)
+			],
+			"order_types": [
+				r[0]
+				for r in frappe.db.sql(
+					f"SELECT DISTINCT si.custom_order_type FROM `tabSales Invoice` si WHERE {vis} AND IFNULL(si.custom_order_type, '') != '' ORDER BY 1",
+					params,
+				)
+			],
+		}
+
+	return out
+
+
+# Same rule as the display_status set in _enrich_all_orders — kept in SQL so the
+# Status filter runs on the server.
+DISPLAY_STATUS_SQL = """(CASE
+	WHEN si.docstatus = 0 THEN 'Draft'
+	WHEN IFNULL(si.is_return, 0) = 1 THEN 'Return'
+	WHEN si.outstanding_amount > 0 THEN 'Unpaid'
+	WHEN si.status = 'Paid' THEN 'Paid'
+	ELSE COALESCE(NULLIF(si.status, ''), 'Submitted')
+END)"""
+
+ALL_ORDERS_FIELDS = """
+	si.name,
+	si.customer,
+	si.customer_name,
+	si.posting_date,
+	si.posting_time,
+	si.grand_total,
+	si.net_total,
+	si.paid_amount,
+	si.outstanding_amount,
+	si.status,
+	si.docstatus,
+	si.is_return,
+	si.return_against,
+	si.is_pos,
+	si.pos_profile,
+	si.currency,
+	si.custom_order_type,
+	si.custom_number_order,
+	si.custom_parent_invoice,
+	si.custom_parent_order,
+	si.custom_receipt_number,
+	si.custom_third_party_referance_number,
+	si.custom_unique_talbat_number,
+	si.branch,
+	si.driver,
+	si.owner,
+	COALESCE(si.custom_is_rejected, 0) AS custom_is_rejected,
+	si.custom_payment_type,
+	si.custom_rejection_reason,
+	COALESCE(cust.mobile_no, '') AS mobile_no,
+	COALESCE(cust.custom_other_mobile_no, '') AS other_mobile_no,
+	ko.status AS kds_status
+"""
+
+
+def _enrich_all_orders(invoices):
+	"""Attach items, creator name, delivery status, whole-order outstanding and the
+	display status to All Orders rows."""
 	# Batch-load items for all invoices
 	if invoices:
 		invoice_names = [inv.name for inv in invoices]

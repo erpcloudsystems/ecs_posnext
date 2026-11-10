@@ -533,7 +533,7 @@
 				<!-- Pagination -->
 				<div class="bg-gray-50 border-t border-gray-200 px-4 py-3 flex items-center justify-between">
 					<div class="text-sm text-gray-500">
-						{{ __("Showing {0} to {1} of {2}", { 0: String(paginationStart), 1: String(paginationEnd), 2: String(filteredOrders.length) }) }}
+						{{ __("Showing {0} to {1} of {2}", { 0: String(paginationStart), 1: String(paginationEnd), 2: String(totalCount) }) }}
 					</div>
 					<div class="flex items-center gap-2">
 						<select v-model="perPage" class="px-2 py-1 border border-gray-300 rounded text-sm bg-white">
@@ -1277,26 +1277,35 @@ const filters = ref({
 	unique_number: "",
 })
 
-// Derived options from data
-const statusOptions = computed(() => {
-	const set = new Set(orders.value.map(o => o.display_status).filter(Boolean))
+// Total matching orders on the server (all pages) and the dropdown options for the
+// whole date window — both come from the server, not from the rows on this page.
+const totalCount = ref(0)
+const serverOptions = ref({ statuses: [], branches: [], order_types: [] })
+
+// Merge server options with whatever is loaded, keeping the current selection listed.
+function optionList(serverList, field, selected) {
+	const set = new Set(serverList || [])
+	for (const o of orders.value) if (o[field]) set.add(o[field])
+	if (selected) set.add(selected)
 	return Array.from(set).sort()
-})
+}
+
+const statusOptions = computed(() =>
+	optionList(serverOptions.value.statuses, "display_status", filters.value.status)
+)
 
 const posProfileOptions = computed(() => {
 	const set = new Set(orders.value.map(o => o.pos_profile).filter(Boolean))
 	return Array.from(set).sort()
 })
 
-const orderTypeOptions = computed(() => {
-	const set = new Set(orders.value.map(o => o.custom_order_type).filter(Boolean))
-	return Array.from(set).sort()
-})
+const orderTypeOptions = computed(() =>
+	optionList(serverOptions.value.order_types, "custom_order_type", filters.value.order_type)
+)
 
-const branchOptions = computed(() => {
-	const set = new Set(orders.value.map(o => o.branch).filter(Boolean))
-	return Array.from(set).sort()
-})
+const branchOptions = computed(() =>
+	optionList(serverOptions.value.branches, "branch", filters.value.branch)
+)
 
 const driverOptions = computed(() => {
 	return activeDrivers.value.map(d => d.name)
@@ -1334,27 +1343,32 @@ function getParentOrderNum(orderNum) {
 	return orderNum.substring(0, orderNum.lastIndexOf('-'))
 }
 
-// Group supplements under their parent orders
-const groupedOrders = computed(() => {
-	const all = orders.value
+// Group supplements under their parent orders.
+//
+// Runs ONCE on the plain rows from the server, before they are put in `orders` (so
+// before Vue tracks them). It used to run inside a computed that wrote to the same
+// reactive rows it read (supplements / _combined_*): every run invalidated itself and
+// re-triggered the render, an endless loop that froze the page (production Vue has no
+// recursion guard). groupedOrders below only reads the result.
+function attachSupplements(all) {
 	const byName = {} // docname → order
-	const byLabel = {} // parentOrderNum → parent order (legacy fallback only)
-	const result = []
-	const supplementSet = new Set()
+	const byLabel = {} // "label|date|branch" → parent order (legacy fallback only)
+	const labelKey = (label, o) => `${label}|${o.posting_date}|${o.branch || ""}`
 
-	// Reset any previously attached supplements (prevents duplicates on re-computation)
 	for (const order of all) {
 		order.supplements = []
 		order._combined_total = undefined
 		order._combined_outstanding = undefined
+		order._attached = false
 	}
 
-	// First pass: index parents by docname, and by label for pre-link rows
+	// First pass: index parents by docname, and by label for pre-link rows. Labels
+	// restart every shift, so the legacy match also needs the same day and branch.
 	for (const order of all) {
 		byName[order.name] = order
 		const num = order.custom_number_order
 		if (num && !isSupplementOrder(num)) {
-			byLabel[num] = order
+			byLabel[labelKey(num, order)] = order
 		}
 	}
 
@@ -1368,9 +1382,8 @@ const groupedOrders = computed(() => {
 		if (order.custom_parent_invoice || (num && isSupplementOrder(num))) {
 			const parent = order.custom_parent_invoice
 				? byName[order.custom_parent_invoice]
-				: byLabel[getParentOrderNum(num)]
+				: byLabel[labelKey(getParentOrderNum(num), order)]
 			if (parent && parent.name !== order.name) {
-				if (!parent.supplements) parent.supplements = []
 				parent.supplements.push(order)
 				// Add supplement totals to parent
 				if (parent._combined_total === undefined) {
@@ -1379,89 +1392,44 @@ const groupedOrders = computed(() => {
 				}
 				parent._combined_total += parseFloat(order.grand_total || 0)
 				parent._combined_outstanding += parseFloat(order.outstanding_amount || 0)
-				supplementSet.add(order.name)
+				order._attached = true
 			}
 		}
 	}
+	return all
+}
 
-	// Build result: exclude supplements that were attached to a parent
-	for (const order of all) {
-		if (!supplementSet.has(order.name)) {
-			result.push(order)
-		}
-	}
+// Top-level rows only (supplements are shown nested under their parent). Read-only.
+const groupedOrders = computed(() => orders.value.filter((o) => !o._attached))
 
-	return result
+// The server already filtered, sorted and paged — this is exactly the current page
+// (orders with their additions nested under them).
+const filteredOrders = groupedOrders
+const paginatedOrders = groupedOrders
+
+// Pagination (counts come from the server's total, not from the rows on this page)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / perPage.value)))
+const paginationStart = computed(() =>
+	totalCount.value ? (currentPage.value - 1) * perPage.value + 1 : 0
+)
+const paginationEnd = computed(() => Math.min(currentPage.value * perPage.value, totalCount.value))
+
+// Any filter / search / page size / sort change → back to page 1 and reload from the
+// server (debounced so typing doesn't fire a request per key). Page changes reload too.
+// `pageReady` keeps these quiet until the config (date range) has loaded.
+const pageReady = ref(false)
+watch(
+	[search, filters, perPage, sortField, sortDir],
+	() => {
+		if (!pageReady.value) return
+		currentPage.value = 1
+		scheduleFetch()
+	},
+	{ deep: true }
+)
+watch(currentPage, () => {
+	if (pageReady.value) scheduleFetch()
 })
-
-// Filtered orders
-const filteredOrders = computed(() => {
-	let data = groupedOrders.value.slice()
-	const f = filters.value
-	const ci = (v) => (v ?? "").toString().toLowerCase()
-	const has = (val, needle) => ci(val).includes(ci(needle))
-
-	if (search.value) {
-		const s = search.value.toLowerCase()
-		data = data.filter(o =>
-			ci(o.name).includes(s) ||
-			ci(o.customer_name).includes(s) ||
-			ci(o.customer).includes(s) ||
-			ci(o.mobile_no).includes(s) ||
-			ci(o.other_mobile_no).includes(s) ||
-			ci(o.pos_profile).includes(s) ||
-			ci(o.branch).includes(s) ||
-			ci(o.custom_number_order).includes(s) ||
-			ci(o.driver).includes(s) ||
-			ci(o.custom_unique_talbat_number).includes(s)
-		)
-	}
-
-	if (f.invoice_name) data = data.filter(o => has(o.name, f.invoice_name))
-	if (f.customer) data = data.filter(o =>
-		has(o.customer_name, f.customer) ||
-		has(o.customer, f.customer) ||
-		has(o.mobile_no, f.customer) ||
-		has(o.other_mobile_no, f.customer)
-	)
-	if (f.status) data = data.filter(o => o.display_status === f.status)
-	if (f.pos_source === "call_center") data = data.filter(o => o.pos_profile === "Call Center")
-	else if (f.pos_source === "cashier") data = data.filter(o => o.pos_profile !== "Call Center")
-	if (f.branch) data = data.filter(o => o.branch === f.branch)
-	if (f.order_type) data = data.filter(o => o.custom_order_type === f.order_type)
-	if (f.invoice_type === "return") data = data.filter(o => o.is_return)
-	if (f.invoice_type === "regular") data = data.filter(o => !o.is_return)
-	if (f.order_number) data = data.filter(o => has(o.custom_number_order, f.order_number) || has(o.name, f.order_number))
-	if (f.driver) data = data.filter(o => o.driver === f.driver)
-	if (f.unique_number) data = data.filter(o => has(o.custom_unique_talbat_number, f.unique_number))
-
-	// Sort
-	data.sort((a, b) => {
-		let valA = a[sortField.value]
-		let valB = b[sortField.value]
-		if (typeof valA === "string") valA = valA.toLowerCase()
-		if (typeof valB === "string") valB = valB.toLowerCase()
-		if (valA < valB) return sortDir.value === "asc" ? -1 : 1
-		if (valA > valB) return sortDir.value === "asc" ? 1 : -1
-		return 0
-	})
-
-	return data
-})
-
-// Pagination
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredOrders.value.length / perPage.value)))
-const paginationStart = computed(() => Math.min((currentPage.value - 1) * perPage.value + 1, filteredOrders.value.length))
-const paginationEnd = computed(() => Math.min(currentPage.value * perPage.value, filteredOrders.value.length))
-const paginatedOrders = computed(() => {
-	const start = (currentPage.value - 1) * perPage.value
-	return filteredOrders.value.slice(start, start + perPage.value)
-})
-
-// Reset page on filter change
-watch([search, filters, perPage], () => {
-	currentPage.value = 1
-}, { deep: true })
 
 // Autofocus password input when dialog opens
 watch(showPasswordDialog, (val) => {
@@ -1488,6 +1456,7 @@ function toggleExpand(name) {
 
 function resetFilters() {
 	dateRangeTouched.value = false
+	needOptions = true
 	const keepFrom = canSelectDates.value ? "" : filters.value.date_from
 	const keepTo = canSelectDates.value ? "" : filters.value.date_to
 	filters.value = {
@@ -1532,40 +1501,65 @@ async function loadConfig() {
 // Changing the date range reloads immediately (so it's not "nothing happened" until Refresh).
 function onDateRangeChange() {
 	dateRangeTouched.value = true
-	currentPage.value = 1
-	fetchOrders()
+	// The date window changed, so the dropdown options must be re-read for it. The
+	// filters watcher resets to page 1 and schedules the reload.
+	needOptions = true
 }
 
+// Debounced reload; fetchOrders() itself cancels any pending one.
+let _fetchTimer = null
+let needOptions = true
+let _fetchSeq = 0
+function scheduleFetch(delay = 300) {
+	if (_fetchTimer) clearTimeout(_fetchTimer)
+	_fetchTimer = setTimeout(() => fetchOrders(), delay)
+}
+
+// Loads the CURRENT page from the server with every filter applied there.
 async function fetchOrders() {
+	if (_fetchTimer) {
+		clearTimeout(_fetchTimer)
+		_fetchTimer = null
+	}
+	const seq = ++_fetchSeq
 	loading.value = true
 	try {
-		// A search term makes the backend look across the user's full allowed range
-		// (not just the loaded window), so older orders for a customer number are found.
-		const term = (search.value || filters.value.customer || "").trim()
+		const { date_from, date_to, ...screenFilters } = filters.value
+		const withOptions = needOptions
 		const result = await call("ecs_posnext.api.invoices.get_all_orders", {
-			date_from: filters.value.date_from || null,
-			date_to: filters.value.date_to || null,
-			limit: term ? 2000 : 500,
-			search: term || null,
+			date_from: date_from || null,
+			date_to: date_to || null,
+			search: (search.value || "").trim() || null,
 			// When the user has picked a date range, keep the search inside it.
 			respect_dates: dateRangeTouched.value ? 1 : 0,
+			filters: screenFilters,
+			page: currentPage.value,
+			page_length: perPage.value,
+			sort_field: sortField.value,
+			sort_dir: sortDir.value,
+			with_options: withOptions ? 1 : 0,
 		})
-		orders.value = result || []
+		// A newer request was sent while this one was in flight — drop this answer.
+		if (seq !== _fetchSeq) return
+		orders.value = attachSupplements(result?.rows || [])
+		totalCount.value = result?.total || 0
+		if (result?.options) {
+			serverOptions.value = result.options
+			needOptions = false
+		}
+		// Rows were removed (e.g. after a return) and this page is now past the end.
+		if (!orders.value.length && totalCount.value && currentPage.value > totalPages.value) {
+			currentPage.value = totalPages.value
+		}
 	} catch (error) {
+		if (seq !== _fetchSeq) return
 		console.error("Failed to fetch orders:", error)
 		orders.value = []
+		totalCount.value = 0
 	} finally {
-		loading.value = false
+		if (seq === _fetchSeq) loading.value = false
 	}
 }
-
-// Debounced server-side search — refetch across the allowed range as the user types a
-// customer number / name / order #, so results aren't limited to the loaded window.
-let _searchTimer = null
-watch([search, () => filters.value.customer], () => {
-	if (_searchTimer) clearTimeout(_searchTimer)
-	_searchTimer = setTimeout(() => fetchOrders(), 400)
-})
 
 function viewInvoice(name) {
 	// Open in new tab in Frappe desk
@@ -2022,15 +2016,8 @@ function goBack() {
 	router.push({ name: "POSSale" })
 }
 
-// Watch date filters to auto-refresh
-watch(
-	() => [filters.value.date_from, filters.value.date_to],
-	([newFrom, newTo], [oldFrom, oldTo]) => {
-		if (newFrom !== oldFrom || newTo !== oldTo) {
-			fetchOrders()
-		}
-	}
-)
+// Date changes reload through the filters watcher above (page 1, debounced) — a
+// separate date watcher here used to fire a second, duplicate request.
 
 watch(wastageStockEntryType, () => {
 	selectedEmployee.value = null
@@ -2112,6 +2099,8 @@ function dismissReversalAlert() {
 
 onMounted(async () => {
 	await loadConfig()
+	await nextTick()
+	pageReady.value = true
 	fetchOrders()
 	loadPosProfile()
 	loadActiveDrivers()

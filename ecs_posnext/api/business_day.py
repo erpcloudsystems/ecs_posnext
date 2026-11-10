@@ -12,7 +12,7 @@ import datetime
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, get_datetime, get_time, getdate, now_datetime
+from frappe.utils import add_days, flt, get_datetime, get_time, getdate, now_datetime
 
 
 def _as_time(value):
@@ -167,6 +167,98 @@ def _stamp_branch_business_day(invoice_doc):
 	invoice_doc.custom_pos_cashier_shift = None
 
 
+def _cash_refund_amount(invoice_doc):
+	"""Cash paid back on a return (positive number), counting Cash-type modes only.
+
+	Card / wallet modes (type Bank, e.g. vodafone cash, insta pay) never leave the
+	drawer, so they are not counted here.
+	"""
+	from ecs_posnext.api.cashier_shift import _is_cash_mode
+
+	return sum(
+		abs(flt(p.get("amount")))
+		for p in (invoice_doc.get("payments") or [])
+		if flt(p.get("amount")) and p.get("mode_of_payment") and _is_cash_mode(p.get("mode_of_payment"))
+	)
+
+
+def bind_cash_refund_to_branch_shift(invoice_doc):
+	"""Put a CASH refund on the cashier shift currently open at the invoice's branch.
+
+	A cash refund physically leaves the branch drawer, whoever presses the button
+	(Call Center agent, supervisor, desk user). Shift closing selects invoices by
+	`posa_pos_opening_shift`, so the return must carry the branch's open opening
+	shift — then that shift's closing deducts it from expected cash exactly once, and
+	no other shift (e.g. the Call Center's) sees it.
+
+	Blocks the refund when the branch has no open shift: there is no drawer to pay from.
+	Returns True when the invoice was bound, False when the rule does not apply
+	(not a return, or no cash paid back).
+	"""
+	if not invoice_doc.get("is_return") or invoice_doc.get("docstatus") == 2:
+		return False
+	if _cash_refund_amount(invoice_doc) <= 0:
+		return False
+
+	branch = invoice_doc.get("branch")
+	if not branch:
+		frappe.throw(
+			_("Set the Branch on this return: a cash refund must be paid from a branch cashier shift."),
+			title=_("Branch Required"),
+		)
+
+	profile = frappe.db.get_value("POS Profile", {"branch": branch, "disabled": 0}, "name")
+	if not profile:
+		frappe.throw(
+			_("No active POS Profile found for branch {0}, so the cash refund cannot be linked to a cashier shift.").format(branch),
+			title=_("No Branch POS Profile"),
+		)
+
+	from ecs_posnext.api.cashier_shift import is_opening_shift_open, open_shift_for_profile
+
+	# Keep the current opening shift when it already is an open shift of this branch
+	# (normal in-branch return, or a re-validate on submit); otherwise find the open one.
+	opening = invoice_doc.get("posa_pos_opening_shift")
+	if not (
+		opening
+		and frappe.db.get_value("POS Opening Shift", opening, "pos_profile") == profile
+		and is_opening_shift_open(opening)
+	):
+		opening = open_shift_for_profile(profile, prefer_user=frappe.session.user)
+
+	cashier_shift = (
+		frappe.db.get_value(
+			"POS Cashier Shift",
+			{"pos_opening_shift": opening},
+			["name", "pos_business_day", "status"],
+			as_dict=True,
+		)
+		if opening
+		else None
+	)
+	if not cashier_shift or cashier_shift.status != "Open":
+		frappe.throw(
+			_(
+				"There is no open cashier shift at branch {0}. A cash refund can only be paid "
+				"while a cashier shift is open there. Open a shift, or refund by card / wallet."
+			).format(branch),
+			title=_("No Open Shift"),
+		)
+
+	invoice_doc.posa_pos_opening_shift = opening
+	invoice_doc.custom_pos_cashier_shift = cashier_shift.name
+	if cashier_shift.pos_business_day:
+		invoice_doc.custom_pos_business_day = cashier_shift.pos_business_day
+	return True
+
+
+def bind_cash_refund_on_validate(doc, method=None):
+	"""Sales Invoice validate hook: same rule for returns made outside the POS API
+	(e.g. the desk "Return / Credit Note" button), which never call
+	apply_business_day_to_invoice."""
+	bind_cash_refund_to_branch_shift(doc)
+
+
 def apply_business_day_to_invoice(invoice_doc):
 	"""Stamp custom_pos_business_day + custom_pos_cashier_shift on a POS invoice.
 
@@ -174,6 +266,12 @@ def apply_business_day_to_invoice(invoice_doc):
 	invoice's POS Opening Shift. Also enforces the sales cut-off for new (non-return) sales.
 	Safe no-op when business-day control is disabled for the profile.
 	"""
+	# Cash refunds always belong to the branch's open cashier shift, regardless of who
+	# creates them (Call Center / supervisor / routed). Handled before the routed path,
+	# which would otherwise leave the shift empty.
+	if bind_cash_refund_to_branch_shift(invoice_doc):
+		return
+
 	opening_shift = invoice_doc.get("posa_pos_opening_shift")
 	shift_profile = (
 		frappe.db.get_value("POS Opening Shift", opening_shift, "pos_profile") if opening_shift else None
