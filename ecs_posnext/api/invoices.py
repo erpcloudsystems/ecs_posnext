@@ -967,7 +967,6 @@ def update_invoice(data):
                     FIELD_ALLOW_USER_TO_EDIT_RATE,
                     FIELD_MAX_DISCOUNT_ALLOWED,
                     FIELD_ALLOW_NEGATIVE_STOCK,
-                    FIELD_DISABLE_ROUNDED_TOTAL,
                 ],
                 as_dict=True
             )
@@ -1398,7 +1397,6 @@ def _get_pos_context(pos_profile):
             "auto_create_wallet",
             "loyalty_to_wallet",
             "return_validity_days",
-            FIELD_DISABLE_ROUNDED_TOTAL,
         ],
         as_dict=True,
     ) or {}

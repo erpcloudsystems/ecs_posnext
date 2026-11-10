@@ -430,22 +430,30 @@ def _get_opening_shift_totals(pos_opening_shift):
     """Return total Daily Payments and total Tip amounts for a POS Opening Shift."""
     # Expense-type Daily Payments keep their amounts in the General Expenses
     # child table and leave the parent `amount` empty, so add both.
-    daily_result = frappe.db.sql(
-        """
-        SELECT COALESCE(SUM(
-            COALESCE(dp.amount, 0)
+    # Both doctypes belong to an optional app; without it there are no Daily Payments.
+    daily_result = None
+    if frappe.db.table_exists("Daily Payment"):
+        expenses_sql = (
+            """
             + CASE WHEN dp.expenses = 1 THEN (
                 SELECT COALESCE(SUM(ge.amount), 0)
                 FROM `tabGeneral Expenses` ge
                 WHERE ge.parent = dp.name AND ge.parenttype = 'Daily Payment'
-              ) ELSE 0 END
-        ), 0) AS total
-        FROM `tabDaily Payment` dp
-        WHERE dp.pos_opening_shift = %s AND dp.docstatus = 1
-        """,
-        (pos_opening_shift,),
-        as_dict=True,
-    )
+              ) ELSE 0 END"""
+            if frappe.db.table_exists("General Expenses")
+            else ""
+        )
+        daily_result = frappe.db.sql(
+            f"""
+            SELECT COALESCE(SUM(
+                COALESCE(dp.amount, 0){expenses_sql}
+            ), 0) AS total
+            FROM `tabDaily Payment` dp
+            WHERE dp.pos_opening_shift = %s AND dp.docstatus = 1
+            """,
+            (pos_opening_shift,),
+            as_dict=True,
+        )
     total_daily_payments = flt(daily_result[0].total) if daily_result else 0.0
 
     tip_result = frappe.db.sql(
