@@ -215,14 +215,16 @@ doc_events = {
 		"before_insert": "ecs_posnext.api.sales_invoice_hooks.before_insert",
 		"validate": [
 			"ecs_posnext.api.sales_invoice_hooks.validate",
-			"ecs_posnext.api.wallet.validate_wallet_payment"
+			"ecs_posnext.api.wallet.validate_wallet_payment",
+			"ecs_posnext.api.kid_photos.link_kid_photos"
 		],
 		"before_cancel": "ecs_posnext.api.sales_invoice_hooks.before_cancel",
 		"on_submit": [
 			"ecs_posnext.realtime_events.emit_stock_update_event",
 			"ecs_posnext.api.wallet.process_loyalty_to_wallet",
 			"ecs_posnext.api.sales_invoice_hooks.create_gift_card_coupons",
-			"ecs_posnext.api.sales_invoice_hooks.clear_sales_order_links"
+			"ecs_posnext.api.sales_invoice_hooks.clear_sales_order_links",
+			"ecs_posnext.api.kid_photos.assign_kid_photos_on_submit"
 		],
 		"on_cancel": [
 			"ecs_posnext.realtime_events.emit_stock_update_event",

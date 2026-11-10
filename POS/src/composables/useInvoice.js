@@ -932,6 +932,11 @@ export function useInvoice() {
 			posa_offers: JSON.stringify(
 				(item.posa_offers || []).filter((r) => liveRowIds.has(r)),
 			),
+			// Kid photo URLs for ticket items (not a DB column; read by
+			// ecs_posnext.api.kid_photos.link_kid_photos on validate).
+			kid_photos: (item.kid_photos || []).filter(Boolean).length
+				? (item.kid_photos || []).filter(Boolean)
+				: undefined,
 		}))
 	}
 

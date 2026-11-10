@@ -946,6 +946,21 @@
 										}}
 									</div>
 								</div>
+								<!-- Kid photo (ticket / subscription items only) -->
+								<button
+									v-if="!item.posa_is_offer && ticketItemCodes.has(item.item_code)"
+									type="button"
+									@click.stop="openKidPhoto(item)"
+									:class="[
+										'inline-flex items-center gap-0.5 px-1.5 h-5 rounded-full text-[9px] font-bold flex-shrink-0 me-1',
+										kidPhotoCount(item)
+											? 'bg-green-100 text-green-700 border border-green-300'
+											: 'bg-blue-50 text-blue-700 border border-blue-200',
+									]"
+									:title="__('Kid Photo')"
+								>
+									📷 {{ kidPhotoCount(item) }}/{{ Math.max(1, Math.floor(Number(item.quantity || item.qty || 1))) }}
+								</button>
 								<button
 									type="button"
 									@click.stop="$emit('remove-item', item.item_code, item.uom, item.posa_row_id)"
@@ -1347,6 +1362,8 @@
 			@update-item="handleUpdateItem"
 		/>
 
+		<KidPhotoDialog v-model="showKidPhotoDialog" :item="kidPhotoItem" />
+
 	</div>
 </template>
 
@@ -1378,6 +1395,8 @@ import { createResource } from "frappe-ui"
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue"
 import EditItemDialog from "./EditItemDialog.vue"
 import ReservationSelector from "./ReservationSelector.vue"
+import KidPhotoDialog from "./KidPhotoDialog.vue"
+import { call } from "@/utils/apiWrapper"
 
 /**
  * ============================================================================
@@ -2138,6 +2157,36 @@ function handleOutsideClick(event) {
  * Component mounted - register global click listener.
  * Used for click-outside detection on dropdowns.
  */
+/**
+ * Kid photo for ticket items (items with Ticket Settings): one photo per ticket,
+ * kept on the cart row as item.kid_photos and copied to the Ticket after submit.
+ */
+const ticketItemCodes = ref(new Set())
+const showKidPhotoDialog = ref(false)
+const kidPhotoItem = ref(null)
+
+async function loadTicketItemCodes() {
+	try {
+		const res = await call("ecs_posnext.api.kid_photos.get_ticket_item_codes")
+		ticketItemCodes.value = new Set(res?.message || res || [])
+	} catch (e) {
+		log.warn?.("Could not load ticket item codes", e)
+	}
+}
+
+function openKidPhoto(item) {
+	kidPhotoItem.value = item
+	showKidPhotoDialog.value = true
+}
+
+function kidPhotoCount(item) {
+	return (item.kid_photos || []).filter(Boolean).length
+}
+
+onMounted(() => {
+	if (!isOffline()) loadTicketItemCodes()
+})
+
 onMounted(() => {
 	if (typeof document === "undefined") return
 	// Use mousedown instead of click to catch events before they are swallowed by other handlers

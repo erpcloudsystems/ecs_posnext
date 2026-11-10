@@ -35,6 +35,7 @@ declare module 'vue' {
     ItemGroupNavigator: typeof import('./src/components/sale/ItemGroupNavigator.vue')['default']
     ItemSelectionDialog: typeof import('./src/components/sale/ItemSelectionDialog.vue')['default']
     ItemsSelector: typeof import('./src/components/sale/ItemsSelector.vue')['default']
+    KidPhotoDialog: typeof import('./src/components/sale/KidPhotoDialog.vue')['default']
     LanguageSwitcher: typeof import('./src/components/common/LanguageSwitcher.vue')['default']
     LazyImage: typeof import('./src/components/common/LazyImage.vue')['default']
     LoadingSpinner: typeof import('./src/components/common/LoadingSpinner.vue')['default']

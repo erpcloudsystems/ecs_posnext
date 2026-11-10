@@ -421,6 +421,66 @@ def update_wristband_serial(wristband, serial_no, notes=None):
 
 
 @frappe.whitelist()
+def send_ticket_sms(ticket_name):
+    """SMS the ticket details (code, remaining visits, expiry) to the customer's mobile."""
+    import re
+
+    from ecs_vim.sms.send_sms import PhoneNumber, send_sms
+
+    ticket = frappe.get_doc("Ticket", ticket_name)
+    mobile = ticket.vendor_mobile or (
+        frappe.db.get_value("Customer", ticket.vendor, "mobile_no") if ticket.vendor else None
+    )
+    if not mobile:
+        frappe.throw(_("No mobile number found for this ticket's customer"))
+    # send_sms silently skips numbers it can't parse; tell the cashier instead.
+    if not PhoneNumber.validate(re.sub(r"\D", "", mobile)):
+        frappe.throw(_("Mobile number {0} is not a valid Saudi mobile number").format(mobile))
+    if not ticket.redeem_code:
+        frappe.throw(_("This ticket has no redeem code"))
+
+    lines = []
+    if ticket.child_name:
+        lines.append(f"الاسم: {ticket.child_name}")
+    lines += [
+        f"{ticket.redeem_code} :رمز الكوبون",
+        f"عدد الزيارات المتبقية: {cint(ticket.remaining_usage)}",
+        f"تاريخ الانتهاء: {ticket.valid_to or ''}",
+    ]
+
+    try:
+        send_sms("\n".join(lines), mobile)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), f"Ticket SMS Send Error ({ticket_name})")
+        frappe.throw(_("Could not send the SMS, please try again"))
+
+    ticket.add_comment("Comment", _("Ticket details sent by SMS to {0}").format(mobile))
+    frappe.db.commit()
+    return {"mobile": mobile}
+
+
+@frappe.whitelist()
+def delete_wristband_serial(wristband):
+    """Remove a recorded wristband serial (wrong band, or recorded by mistake).
+
+    Only the POS Wristband row is removed: the ticket's free-wristband counters and
+    any giveaway invoice are left untouched.
+    """
+    doc = frappe.get_doc("POS Wristband", wristband)
+    ticket_name, serial_no = doc.ticket, doc.serial_no
+
+    frappe.delete_doc("POS Wristband", doc.name, ignore_permissions=True)
+
+    if ticket_name and frappe.db.exists("Ticket", ticket_name):
+        frappe.get_doc("Ticket", ticket_name).add_comment(
+            "Comment", _("Wristband serial {0} deleted").format(serial_no)
+        )
+
+    frappe.db.commit()
+    return {"name": wristband, "ticket": ticket_name, "serial_no": serial_no}
+
+
+@frappe.whitelist()
 def redeem_ticket(
     ticket_name,
     customer,
