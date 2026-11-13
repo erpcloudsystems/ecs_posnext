@@ -506,9 +506,8 @@ async function searchCachedItems(searchTerm = "", limit = 50, offset = 0) {
 		const term = searchTerm.toLowerCase().trim()
 		const searchWords = term.split(/\s+/).filter(Boolean)
 
-		// Optimize: Use indexes for single-word searches
+		// Exact barcode match short-circuits (scanner input)
 		if (searchWords.length === 1) {
-			// Try barcode index first (most specific)
 			const barcodeResults = await db.table("items")
 				.where("barcodes")
 				.equals(term)
@@ -521,41 +520,14 @@ async function searchCachedItems(searchTerm = "", limit = 50, offset = 0) {
 				recordMetric('searchCachedItems', performance.now() - startTime, false)
 				return barcodeResults
 			}
-
-			// Try item_code index (second most specific)
-			const codeResults = await db.table("items")
-				.where("item_code")
-				.startsWithIgnoreCase(term)
-				.filter(item => !item.disabled)
-				.limit(limit)
-				.toArray()
-
-			if (codeResults.length > 0) {
-				cacheQueryResult(cacheKey, codeResults)
-				recordMetric('searchCachedItems', performance.now() - startTime, false)
-				return codeResults
-			}
-
-			// Try item_name index
-			const nameResults = await db.table("items")
-				.where("item_name")
-				.startsWithIgnoreCase(term)
-				.filter(item => !item.disabled)
-				.limit(limit)
-				.toArray()
-
-			if (nameResults.length > 0) {
-				cacheQueryResult(cacheKey, nameResults)
-				recordMetric('searchCachedItems', performance.now() - startTime, false)
-				return nameResults
-			}
 		}
 
-		// Fallback: Multi-word or complex search
-		// Fetch larger sample and filter in memory (trade memory for speed)
+		// "Contains" search (like SQL LIKE %word%): every word must appear anywhere
+		// in code / name / description. Prefix matches are ranked first below.
+		// Scans the whole cache: a prefix-only index lookup missed words in the
+		// middle of the name, and a capped sample missed items past the cap.
 		const allItems = await db.table("items")
 			.filter(item => !item.disabled)
-			.limit(limit * 10)
 			.toArray()
 
 		const results = allItems
@@ -578,7 +550,7 @@ async function searchCachedItems(searchTerm = "", limit = 50, offset = 0) {
 			})
 			.filter(Boolean)
 			.sort((a, b) => b.score - a.score)
-			.slice(0, limit)
+			.slice(offset, offset + limit)
 			.map(({ item }) => item)
 
 		const duration = Math.round(performance.now() - startTime)
