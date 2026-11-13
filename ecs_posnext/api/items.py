@@ -713,6 +713,22 @@ def _get_item_group_with_descendants(item_group):
 	return [item_group] + list(descendants)
 
 
+# Arabic letter variants folded for search (typing ة finds ه, أ finds ا, ...)
+_ARABIC_FOLD = (("أ", "ا"), ("إ", "ا"), ("آ", "ا"), ("ة", "ه"), ("ى", "ي"))
+
+
+def _normalize_arabic(text):
+	for src, dst in _ARABIC_FOLD:
+		text = text.replace(src, dst)
+	return text
+
+
+def _sql_normalize_arabic(expr):
+	for src, dst in _ARABIC_FOLD:
+		expr = f"REPLACE({expr}, '{src}', '{dst}')"
+	return expr
+
+
 def _build_item_base_conditions(pos_profile_doc, item_group=None, exclude_variants=True, hide_unavailable=False, warehouse=None):
 	"""Build base SQL conditions for POS item search with hierarchical item group support.
 
@@ -752,7 +768,16 @@ def _build_item_base_conditions(pos_profile_doc, item_group=None, exclude_varian
 		wh_placeholders = ", ".join(["%s"] * len(warehouses))
 		extra_joins = f"LEFT JOIN `tabBin` bin ON bin.item_code = i.name AND bin.warehouse IN ({wh_placeholders})"
 		join_params.extend(warehouses)
-		conditions.append("(i.is_stock_item = 0 OR bin.actual_qty > 0)")
+		# Templates (has_variants) hold no stock themselves: keep a template when
+		# any enabled variant has stock in the profile warehouse(s), otherwise the
+		# template - and with it every variant - disappears from the POS.
+		conditions.append(
+			"(i.is_stock_item = 0 OR bin.actual_qty > 0 OR (i.has_variants = 1 AND EXISTS ("
+			"SELECT 1 FROM `tabItem` v INNER JOIN `tabBin` vb ON vb.item_code = v.name "
+			f"WHERE v.variant_of = i.name AND v.disabled = 0 AND vb.warehouse IN ({wh_placeholders}) "
+			"AND vb.actual_qty > 0)))"
+		)
+		where_params.extend(warehouses)
 
 	# Merge: join params come before WHERE params to match SQL placeholder order
 	return conditions, join_params + where_params, extra_joins
@@ -1151,8 +1176,12 @@ def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20,
 			# Split search term into words for fuzzy matching
 			search_words = [word.strip() for word in effective_search_term.split() if word.strip()]
 
-			# Word-order independent: all words must appear somewhere in item fields
-			search_text = "CONCAT(COALESCE(i.name, ''), ' ', COALESCE(i.item_name, ''), ' ', COALESCE(i.description, ''))"
+			# Word-order independent: all words must appear somewhere in item fields.
+			# Arabic letter variants (أ/إ/آ/ا, ة/ه, ى/ي) are folded on both sides.
+			search_text = _sql_normalize_arabic(
+				"CONCAT(COALESCE(i.name, ''), ' ', COALESCE(i.item_name, ''), ' ', COALESCE(i.description, ''))"
+			)
+			search_words = [_normalize_arabic(word) for word in search_words]
 			word_conditions = " AND ".join([f"{search_text} LIKE %s"] * len(search_words))
 
 			# Also match if barcode contains the search term

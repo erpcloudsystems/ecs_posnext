@@ -607,10 +607,12 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 		// zero-stock items, but cached (device) results are shown first, so without
 		// this they flash on screen until the server response replaces them.
 		// Uses server stock (not cart-reserved) so an item doesn't vanish when its
-		// last unit is added to the cart. Non-stock items and bundles are kept.
+		// last unit is added to the cart. Non-stock items and bundles are kept, and
+		// so are templates (has_variants): their stock lives on the variants, and
+		// the server only returns a template when some variant has stock.
 		if (shiftStore.currentProfile?.hide_unavailable_items) {
 			itemsWithStock = itemsWithStock.filter(item =>
-				item.is_stock_item === 0 || item.is_bundle || item.original_stock > 0
+				item.is_stock_item === 0 || item.is_bundle || item.has_variants || item.original_stock > 0
 			)
 		}
 
