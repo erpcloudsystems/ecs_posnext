@@ -588,7 +588,7 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 
 		// Step 4: Inject live stock quantities (optimized)
 		// Use a simple map operation - O(n) complexity
-		const itemsWithStock = list.map(item => {
+		let itemsWithStock = list.map(item => {
 			// Get display stock (includes reservations from cart)
 			const displayStock = stockStore.getDisplayStock(item.item_code)
 			// Get original server stock (without reservations)
@@ -602,6 +602,17 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 				original_stock: originalStock
 			}
 		})
+
+		// Step 4b: POS Profile "Hide Unavailable Items". The server already drops
+		// zero-stock items, but cached (device) results are shown first, so without
+		// this they flash on screen until the server response replaces them.
+		// Uses server stock (not cart-reserved) so an item doesn't vanish when its
+		// last unit is added to the cart. Non-stock items and bundles are kept.
+		if (shiftStore.currentProfile?.hide_unavailable_items) {
+			itemsWithStock = itemsWithStock.filter(item =>
+				item.is_stock_item === 0 || item.is_bundle || item.original_stock > 0
+			)
+		}
 
 		// Step 5: Conditional sorting - only sort when user explicitly triggers a sort filter
 		// This optimizes performance by avoiding unnecessary sorting on every render
