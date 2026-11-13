@@ -1157,12 +1157,17 @@ def get_items(pos_profile, search_term=None, item_group=None, start=0, limit=20,
 		# Global items (custom_company is empty) are available to all companies
 
 		# Build base conditions
-		exclude_variants = not int(include_variants)
+		# When searching, list the sellable variants themselves instead of their
+		# template: the template row is dropped and each variant is its own result.
+		is_search = bool(effective_search_term and effective_search_term.strip())
+		exclude_variants = not int(include_variants) and not is_search
 		hide_unavailable = getattr(pos_profile_doc, "hide_unavailable_items", 0)
 		conditions, params, extra_joins = _build_item_base_conditions(
 			pos_profile_doc, item_group, exclude_variants=exclude_variants,
 			hide_unavailable=hide_unavailable, warehouse=pos_profile_doc.warehouse,
 		)
+		if is_search and not int(include_variants):
+			conditions.append("i.has_variants = 0")
 
 		# Build column list with table alias
 		item_columns = ",\n\t".join([f"i.{col}" for col in ITEM_RESULT_FIELDS])

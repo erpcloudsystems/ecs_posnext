@@ -531,8 +531,10 @@ async function searchCachedItems(searchTerm = "", limit = 50, offset = 0) {
 		// in code / name / description. Prefix matches are ranked first below.
 		// Scans the whole cache: a prefix-only index lookup missed words in the
 		// middle of the name, and a capped sample missed items past the cap.
+		// Templates (has_variants) are left out of search: their variants are
+		// listed individually instead (matches the server's get_items search).
 		const allItems = await db.table("items")
-			.filter(item => !item.disabled)
+			.filter(item => !item.disabled && !item.has_variants)
 			.toArray()
 
 		const results = allItems
