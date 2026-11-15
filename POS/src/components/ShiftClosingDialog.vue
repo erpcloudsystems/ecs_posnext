@@ -627,18 +627,10 @@ async function submitClosing() {
       printClosingShift(result.name)
     }
 
-    // If hideExpectedAmount is enabled, show success report before closing
-    if (hideExpectedAmount.value) {
-      showSuccessReport.value = true
-      // Auto-expand invoice details in success report
-      if (invoiceCount.value > 0 && invoiceCount.value <= 10) {
-        showInvoiceDetails.value = true
-      }
-    } else {
-      // Normal mode: close immediately
-      emit("shift-closed")
-      closeDialog()
-    }
+    // Close immediately; the success report is skipped so expected amounts
+    // stay hidden from the cashier when hideExpectedAmount is enabled
+    emit("shift-closed")
+    closeDialog()
   } catch (error) {
     console.error("Error submitting closing shift:", error)
     errorMessage.value = 'Failed to close shift. Please verify all amounts and try again.'
