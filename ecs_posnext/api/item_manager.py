@@ -450,9 +450,14 @@ def get_editor_variants(template_item):
 			if val not in attr_summary[attr]:
 				attr_summary[attr].append(val)
 
+	packaging_map = _get_packaging_map(variant_codes)
+
 	result_variants = []
 	for v in variants:
 		result_variants.append({
+			# The variant's OWN packaging. Empty lists mean it has none and the POS
+			# uses the template's packaging (invoices._get_item_packaging).
+			"packaging": packaging_map.get(v.item_code, {"dinein": [], "takeaway": []}),
 			"item_code": v.item_code,
 			"item_name": v.item_name,
 			"standard_rate": v.standard_rate or 0,
@@ -469,6 +474,101 @@ def get_editor_variants(template_item):
 	attributes = [{"attribute": attr, "values": vals} for attr, vals in attr_summary.items()]
 
 	return {"variants": result_variants, "attributes": attributes}
+
+
+# =============================================================================
+# Variant packaging
+# =============================================================================
+# A variant either has its OWN packaging rows, or none — then the POS issues the
+# template's packaging (invoices._get_item_packaging). Sizes often need different
+# containers (e.g. Medium vs Large), so template packaging is never copied onto
+# variants automatically: the editor shows each variant's state and the user decides.
+
+def _get_packaging_map(item_codes):
+	"""{item_code: {"dinein": [...], "takeaway": [...]}} for items that have rows.
+
+	Takeaway / Delivery / Talabat are one list in the editor (saved to both
+	packaging_takeaway and packaging_delivery); packaging_delivery is only read when
+	an item has no takeaway rows (items saved before the two were merged)."""
+	if not item_codes:
+		return {}
+	rows = frappe.get_all(
+		"POS Packaging Item",
+		filters={"parenttype": "Item", "parent": ["in", list(item_codes)]},
+		fields=["parent", "parentfield", "item_code", "qty", "uom"],
+		order_by="parent asc, parentfield asc, idx asc",
+	)
+	raw = {}
+	for r in rows:
+		raw.setdefault(r.parent, {}).setdefault(r.parentfield, []).append(
+			{"item_code": r.item_code, "qty": flt(r.qty) or 1, "uom": r.uom or None}
+		)
+	out = {}
+	for code, fields in raw.items():
+		out[code] = {
+			"dinein": fields.get("packaging_dinein", []),
+			"takeaway": fields.get("packaging_takeaway") or fields.get("packaging_delivery", []),
+		}
+	return out
+
+
+def _clean_packaging_rows(rows):
+	return [
+		# uom is kept as-is: the POS converts qty with it (invoices._append_packaging_items).
+		{"item_code": r.get("item_code"), "qty": flt(r.get("qty")) or 1, "uom": r.get("uom") or None}
+		for r in (rows or [])
+		if r.get("item_code")
+	]
+
+
+@frappe.whitelist()
+def save_variant_packaging(template_item, variants):
+	"""Save the packaging of several variants of one template.
+
+	variants: [{item_code, follow_template, dinein: [{item_code, qty}], takeaway: [...]}]
+	  * follow_template = 1 → the variant's own rows are removed, so the POS uses the
+	    template's packaging for it.
+	  * otherwise the variant gets exactly the given rows (takeaway is also written
+	    to packaging_delivery, which Talabat reads).
+	Only variants whose packaging actually changes are saved.
+	"""
+	if isinstance(variants, str):
+		variants = json.loads(variants)
+	frappe.has_permission("Item", "write", throw=True)
+
+	codes = [v.get("item_code") for v in variants or [] if v.get("item_code")]
+	belongs = set(
+		frappe.get_all("Item", filters={"name": ["in", codes], "variant_of": template_item}, pluck="name")
+	) if codes else set()
+
+	current = _get_packaging_map(codes)
+	updated, unchanged = [], []
+	for v in variants or []:
+		code = v.get("item_code")
+		if not code:
+			continue
+		if code not in belongs:
+			frappe.throw(_("{0} is not a variant of {1}").format(code, template_item))
+
+		if frappe.utils.cint(v.get("follow_template")):
+			dinein, takeaway = [], []
+		else:
+			dinein = _clean_packaging_rows(v.get("dinein"))
+			takeaway = _clean_packaging_rows(v.get("takeaway"))
+
+		have = current.get(code, {"dinein": [], "takeaway": []})
+		if have["dinein"] == dinein and have["takeaway"] == takeaway:
+			unchanged.append(code)
+			continue
+
+		doc = frappe.get_doc("Item", code)
+		doc.set("packaging_dinein", dinein)
+		doc.set("packaging_takeaway", takeaway)
+		doc.set("packaging_delivery", [dict(r) for r in takeaway])
+		doc.save()
+		updated.append(code)
+
+	return {"updated": updated, "unchanged": unchanged}
 
 
 @frappe.whitelist()

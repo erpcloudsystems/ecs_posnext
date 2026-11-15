@@ -281,6 +281,13 @@
 												<button @click="openVariantPricesDialog(row.variant)" class="p-1.5 rounded-lg hover:bg-green-50 text-green-600" :title="__('الأسعار')">
 													<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
 												</button>
+												<!-- Packaging: amber = own packaging (replaces the template's), grey = follows the template -->
+												<button v-if="row.variant.isExisting" @click="openVariantPackagingDialog(row.variant)"
+													:class="['p-1.5 rounded-lg relative', row.variant.pkgOwn ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100']"
+													:title="row.variant.pkgOwn ? __('التغليف: خاص بالمتغير') : __('التغليف: مثل الصنف الأساسي')">
+													<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
+													<span v-if="row.variant.pkgDirty" class="absolute -top-0.5 -end-0.5 w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+												</button>
 												<button @click="openRecipeDialog(row.variant)" :disabled="!row.variant.item_code" class="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 disabled:opacity-30" :title="__('الوصفة')">
 													<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
 												</button>
@@ -532,6 +539,19 @@
 					<!-- Packaging -->
 					<div class="mt-4">
 						<div class="text-sm font-bold text-slate-800 mb-3 pb-2 border-b-2 border-gray-200">{{ __('مواد التغليف') }}</div>
+						<!-- Variants whose own packaging replaces this one in the POS -->
+						<div v-if="hasVariants && variantsWithOwnPackaging.length" class="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+							<div class="font-semibold mb-1">
+								{{ __('{0} متغير ليهم تغليف خاص — تغليف الصنف الأساسي مش بيتطبق عليهم').replace('{0}', variantsWithOwnPackaging.length) }}
+							</div>
+							<div class="text-[11px] text-amber-700 mb-2 leading-relaxed">
+								{{ variantsWithOwnPackaging.map((v) => v.name).join('، ') }}
+							</div>
+							<div class="text-[11px] text-amber-700 mb-2">{{ __('عدّل تغليف كل متغير من زر التغليف بجانبه، أو:') }}</div>
+							<button @click="makeAllVariantsFollowTemplate" class="w-full py-1.5 rounded-lg border border-amber-400 bg-white text-amber-800 font-semibold hover:bg-amber-100">
+								{{ __('خلّي كل المتغيرات تستخدم تغليف الصنف الأساسي') }}
+							</button>
+						</div>
 						<div v-for="pt in packagingTypes" :key="pt.key" class="rounded-lg border border-gray-200 mb-2 overflow-hidden">
 							<button @click="packagingOpen[pt.key]=!packagingOpen[pt.key]" class="w-full flex items-center justify-between px-3 py-2.5 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700">
 								<span class="flex items-center gap-2">{{ pt.icon }} {{ pt.label }} <span v-if="getPackagingList(pt.key).length" class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full text-[10px]">{{ getPackagingList(pt.key).length }}</span></span>
@@ -722,6 +742,76 @@
 				<div class="p-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
 					<button @click="showVariantPricesDialog=false" class="px-5 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-200 rounded-xl transition-colors">{{ __('إلغاء') }}</button>
 					<button @click="saveVariantPrices" class="px-6 py-2 bg-slate-800 text-white text-sm font-semibold rounded-xl hover:bg-slate-900 shadow-lg transition-all">{{ __('حفظ الأسعار') }}</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Variant Packaging Dialog -->
+		<div v-if="showVariantPackagingDialog" class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+			<div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden text-right" dir="rtl">
+				<div class="bg-slate-800 p-5 flex items-center justify-between text-white">
+					<div>
+						<h3 class="font-bold">{{ __('تغليف المتغير') }}</h3>
+						<p class="text-[11px] text-slate-300">{{ currentVariantForPackaging?.name }} <span dir="ltr" class="text-slate-400">({{ currentVariantForPackaging?.item_code }})</span></p>
+					</div>
+					<button @click="showVariantPackagingDialog=false" class="p-2 hover:bg-slate-700 rounded-full"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+				</div>
+				<div class="p-5 max-h-[60vh] overflow-y-auto">
+					<!-- Follow template / own -->
+					<label class="flex items-start gap-2 mb-2 cursor-pointer">
+						<input type="radio" :checked="!variantPackagingDraft.own" @change="setVariantPackagingOwn(false)" class="mt-0.5"/>
+						<span class="text-xs">
+							<span class="font-semibold text-gray-800">{{ __('مثل الصنف الأساسي') }}</span>
+							<span class="block text-[11px] text-gray-500">{{ __('الـ POS يصرف تغليف الصنف الأساسي لهذا المتغير') }}</span>
+						</span>
+					</label>
+					<label class="flex items-start gap-2 mb-4 cursor-pointer">
+						<input type="radio" :checked="variantPackagingDraft.own" @change="setVariantPackagingOwn(true)" class="mt-0.5"/>
+						<span class="text-xs">
+							<span class="font-semibold text-gray-800">{{ __('تغليف خاص بالمتغير') }}</span>
+							<span class="block text-[11px] text-gray-500">{{ __('مثلاً علبة مقاس مختلف — يحل محل تغليف الصنف الأساسي') }}</span>
+						</span>
+					</label>
+
+					<!-- Template packaging (read-only) when following it -->
+					<div v-if="!variantPackagingDraft.own" class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs space-y-1.5">
+						<div v-for="pt in packagingTypes" :key="pt.key">
+							<span class="font-semibold text-gray-700">{{ pt.icon }} {{ pt.label }}:</span>
+							<span class="text-gray-600"> {{ packagingSummary(getPackagingList(pt.key)) || __('لا يوجد') }}</span>
+						</div>
+					</div>
+
+					<!-- Own packaging lists -->
+					<template v-else>
+						<div v-for="pt in packagingTypes" :key="pt.key" class="mb-3">
+							<div class="text-xs font-semibold text-gray-700 mb-1.5">{{ pt.icon }} {{ pt.label }}</div>
+							<div v-for="(pkg,idx) in variantPackagingList(pt.key)" :key="idx" class="mb-2 rounded-lg border border-gray-100 bg-gray-50/60 p-2">
+								<div class="mb-1.5">
+									<SelectInput
+										v-model="pkg.item_code"
+										:options="packagingOptions"
+										:searchable="true"
+										:search-placeholder="__('ابحث عن صنف...')"
+										:placeholder="__('اختر')"
+										:no-results-text="__('لا يوجد نتائج')"
+									/>
+								</div>
+								<div class="flex items-center gap-2">
+									<span class="text-[10px] text-gray-400">{{ __('الكمية') }}</span>
+									<input v-model.number="pkg.qty" type="number" min="1" class="form-input !py-1 text-xs w-16" dir="ltr"/>
+									<button @click="variantPackagingList(pt.key).splice(idx,1)" class="ms-auto p-1 text-red-500 hover:bg-red-50 rounded"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+								</div>
+							</div>
+							<button @click="variantPackagingList(pt.key).push({ item_code: '', qty: 1 })" class="text-xs text-blue-600 hover:underline">+ {{ __('إضافة') }}</button>
+						</div>
+					</template>
+				</div>
+				<div class="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-3">
+					<span class="text-[10px] text-gray-400">{{ __('يتم الحفظ مع حفظ الصنف') }}</span>
+					<div class="flex gap-2">
+						<button @click="showVariantPackagingDialog=false" class="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-200 rounded-xl">{{ __('إلغاء') }}</button>
+						<button @click="applyVariantPackaging" class="px-5 py-2 bg-slate-800 text-white text-sm font-semibold rounded-xl hover:bg-slate-900">{{ __('تم') }}</button>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -1084,6 +1174,75 @@ function getPackagingList(key) {
 }
 
 function addPackaging(key) { getPackagingList(key).push({ item_code: "", qty: 1, uom: "Unit" }) }
+
+// ── Variant packaging ────────────────────────────────────────────────────────
+// A variant with its own packaging rows does NOT get the template's packaging in
+// the POS. Sizes often need different containers, so nothing is copied onto
+// variants automatically — the editor shows which variants have their own and lets
+// the user switch each one (or all) to follow the template.
+const variantsWithOwnPackaging = computed(() =>
+	product.variants.filter((v) => v.isExisting && v.pkgOwn)
+)
+
+function packagingRowsPayload(rows) {
+	return (rows || []).filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty || 1, uom: p.uom || null }))
+}
+
+function packagingSummary(rows) {
+	return (rows || []).filter((p) => p.item_code).map((p) => {
+		const pi = packagingItems.value.find((i) => i.item_code === p.item_code)
+		return `${pi?.item_name || p.item_code} ×${p.qty || 1}`
+	}).join("، ")
+}
+
+function makeAllVariantsFollowTemplate() {
+	const n = variantsWithOwnPackaging.value.length
+	if (!n) return
+	if (!window.confirm(__("سيتم حذف التغليف الخاص من {0} متغير، وسيستخدموا تغليف الصنف الأساسي. يتم التطبيق عند الحفظ. متابعة؟").replace("{0}", n))) return
+	for (const v of variantsWithOwnPackaging.value) {
+		v.pkgOwn = false; v.pkgDinein = []; v.pkgTakeaway = []; v.pkgDirty = true
+	}
+	showMessage(__("سيتم التطبيق عند الحفظ"))
+}
+
+const showVariantPackagingDialog = ref(false)
+const currentVariantForPackaging = ref(null)
+const variantPackagingDraft = reactive({ own: false, dinein: [], takeaway: [] })
+
+function openVariantPackagingDialog(variant) {
+	currentVariantForPackaging.value = variant
+	variantPackagingDraft.own = !!variant.pkgOwn
+	variantPackagingDraft.dinein = (variant.pkgDinein || []).map((p) => ({ ...p }))
+	variantPackagingDraft.takeaway = (variant.pkgTakeaway || []).map((p) => ({ ...p }))
+	showVariantPackagingDialog.value = true
+}
+
+function setVariantPackagingOwn(own) {
+	variantPackagingDraft.own = own
+	// Switching to its own packaging starts from the template's rows, so the user
+	// only changes what differs (e.g. the container size).
+	if (own && !variantPackagingDraft.dinein.length && !variantPackagingDraft.takeaway.length) {
+		variantPackagingDraft.dinein = product.packaging_dinein.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty || 1 }))
+		variantPackagingDraft.takeaway = product.packaging_takeaway.filter((p) => p.item_code).map((p) => ({ item_code: p.item_code, qty: p.qty || 1 }))
+	}
+}
+
+function variantPackagingList(key) {
+	return key === "dinein" ? variantPackagingDraft.dinein : variantPackagingDraft.takeaway
+}
+
+function applyVariantPackaging() {
+	const v = currentVariantForPackaging.value
+	if (!v) return
+	const dinein = variantPackagingDraft.own ? variantPackagingDraft.dinein.filter((p) => p.item_code) : []
+	const takeaway = variantPackagingDraft.own ? variantPackagingDraft.takeaway.filter((p) => p.item_code) : []
+	// "Own" with no rows at all is the same as following the template.
+	v.pkgOwn = !!(dinein.length || takeaway.length)
+	v.pkgDinein = dinein
+	v.pkgTakeaway = takeaway
+	v.pkgDirty = true
+	showVariantPackagingDialog.value = false
+}
 
 // =========================================================================
 // Attributes
@@ -1686,6 +1845,12 @@ async function loadVariants() {
 			attributes: v.attributes || {},
 			show_bundle: v.enabled_item_bundle === 1,
 			disabled: !!v.disabled,
+			// Own packaging: when the variant has rows, they REPLACE the template's
+			// packaging in the POS; with none, the POS uses the template's.
+			pkgOwn: !!((v.packaging?.dinein || []).length || (v.packaging?.takeaway || []).length),
+			pkgDinein: (v.packaging?.dinein || []).map((p) => ({ ...p })),
+			pkgTakeaway: (v.packaging?.takeaway || []).map((p) => ({ ...p })),
+			pkgDirty: false,
 		}
 	})
 }
@@ -1877,6 +2042,25 @@ async function saveStandardWithVariants() {
 			method: "ecs_posnext.api.item_manager.bulk_update_variant_rates",
 			args: { variants: existingToUpdate },
 		})
+	}
+
+	// Packaging of existing variants that was changed in the variant packaging dialog
+	// (or by "make all follow the template"). Untouched variants are not sent.
+	const pkgChanged = product.variants.filter((v) => v.isExisting && v.pkgDirty)
+	if (pkgChanged.length > 0) {
+		await frappeCall({
+			method: "ecs_posnext.api.item_manager.save_variant_packaging",
+			args: {
+				template_item: product.item_code,
+				variants: pkgChanged.map((v) => ({
+					item_code: v.item_code,
+					follow_template: v.pkgOwn ? 0 : 1,
+					dinein: v.pkgOwn ? packagingRowsPayload(v.pkgDinein) : [],
+					takeaway: v.pkgOwn ? packagingRowsPayload(v.pkgTakeaway) : [],
+				})),
+			},
+		})
+		pkgChanged.forEach((v) => { v.pkgDirty = false })
 	}
 }
 
