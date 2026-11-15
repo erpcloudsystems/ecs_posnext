@@ -30,6 +30,58 @@ def get_ticket_item_codes():
     return frappe.get_all("Ticket Settings", filters={"item": ["is", "set"]}, pluck="item", distinct=True)
 
 
+def _photo_required_item_codes():
+    """Ticket items that are memberships: a kid photo is mandatory for each ticket.
+
+    Membership = Item.custom_item_type "Subscription", Item.custom_type_of_item_
+    "Membership", or an item group whose name contains Membership/Subscription.
+    Only items with Ticket Settings count (the photo lands on the ticket), which
+    also keeps service items like TICKET-RENEWAL / PARTY-DEPOSIT out.
+    """
+    return frappe.db.sql_list(
+        """
+        SELECT DISTINCT i.name
+        FROM `tabItem` i
+        JOIN `tabTicket Settings` ts ON ts.item = i.name
+        WHERE i.custom_item_type = 'Subscription'
+           OR i.custom_type_of_item_ = 'Membership'
+           OR i.item_group LIKE '%%Membership%%'
+           OR i.item_group LIKE '%%Subscription%%'
+        """
+    )
+
+
+@frappe.whitelist()
+def get_kid_photo_items():
+    """For the POS cart: which items show the photo button, and which require it."""
+    return {
+        "ticket_items": get_ticket_item_codes(),
+        "photo_required": _photo_required_item_codes(),
+    }
+
+
+def validate_required_kid_photos(invoice):
+    """POS checkout: every ticket of a membership item must have a kid photo.
+
+    `invoice` is the raw invoice dict from the POS (items carry `kid_photos`).
+    """
+    required = set(_photo_required_item_codes())
+    if not required:
+        return
+    missing = []
+    for row in invoice.get("items") or []:
+        if row.get("posa_is_offer") or row.get("item_code") not in required:
+            continue
+        qty = max(cint(row.get("qty")), 0)
+        if len(_row_photos(row)) < qty:
+            missing.append(row.get("item_name") or row.get("item_code"))
+    if missing:
+        frappe.throw(
+            _("Kid photo is required for each membership ticket: {0}").format(", ".join(missing)),
+            title=_("Kid Photo Required"),
+        )
+
+
 @frappe.whitelist()
 def upload_kid_photo(data_url, filename=None):
     """Save a captured/uploaded photo (data URL) as a private File; returns its URL."""

@@ -946,6 +946,23 @@
 										}}
 									</div>
 								</div>
+								<!-- Kid photo (ticket items; mandatory for membership items) -->
+								<button
+									v-if="!item.posa_is_offer && kidPhoto.ticketItems.value.has(item.item_code)"
+									type="button"
+									@click.stop="openKidPhoto(item)"
+									:class="[
+										'inline-flex items-center gap-0.5 px-1.5 h-5 rounded-full text-[9px] font-bold flex-shrink-0 me-1',
+										kidPhoto.photoCount(item) >= kidPhoto.ticketCount(item)
+											? 'bg-green-100 text-green-700 border border-green-300'
+											: kidPhoto.isPhotoRequired(item)
+												? 'bg-red-100 text-red-700 border border-red-300 animate-pulse'
+												: 'bg-blue-50 text-blue-700 border border-blue-200',
+									]"
+									:title="kidPhoto.isPhotoRequired(item) ? __('Kid photo required') : __('Kid Photo')"
+								>
+									📷 {{ kidPhoto.photoCount(item) }}/{{ kidPhoto.ticketCount(item) }}<span v-if="kidPhoto.isPhotoRequired(item)">*</span>
+								</button>
 								<button
 									type="button"
 									@click.stop="$emit('remove-item', item.item_code, item.uom, item.posa_row_id)"
@@ -1347,6 +1364,8 @@
 			@update-item="handleUpdateItem"
 		/>
 
+		<KidPhotoDialog v-model="showKidPhotoDialog" :item="kidPhotoItem" />
+
 	</div>
 </template>
 
@@ -1378,6 +1397,9 @@ import { createResource } from "frappe-ui"
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue"
 import EditItemDialog from "./EditItemDialog.vue"
 import ReservationSelector from "./ReservationSelector.vue"
+import KidPhotoDialog from "./KidPhotoDialog.vue"
+import { useKidPhotoItems } from "@/composables/useKidPhotoItems"
+import { useToast } from "@/composables/useToast"
 
 /**
  * ============================================================================
@@ -1392,7 +1414,36 @@ const loyaltyStore = useLoyaltyStore() // Pinia store for loyalty wallet (points
 const membershipStore = useMembershipStore() // Pinia store for active membership (Subscription ticket) badge
 const { formatQuantity } = useFormatters() // Quantity formatting utilities
 
+/**
+ * Kid photo for ticket items: one photo per ticket, kept on the cart row as
+ * item.kid_photos and copied to the Ticket after submit. Membership items
+ * (see useKidPhotoItems) cannot go to payment until every ticket has a photo.
+ */
+const kidPhoto = useKidPhotoItems()
+const { showWarning: showKidPhotoWarning } = useToast()
+const showKidPhotoDialog = ref(false)
+const kidPhotoItem = ref(null)
+
+function openKidPhoto(item) {
+	kidPhotoItem.value = item
+	showKidPhotoDialog.value = true
+}
+
+onMounted(() => {
+	if (!isOffline()) kidPhoto.load()
+})
+
 function handleProceedToPayment() {
+	const missing = kidPhoto.rowsMissingPhotos(props.items)
+	if (missing.length) {
+		showKidPhotoWarning(
+			__("Kid photo is required for each membership ticket: {0}", [
+				missing.map((i) => i.item_name || i.item_code).join(", "),
+			]),
+		)
+		openKidPhoto(missing[0])
+		return
+	}
 	emit("proceed-to-payment")
 }
 

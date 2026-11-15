@@ -1719,6 +1719,13 @@ def _prepare_invoice_for_submit(invoice=None, data=None, hold_on_error=False):
     offline_id = invoice.get("offline_id") or data.get("offline_id")
     sync_record_name = None
 
+    # POS checkout only (not internal ticket flows, not offline sync, where no
+    # photo could have been taken): membership tickets need a kid photo each.
+    if hold_on_error and not offline_id and not invoice.get("is_return"):
+        from ecs_posnext.api.kid_photos import validate_required_kid_photos
+
+        validate_required_kid_photos(invoice)
+
     if offline_id:
         dedup_result = _ensure_offline_uniqueness(
             offline_id=offline_id,
