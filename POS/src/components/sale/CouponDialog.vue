@@ -173,6 +173,7 @@ import {
 import { Button, Dialog, Input, createResource } from "frappe-ui"
 import { ref, watch } from "vue"
 import { useInvoice } from "@/composables/useInvoice"
+import { usePOSOfferEngineStore } from "@/stores/posOfferEngine"
 import { useToast } from "@/composables/useToast"
 
 // Get calculateDiscountAmount helper from composable
@@ -323,6 +324,49 @@ async function applyCoupon() {
 		}
 
 		const coupon = validationData.coupon
+
+		// Coupon that unlocks a coupon-based "Give Product" POS Offer (BOGO): the
+		// coupon carries no discount of its own, the offer adds the free item.
+		const offerEngine = usePOSOfferEngineStore()
+		const linkedOffer = coupon.pos_offer
+			? offerEngine.posOffers.find((o) => o.name === coupon.pos_offer)
+			: null
+		if (linkedOffer && linkedOffer.coupon_based && linkedOffer.offer === "Give Product") {
+			if (offerEngine.isApplied(linkedOffer)) {
+				errorMessage.value = __("This offer is already applied")
+				showWarning(errorMessage.value)
+				return
+			}
+			const check = offerEngine.checkEligibility(linkedOffer)
+			if (!check.eligible) {
+				const items = [
+					linkedOffer.item,
+					...(linkedOffer.applied_items || []).map((r) => r.item_code),
+				].filter(Boolean)
+				errorMessage.value = items.length
+					? __("Add {0} to the cart to use this coupon ({1})", [
+							[...new Set(items)].join(", "),
+							check.reason || "",
+						])
+					: __("This coupon's offer does not apply to the cart ({0})", [check.reason || ""])
+				showWarning(errorMessage.value)
+				return
+			}
+			appliedDiscount.value = {
+				name: coupon.coupon_name || coupon.coupon_code,
+				code: couponCode.value.toUpperCase(),
+				amount: 0,
+				percentage: 0,
+				type: coupon.discount_type,
+				coupon: coupon,
+				scope: "offer",
+				offerName: linkedOffer.name,
+			}
+			emit("discount-applied", appliedDiscount.value)
+			errorMessage.value = ""
+			return
+		}
+
 		const restriction = coupon.item_restriction
 		// Amount-based Gift Cards redeem against their remaining balance, not their
 		// original face value (discount_amount), so later uses only draw down what's left.

@@ -1,5 +1,7 @@
 import { useInvoice } from "@/composables/useInvoice"
 import { usePOSOffersStore } from "@/stores/posOffers"
+// Circular with posOfferEngine (it imports this store); only used inside functions.
+import { usePOSOfferEngineStore } from "@/stores/posOfferEngine"
 import { usePOSSettingsStore } from "@/stores/posSettings"
 import { usePOSShiftStore } from "@/stores/posShift"
 import { parseError } from "@/utils/errorHandler"
@@ -485,6 +487,22 @@ export const usePOSCartStore = defineStore("posCart", () => {
 			)
 			return
 		}
+		if (discount?.scope === "offer") {
+			// Coupon that unlocks a coupon-based POS Offer (e.g. BOGO "Give Product"):
+			// the coupon itself has no discount, the offer adds the free line.
+			const offerEngine = usePOSOfferEngineStore()
+			const offer = offerEngine.posOffers.find((o) => o.name === discount.offerName)
+			if (!offer) {
+				showError(__("Offer {0} is not available on this POS", [discount.offerName]))
+				return
+			}
+			if (!offerEngine.isApplied(offer)) offerEngine.applyPosOffer(offer)
+			// Puts coupon_code on the invoice so its usage counter is incremented.
+			couponCode.value = discount.code || discount.name
+			appliedCoupon.value = discount
+			showSuccess(__("{0} applied successfully", [discount.name]))
+			return
+		}
 		if (discount?.scope === "items") {
 			// Coupon linked to a POS Offer with "Apply Rule On Item Code" - discount
 			// only the matching lines (same convention as posOfferEngine's Item
@@ -514,6 +532,14 @@ export const usePOSCartStore = defineStore("posCart", () => {
 					appliedCoupon.value.pointsPercentage,
 			)
 			// removeDiscount() would have done this on the other branches.
+			couponCode.value = null
+		} else if (appliedCoupon.value?.scope === "offer") {
+			// Drop the free line(s) the coupon's offer added.
+			const offerEngine = usePOSOfferEngineStore()
+			const offer = offerEngine.posOffers.find(
+				(o) => o.name === appliedCoupon.value.offerName,
+			)
+			if (offer && offerEngine.isApplied(offer)) offerEngine.removePosOffer(offer)
 			couponCode.value = null
 		} else if (appliedCoupon.value?.scope === "items") {
 			clearItemCodeDiscount(appliedCoupon.value.itemCodes)

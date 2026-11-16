@@ -217,8 +217,11 @@ export const usePOSOfferEngineStore = defineStore("posOfferEngine", () => {
 				apply_on: "Grand Total",
 			})
 		} else if (offer.offer === "Give Product") {
-			const giveCode = offer.give_item || offer.apply_item_code
 			const qualifying = matchingItems(offer)[0]
+			// No give item configured (e.g. "Replace Item" BOGO offers): give the
+			// qualifying item itself.
+			const giveCode =
+				offer.give_item || offer.apply_item_code || qualifying?.item_code
 			if (giveCode && qualifying) {
 				// The free line is always sold at 0. rate_give_item is NOT a selling
 				// price: ecs_vim's make_item_gl_entries uses it to move that much income
