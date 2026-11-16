@@ -62,7 +62,7 @@ def get_customers(search_term="", pos_profile=None, limit=20, modified_since=Non
 
 
 @frappe.whitelist()
-def create_customer(customer_name, mobile_no=None, email_id=None, customer_group="أفراد", territory="All Territories", company=None, op_id=None):
+def create_customer(customer_name, mobile_no=None, email_id=None, customer_group="أفراد", territory="All Territories", company=None, op_id=None, custom_birthday=None):
     """
     Create a new customer from POS.
 
@@ -73,6 +73,7 @@ def create_customer(customer_name, mobile_no=None, email_id=None, customer_group
         customer_group (str): Customer group (default: أفراد)
         territory (str): Territory (default: All Territories)
         company (str): Company (optional, used to auto-assign loyalty program)
+        custom_birthday (str): Birthday as DD-MM, day and month only (optional)
         op_id (str): Offline operation id — makes creation idempotent on re-sync
 
     Returns:
@@ -108,6 +109,7 @@ def create_customer(customer_name, mobile_no=None, email_id=None, customer_group
             "mobile_no": mobile_no or "",
             "email_id": email_id or "",
             "loyalty_program": loyalty_program,
+            "custom_birthday": custom_birthday or "",
         }
     )
 

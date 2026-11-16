@@ -127,6 +127,7 @@
 								<div class="flex-1 min-w-0 text-center">
 									<div class="text-sm font-semibold text-gray-900">{{ item.item_name }}</div>
 									<div class="text-xs text-gray-500">{{ item.item_code }}</div>
+									<div v-if="item.custom_sales_person" class="text-xs text-purple-600 mt-0.5">{{ __('Sales Person') }}: {{ item.custom_sales_person }}</div>
 								</div>
 							</div>
 							<!-- Details Grid -->
@@ -156,6 +157,7 @@
 							<thead class="bg-gray-50">
 								<tr>
 									<th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">{{ __('Item') }}</th>
+									<th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">{{ __('Sales Person') }}</th>
 									<th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">{{ __('Qty') }}</th>
 									<th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">{{ __('Rate') }}</th>
 									<th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">{{ __('Discount') }}</th>
@@ -168,6 +170,7 @@
 										<div class="text-sm font-medium text-gray-900">{{ item.item_name }}</div>
 										<div class="text-xs text-gray-500">{{ item.item_code }}</div>
 									</td>
+									<td class="px-4 py-3 text-center text-sm text-gray-900">{{ item.custom_sales_person || '-' }}</td>
 									<td class="px-4 py-3 text-center text-sm text-gray-900">{{ item.quantity }}</td>
 									<td class="px-4 py-3 text-center text-sm text-gray-900">{{ formatCurrency(item.rate) }}</td>
 									<td class="px-4 py-3 text-center text-sm text-gray-600">
@@ -262,7 +265,8 @@
 				<Button variant="subtle" @click="show = false">
 					{{ __('Close') }}
 				</Button>
-				<Button @click="handlePrint">
+				<!-- Print button hidden (kept for easy re-enable) -->
+				<Button v-if="false" @click="handlePrint">
 					<template #prefix>
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>

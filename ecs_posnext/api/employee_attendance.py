@@ -176,7 +176,12 @@ def get_employees(date: str | datetime.date, company: str | None = None, branch:
 				"shift",
 				"late_entry",
 				"early_exit",
-			],
+			]
+			+ (
+				[WORK_WITHOUT_ATTENDANCE_FIELD]
+				if frappe.get_meta("Attendance").has_field(WORK_WITHOUT_ATTENDANCE_FIELD)
+				else []
+			),
 			filters=attendance_filters,
 			order_by="employee_name",
 		)
@@ -302,6 +307,10 @@ HALF_DAY_REASONS = {
 	# Marked Absent, then turned up after the shift started: not a full absence after all
 	"late_entry": "Absent",
 }
+
+
+# Attendance checkbox (allow_on_submit): marked Absent, but worked anyway
+WORK_WITHOUT_ATTENDANCE_FIELD = "custom_work_without_attendance"
 
 
 def _find_submitted_attendance(employee: str, attendance_date, company: str | None = None) -> str | None:
@@ -460,5 +469,73 @@ def convert_attendance_to_half_day(
 		)
 
 	frappe.db.commit()
+
+	return {"updated": updated, "skipped": skipped}
+
+
+@frappe.whitelist()
+def mark_work_without_attendance(
+	employee_list: list | str,
+	date: str | datetime.date,
+	company: str | None = None,
+	op_id: str | None = None,
+) -> dict:
+	"""Tick "Work Without Attendance" on a submitted Absent record.
+
+	The one case where a sales person marked Absent works anyway: the record
+	stays Absent (no Half Day, no amendment), but the POS craftsman gate
+	(pos_profile._counts_as_on_shift) treats it as on shift, so the sales person
+	becomes selectable. The field is allow_on_submit, so it is set in place.
+
+	Same role restriction as convert_attendance_to_half_day. Offline-safe: a
+	re-synced op_id is a no-op, and an already-ticked record is skipped.
+	"""
+	import json
+
+	from ecs_posnext.api.offline_ops import create_op_sync_record, ensure_op_once
+
+	_check_half_day_permitted()
+
+	if not frappe.get_meta("Attendance").has_field(WORK_WITHOUT_ATTENDANCE_FIELD):
+		frappe.throw(_("Attendance field {0} is missing. Run bench migrate.").format(WORK_WITHOUT_ATTENDANCE_FIELD))
+
+	if isinstance(employee_list, str):
+		employee_list = json.loads(employee_list)
+
+	if not employee_list:
+		frappe.throw(_("Please select at least one employee."))
+
+	if op_id and ensure_op_once(op_id, "attendance_work_without"):
+		return {"updated": [], "skipped": [], "already_synced": True}
+
+	attendance_date = frappe.utils.getdate(date)
+	updated, skipped = [], []
+
+	for employee in employee_list:
+		name = _find_submitted_attendance(employee, attendance_date, company)
+		if not name:
+			skipped.append({"employee": employee, "message": _("No submitted attendance for this date")})
+			continue
+
+		doc = frappe.get_doc("Attendance", name)
+		if doc.status != "Absent":
+			skipped.append(
+				{
+					"employee": employee,
+					"message": _("Status is {0}, expected {1}").format(_(doc.status), _("Absent")),
+				}
+			)
+			continue
+
+		if doc.get(WORK_WITHOUT_ATTENDANCE_FIELD):
+			skipped.append({"employee": employee, "message": _("Already marked Work Without Attendance")})
+			continue
+
+		doc.db_set(WORK_WITHOUT_ATTENDANCE_FIELD, 1)
+		doc.add_comment("Comment", text=_("Marked Work Without Attendance from POS."))
+		updated.append({"employee": employee, "employee_name": doc.employee_name, "attendance": doc.name})
+
+	if op_id:
+		create_op_sync_record(op_id, "attendance_work_without", "Attendance", f"{len(updated)} marked")
 
 	return {"updated": updated, "skipped": skipped}

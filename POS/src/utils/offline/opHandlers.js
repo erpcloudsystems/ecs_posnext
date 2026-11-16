@@ -228,6 +228,18 @@ export const registerOfflineOpHandlers = () => {
 		}),
 	})
 
+	// --- attendance_work_without ------------------------------------------
+	// Ticking "Work Without Attendance" on an Absent day (record stays Absent)
+	registerOpHandler("attendance_work_without", {
+		method:
+			"ecs_posnext.api.employee_attendance.mark_work_without_attendance",
+		buildParams: (data) => ({
+			employee_list: JSON.stringify(data.employee_list || []),
+			date: data.date,
+			company: data.company || null,
+		}),
+	})
+
 	// --- daily_payment ----------------------------------------------------
 	// A payment recorded during an offline-opened shift carries that shift's
 	// temporary name. `pos_opening_shift` is a Link on Daily Payment, so the
@@ -261,6 +273,7 @@ export const registerOfflineOpHandlers = () => {
 			customer_group: data.customer_group || undefined,
 			territory: data.territory || undefined,
 			company: data.company || null,
+			custom_birthday: data.custom_birthday || null,
 		}),
 		onSynced: async (op, refName) => {
 			// The temp name used on invoices is derived deterministically from op_id

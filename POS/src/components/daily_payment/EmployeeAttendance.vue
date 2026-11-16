@@ -85,13 +85,13 @@
 												v-if="entry.shift"
 												class="text-xs font-medium px-2 py-0.5 rounded bg-blue-100 text-blue-700"
 											>
-												{{ entry.shift }}
+												{{ __(entry.shift) }}
 											</span>
 											<span
 												class="text-xs font-semibold px-2 py-0.5 rounded"
 												:class="statusBadgeClass(entry.status)"
 											>
-												{{ entry.status }}
+												{{ __(entry.status) }}
 											</span>
 											<!-- Which correction produced this Half Day -->
 											<span
@@ -101,9 +101,17 @@
 												{{ halfDayNote(entry) }}
 											</span>
 
+											<!-- Absent but worked anyway: record stays Absent -->
+											<span
+												v-if="entry.custom_work_without_attendance"
+												class="text-xs font-medium px-2 py-0.5 rounded bg-indigo-100 text-indigo-700"
+											>
+												{{ __('Work Without Attendance') }}
+											</span>
+
 											<!-- Half Day correction: cancels the record and re-creates it as
 											     an amendment, so it asks before committing -->
-											<template v-if="halfDayReason(entry)">
+											<template v-if="halfDayReason(entry) && !entry.custom_work_without_attendance">
 												<template v-if="confirmingEmployee === entry.employee">
 													<span class="text-xs text-gray-600">{{ __('Mark Half Day?') }}</span>
 													<button
@@ -122,7 +130,7 @@
 													</button>
 												</template>
 												<button
-													v-else
+													v-else-if="confirmingWorkEmployee !== entry.employee"
 													@click="confirmingEmployee = entry.employee"
 													:disabled="converting"
 													class="flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded border border-amber-300 text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-60"
@@ -133,6 +141,37 @@
 														class="w-3 h-3"
 													/>
 													{{ halfDayActionLabel(entry) }}
+												</button>
+											</template>
+
+											<!-- Work Without Attendance: only for Absent, sets a checkbox in place -->
+											<template v-if="entry.status === 'Absent' && !entry.custom_work_without_attendance">
+												<template v-if="confirmingWorkEmployee === entry.employee">
+													<span class="text-xs text-gray-600">{{ __('Mark Work Without Attendance?') }}</span>
+													<button
+														@click="markWorkWithoutAttendance(entry)"
+														:disabled="converting"
+														class="text-xs font-semibold px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-60"
+													>
+														{{ converting ? __('Saving...') : __('Confirm') }}
+													</button>
+													<button
+														@click="confirmingWorkEmployee = null"
+														:disabled="converting"
+														class="text-xs font-semibold px-2 py-1 rounded bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors disabled:opacity-60"
+													>
+														{{ __('Cancel') }}
+													</button>
+												</template>
+												<button
+													v-else-if="confirmingEmployee !== entry.employee"
+													@click="confirmingWorkEmployee = entry.employee; confirmingEmployee = null"
+													:disabled="converting"
+													class="flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 transition-colors disabled:opacity-60"
+													:title="__('Absent, but worked — keep Absent and allow in POS')"
+												>
+													<FeatherIcon name="briefcase" class="w-3 h-3" />
+													{{ __('Work Without Attendance') }}
 												</button>
 											</template>
 										</div>
@@ -265,6 +304,7 @@ const status = ref("")
 // Converting cancels a submitted Attendance record and re-creates it as an
 // amendment, so it is never a single unguarded tap.
 const confirmingEmployee = ref(null)
+const confirmingWorkEmployee = ref(null)
 const converting = ref(false)
 
 // Shift — system-determined (the Shift Type flagged as default), never user-picked.
@@ -298,6 +338,7 @@ function resetState() {
 	status.value = ""
 	loaded.value = false
 	confirmingEmployee.value = null
+	confirmingWorkEmployee.value = null
 }
 
 function handleClose() {
@@ -390,6 +431,46 @@ async function convertToHalfDay(entry) {
 	}
 }
 
+async function markWorkWithoutAttendance(entry) {
+	if (entry?.status !== "Absent" || converting.value) return
+
+	converting.value = true
+	try {
+		const payload = {
+			employee_list: [entry.employee],
+			date: date.value,
+			company: props.company || null,
+		}
+
+		if (isOffline()) {
+			await enqueueOperation("attendance_work_without", payload)
+			showSuccess(__("Work Without Attendance queued — will sync when back online"))
+			entry.custom_work_without_attendance = 1
+			return
+		}
+
+		const result = await call(
+			"ecs_posnext.api.employee_attendance.mark_work_without_attendance",
+			payload,
+		)
+		const skipped = result?.skipped || []
+		if (!result?.updated?.length && skipped.length) {
+			showError(skipped[0].message || __("Attendance could not be changed"))
+		} else {
+			showSuccess(__("Marked Work Without Attendance"))
+			// The sales person becomes selectable in POS
+			emit("marked")
+		}
+		await loadEmployees()
+	} catch (error) {
+		log.error("Error marking work without attendance:", error)
+		showError(error.message || __("Failed to change attendance"))
+	} finally {
+		converting.value = false
+		confirmingWorkEmployee.value = null
+	}
+}
+
 function toggleSelectAll() {
 	selectedEmployees.value = selectAll.value ? unmarked.value.map((e) => e.employee) : []
 }
@@ -458,6 +539,7 @@ async function loadEmployees() {
 	selectAll.value = false
 	status.value = ""
 	confirmingEmployee.value = null
+	confirmingWorkEmployee.value = null
 	try {
 		if (isOffline()) {
 			// Offline: server can't tell us who is already marked, so present the

@@ -373,6 +373,9 @@ def get_sales_persons(pos_profile=None):
 # for the running shift to appear in POS
 CRAFTSMAN_DESIGNATION = "صنايعى"
 
+# Attendance checkbox: Absent, but the sales person worked anyway
+WORK_WITHOUT_ATTENDANCE_FIELD = "custom_work_without_attendance"
+
 
 def _hide_unmarked_craftsmen(sales_persons_list):
 	"""Exclude Sales Persons linked to a non-Active Employee, and those whose
@@ -435,6 +438,11 @@ def _counts_as_on_shift(row):
 	if row.status == "Present":
 		return True
 
+	# Marked Absent but working anyway (set from the POS attendance screen via
+	# employee_attendance.mark_work_without_attendance): selectable, still Absent
+	if row.status == "Absent":
+		return bool(row.get(WORK_WITHOUT_ATTENDANCE_FIELD))
+
 	return row.status == "Half Day" and not row.early_exit
 
 
@@ -458,15 +466,21 @@ def _get_employees_present_now(employee_ids):
 	# Requires read on Attendance for the POS user's role; POSNext Cashier gets it
 	# from the app's Custom DocPerm fixtures. Without it this raises, and the
 	# PermissionError is swallowed by get_sales_persons into an empty picker.
+	fields = ["employee", "attendance_date", "shift", "status", "late_entry", "early_exit"]
+	statuses = ["Present", "Half Day"]
+	if frappe.get_meta("Attendance").has_field(WORK_WITHOUT_ATTENDANCE_FIELD):
+		fields.append(WORK_WITHOUT_ATTENDANCE_FIELD)
+		statuses.append("Absent")
+
 	attendance_rows = frappe.get_list(
 		"Attendance",
 		filters={
 			"employee": ["in", employee_ids],
 			"attendance_date": ["between", [frappe.utils.add_days(today, -1), today]],
-			"status": ["in", ["Present", "Half Day"]],
+			"status": ["in", statuses],
 			"docstatus": 1,
 		},
-		fields=["employee", "attendance_date", "shift", "status", "late_entry", "early_exit"],
+		fields=fields,
 	)
 
 	present = set()
@@ -755,3 +769,39 @@ def delete_pos_profile(pos_profile):
 	"""
 	pos_profile = frappe.get_doc("POS Profile", pos_profile)
 	pos_profile.delete()
+
+@frappe.whitelist()
+def get_sales_person_invoice_counts(pos_opening_shift=None):
+	"""Number of submitted (non-return) Sales Invoices in the open shift that each
+	sales person is on, either through an item's custom_sales_person or the
+	invoice's sales_team. Returns {sales_person: count}."""
+	if not pos_opening_shift:
+		return {}
+
+	if not frappe.has_permission("POS Opening Shift", "read", pos_opening_shift):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+	params = {"shift": pos_opening_shift}
+	parts = [
+		"""select st.sales_person sp, st.parent inv
+		from `tabSales Team` st
+		join `tabSales Invoice` si on si.name = st.parent and st.parenttype = 'Sales Invoice'
+		where si.posa_pos_opening_shift = %(shift)s and si.docstatus = 1 and si.is_return = 0
+			and ifnull(st.sales_person, '') != ''"""
+	]
+	if frappe.db.has_column("Sales Invoice Item", "custom_sales_person"):
+		parts.append(
+			"""select sii.custom_sales_person sp, sii.parent inv
+			from `tabSales Invoice Item` sii
+			join `tabSales Invoice` si on si.name = sii.parent
+			where si.posa_pos_opening_shift = %(shift)s and si.docstatus = 1 and si.is_return = 0
+				and ifnull(sii.custom_sales_person, '') != ''"""
+		)
+
+	# union (not union all) de-duplicates (sales person, invoice) pairs
+	rows = frappe.db.sql(
+		f"select sp, count(*) cnt from ({' union '.join(parts)}) t group by sp",
+		params,
+		as_dict=True,
+	)
+	return {r.sp: r.cnt for r in rows}

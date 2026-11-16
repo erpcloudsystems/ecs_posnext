@@ -476,6 +476,10 @@ async function updateLocalStock(items) {
  * @param {number} limit - Max results
  * @returns {Promise<Array>} Matching items
  */
+function normalizeArabic(text) {
+	return text.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي")
+}
+
 async function searchCachedItems(searchTerm = "", limit = 50, offset = 0) {
 	const startTime = performance.now()
 
@@ -504,7 +508,8 @@ async function searchCachedItems(searchTerm = "", limit = 50, offset = 0) {
 		}
 
 		const term = searchTerm.toLowerCase().trim()
-		const searchWords = term.split(/\s+/).filter(Boolean)
+		// Arabic letter variants folded (أ/إ/آ→ا, ة→ه, ى→ي) - same as server search
+		const searchWords = normalizeArabic(term).split(/\s+/).filter(Boolean)
 
 		// Exact barcode match short-circuits (scanner input)
 		if (searchWords.length === 1) {
@@ -526,13 +531,15 @@ async function searchCachedItems(searchTerm = "", limit = 50, offset = 0) {
 		// in code / name / description. Prefix matches are ranked first below.
 		// Scans the whole cache: a prefix-only index lookup missed words in the
 		// middle of the name, and a capped sample missed items past the cap.
+		// Templates (has_variants) are left out of search: their variants are
+		// listed individually instead (matches the server's get_items search).
 		const allItems = await db.table("items")
-			.filter(item => !item.disabled)
+			.filter(item => !item.disabled && !item.has_variants)
 			.toArray()
 
 		const results = allItems
 			.map(item => {
-				const searchable = `${item.item_code || ""} ${item.item_name || ""} ${item.description || ""}`.toLowerCase()
+				const searchable = normalizeArabic(`${item.item_code || ""} ${item.item_name || ""} ${item.description || ""}`.toLowerCase())
 
 				// All words must match
 				if (!searchWords.every(word => searchable.includes(word))) {

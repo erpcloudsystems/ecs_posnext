@@ -83,6 +83,24 @@
 						{{ stats[person.name].count }}
 					</span>
 
+					<!-- Invoices this sales person is on in the current shift. Physical
+					     top-left; shifted over when that corner already holds the remove
+					     button (RTL) or the cart item count (LTR) of a selected tile. -->
+					<span
+						v-if="invoiceCounts[person.name]"
+						:class="[
+							'absolute top-1 inline-flex items-center gap-0.5 h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums leading-none text-green-700 bg-green-100 border border-green-200',
+							invoiceBadgeShifted(person.name) ? 'left-7' : 'left-1',
+						]"
+						:title="__('Invoices in this shift: {0}', [invoiceCounts[person.name]])"
+					>
+						<svg class="w-2.5 h-2.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z" />
+							<path stroke-linecap="round" stroke-linejoin="round" d="M9 8h6M9 12h6" />
+						</svg>
+						{{ invoiceCounts[person.name] }}
+					</span>
+
 					<!-- Nickname — no avatar above it, so the name gets the whole tile
 					     and reads at a larger size. Selected tiles pad the sides to stay
 					     clear of the corner remove/count badges. -->
@@ -90,6 +108,7 @@
 						:class="[
 							'w-full min-h-[42px] flex items-center justify-center',
 							isSelected(person.name) ? 'px-4' : 'px-0.5',
+							invoiceCounts[person.name] ? 'pt-4' : '',
 						]"
 					>
 						<span class="text-[13px] font-bold text-gray-900 leading-tight line-clamp-3">
@@ -97,20 +116,26 @@
 						</span>
 					</div>
 
-					<!-- Active label -->
-					<span
-						v-if="isActive(person.name)"
-						class="mt-1 text-[9px] font-bold text-white bg-purple-600 rounded-full px-1.5 py-0.5"
+					<!-- Footer row, in normal flow under the name so nothing overlaps it -->
+					<div
+						v-if="isActive(person.name) || (isSelected(person.name) && stats[person.name]?.amount)"
+						class="mt-1 flex flex-wrap items-center justify-center gap-1"
 					>
-						{{ __("ACTIVE") }}
-					</span>
-					<!-- Amount (selected, non-active) -->
-					<span
-						v-else-if="isSelected(person.name) && stats[person.name]?.amount"
-						class="mt-1 text-[10px] font-semibold text-purple-600"
-					>
-						{{ formatCurrency(stats[person.name].amount) }}
-					</span>
+						<!-- Active label -->
+						<span
+							v-if="isActive(person.name)"
+							class="inline-flex items-center h-5 text-[9px] font-bold text-white bg-purple-600 rounded-md px-1.5"
+						>
+							{{ __("ACTIVE") }}
+						</span>
+						<!-- Amount (selected, non-active) -->
+						<span
+							v-else-if="isSelected(person.name) && stats[person.name]?.amount"
+							class="text-[10px] font-semibold text-purple-600"
+						>
+							{{ formatCurrency(stats[person.name].amount) }}
+						</span>
+					</div>
 				</button>
 			</div>
 		</div>
@@ -128,7 +153,10 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { call } from "frappe-ui"
+import { isOffline } from "@/utils/offline/sync"
+import { useLocale } from "@/composables/useLocale"
 import { usePOSSalesPersonStore } from "@/stores/posSalesPerson"
 import { usePOSCartStore } from "@/stores/posCart"
 import { usePOSShiftStore } from "@/stores/posShift"
@@ -197,7 +225,47 @@ function onTileClick(person) {
 	store.setActive(id)
 }
 
+const { isRTL } = useLocale()
+
+// Is the physical top-left corner of this tile already taken?
+function invoiceBadgeShifted(id) {
+	if (!isSelected(id)) return false
+	return isRTL.value ? true : !!stats.value[id]?.count
+}
+
+// {sales_person: number of submitted invoices in the current shift}
+const invoiceCounts = ref({})
+let refreshTimer = null
+
+async function loadInvoiceCounts() {
+	const shift = shiftStore.currentShift?.name
+	if (!shift || isOffline()) return
+	try {
+		invoiceCounts.value =
+			(await call("ecs_posnext.api.pos_profile.get_sales_person_invoice_counts", {
+				pos_opening_shift: shift,
+			})) || {}
+	} catch {
+		// Badge is informational; keep the last known counts
+	}
+}
+
+// The cart empties after each completed sale, so refresh then (with a short
+// delay for the submit to land), and when the shift changes
+watch(
+	() => cartStore.invoiceItems.length,
+	(len, prev) => {
+		if (len === 0 && prev > 0) setTimeout(loadInvoiceCounts, 1500)
+	},
+)
+watch(() => shiftStore.currentShift?.name, loadInvoiceCounts)
+
 onMounted(() => {
 	store.loadSalesPersons(shiftStore.profileName)
+	loadInvoiceCounts()
+	// Catch invoices made on other terminals in the same shift
+	refreshTimer = setInterval(loadInvoiceCounts, 60000)
 })
+
+onBeforeUnmount(() => clearInterval(refreshTimer))
 </script>

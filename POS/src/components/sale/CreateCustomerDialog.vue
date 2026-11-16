@@ -91,8 +91,31 @@
 					</div>
 				</div>
 
-				<!-- Email -->
+				<!-- Birthday (day + month only, stored as DD-MM) -->
 				<div>
+					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+						{{ __("Birthday") }}
+					</label>
+					<div class="flex gap-2">
+						<select
+							v-model="birthDay"
+							class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+						>
+							<option value="">{{ __("Day") }}</option>
+							<option v-for="d in daysInSelectedMonth" :key="d" :value="d">{{ d }}</option>
+						</select>
+						<select
+							v-model="birthMonth"
+							class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+						>
+							<option value="">{{ __("Month") }}</option>
+							<option v-for="m in MONTHS" :key="m.value" :value="m.value">{{ m.label }}</option>
+						</select>
+					</div>
+				</div>
+
+				<!-- Email (hidden, kept for easy re-enable) -->
+				<div v-show="false">
 					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
 						{{ __("Email") }}
 					</label>
@@ -230,6 +253,31 @@ const countrySearchQuery = ref("")
 const dropdownRef = ref(null)
 const countrySearchRef = ref(null)
 
+// Birthday is day + month only; stored on Customer.custom_birthday as "DD-MM"
+const birthDay = ref("")
+const birthMonth = ref("")
+const MONTHS = [
+	"January", "February", "March", "April", "May", "June",
+	"July", "August", "September", "October", "November", "December",
+].map((name, i) => ({ value: String(i + 1).padStart(2, "0"), label: __(name) }))
+// Feb allows 29 since there is no year
+const MONTH_LENGTHS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+const daysInSelectedMonth = computed(() => {
+	const len = birthMonth.value ? MONTH_LENGTHS[Number(birthMonth.value) - 1] : 31
+	return Array.from({ length: len }, (_, i) => String(i + 1).padStart(2, "0"))
+})
+
+const birthdayValue = computed(() =>
+	birthDay.value && birthMonth.value ? `${birthDay.value}-${birthMonth.value}` : ""
+)
+
+const setBirthdayFromValue = (value) => {
+	const m = /^(\d{2})-(\d{2})$/.exec(value || "")
+	birthDay.value = m ? m[1] : ""
+	birthMonth.value = m ? m[2] : ""
+}
+
 const customerGroups = ref(["Commercial", "Individual", "Non Profit", "Government"])
 const territories = ref(["All Territories"])
 
@@ -346,6 +394,7 @@ const createCustomerResource = createResource({
 			territory: customerData.value.territory || __("All Territories"),
 			mobile_no: customerData.value.mobile_no || "",
 			email_id: customerData.value.email_id || "",
+			custom_birthday: birthdayValue.value,
 		},
 	}),
 	onSuccess: (data) => {
@@ -370,6 +419,9 @@ const updateCustomerResource = createResource({
 			territory: customerData.value.territory || __("All Territories"),
 			mobile_no: customerData.value.mobile_no || "",
 			email_id: customerData.value.email_id || "",
+			...(birthdayValue.value || props.customer?.custom_birthday !== undefined
+				? { custom_birthday: birthdayValue.value }
+				: {}),
 		},
 	}),
 	onSuccess: (data) => {
@@ -462,6 +514,7 @@ const handleCreate = async () => {
 		}
 		const { op_id } = await enqueueOperation("customer", {
 			customer_name: customerData.value.customer_name,
+			custom_birthday: birthdayValue.value,
 			mobile_no: customerData.value.mobile_no || "",
 			email_id: customerData.value.email_id || "",
 			customer_group: customerData.value.customer_group || "أفراد",
@@ -470,6 +523,7 @@ const handleCreate = async () => {
 		const newCust = {
 			name: `OFFLINE-CUST-${op_id}`,
 			customer_name: customerData.value.customer_name,
+			custom_birthday: birthdayValue.value,
 			mobile_no: customerData.value.mobile_no || "",
 			email_id: customerData.value.email_id || "",
 			customer_group: customerData.value.customer_group || "أفراد",
@@ -505,6 +559,7 @@ const resetForm = () => {
 	})
 	selectedCountryCode.value = ""
 	phoneNumber.value = ""
+	setBirthdayFromValue("")
 }
 
 // =============================================================================
@@ -523,6 +578,7 @@ watch(
 		if (customer?.name) {
 			customerData.value.customer_name = customer.customer_name || ""
 			customerData.value.email_id = customer.email_id || ""
+			setBirthdayFromValue(customer.custom_birthday)
 			customerData.value.customer_group = customer.customer_group || "أفراد"
 			customerData.value.territory = customer.territory || "All Territories"
 			// Handle mobile_no with country code
@@ -555,6 +611,11 @@ watch(
 watch(selectedCountryCode, async () => {
 	await nextTick()
 	updateTerritoryFromCountry()
+})
+
+// Clear an impossible day (e.g. 31) when switching to a shorter month
+watch(birthMonth, () => {
+	if (birthDay.value && !daysInSelectedMonth.value.includes(birthDay.value)) birthDay.value = ""
 })
 
 watch(showCountryDropdown, async (isOpen) => {
