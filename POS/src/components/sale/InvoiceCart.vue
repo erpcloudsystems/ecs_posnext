@@ -92,6 +92,21 @@
 
 							<!-- Action Buttons -->
 							<div class="flex items-center gap-0.5 flex-shrink-0" @click.stop>
+								<!-- Customer comments (permanent / temporary); red dot when any is set -->
+								<button
+									type="button"
+									@click.stop="showCustomerComments = true"
+									class="relative w-7 h-7 flex items-center justify-center text-blue-500 hover:bg-blue-50 active:bg-blue-100 rounded-lg transition-colors touch-manipulation"
+									:title="__('Customer Comments')"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8M8 14h5M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4-.84L3 20l1.4-3.72A7.6 7.6 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+									</svg>
+									<span
+										v-if="hasCustomerComments"
+										class="absolute top-0.5 end-0.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white"
+									></span>
+								</button>
 								<button
 									v-if="!isDefaultCompanyCustomer"
 									type="button"
@@ -1366,6 +1381,13 @@
 
 		<KidPhotoDialog v-model="showKidPhotoDialog" :item="kidPhotoItem" />
 
+		<CustomerCommentsDialog
+			v-model="showCustomerComments"
+			:customer="customer?.name || (typeof customer === 'string' ? customer : '')"
+			:customer-label="customer?.customer_name || customer?.name || ''"
+			@saved="(c) => (customerComments = c)"
+		/>
+
 	</div>
 </template>
 
@@ -1398,6 +1420,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue"
 import EditItemDialog from "./EditItemDialog.vue"
 import ReservationSelector from "./ReservationSelector.vue"
 import KidPhotoDialog from "./KidPhotoDialog.vue"
+import CustomerCommentsDialog from "./CustomerCommentsDialog.vue"
+import { call } from "@/utils/apiWrapper"
 import { useKidPhotoItems } from "@/composables/useKidPhotoItems"
 import { useToast } from "@/composables/useToast"
 
@@ -1539,12 +1563,34 @@ const isDefaultCompanyCustomer = computed(
 	() => (props.customer?.customer_name || props.customer?.name) === "VIM ENTERTAINMENT",
 )
 
+// Customer comments (permanent / temporary): cached for the red-dot indicator.
+const showCustomerComments = ref(false)
+const customerComments = ref({ permanent_comment: "", temporary_comment: "" })
+const hasCustomerComments = computed(
+	() => !!(customerComments.value.permanent_comment || customerComments.value.temporary_comment),
+)
+let commentsRequest = 0
+
+async function loadCustomerComments(cust) {
+	const req = ++commentsRequest
+	customerComments.value = { permanent_comment: "", temporary_comment: "" }
+	if (!cust || isOffline()) return
+	try {
+		const res = await call("ecs_posnext.api.customers.get_customer_comments", { customer: cust })
+		// Ignore a late answer for a customer that is no longer selected.
+		if (req === commentsRequest) customerComments.value = res?.message || res || customerComments.value
+	} catch (e) {
+		log.warn?.("Could not load customer comments", e)
+	}
+}
+
 // Load the loyalty wallet whenever the selected customer changes (for the reward card).
 watch(
 	() => props.customer?.name || props.customer,
 	(cust) => {
 		loyaltyStore.loadLoyalty(cust || null)
 		membershipStore.loadMembership(cust || null)
+		loadCustomerComments(cust || null)
 	},
 	{ immediate: true },
 )

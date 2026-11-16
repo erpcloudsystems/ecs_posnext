@@ -304,3 +304,45 @@ def get_customer_details(customer):
         frappe.throw(_("Customer is required"))
 
     return frappe.get_cached_doc("Customer", customer).as_dict()
+
+
+# ---------------------------------------------------------------------------
+# Customer comments (ported from posawesome's Customer.vue)
+#   - Permanent Comment: set from the Customer form, read-only in the POS
+#   - Temporary Comment: the cashier can edit it from the POS
+# Both are Customer custom fields (custom_permanent_comment / custom_temporary_comment).
+# ---------------------------------------------------------------------------
+
+_COMMENT_FIELDS = ("custom_permanent_comment", "custom_temporary_comment")
+
+
+def _comment_fields_available():
+    meta = frappe.get_meta("Customer")
+    return all(meta.has_field(f) for f in _COMMENT_FIELDS)
+
+
+@frappe.whitelist()
+def get_customer_comments(customer):
+    """Permanent + temporary comments of a customer (empty strings when unset)."""
+    if not customer or not _comment_fields_available():
+        return {"permanent_comment": "", "temporary_comment": ""}
+    if not frappe.db.exists("Customer", customer):
+        frappe.throw(_("Customer {0} not found").format(customer))
+    values = frappe.db.get_value("Customer", customer, list(_COMMENT_FIELDS), as_dict=True) or {}
+    return {
+        "permanent_comment": values.get("custom_permanent_comment") or "",
+        "temporary_comment": values.get("custom_temporary_comment") or "",
+    }
+
+
+@frappe.whitelist()
+def save_customer_temporary_comment(customer, comment=None):
+    """Save the temporary comment from the POS (the permanent one stays read-only)."""
+    if not _comment_fields_available():
+        frappe.throw(_("Customer comment fields are not set up on this site"))
+    if not customer or not frappe.db.exists("Customer", customer):
+        frappe.throw(_("Customer {0} not found").format(customer))
+    comment = (comment or "").strip()
+    frappe.db.set_value("Customer", customer, "custom_temporary_comment", comment or None)
+    frappe.db.commit()
+    return {"temporary_comment": comment}

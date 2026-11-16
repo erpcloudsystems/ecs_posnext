@@ -72,14 +72,26 @@
 					class="border border-gray-200 rounded-xl p-4 bg-gray-50"
 				>
 					<div class="flex items-center gap-3 mb-2">
-						<!-- Child photo -->
-						<img
-							v-if="t.image"
-							:src="t.image"
-							alt="ticket"
-							class="w-14 h-14 rounded-lg object-cover border border-gray-200 bg-white flex-shrink-0"
-							@error="t.image = ''"
-						/>
+						<!-- Child photo (click to add / change) -->
+						<button
+							type="button"
+							class="relative w-14 h-14 rounded-lg border border-gray-200 bg-white flex-shrink-0 overflow-hidden flex flex-col items-center justify-center hover:border-blue-400 disabled:opacity-50"
+							:title="t.image ? __('View Kid Photo') : __('Add Kid Photo')"
+							:disabled="t._savingPhoto"
+							@click="t.image ? openPhotoZoom(t) : openTicketPhoto(t)"
+						>
+							<img
+								v-if="t.image"
+								:src="t.image"
+								alt="ticket"
+								class="w-full h-full object-cover"
+								@error="t.image = ''"
+							/>
+							<template v-else>
+								<span class="text-lg leading-none">📷</span>
+								<span class="text-[9px] font-semibold text-blue-700 mt-0.5">{{ __("Add Photo") }}</span>
+							</template>
+						</button>
 						<div class="flex-1 min-w-0">
 							<h3 class="text-sm font-bold text-gray-800 truncate">{{ __("Ticket") }} {{ t.name }}</h3>
 							<p v-if="t.child_name" class="text-xs text-gray-600 truncate">👤 {{ t.child_name }}</p>
@@ -151,6 +163,14 @@
 								@click="printTicket(t.name)"
 							>
 								{{ __("Print") }}
+							</button>
+							<button
+								type="button"
+								class="h-9 px-4 text-xs font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
+								:disabled="t._busy || t._sendingSms"
+								@click="sendTicketSms(t)"
+							>
+								{{ t._sendingSms ? __("Sending...") : __("Send SMS") }}
 							</button>
 							<button
 								type="button"
@@ -396,10 +416,40 @@
 				<p v-if="!serialBeingEdited" class="mt-2 text-[11px] text-gray-500">
 					{{ __("Records a serial only - it does not use one of the ticket's free wristbands.") }}
 				</p>
+				<div
+					v-if="serialBeingEdited && confirmingSerialDelete"
+					class="mt-3 p-2 rounded-lg border border-red-200 bg-red-50 text-[11px] text-red-700"
+				>
+					{{ __("Delete wristband serial {0}? This does not give back a free wristband.", [serialBeingEdited.serial_no]) }}
+				</div>
 			</div>
 		</template>
 		<template #actions>
-			<div class="flex gap-2 w-full">
+			<div v-if="serialBeingEdited && confirmingSerialDelete" class="flex gap-2 w-full">
+				<Button class="flex-1" variant="subtle" @click="confirmingSerialDelete = false">
+					{{ __("Back") }}
+				</Button>
+				<Button
+					class="flex-1"
+					variant="solid"
+					theme="red"
+					:loading="savingSerial"
+					@click="deleteWristbandSerial"
+				>
+					{{ __("Yes, Delete") }}
+				</Button>
+			</div>
+			<div v-else class="flex gap-2 w-full">
+				<Button
+					v-if="serialBeingEdited"
+					class="flex-1"
+					variant="subtle"
+					theme="red"
+					:disabled="savingSerial"
+					@click="confirmingSerialDelete = true"
+				>
+					{{ __("Delete") }}
+				</Button>
 				<Button class="flex-1" variant="subtle" @click="showSerialDialog = false">
 					{{ __("Cancel") }}
 				</Button>
@@ -425,6 +475,76 @@
 	/>
 
 	<!-- Credit card terminal approval (Geidea Web ECR) for a renewal or upgrade -->
+	<!-- Kid photo zoom viewer -->
+	<Dialog
+		v-model="showPhotoZoom"
+		:options="{ title: __('Kid Photo') + (zoomTicket ? ' - ' + zoomTicket.name : ''), size: '3xl' }"
+	>
+		<template #body-content>
+			<div class="flex items-center justify-center gap-2 mb-2">
+				<button
+					type="button"
+					class="h-8 w-8 text-lg font-bold rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-40"
+					:disabled="zoomScale <= ZOOM_MIN"
+					:title="__('Zoom out')"
+					@click="setZoom(zoomScale - ZOOM_STEP)"
+				>
+					−
+				</button>
+				<span class="w-14 text-center text-xs font-semibold text-gray-600">{{ Math.round(zoomScale * 100) }}%</span>
+				<button
+					type="button"
+					class="h-8 w-8 text-lg font-bold rounded-lg border border-gray-300 hover:bg-gray-100 disabled:opacity-40"
+					:disabled="zoomScale >= ZOOM_MAX"
+					:title="__('Zoom in')"
+					@click="setZoom(zoomScale + ZOOM_STEP)"
+				>
+					+
+				</button>
+				<button
+					type="button"
+					class="h-8 px-3 text-xs font-semibold rounded-lg border border-gray-300 hover:bg-gray-100"
+					@click="setZoom(1)"
+				>
+					{{ __("Reset") }}
+				</button>
+			</div>
+			<!-- Scrolls when zoomed in; wheel zooms, click toggles 1x / 2x. -->
+			<div
+				class="h-[65vh] overflow-auto rounded-lg bg-gray-900"
+				@wheel.prevent="setZoom(zoomScale + ($event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP))"
+			>
+				<div class="min-h-full flex items-center justify-center" :style="{ width: zoomScale * 100 + '%' }">
+					<img
+						v-if="zoomTicket?.image"
+						:src="zoomTicket.image"
+						alt="kid"
+						class="max-w-none select-none"
+						:class="zoomScale > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'"
+						:style="{ width: '100%', maxHeight: zoomScale === 1 ? '65vh' : 'none', objectFit: 'contain' }"
+						draggable="false"
+						@click="setZoom(zoomScale > 1 ? 1 : 2)"
+					/>
+				</div>
+			</div>
+		</template>
+		<template #actions>
+			<div class="flex gap-2 w-full">
+				<Button class="flex-1" variant="subtle" @click="showPhotoZoom = false">{{ __("Close") }}</Button>
+				<Button class="flex-1" variant="solid" theme="blue" @click="changePhotoFromZoom">
+					{{ __("Change Photo") }}
+				</Button>
+			</div>
+		</template>
+	</Dialog>
+
+	<!-- Kid photo for an existing ticket (saved straight to the ticket on close) -->
+	<KidPhotoDialog
+		v-model="showTicketPhoto"
+		:item="ticketPhotoDraft"
+		:hint="__('Take or upload the kid photo for ticket {0}. It is saved when you press Done.', [ticketForPhoto?.name])"
+	/>
+
 	<CardApprovalDialog
 		v-model="showCardApproval"
 		:pos-profile="posProfile"
@@ -445,6 +565,7 @@ import { usePOSSettingsStore } from "@/stores/posSettings"
 import { usePOSShiftStore } from "@/stores/posShift"
 import AttendanceDialog from "@/components/sale/AttendanceDialog.vue"
 import CardApprovalDialog from "@/components/sale/CardApprovalDialog.vue"
+import KidPhotoDialog from "@/components/sale/KidPhotoDialog.vue"
 import { formatCurrency } from "@/utils/currency"
 import { printInvoiceByName, printWithSilentFallback } from "@/utils/printInvoice"
 
@@ -491,6 +612,7 @@ const serialBeingEdited = ref(null)
 const ticketForSerial = ref(null)
 const serialInput = ref("")
 const savingSerial = ref(false)
+const confirmingSerialDelete = ref(false)
 const activeTab = ref("active")
 const showUpgradeConfirm = ref(false)
 const ticketToUpgrade = ref(null)
@@ -639,6 +761,79 @@ async function refresh() {
 	if (lastQuery.value) {
 		query.value = lastQuery.value
 		await runSearch()
+	}
+}
+
+// Kid photo on an existing ticket: KidPhotoDialog edits a one-slot draft, and the
+// result is saved to Ticket.image when the dialog closes.
+const showTicketPhoto = ref(false)
+const ticketForPhoto = ref(null)
+const ticketPhotoDraft = ref(null)
+
+// Zoom viewer for an existing kid photo.
+const ZOOM_MIN = 1
+const ZOOM_MAX = 4
+const ZOOM_STEP = 0.25
+const showPhotoZoom = ref(false)
+const zoomTicket = ref(null)
+const zoomScale = ref(1)
+
+function setZoom(value) {
+	zoomScale.value = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 100) / 100))
+}
+
+function openPhotoZoom(t) {
+	zoomTicket.value = t
+	zoomScale.value = 1
+	showPhotoZoom.value = true
+}
+
+function changePhotoFromZoom() {
+	const t = zoomTicket.value
+	showPhotoZoom.value = false
+	if (t) openTicketPhoto(t)
+}
+
+function openTicketPhoto(t) {
+	ticketForPhoto.value = t
+	ticketPhotoDraft.value = { item_name: t.name, quantity: 1, kid_photos: t.image ? [t.image] : [] }
+	showTicketPhoto.value = true
+}
+
+watch(showTicketPhoto, async (open) => {
+	if (open || !ticketForPhoto.value) return
+	const t = ticketForPhoto.value
+	const newUrl = (ticketPhotoDraft.value?.kid_photos || []).filter(Boolean)[0] || ""
+	ticketForPhoto.value = null
+	if (newUrl === (t.image || "")) return
+	t._savingPhoto = true
+	try {
+		await call("ecs_posnext.api.kid_photos.set_ticket_kid_photo", {
+			ticket_name: t.name,
+			file_url: newUrl,
+		})
+		t.image = newUrl
+		showSuccess(newUrl ? __("Kid photo saved on ticket {0}", [t.name]) : __("Kid photo removed from ticket {0}", [t.name]))
+	} catch (e) {
+		console.error("Save kid photo failed", e)
+		showError(parseError(e).message || __("Could not save the kid photo"))
+	} finally {
+		t._savingPhoto = false
+	}
+})
+
+async function sendTicketSms(t) {
+	if (t._sendingSms) return
+	t._sendingSms = true
+	try {
+		const res = await call("ecs_posnext.api.tickets.send_ticket_sms", { ticket_name: t.name })
+		const mobile = (res?.message || res)?.mobile || ""
+		showSuccess(__("Ticket details sent by SMS to {0}", [mobile]))
+	} catch (e) {
+		console.error("Send ticket SMS failed", e)
+		showError(parseError(e).message || __("Could not send the SMS"))
+	} finally {
+		t._sendingSms = false
 	}
 }
 
@@ -940,7 +1135,29 @@ function openWristbandSerial(t, wb) {
 	ticketForSerial.value = t
 	serialBeingEdited.value = wb
 	serialInput.value = wb?.serial_no || ""
+	confirmingSerialDelete.value = false
 	showSerialDialog.value = true
+}
+
+async function deleteWristbandSerial() {
+	if (!serialBeingEdited.value || savingSerial.value) return
+	savingSerial.value = true
+	try {
+		await call("ecs_posnext.api.tickets.delete_wristband_serial", {
+			wristband: serialBeingEdited.value.name,
+		})
+		showSuccess(__("Wristband serial deleted"))
+		showSerialDialog.value = false
+		confirmingSerialDelete.value = false
+		if (ticketForSerial.value) await loadWristbands([ticketForSerial.value])
+	} catch (e) {
+		console.error("Delete wristband serial failed", e)
+		showError(
+			parseError(e).message || __("Could not delete the wristband serial"),
+		)
+	} finally {
+		savingSerial.value = false
+	}
 }
 
 async function saveWristbandSerial() {
