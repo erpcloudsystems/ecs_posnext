@@ -193,6 +193,10 @@ def get_closing_shift_data(opening_shift):
 		# Get the opening shift document
 		opening_shift_doc = frappe.get_doc("POS Opening Shift", opening_shift)
 
+		# Shift was already closed elsewhere (another tab/device or by a manager)
+		if opening_shift_doc.status != "Open":
+			return {"already_closed": True, "pos_closing_shift": opening_shift_doc.pos_closing_shift}
+
 		# Convert to dict with proper datetime serialization
 		opening_shift_dict = opening_shift_doc.as_dict()
 		opening_shift_json = json.dumps(opening_shift_dict, default=str)
@@ -217,6 +221,14 @@ def submit_closing_shift(closing_shift):
 		# If it's a dict, convert to JSON string
 		if isinstance(closing_shift, dict):
 			closing_shift = json.dumps(closing_shift)
+
+		# Shift was already closed elsewhere: report it instead of failing
+		opening_shift = json.loads(closing_shift).get("pos_opening_shift")
+		status, existing_closing = frappe.db.get_value(
+			"POS Opening Shift", opening_shift, ["status", "pos_closing_shift"]
+		) or (None, None)
+		if status and status != "Open":
+			return {"name": existing_closing, "status": "already_closed"}
 
 		result = submit_shift(closing_shift)
 		return {"name": result, "status": "success"}

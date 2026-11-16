@@ -552,6 +552,13 @@ async function loadClosingData() {
       opening_shift: props.openingShift,
     })
 
+    // Shift was already closed elsewhere: finish as if closed here
+    if (data?.already_closed) {
+      emit("shift-closed")
+      closeDialog()
+      return
+    }
+
     // Make payment_reconciliation reactive
     if (data.payment_reconciliation) {
       data.payment_reconciliation = data.payment_reconciliation.map((payment) =>
@@ -622,8 +629,8 @@ async function submitClosing() {
     // Submit to server
     const result = await submitResource.submit({ closing_shift: closingData.value })
 
-    // Print closing shift
-    if (result && result.name) {
+    // Print closing shift (skip if it was already closed elsewhere)
+    if (result && result.name && result.status !== "already_closed") {
       printClosingShift(result.name)
     }
 
