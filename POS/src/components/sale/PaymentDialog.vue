@@ -2859,9 +2859,10 @@ async function completePayment(print) {
 		try {
 			const newCust = await call("ecs_posnext.api.customers.create_customer", {
 				customer_name: customerNameQuery.value.trim(),
-				customer_group: "أفراد",
+				// Backend resolves a valid Customer Group from the POS Profile region
 				territory: "All Territories",
 				mobile_no: customerMobileQuery.value.trim() || "",
+				pos_profile: props.posProfile || "",
 			})
 			resolvedCustomer = newCust
 			selectedCustomer.value = newCust

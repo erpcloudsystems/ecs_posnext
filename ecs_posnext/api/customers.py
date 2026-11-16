@@ -5,6 +5,7 @@ Handles customer search, creation, and management for POS operations
 
 import frappe
 from frappe import _
+from frappe.utils import cint
 
 
 @frappe.whitelist()
@@ -77,15 +78,48 @@ def get_customers(search_term="", pos_profile=None, limit=20, modified_since=Non
         frappe.throw(_("Error fetching customers: {0}").format(str(e)))
 
 
+def _resolve_customer_group(customer_group=None, pos_profile=None):
+    """
+    Return a Customer Group a new customer can be saved under.
+
+    ERPNext rejects group-type Customer Groups ("Cannot select a Group type
+    Customer Group"), and the POS can send one (e.g. "Individual" is a group
+    on VIM) or a name that doesn't exist on the site ("أفراد"). In that case
+    fall back to the POS Profile's region (JED -> Jeddah, RUH -> Riyadh),
+    then to Selling Settings' default customer group.
+    """
+
+    def usable(name):
+        if not name:
+            return False
+        is_group = frappe.db.get_value("Customer Group", name, "is_group")
+        return is_group is not None and not cint(is_group)
+
+    if usable(customer_group):
+        return customer_group
+
+    profile = (pos_profile or "").upper()
+    for marker, region_group in (("JED", "Jeddah"), ("RUH", "Riyadh")):
+        if marker in profile and usable(region_group):
+            return region_group
+
+    default_group = frappe.db.get_single_value("Selling Settings", "customer_group")
+    if usable(default_group):
+        return default_group
+
+    return frappe.db.get_value("Customer Group", {"is_group": 0}, "name", order_by="lft asc")
+
+
 @frappe.whitelist()
 def create_customer(
     customer_name,
     mobile_no=None,
     email_id=None,
-    customer_group="أفراد",
+    customer_group=None,
     territory="All Territories",
     company=None,
     tax_id=None,
+    pos_profile=None,
 ):
     """
     Create a new customer from POS.
@@ -94,14 +128,16 @@ def create_customer(
         customer_name (str): Customer name (required)
         mobile_no (str): Mobile number (optional)
         email_id (str): Email address (optional)
-        customer_group (str): Customer group (default: أفراد)
+        customer_group (str): Customer group (optional; invalid or group-type values fall back by region)
         territory (str): Territory (default: All Territories)
         company (str): Company (optional, used to auto-assign loyalty program)
         tax_id (str): Tax ID (optional)
+        pos_profile (str): Active POS Profile (optional, picks the fallback group by region)
 
     Returns:
         dict: Created (or reactivated) customer document
     """
+    customer_group = _resolve_customer_group(customer_group, pos_profile)
     # Check if user has permission to create customers
     if not frappe.has_permission("Customer", "create"):
         frappe.throw(_("You don't have permission to create customers"), frappe.PermissionError)
@@ -157,7 +193,7 @@ def create_customer(
             "doctype": "Customer",
             "customer_name": customer_name,
             "customer_type": "Individual",
-            "customer_group": customer_group or "أفراد",
+            "customer_group": customer_group,
             "territory": territory or "All Territories",
             "mobile_no": mobile_no or "",
             "email_id": email_id or "",
