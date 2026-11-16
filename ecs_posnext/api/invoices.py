@@ -4097,7 +4097,7 @@ def process_return_by_cancel(invoice_name, returned_items, pos_opening_shift=Non
                 "warehouse": item.warehouse,
                 "uom": item.uom,
                 "conversion_factor": flt(item.conversion_factor or 1),
-                "branch": item.branch,
+                "branch": item.get("branch"),
             })
 
     # Cancel the original invoice
@@ -4144,8 +4144,8 @@ def process_return_by_cancel(invoice_name, returned_items, pos_opening_shift=Non
             "remarks": return_reason or _("Amended from {0}").format(invoice_name),
         }
 
-        if original.branch:
-            new_invoice_data["branch"] = original.branch
+        if original.get("branch"):
+            new_invoice_data["branch"] = original.get("branch")
 
         # Copy sales team
         if original.sales_team:
