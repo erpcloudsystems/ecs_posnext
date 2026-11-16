@@ -120,3 +120,11 @@ def is_wallet_payment_mode(mode_of_payment):
 		return False
 
 	return cint(frappe.get_cached_value("Mode of Payment", mode_of_payment, "is_wallet_payment"))
+
+
+@frappe.whitelist()
+def get_server_now():
+    """Server's current date / datetime (site time zone), so the POS doesn't rely on the PC clock."""
+    from frappe.utils import now_datetime, nowdate
+
+    return {"date": nowdate(), "datetime": str(now_datetime())}

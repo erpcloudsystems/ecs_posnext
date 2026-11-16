@@ -26,12 +26,13 @@
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
 							</svg>
 							<label class="text-xs font-medium text-orange-700 flex-shrink-0">{{ __("Delivery Date") }}</label>
-							<input
-								type="date"
-								v-model="deliveryDate"
-								:min="today"
-								class="flex-1 h-8 border border-orange-300 rounded-lg px-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent bg-white"
-							/>
+							<!-- Always the server's current date (set again by the server on submit). -->
+							<div
+								class="flex-1 h-8 flex items-center border border-orange-300 rounded-lg px-2 text-sm bg-orange-100 text-gray-800"
+								:title="__('Server date')"
+							>
+								{{ deliveryDate || __("Loading...") }}
+							</div>
 						</div>
 					</div>
 
@@ -1271,7 +1272,23 @@ const walletPaymentMethods = ref(new Set()) // Set of mode_of_payment names that
 
 // Delivery date for Sales Orders
 const deliveryDate = ref("")
-const today = new Date().toISOString().split("T")[0]
+// Local calendar date as a fallback (toISOString() would give the UTC date,
+// i.e. yesterday between midnight and 3 AM in Saudi Arabia).
+const today = (() => {
+	const d = new Date()
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+})()
+
+async function loadServerDeliveryDate() {
+	try {
+		const res = await call("ecs_posnext.api.utilities.get_server_now")
+		const date = (res?.message || res)?.date
+		if (date && isSalesOrder.value) deliveryDate.value = date
+	} catch (e) {
+		// Offline / error: keep the local date; the server sets its own date on submit anyway.
+		log.warn?.("Could not load server date", e)
+	}
+}
 const isSalesOrder = computed(() => props.targetDoctype === "Sales Order")
 
 // Customer is required when cart has no customer AND POS profile has no default customer
@@ -2258,8 +2275,9 @@ watch(show, (newVal) => {
 			customerNameQuery.value = ""
 			customerMobileQuery.value = ""
 		}
-		// Set default delivery date to today for Sales Orders
+		// Sales Order delivery date = the server's current date (not the PC clock).
 		deliveryDate.value = isSalesOrder.value ? today : ""
+		if (isSalesOrder.value) loadServerDeliveryDate()
 
 		// Debug logging
 		log.debug("[PaymentDialog] Dialog opened with props:", {

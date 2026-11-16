@@ -1726,6 +1726,13 @@ def _prepare_invoice_for_submit(invoice=None, data=None, hold_on_error=False):
 
         validate_required_kid_photos(invoice)
 
+    # POS checkout Sales Order: the delivery / order date is always the server's
+    # current date, never the cashier PC's clock. (Offline-synced orders keep the
+    # date they were taken on.)
+    if hold_on_error and not offline_id and doctype == "Sales Order":
+        invoice["delivery_date"] = nowdate()
+        invoice["transaction_date"] = nowdate()
+
     if offline_id:
         dedup_result = _ensure_offline_uniqueness(
             offline_id=offline_id,
