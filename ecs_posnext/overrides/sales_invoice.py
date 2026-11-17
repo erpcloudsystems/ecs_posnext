@@ -93,7 +93,7 @@ class CustomSalesInvoice(SalesInvoice):
 				title=_("Partly Paid Invoice"),
 			)
 
-	def make_item_gl_entries(self, gl_entries):
+	def make_item_gl_entries(self, gl_entries, deferred_return_items=None):
 		"""
 		Book POS Offer (Give Product) free items at their offer's rate_give_item.
 
@@ -111,9 +111,9 @@ class CustomSalesInvoice(SalesInvoice):
 				CustomSalesInvoice as VimSalesInvoice,
 			)
 
-			return VimSalesInvoice.make_item_gl_entries(self, gl_entries)
+			return VimSalesInvoice.make_item_gl_entries(self, gl_entries, deferred_return_items)
 
-		return super().make_item_gl_entries(gl_entries)
+		return super().make_item_gl_entries(gl_entries, deferred_return_items)
 
 	def make_pos_gl_entries(self, gl_entries):
 		"""

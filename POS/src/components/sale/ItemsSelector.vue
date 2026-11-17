@@ -276,7 +276,7 @@
 				class="flex-1 overflow-y-auto p-1.5 sm:p-3"
 				style="min-height: 0;"
 			>
-				<div class="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1 sm:gap-1.5">
+				<div class="grid grid-cols-4 gap-1 sm:gap-1.5">
 					<div
 						v-for="item in displayedItems"
 						:key="item.item_code"
@@ -376,7 +376,10 @@
 
 						<!-- Item Details -->
 						<div class="min-w-0">
-							<h3 class="text-[12px] sm:text-xl font-semibold text-gray-900 truncate mb-1 leading-tight">
+							<h3
+								class="text-[12px] sm:text-base font-semibold text-gray-900 line-clamp-2 break-words mb-1 leading-tight min-h-[2.5em]"
+								:title="item.item_name"
+							>
 								{{ item.item_name }}
 							</h3>
 							<p class="text-base sm:text-[10px] text-gray-500 leading-tight">
