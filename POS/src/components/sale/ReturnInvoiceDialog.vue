@@ -675,7 +675,20 @@
 						<Button variant="subtle" @click="closeReturnModal" class="flex-1 sm:flex-initial">
 							<span class="text-sm">{{ __('Cancel') }}</span>
 						</Button>
+						<!-- POS Settings "Return Mode": credit note against the original, or cancel & amend -->
 						<Button
+							v-if="isReturnInvoiceMode"
+							variant="solid"
+							theme="red"
+							@click="handleCreateReturn"
+							:disabled="!canCreateReturn || isSubmitting"
+							:loading="isSubmitting"
+							class="flex-1 sm:flex-initial"
+						>
+							<span class="text-sm whitespace-nowrap">{{ __('Create Return') }}</span>
+						</Button>
+						<Button
+							v-else
 							variant="solid"
 							theme="red"
 							@click="handleCancelAndRecreate"
@@ -760,6 +773,7 @@
 <script setup>
 import { useOffline } from "@/composables/useOffline"
 import { useToast } from "@/composables/useToast"
+import { usePOSSettingsStore } from "@/stores/posSettings"
 import { getPaymentIcon } from "@/utils/payment"
 import {
 	DEFAULT_CURRENCY,
@@ -773,6 +787,8 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue"
 
 const { showSuccess, showError, showWarning } = useToast()
 const { isOffline } = useOffline()
+const settingsStore = usePOSSettingsStore()
+const isReturnInvoiceMode = computed(() => settingsStore.returnMode === "Return Invoice")
 
 // ============================================
 // Constants (hoisted for performance)

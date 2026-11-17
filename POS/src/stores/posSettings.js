@@ -24,6 +24,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		allow_credit_sale: 0,
 		allow_customer_credit_payment: 0,
 		allow_return: 0,
+		return_mode: "Cancel & Amend",
 		allow_write_off_change: 0,
 		allow_partial_payment: 0,
 		use_exact_amount: 0,
@@ -113,6 +114,9 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		Boolean(settings.value.allow_customer_credit_payment),
 	)
 	const allowReturn = computed(() => Boolean(settings.value.allow_return))
+	// "Return Invoice" keeps the original invoice and creates a credit note against it;
+	// "Cancel & Amend" cancels the original and re-creates it without the returned items
+	const returnMode = computed(() => settings.value.return_mode || "Cancel & Amend")
 	const allowWriteOffChange = computed(() =>
 		Boolean(settings.value.allow_write_off_change),
 	)
@@ -295,6 +299,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 			allow_credit_sale: 0,
 			allow_customer_credit_payment: 0,
 			allow_return: 0,
+			return_mode: "Cancel & Amend",
 			allow_write_off_change: 0,
 			allow_partial_payment: 0,
 			use_exact_amount: 0,
@@ -404,6 +409,7 @@ export const usePOSSettingsStore = defineStore("posSettings", () => {
 		allowCreditSale,
 		allowCustomerCreditPayment,
 		allowReturn,
+		returnMode,
 		allowWriteOffChange,
 		allowPartialPayment,
 		useExactAmount,

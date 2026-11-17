@@ -105,7 +105,11 @@ fixtures = [
 					"Selling Settings-posa_working_day_section",
 					"Selling Settings-posa_working_day_start_time",
 					"Selling Settings-posa_working_day_column_break",
-					"Selling Settings-posa_working_day_end_time"
+					"Selling Settings-posa_working_day_end_time",
+					"Item-custom_not_included",
+					"POS Profile-branch",
+					"Sales Invoice-branch",
+					"Sales Invoice Item-branch"
 				]
 			]
 		]
