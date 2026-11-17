@@ -26,7 +26,7 @@ const log = logger.create("posSalesPerson")
 
 export const usePOSSalesPersonStore = defineStore("posSalesPerson", () => {
 	// State
-	const enabled = ref(false) // "Multiple Sales Persons" checkbox (off by default)
+	const enabled = ref(true) // "Multiple Sales Persons" checkbox (on by default)
 	const salesPersons = ref([]) // master list loaded from server
 	const selected = ref([]) // [{ sales_person, sales_person_name, commission_rate }]
 	const activeSalesPerson = ref(null) // sales_person id currently receiving items
@@ -137,7 +137,7 @@ export const usePOSSalesPersonStore = defineStore("posSalesPerson", () => {
 	}
 
 	function reset() {
-		enabled.value = false
+		enabled.value = true
 		selected.value = []
 		activeSalesPerson.value = null
 	}

@@ -233,20 +233,41 @@ function invoiceBadgeShifted(id) {
 	return isRTL.value ? true : !!stats.value[id]?.count
 }
 
-// {sales_person: number of submitted invoices in the current shift}
+// {sales_person: number of submitted invoices in the current opening shift}
 const invoiceCounts = ref({})
+// Opening shift the counts above belong to. Counts of any other shift are
+// never shown, even for a moment.
+const countsShift = ref(null)
+let requestSeq = 0
 let refreshTimer = null
+
+function clearInvoiceCounts() {
+	requestSeq++ // drop any response still in flight
+	invoiceCounts.value = {}
+	countsShift.value = null
+}
 
 async function loadInvoiceCounts() {
 	const shift = shiftStore.currentShift?.name
-	if (!shift || isOffline()) return
+	if (!shift) {
+		clearInvoiceCounts()
+		return
+	}
+	if (shift !== countsShift.value) clearInvoiceCounts()
+	if (isOffline()) return
+
+	const seq = ++requestSeq
 	try {
-		invoiceCounts.value =
-			(await call("ecs_posnext.api.pos_profile.get_sales_person_invoice_counts", {
-				pos_opening_shift: shift,
-			})) || {}
+		const counts = await call(
+			"ecs_posnext.api.pos_profile.get_sales_person_invoice_counts",
+			{ pos_opening_shift: shift, pos_profile: shiftStore.profileName },
+		)
+		// Ignore a reply that was overtaken by a newer request or a shift change
+		if (seq !== requestSeq || shift !== shiftStore.currentShift?.name) return
+		invoiceCounts.value = counts || {}
+		countsShift.value = shift
 	} catch {
-		// Badge is informational; keep the last known counts
+		// Badge is informational; keep this shift's last known counts
 	}
 }
 
@@ -258,7 +279,10 @@ watch(
 		if (len === 0 && prev > 0) setTimeout(loadInvoiceCounts, 1500)
 	},
 )
-watch(() => shiftStore.currentShift?.name, loadInvoiceCounts)
+watch(() => shiftStore.currentShift?.name, () => {
+	clearInvoiceCounts()
+	loadInvoiceCounts()
+})
 
 onMounted(() => {
 	store.loadSalesPersons(shiftStore.profileName)

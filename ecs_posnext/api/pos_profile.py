@@ -771,17 +771,23 @@ def delete_pos_profile(pos_profile):
 	pos_profile.delete()
 
 @frappe.whitelist()
-def get_sales_person_invoice_counts(pos_opening_shift=None):
-	"""Number of submitted (non-return) Sales Invoices in the open shift that each
-	sales person is on, either through an item's custom_sales_person or the
-	invoice's sales_team. Returns {sales_person: count}."""
-	if not pos_opening_shift:
+def get_sales_person_invoice_counts(pos_opening_shift=None, pos_profile=None):
+	"""Number of submitted (non-return) Sales Invoices in the branch's open shift
+	that each sales person is on, either through an item's custom_sales_person or
+	the invoice's sales_team. Returns {sales_person: count}.
+
+	Only an Open shift of ``pos_profile`` is ever counted. A shift name the POS
+	kept from an earlier session (closed since, an unsynced OFFLINE-OPEN-* name,
+	or another branch's) is replaced by the branch's open shift, so the badge
+	never shows another shift's invoices."""
+	shift = _open_shift_for_counts(pos_opening_shift, pos_profile)
+	if not shift:
 		return {}
 
-	if not frappe.has_permission("POS Opening Shift", "read", pos_opening_shift):
+	if not frappe.has_permission("POS Opening Shift", "read", shift):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
-	params = {"shift": pos_opening_shift}
+	params = {"shift": shift}
 	parts = [
 		"""select st.sales_person sp, st.parent inv
 		from `tabSales Team` st
@@ -805,3 +811,29 @@ def get_sales_person_invoice_counts(pos_opening_shift=None):
 		as_dict=True,
 	)
 	return {r.sp: r.cnt for r in rows}
+
+
+def _open_shift_for_counts(pos_opening_shift=None, pos_profile=None):
+	"""The open POS Opening Shift the sales person badges should count."""
+	if pos_opening_shift:
+		shift = frappe.db.get_value(
+			"POS Opening Shift",
+			pos_opening_shift,
+			["name", "pos_profile", "status", "docstatus"],
+			as_dict=True,
+		)
+		if (
+			shift
+			and shift.docstatus == 1
+			and shift.status == "Open"
+			and (not pos_profile or shift.pos_profile == pos_profile)
+		):
+			return shift.name
+		pos_profile = pos_profile or (shift and shift.pos_profile)
+
+	if not pos_profile:
+		return None
+
+	from ecs_posnext.api.shifts import _get_last_open_shift
+
+	return _get_last_open_shift(pos_profile)
