@@ -17,19 +17,46 @@
 					</svg>
 					<span>{{ __('All Items') }}</span>
 				</button>
-				<button
-					v-for="group in itemGroups"
+				<div
+					v-for="(group, gIndex) in orderedItemGroups"
 					:key="group.item_group"
-					@click="itemStore.setSelectedItemGroup(group.item_group)"
-					:class="[
-						'flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-medium whitespace-nowrap transition-[background-color,border-color] duration-75 touch-manipulation snap-start flex-shrink-0',
-						selectedItemGroup === group.item_group
-							? 'bg-blue-50 text-blue-600 border-2 border-blue-500 shadow-sm'
-							: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 active:bg-gray-100',
-					]"
+					class="flex items-center flex-shrink-0 snap-start"
+					:class="arrangeMode ? 'rounded-lg ring-1 ring-dashed ring-amber-400 bg-amber-50/60 cursor-move' : ''"
+					:draggable="arrangeMode"
+					@dragstart="onArrangeDragStart('group', gIndex, $event)"
+					@dragover.prevent
+					@drop.prevent="onArrangeDrop('group', gIndex)"
 				>
-					<span>{{ __(group.item_group) }}</span>
-				</button>
+					<button
+						v-if="arrangeMode"
+						type="button"
+						class="px-1 h-full text-sm font-bold text-amber-700 hover:text-amber-900 disabled:opacity-30"
+						:disabled="gIndex === 0"
+						:title="__('Move earlier')"
+						:aria-label="__('Move {0} earlier', [group.item_group])"
+						@click.stop="moveGroupBy(gIndex, -1)"
+					>{{ arrowEarlier }}</button>
+					<button
+						@click="itemStore.setSelectedItemGroup(group.item_group)"
+						:class="[
+							'flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-medium whitespace-nowrap transition-[background-color,border-color] duration-75 touch-manipulation',
+							selectedItemGroup === group.item_group
+								? 'bg-blue-50 text-blue-600 border-2 border-blue-500 shadow-sm'
+								: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 active:bg-gray-100',
+						]"
+					>
+						<span>{{ __(group.item_group) }}</span>
+					</button>
+					<button
+						v-if="arrangeMode"
+						type="button"
+						class="px-1 h-full text-sm font-bold text-amber-700 hover:text-amber-900 disabled:opacity-30"
+						:disabled="gIndex === orderedItemGroups.length - 1"
+						:title="__('Move later')"
+						:aria-label="__('Move {0} later', [group.item_group])"
+						@click.stop="moveGroupBy(gIndex, 1)"
+					>{{ arrowLater }}</button>
+				</div>
 			</div>
 		</div>
 
@@ -117,6 +144,24 @@
 						</button>
 					</div>
 				</div>
+				<!-- Arrange (custom order of items and group tabs, saved per user) -->
+				<button
+					type="button"
+					@click="toggleArrangeMode"
+					:class="[
+						'p-1.5 sm:p-2 rounded-lg transition-[background-color,box-shadow] duration-75 touch-manipulation border flex-shrink-0',
+						arrangeMode
+							? 'bg-amber-50 border-amber-400 text-amber-700 shadow-sm'
+							: 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50 active:bg-gray-100',
+					]"
+					:title="arrangeMode ? __('Done arranging') : __('Arrange items and groups')"
+					:aria-pressed="arrangeMode"
+					:aria-label="__('Arrange items and groups')"
+				>
+					<svg class="w-4 h-4 sm:w-4.5 sm:h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
+					</svg>
+				</button>
 				<div class="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 flex-shrink-0">
 					<button
 						@click="setViewMode('grid')"
@@ -234,6 +279,32 @@
 		</div>
 
 		<!-- Initial Loading State - Show spinner while fetching items -->
+		<!-- Arrange mode banner -->
+		<div
+			v-if="arrangeMode"
+			class="px-1.5 sm:px-3 py-1.5 bg-amber-50 border-b border-amber-200 flex items-center gap-2 flex-wrap"
+			role="status"
+		>
+			<span class="text-[10px] sm:text-xs text-amber-800 flex-1 min-w-[160px]">
+				{{ __("Arrange mode: use the arrows or drag to reorder items and groups. Saved automatically for you.") }}
+				<span v-if="layoutSaving" class="font-semibold">{{ __("Saving...") }}</span>
+			</span>
+			<button
+				type="button"
+				class="px-2 py-1 text-[10px] sm:text-xs font-semibold rounded-lg border border-amber-400 text-amber-800 hover:bg-amber-100"
+				@click="resetArrangement"
+			>
+				{{ __("Reset order") }}
+			</button>
+			<button
+				type="button"
+				class="px-2 py-1 text-[10px] sm:text-xs font-semibold rounded-lg bg-amber-500 text-white hover:bg-amber-600"
+				@click="toggleArrangeMode"
+			>
+				{{ __("Done") }}
+			</button>
+		</div>
+
 		<div v-if="loading && (!filteredItems || filteredItems.length === 0)" class="flex-1 flex items-center justify-center p-3">
 			<div class="text-center py-8">
 				<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
@@ -278,16 +349,44 @@
 			>
 				<div class="grid grid-cols-4 gap-1 sm:gap-1.5">
 					<div
-						v-for="item in displayedItems"
+						v-for="(item, iIndex) in displayedItems"
 						:key="item.item_code"
 						@touchstart.passive="getOptimizedClickHandler(item).touchstart"
 						@touchmove.passive="getOptimizedClickHandler(item).touchmove"
 						@touchend.passive="getOptimizedClickHandler(item).touchend"
 						@click="getOptimizedClickHandler(item).click"
+						:draggable="arrangeMode"
+						@dragstart="onArrangeDragStart('item', iIndex, $event)"
+						@dragover.prevent
+						@drop.prevent="onArrangeDrop('item', iIndex)"
 						:class="[
 							'group relative bg-white border border-gray-200 rounded-lg p-1 sm:p-1.5 touch-manipulation transition-[border-color,box-shadow] duration-100 cursor-pointer hover:border-blue-400 hover:shadow-md',
+							arrangeMode ? 'ring-1 ring-dashed ring-amber-400 cursor-move' : '',
 						]"
 					>
+						<!-- Arrange controls (move earlier / later) -->
+						<div
+							v-if="arrangeMode"
+							class="absolute inset-x-0 bottom-0 z-20 flex justify-between p-0.5"
+							@click.stop
+							@touchstart.stop
+							@touchend.stop
+						>
+							<button
+								type="button"
+								class="w-7 h-7 rounded-md bg-amber-500 text-white text-base font-bold shadow disabled:opacity-30"
+								:disabled="iIndex === 0"
+								:aria-label="__('Move {0} earlier', [item.item_name])"
+								@click.stop="moveItemBy(iIndex, -1)"
+							>{{ arrowEarlier }}</button>
+							<button
+								type="button"
+								class="w-7 h-7 rounded-md bg-amber-500 text-white text-base font-bold shadow disabled:opacity-30"
+								:disabled="iIndex === displayedItems.length - 1"
+								:aria-label="__('Move {0} later', [item.item_name])"
+								@click.stop="moveItemBy(iIndex, 1)"
+							>{{ arrowLater }}</button>
+						</div>
 						<!-- Stock Badge - Tap to select, long press to view warehouse availability -->
 						<div
 							v-if="(item.is_stock_item || item.is_bundle) && !item.has_variants && !settingsStore.hideStockAvailability"
@@ -515,15 +614,39 @@
 					</thead>
 					<tbody class="bg-white divide-y divide-gray-200">
 						<tr
-							v-for="item in displayedItems"
+							v-for="(item, iIndex) in displayedItems"
 							:key="item.item_code"
 							@touchstart.passive="getOptimizedClickHandler(item).touchstart"
 							@touchmove.passive="getOptimizedClickHandler(item).touchmove"
 							@touchend.passive="getOptimizedClickHandler(item).touchend"
 							@click="getOptimizedClickHandler(item).click"
-							class="group cursor-pointer hover:bg-blue-50 hover:shadow-md transition-[background-color,box-shadow] duration-100 touch-manipulation active:bg-blue-100"
+							:draggable="arrangeMode"
+							@dragstart="onArrangeDragStart('item', iIndex, $event)"
+							@dragover.prevent
+							@drop.prevent="onArrangeDrop('item', iIndex)"
+							:class="[
+								'group cursor-pointer hover:bg-blue-50 hover:shadow-md transition-[background-color,box-shadow] duration-100 touch-manipulation active:bg-blue-100',
+								arrangeMode ? 'cursor-move bg-amber-50/40' : '',
+							]"
 						>
 							<td class="px-2 sm:px-3 py-2 whitespace-nowrap w-[50px] sm:w-[60px]">
+								<!-- Arrange controls (list view): move up / down -->
+								<div v-if="arrangeMode" class="flex flex-col gap-0.5 mb-1" @click.stop @touchstart.stop @touchend.stop>
+									<button
+										type="button"
+										class="w-7 h-6 rounded bg-amber-500 text-white text-xs font-bold disabled:opacity-30"
+										:disabled="iIndex === 0"
+										:aria-label="__('Move {0} up', [item.item_name])"
+										@click.stop="moveItemBy(iIndex, -1)"
+									>▲</button>
+									<button
+										type="button"
+										class="w-7 h-6 rounded bg-amber-500 text-white text-xs font-bold disabled:opacity-30"
+										:disabled="iIndex === displayedItems.length - 1"
+										:aria-label="__('Move {0} down', [item.item_name])"
+										@click.stop="moveItemBy(iIndex, 1)"
+									>▼</button>
+								</div>
 								<div class="w-8 h-8 sm:w-10 sm:h-10 bg-gray-100 rounded flex items-center justify-center overflow-hidden">
 									<LazyImage
 										v-if="item.image"
@@ -727,6 +850,8 @@ import {
 import { useToast } from "@/composables/useToast"
 import { storeToRefs } from "pinia"
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue"
+import { usePOSLayoutStore } from "@/stores/posLayout"
+import { isOffline } from "@/utils/offline"
 import {
 	createOptimizedClickHandler,
 	throttleRAF,
@@ -771,6 +896,10 @@ const {
 	sortOrder,
 	totalServerItems,
 } = storeToRefs(itemStore)
+
+// Per-user custom order of items / group tabs
+const layoutStore = usePOSLayoutStore()
+const { arrangeMode, saving: layoutSaving } = storeToRefs(layoutStore)
 
 // Search input composable — owns search/scanner state, timers, concurrency
 const {
@@ -913,6 +1042,7 @@ watch(
 	(newProfile) => {
 		if (newProfile) {
 			itemStore.setPosProfile(newProfile)
+			if (!isOffline()) layoutStore.load(newProfile)
 		}
 	},
 	{ immediate: true },
@@ -1110,7 +1240,65 @@ function selectItem(item, autoAdd = false) {
 	return true
 }
 
+// ---------------------------------------------------------------------------
+// Arrange mode: the user reorders item cards and group tabs; the order is saved
+// on the server per user + POS Profile (stores/posLayout.js).
+// ---------------------------------------------------------------------------
+const orderedItemGroups = computed(() => layoutStore.orderGroups(itemGroups.value || []))
+const isRtl = computed(() => typeof document !== "undefined" && document.documentElement.dir === "rtl")
+// Arrows pointing to the start / end side of the row (mirrored in RTL).
+const arrowEarlier = computed(() => (isRtl.value ? "›" : "‹"))
+const arrowLater = computed(() => (isRtl.value ? "‹" : "›"))
+let dragState = null
+
+function toggleArrangeMode() {
+	if (!arrangeMode.value) {
+		if (searchTerm.value?.trim()) {
+			showWarning(__("Clear the search to arrange items"))
+			return
+		}
+		// The custom order is what is shown when no sort is selected.
+		if (sortBy.value) itemStore.clearSortFilter()
+		showSortDropdown.value = false
+	}
+	arrangeMode.value = !arrangeMode.value
+}
+
+function moveGroupBy(index, delta) {
+	const names = orderedItemGroups.value.map((g) => g.item_group)
+	layoutStore.moveGroup(names, index, index + delta)
+}
+
+function moveItemBy(index, delta) {
+	const codes = displayedItems.value.map((i) => i.item_code)
+	layoutStore.moveItem(selectedItemGroup.value, codes, index, index + delta)
+}
+
+function onArrangeDragStart(type, index, event) {
+	if (!arrangeMode.value) return
+	dragState = { type, index }
+	if (event?.dataTransfer) {
+		event.dataTransfer.effectAllowed = "move"
+		event.dataTransfer.setData("text/plain", String(index))
+	}
+}
+
+function onArrangeDrop(type, index) {
+	if (!arrangeMode.value || !dragState || dragState.type !== type) return
+	const from = dragState.index
+	dragState = null
+	if (type === "group") moveGroupBy(from, index - from)
+	else moveItemBy(from, index - from)
+}
+
+async function resetArrangement() {
+	if (!window.confirm(__("Reset your item and group order for this POS Profile?"))) return
+	await layoutStore.reset()
+}
+
 function handleItemClick(itemCode) {
+	// Arrange mode: cards are being reordered, never added to the cart.
+	if (arrangeMode.value) return
 	// Skip if already handled by long press handler (prevents double-add)
 	if (itemHandledByLongPress) {
 		itemHandledByLongPress = false

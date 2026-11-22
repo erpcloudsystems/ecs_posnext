@@ -8,6 +8,7 @@ import { createResource } from "frappe-ui"
 import { defineStore } from "pinia"
 import { computed, ref } from "vue"
 import { useStockStore } from "./stock"
+import { usePOSLayoutStore } from "./posLayout"
 import { usePOSShiftStore } from "./posShift"
 import { useRealtimePosProfile } from "@/composables/useRealtimePosProfile"
 
@@ -656,6 +657,10 @@ export const useItemSearchStore = defineStore("itemSearch", () => {
 				// Apply sort order (asc or desc)
 				return sortOrder.value === 'desc' ? -compareResult : compareResult
 			})
+		} else if (!searchTerm.value?.trim()) {
+			// No explicit sort and not searching: the user's own arrangement
+			// (saved per user + POS Profile) for this group tab, if any.
+			return usePOSLayoutStore().orderItems(itemsWithStock, selectedItemGroup.value)
 		}
 
 		return itemsWithStock
