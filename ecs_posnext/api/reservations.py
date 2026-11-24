@@ -546,6 +546,29 @@ def sync_sales_order_items(sales_order, invoice_items):
     return {"updated": True, "rows": len(trans_items), "untouched_items": untouched}
 
 
+def _mark_sales_order_executed(sales_order):
+    """Set pos_status = "Executed" through a full document save.
+
+    A save (not db.set_value) is required so the Sales Order's on_update_after_submit
+    hooks fire: loyalty_engine issues the birthday voucher / stages birthday points,
+    and ecs_vim creates the party coupon. This matches the legacy POS flow.
+    If the save fails, the status is still written directly so the reservation
+    closes, and the failure is logged for follow-up.
+    """
+    frappe.db.savepoint("mark_so_executed")
+    try:
+        so_doc = frappe.get_doc("Sales Order", sales_order)
+        so_doc.pos_status = "Executed"
+        so_doc.save(ignore_permissions=True)
+    except Exception:
+        frappe.db.rollback(save_point="mark_so_executed")
+        frappe.log_error(
+            title="Party close: Sales Order save failed (rewards not triggered)",
+            message=f"Sales Order: {sales_order}\n\n{frappe.get_traceback()}",
+        )
+        frappe.db.set_value("Sales Order", sales_order, "pos_status", "Executed")
+
+
 @frappe.whitelist()
 def close_party_reservation(sales_order, invoice_data, data=None, pos_profile=None):
     """Close a reserved party: bill the full party and net out the deposits paid.
@@ -605,7 +628,7 @@ def close_party_reservation(sales_order, invoice_data, data=None, pos_profile=No
     full_result = submit_invoice(invoice=invoice_data, data=data)
 
     # Mark the reservation as executed so it drops out of the open list.
-    frappe.db.set_value("Sales Order", sales_order, "pos_status", "Executed")
+    _mark_sales_order_executed(sales_order)
     frappe.db.commit()
 
     return {
