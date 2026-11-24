@@ -441,6 +441,31 @@ def delete_wristband_serial(wristband):
     return {"name": wristband, "ticket": ticket_name, "serial_no": serial_no}
 
 
+def ticket_usage_summary(ticket):
+    """Visits used since the ticket's start date, visits left, and days until it ends/renews.
+
+    used      = sum of Ticket Logs (each redeem) dated on/after the start date
+    remaining = the ticket's remaining_usage
+    days_left = valid_to - today (negative once expired)
+    """
+    from frappe.utils import date_diff
+
+    start = getdate(ticket.valid_from) if ticket.valid_from else None
+    end = getdate(ticket.valid_to) if ticket.valid_to else None
+    used = sum(
+        flt(log.number_of_usage) or 1
+        for log in (ticket.get("ticket_logs") or [])
+        if not start or not log.date or getdate(log.date) >= start
+    )
+    return {
+        "start": start,
+        "end": end,
+        "used": cint(used),
+        "remaining": cint(ticket.remaining_usage),
+        "days_left": date_diff(end, getdate(today())) if end else None,
+    }
+
+
 @frappe.whitelist()
 def send_ticket_sms(ticket_name):
     """SMS the ticket details (code, remaining visits, expiry) to the customer's mobile."""
@@ -460,14 +485,19 @@ def send_ticket_sms(ticket_name):
     if not ticket.redeem_code:
         frappe.throw(_("This ticket has no redeem code"))
 
+    usage = ticket_usage_summary(ticket)
+
     lines = []
     if ticket.child_name:
         lines.append(f"الاسم: {ticket.child_name}")
-    lines += [
-        f"{ticket.redeem_code} :رمز الكوبون",
-        f"عدد الزيارات المتبقية: {cint(ticket.remaining_usage)}",
-        f"تاريخ الانتهاء: {ticket.valid_to or ''}",
-    ]
+    lines.append(f"{ticket.redeem_code} :رمز الكوبون")
+    if usage["end"]:
+        if usage["days_left"] > 0:
+            lines.append(f"متبقي {usage['days_left']} يوم ويتجدد الاشتراك بتاريخ {usage['end']}")
+        elif usage["days_left"] == 0:
+            lines.append(f"آخر يوم في الاشتراك اليوم ({usage['end']})")
+        else:
+            lines.append(f"انتهى الاشتراك بتاريخ {usage['end']}")
 
     try:
         send_sms("\n".join(lines), mobile)
