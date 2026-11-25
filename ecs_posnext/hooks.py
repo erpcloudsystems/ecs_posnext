@@ -247,6 +247,10 @@ doc_events = {
 # ---------------
 
 scheduler_events = {
+	"cron": {
+		# Settle POS invoices whose payment link was paid but the Paymob webhook was missed.
+		"*/5 * * * *": ["ecs_posnext.api.payment_links.check_pending_payment_links"],
+	},
 	"hourly": [
 		"ecs_posnext.tasks.branding_monitor.monitor_branding_integrity",
 	],

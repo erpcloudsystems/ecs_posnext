@@ -1,8 +1,10 @@
 <template>
-	<Dialog v-model="show" :options="{ title: __('Tabby Payment Link'), size: 'sm' }">
+	<Dialog v-model="show" :options="{ title: isPaymentLink ? __('Payment Link') : __('Tabby Payment Link'), size: 'sm' }">
 		<template #body-content>
 			<p class="text-xs text-gray-500 mb-3">
-				{{ __("Ask the customer to scan the QR code or open the link to pay with Tabby.") }}
+				{{ isPaymentLink
+					? __("Ask the customer to scan the QR code or open the link to pay by card or Apple Pay.")
+					: __("Ask the customer to scan the QR code or open the link to pay with Tabby.") }}
 			</p>
 
 			<div v-if="paymentUrl" class="flex flex-col items-center gap-3">
@@ -44,6 +46,10 @@
 				</p>
 			</div>
 
+			<p class="mt-3 text-[11px] text-gray-500">
+				{{ __("The invoice stays as a draft and is submitted automatically once the payment is done. Track it from Payment Links.") }}
+			</p>
+
 			<div class="mt-4">
 				<button
 					type="button"
@@ -66,6 +72,8 @@ const props = defineProps({
 	paymentUrl: String,
 	smsSent: Boolean,
 	mobile: String,
+	// true = "Send Payment Link" (card / Apple Pay), false = Tabby
+	isPaymentLink: Boolean,
 })
 
 const emit = defineEmits(["update:modelValue"])

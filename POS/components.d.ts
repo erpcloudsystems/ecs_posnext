@@ -46,6 +46,7 @@ declare module 'vue' {
     OfflineInvoicesDialog: typeof import('./src/components/sale/OfflineInvoicesDialog.vue')['default']
     PartialPayments: typeof import('./src/components/partials/PartialPayments.vue')['default']
     PaymentDialog: typeof import('./src/components/sale/PaymentDialog.vue')['default']
+    PaymentLinksDialog: typeof import('./src/components/sale/PaymentLinksDialog.vue')['default']
     PendingStockDialog: typeof import('./src/components/sale/PendingStockDialog.vue')['default']
     PhoneInput: typeof import('./src/components/common/PhoneInput.vue')['default']
     POSFooter: typeof import('./src/components/common/POSFooter.vue')['default']

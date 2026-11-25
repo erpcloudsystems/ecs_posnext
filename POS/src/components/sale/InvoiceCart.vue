@@ -745,6 +745,23 @@
 						}}</span>
 					</button>
 
+					<!-- Payment Links (invoices held until the customer pays the link) -->
+					<button
+						type="button"
+						@click="$emit('show-payment-links')"
+						class="flex flex-col items-center justify-center p-3 sm:p-4 bg-white border border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50 active:bg-teal-100 transition-colors shadow-sm hover:shadow touch-manipulation group"
+						:title="__('Payment link status')"
+					>
+						<div
+							class="w-9 h-9 sm:w-10 sm:h-10 bg-teal-50 rounded-full flex items-center justify-center mb-2 group-hover:bg-teal-100 transition-colors"
+						>
+							<svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+							</svg>
+						</div>
+						<span class="text-[11px] sm:text-xs font-semibold text-gray-700">{{ __("Payment Links") }}</span>
+					</button>
+
 					<!-- Invoice History -->
 					<button
 						type="button"
@@ -1553,6 +1570,7 @@ const emit = defineEmits([
 	"view-shift", // () - View current shift details
 	"show-drafts", // () - Show draft/held orders
 	"show-history", // () - Show invoice history
+	"show-payment-links", // () - Show held payment-link invoices and their status
 	"show-return", // () - Open return invoice dialog
 	"close-shift", // () - Close current shift
 	// "create-sales-order", // () - Create Sales Order // Removed as per instruction

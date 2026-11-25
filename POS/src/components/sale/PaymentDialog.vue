@@ -634,7 +634,7 @@
 								]"
 							>
 								<span :class="isSmallMobile ? 'text-xs' : 'text-sm lg:text-lg'">{{ isWalletPaymentMethod(method.mode_of_payment) ? '🎁' : getPaymentIcon(method.type) }}</span>
-								<span class="truncate max-w-[80px] lg:max-w-none">{{ __(method.mode_of_payment) }}</span>
+								<span class="truncate max-w-[80px] lg:max-w-none">{{ paymentModeLabel(method.mode_of_payment) }}</span>
 								<!-- Wallet Balance Badge -->
 								<span v-if="isWalletPaymentMethod(method.mode_of_payment) && walletInfo.wallet_enabled"
 									:class="['font-bold rounded', isSmallMobile ? 'text-[8px] px-1 py-0.5' : 'text-[10px] px-1.5 py-0.5', availableWalletBalance > 0 ? 'text-amber-700 bg-amber-100' : 'text-gray-500 bg-gray-200']">
@@ -2805,6 +2805,18 @@ const isTabbySelected = computed(() =>
 	paymentEntries.value.some((p) => (p.mode_of_payment || "") === "Tabby"),
 )
 
+// "Paymob" is the "Send Payment Link" method: the invoice is kept as a draft and
+// submitted once the customer pays the link (ecs_posnext.api.payment_links).
+const PAYMENT_LINK_MODE = "Paymob"
+function paymentModeLabel(mode) {
+	return mode === PAYMENT_LINK_MODE ? __("Send Payment Link") : __(mode)
+}
+const isPaymentLinkSelected = computed(() =>
+	paymentEntries.value.some(
+		(p) => [PAYMENT_LINK_MODE, "Tabby"].includes(p.mode_of_payment || "") && Number(p.amount) > 0,
+	),
+)
+
 // Re-require card approval whenever payments change.
 watch(
 	paymentEntries,
@@ -2848,7 +2860,14 @@ async function completePayment(print) {
 		return
 	}
 
+	// A payment link needs the server (to create the link and hold the invoice).
+	if (props.isOffline && isPaymentLinkSelected.value) {
+		showWarning(__("Payment links need an internet connection. Choose another payment method."))
+		return
+	}
+
 	// Flag Tabby so the backend keeps the invoice pending + returns a payment link.
+	// ("Send Payment Link" is detected on the server from the Paymob payment row.)
 	cartStore.isTabbyPayment = isTabbySelected.value
 
 	log.debug("[PaymentDialog] Complete payment called:", {

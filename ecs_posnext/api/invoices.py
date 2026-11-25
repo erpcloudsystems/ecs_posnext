@@ -1930,27 +1930,28 @@ def _prepare_invoice_for_submit(invoice=None, data=None, hold_on_error=False):
         # Tabby (Paymob QuickLink): keep the invoice as a pending draft, create the
         # payment link, SMS it to the customer, and return the link — do NOT submit
         # yet. The invoice is settled later when the customer pays the link.
-        is_tabby = data.get("is_tabby") or invoice.get("is_tabby")
-        if is_tabby and doctype == "Sales Invoice":
-            try:
-                invoice_doc.db_set("payment_status", "Pending", update_modified=False)
-            except Exception as e:
-                frappe.log_error(
-                    title="Tabby Payment Status Update Error",
-                    message=f"Invoice: {invoice_doc.name}, Error: {str(e)}\n{frappe.get_traceback()}"
-                )
-            from ecs_posnext.api.payments import create_tabby_link
+        # Same for "Send Payment Link" (a "Paymob" payment row): card / Apple Pay link.
+        from ecs_posnext.api.payment_links import create_payment_link, link_kind
 
-            link_result = create_tabby_link(invoice_doc.name)
+        is_tabby = data.get("is_tabby") or invoice.get("is_tabby")
+        kind = link_kind(invoice, is_tabby=is_tabby) if doctype == "Sales Invoice" and not invoice.get("is_return") else None
+        if kind:
+            # Keep the cashier's payment amounts on the draft (ERPNext's save resets
+            # them); they are what the invoice is submitted with once the link is paid.
+            _reapply_payment_amounts(invoice_doc, invoice.get("payments"), doctype)
+            link_result = create_payment_link(invoice_doc.name, kind)
             if sync_record_name:
                 _cleanup_failed_sync(sync_record_name)
             return {
                 "name": invoice_doc.name,
                 "status": invoice_doc.docstatus,
+                # is_tabby kept for the POS screen: it shows the link (QR + copy) for both kinds.
                 "is_tabby": True,
+                "is_payment_link": kind == "link",
                 "payment_url": link_result.get("payment_url"),
                 "sms_sent": link_result.get("sms_sent"),
                 "mobile": link_result.get("mobile"),
+                "link_amount": link_result.get("amount"),
             }
 
         # Draft is validated and saved — hand off to Step 2 (submit) by name.

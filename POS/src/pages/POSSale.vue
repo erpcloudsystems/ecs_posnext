@@ -353,6 +353,7 @@
 								@view-shift="uiStore.showOpenShiftDialog = true"
 								@show-drafts="uiStore.showDraftDialog = true"
 								@show-history="uiStore.showHistoryDialog = true"
+								@show-payment-links="showPaymentLinks = true"
 								@show-return="uiStore.showReturnDialog = true"
 								@close-shift="handleCloseShift()"
 							/>
@@ -471,6 +472,13 @@
 				:payment-url="tabbyLink"
 				:sms-sent="tabbySmsSent"
 				:mobile="tabbyMobile"
+				:is-payment-link="tabbyIsPaymentLink"
+			/>
+
+			<!-- Held invoices waiting for a payment link (status for the cashier) -->
+			<PaymentLinksDialog
+				v-model="showPaymentLinks"
+				:pos-profile="shiftStore.profileName"
 			/>
 
 			<!-- Customer Selection Dialog -->
@@ -1018,6 +1026,7 @@ import OffersDialog from "@/components/sale/OffersDialog.vue";
 import OfflineInvoicesDialog from "@/components/sale/OfflineInvoicesDialog.vue";
 import PaymentDialog from "@/components/sale/PaymentDialog.vue";
 import TabbyLinkDialog from "@/components/sale/TabbyLinkDialog.vue";
+import PaymentLinksDialog from "@/components/sale/PaymentLinksDialog.vue";
 import PromotionManagement from "@/components/sale/PromotionManagement.vue";
 import ReturnInvoiceDialog from "@/components/sale/ReturnInvoiceDialog.vue";
 import WarehouseAvailabilityDialog from "@/components/sale/WarehouseAvailabilityDialog.vue";
@@ -1108,6 +1117,8 @@ const clearCacheOverlayRef = ref(null);
 
 // Tabby payment link dialog
 const showTabbyLink = ref(false);
+const tabbyIsPaymentLink = ref(false);
+const showPaymentLinks = ref(false);
 const tabbyLink = ref("");
 const tabbySmsSent = ref(false);
 const tabbyMobile = ref("");
@@ -2148,6 +2159,7 @@ async function handlePaymentCompleted(paymentData) {
 					tabbyLink.value = tabbyData.payment_url || "";
 					tabbySmsSent.value = !!tabbyData.sms_sent;
 					tabbyMobile.value = tabbyData.mobile || "";
+					tabbyIsPaymentLink.value = !!tabbyData.is_payment_link;
 					showTabbyLink.value = true;
 					cartStore.clearCart();
 					previousCartHash = "";
@@ -2155,7 +2167,11 @@ async function handlePaymentCompleted(paymentData) {
 						draftsStore.deleteDraft(draftIdToDelete);
 					}
 					await commitAttendance(attendanceEntries);
-					showSuccess(__("Tabby payment link created"));
+					showSuccess(
+						tabbyData.is_payment_link
+							? __("Payment link sent. The invoice will be submitted once it is paid.")
+							: __("Tabby payment link created"),
+					);
 					return;
 				}
 
