@@ -665,6 +665,17 @@
 					<div :class="inline ? 'mb-0.5' : isSmallMobile ? 'mb-1' : 'mb-1.5 lg:mb-3'">
 						<div :class="['flex items-center justify-between', isSmallMobile ? 'mb-0.5' : 'mb-1 lg:mb-2']">
 							<div :class="['text-start font-semibold text-gray-500 uppercase tracking-wide', isSmallMobile ? 'text-[10px]' : 'text-xs']">{{ __('Payment Method') }}</div>
+							<!-- Split payment: type an amount, then tap a method to pay just that amount with it -->
+							<input
+								v-model="customAmount"
+								type="number"
+								inputmode="decimal"
+								min="0"
+								step="0.01"
+								:placeholder="__('Amount')"
+								:title="__('Type an amount, then tap a payment method to pay that amount with it')"
+								:class="['w-24 lg:w-28 rounded-md border border-gray-300 px-2 text-end focus:outline-none focus:ring-1 focus:ring-blue-500', isSmallMobile ? 'h-6 text-[10px]' : 'h-7 text-xs']"
+							/>
 						</div>
 						<div v-if="loadingPaymentMethods" class="flex items-center gap-2">
 							<div :class="['animate-spin rounded-full border-b-2 border-blue-500', isSmallMobile ? 'h-4 w-4' : 'h-5 w-5']"></div>
@@ -677,7 +688,7 @@
 								class="relative inline-flex"
 							>
 								<button
-									@click="quickAddPayment(method)"
+									@click="onPaymentMethodTap(method)"
 									:disabled="isWalletPaymentMethod(method.mode_of_payment) && availableWalletBalance <= 0 && getMethodTotal(method.mode_of_payment) === 0"
 									:class="[
 										'inline-flex items-center rounded-lg border-2 transition-all font-medium select-none touch-manipulation',
@@ -2365,6 +2376,36 @@ function switchToNextPaymentMethod(partialAmount) {
 				__(nextMethod.mode_of_payment),
 			]),
 		)
+	}
+}
+
+// Split payment. With an amount typed in the field next to "Payment Method",
+// tapping a method records just that amount with it and takes the same amount
+// off the payments that were auto-filled from the total (One Page mode fills
+// the default method with the whole total up front). Without an amount it is
+// the usual tap: the whole remaining amount goes to the method.
+function onPaymentMethodTap(method) {
+	const amt = roundCurrency(Number.parseFloat(customAmount.value) || 0)
+	if (amt <= 0) {
+		quickAddPayment(method)
+		return
+	}
+
+	const snapshot = paymentEntries.value.map((entry) => ({ ...entry }))
+	const over = roundCurrency(totalPaid.value + amt - roundCurrency(props.grandTotal))
+	if (over > 0) {
+		applyPaymentReduction(paymentEntries.value, over, (entry) => entry.auto_filled === true)
+		paymentEntries.value = paymentEntries.value.filter(
+			(entry) => roundCurrency(entry.amount || 0) > 0,
+		)
+	}
+
+	const countBefore = paymentEntries.value.length
+	lastSelectedMethod.value = method
+	addCustomPayment(method, amt)
+	if (paymentEntries.value.length === countBefore) {
+		// Rejected (wallet balance, exact-amount rules...): put the payments back
+		paymentEntries.value = snapshot
 	}
 }
 
