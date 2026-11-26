@@ -356,19 +356,15 @@ def _reapply_payment_amounts(invoice_doc, original_payments, doctype="Sales Invo
     """
     if not original_payments or doctype != DOCTYPE_SALES_INVOICE:
         return
-
-    # Returns carry refund rows with negative amounts. They are wiped by the same
-    # set_pos_fields rebuild, and clear_unallocated_mode_of_payments then deletes
-    # the zeroed rows on submit, leaving the return with no refund at all - so they
-    # must be re-applied here too (negated).
-    sign = -1 if cint(invoice_doc.get("is_return")) else 1
+    if invoice_doc.get("is_return"):
+        return  # Return invoice payments are handled separately (negated amounts)
 
     payment_amount_map = {}
     for p in original_payments:
         mode = p.get("mode_of_payment")
         if not mode:
             continue
-        amount = abs(flt(p.get("amount") or 0)) if sign < 0 else flt(p.get("amount") or 0)
+        amount = flt(p.get("amount") or 0)
         if amount > 0:
             # The cashier can add several entries for the same mode (e.g. 630 + 70
             # cash); they collapse into one invoice row, so sum them.
@@ -377,26 +373,17 @@ def _reapply_payment_amounts(invoice_doc, original_payments, doctype="Sales Invo
     if not payment_amount_map:
         return
 
-    conversion_rate = flt(invoice_doc.get("conversion_rate") or 1)
     total_paid = 0
     for payment in invoice_doc.payments:
         if payment.mode_of_payment in payment_amount_map:
-            amt = sign * payment_amount_map[payment.mode_of_payment]
+            amt = payment_amount_map[payment.mode_of_payment]
             payment.db_set("amount", amt, update_modified=False)
             payment.amount = amt
-            if sign < 0:
-                base_amt = flt(amt * conversion_rate)
-                payment.db_set("base_amount", base_amt, update_modified=False)
-                payment.base_amount = base_amt
         total_paid += flt(payment.amount)
 
-    if total_paid != 0:
+    if total_paid > 0:
         invoice_doc.db_set("paid_amount", total_paid, update_modified=False)
         invoice_doc.paid_amount = total_paid
-        if sign < 0:
-            base_paid = flt(total_paid * conversion_rate)
-            invoice_doc.db_set("base_paid_amount", base_paid, update_modified=False)
-            invoice_doc.base_paid_amount = base_paid
 
 
 def _ensure_fully_paid(invoice_doc, original_payments, doctype="Sales Invoice"):
@@ -4110,7 +4097,7 @@ def process_return_by_cancel(invoice_name, returned_items, pos_opening_shift=Non
                 "warehouse": item.warehouse,
                 "uom": item.uom,
                 "conversion_factor": flt(item.conversion_factor or 1),
-                "branch": item.get("branch"),
+                "branch": item.branch,
             })
 
     # Cancel the original invoice
@@ -4157,8 +4144,8 @@ def process_return_by_cancel(invoice_name, returned_items, pos_opening_shift=Non
             "remarks": return_reason or _("Amended from {0}").format(invoice_name),
         }
 
-        if original.get("branch"):
-            new_invoice_data["branch"] = original.get("branch")
+        if original.branch:
+            new_invoice_data["branch"] = original.branch
 
         # Copy sales team
         if original.sales_team:

@@ -25,7 +25,6 @@
   "allow_credit_sale",
   "allow_customer_credit_payment",
   "allow_return",
-  "return_mode",
   "allow_partial_payment",
   "use_exact_amount",
   "enable_sales_persons",
@@ -223,14 +222,6 @@
    "fieldname": "allow_return",
    "fieldtype": "Check",
    "label": "Allow Return"
-  },
-  {
-   "default": "Cancel & Amend",
-   "description": "Cancel & Amend: cancel the original invoice and re-create it without the returned items. Return Invoice: keep the original and create a return (credit note) against it for the returned items only.",
-   "fieldname": "return_mode",
-   "fieldtype": "Select",
-   "label": "Return Mode",
-   "options": "Cancel & Amend\nReturn Invoice"
   },
   {
    "default": "0",
@@ -564,7 +555,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-16 12:00:00.000000",
+ "modified": "2026-11-26 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "POS Next",
  "name": "POS Settings",
